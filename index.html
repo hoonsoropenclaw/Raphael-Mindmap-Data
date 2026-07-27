@@ -132,6 +132,54 @@
             height: 16px;
             border-radius: 4px;
         }
+
+        /* Toolbar styling */
+        .toolbar {
+            position: absolute;
+            top: 90px;
+            right: 20px;
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            padding: 10px 15px;
+            border-radius: 8px;
+            backdrop-filter: blur(8px);
+            z-index: 100;
+            display: flex;
+            gap: 20px;
+            font-size: 0.9rem;
+            flex-wrap: wrap;
+            max-width: 600px;
+            justify-content: flex-end;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        .tool-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .toolbar button {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: var(--text-main);
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 0.85rem;
+        }
+        .toolbar button:hover {
+            background: var(--accent-2);
+            border-color: var(--accent-1);
+        }
+        .toolbar button.primary {
+            background: var(--accent-1);
+            color: #0f111a;
+            font-weight: 600;
+        }
+        .toolbar button.primary:hover {
+            background: var(--accent-2);
+            color: #fff;
+        }
     </style>
 </head>
 <body>
@@ -155,11 +203,29 @@
 
     <div id="chart-container"></div>
     
+    <div class="toolbar">
+        <div class="tool-group">
+            <span>展開層級：</span>
+            <button onclick="setDepth(1)">1層</button>
+            <button onclick="setDepth(2)">2層</button>
+            <button onclick="setDepth(3)">3層</button>
+            <button onclick="setDepth(99)">全部</button>
+        </div>
+        <div class="tool-group">
+            <span>連接線：</span>
+            <button onclick="setEdge('curve')">平滑曲線</button>
+            <button onclick="setEdge('polyline')">銳角折線</button>
+        </div>
+        <div class="tool-group">
+            <button class="primary" onclick="resetZoom()">重設視角與縮放</button>
+        </div>
+    </div>
+
     <div class="legend-box">
         <div class="legend-item"><div class="legend-color" style="background:#10b981;"></div><span>進行中 (Ongoing)</span></div>
         <div class="legend-item"><div class="legend-color" style="background:#f59e0b;"></div><span>計畫中 (Planned)</span></div>
         <div class="legend-item"><div class="legend-color" style="background:#3b82f6;"></div><span>已完成 (Completed)</span></div>
-        <div class="legend-item"><div class="legend-color" style="background:#ec4899; box-shadow: 0 0 10px #ec4899;"></div><span>包含 GitHub 實作連結</span></div>
+        <div class="legend-item"><div class="legend-color" style="background:#ec4899; box-shadow: 0 0 10px #ec4899;"></div><span>包含真實作報告連結</span></div>
         <div class="legend-item"><div class="legend-color" style="background:transparent; border: 1px solid #94a3b8;"></div><span>父節點 / 分支點</span></div>
     </div>
 
@@ -168,6 +234,11 @@
         const myChart = echarts.init(chartDom, 'dark');
         myChart.setOption({ backgroundColor: 'transparent' });
         
+        // 全局狀態
+        let currentDepth = 3;
+        let currentEdge = 'curve';
+        let baseOption = null;
+
         myChart.showLoading({
             text: 'Loading Neural Pathways...',
             color: '#00f2fe',
@@ -175,6 +246,28 @@
             maskColor: 'rgba(15, 17, 26, 0.8)',
             zlevel: 0
         });
+
+        // UI 控制函數
+        window.setDepth = function(depth) {
+            currentDepth = depth;
+            if (baseOption) {
+                baseOption.series[0].initialTreeDepth = currentDepth;
+                myChart.clear(); // 強制重新計算層級
+                myChart.setOption(baseOption);
+            }
+        };
+
+        window.setEdge = function(edge) {
+            currentEdge = edge;
+            if (baseOption) {
+                baseOption.series[0].edgeShape = currentEdge;
+                myChart.setOption(baseOption);
+            }
+        };
+
+        window.resetZoom = function() {
+            myChart.dispatchAction({ type: 'restore' });
+        };
 
         function countNodes(node) {
             let count = 1;
@@ -248,7 +341,7 @@
 
                 const styledData = styleNodes(data.mindmap);
 
-                const option = {
+                baseOption = {
                     tooltip: {
                         trigger: 'item',
                         triggerOn: 'mousemove',
@@ -258,7 +351,7 @@
                         formatter: function(params) {
                             let res = `<b>${params.name}</b>`;
                             if(params.data.status) res += `<br/>狀態: ${params.data.status}`;
-                            if(params.data.url) res += `<br/><span style="color:#ec4899;">[點擊開啟 URL]</span>`;
+                            if(params.data.url) res += `<br/><span style="color:#ec4899;">[點擊開啟實作報告網頁]</span>`;
                             return res;
                         }
                     },
@@ -270,10 +363,10 @@
                             left: '10%',
                             bottom: '5%',
                             right: '15%',
-                            layout: 'orthogonal', // 確保垂直分佈均勻
-                            edgeShape: 'curve',
-                            initialTreeDepth: 3,
-                            roam: true, // 支援平移與縮放
+                            layout: 'orthogonal',
+                            edgeShape: currentEdge,
+                            initialTreeDepth: currentDepth,
+                            roam: true,
                             nodePadding: 20,
                             layerPadding: 60,
                             
@@ -295,10 +388,16 @@
                                 curveness: 0.5
                             }
                         }
-                    ]
+                    ],
+                    toolbox: {
+                        show: true,
+                        feature: {
+                            restore: { show: false } // We use our custom button instead
+                        }
+                    }
                 };
 
-                myChart.setOption(option);
+                myChart.setOption(baseOption);
                 
                 // 點擊事件：縮放與打開連結
                 myChart.on('click', function (params) {
@@ -327,7 +426,10 @@
             });
 
         window.addEventListener('resize', () => {
-            myChart.resize();
+            if(window.resizeTimeout) clearTimeout(window.resizeTimeout);
+            window.resizeTimeout = setTimeout(() => {
+                myChart.resize();
+            }, 200);
         });
     </script>
 </body>
