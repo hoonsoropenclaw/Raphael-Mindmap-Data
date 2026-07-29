@@ -1,9 +1,9 @@
-# Comprehensive UI Development: Building Sophisticated, User-Friendly, and Accessible Interfaces
+# Comprehensive UI Development with Modern Design: Building Sophisticated, User-Friendly, and Accessible Interfaces
 
-## Target Skill: comprehensive_ui_development
+## Target Skill: comprehensive_ui_development_with_modern_design
 
 ### Summary
-Develop sophisticated, user-friendly, and accessible user interfaces with a focus on inclusivity and enhanced user experiences. This comprehensive guide integrates advanced UI development techniques using React Flow, modern CSS frameworks like Tailwind CSS and DaisyUI, and accessibility standards such as WCAG 2.5.5 to create robust, dynamic, and inclusive user interfaces.
+Develop comprehensive, user-friendly, and accessible user interfaces by integrating advanced UI development techniques with modern design principles such as Glassmorphism. This guide covers the use of React Flow for interactive workflow editors, Tailwind CSS and DaisyUI for theme customization and frontend enhancement, and Glass of Glassmorphism for visually appealing designs. It also emphasizes accessibility standards like WCAG 2.5.5 to ensure inclusivity and enhanced user experiences.
 
 ---
 
@@ -229,9 +229,4 @@ This section focuses on enhancing frontend development by integrating Tailwind C
 
 #### 2.4.1 Visual and Structural Design
 - **Semantic HTML Elements**: Use semantic tags (e.g., `<header>`, `<main>`, `<aside>`, `<footer>`) for meaningful and accessible layouts.
-- **Grid and Flexbox**: Implement CSS Grid and Flexbox for flexible and responsive layouts.
-
-```html
-<div class="container">
-  <header>
-    <h1>智能日程安排助手
+- **Grid and Flexbox**: Implement CSS Grid and Flexbox for
