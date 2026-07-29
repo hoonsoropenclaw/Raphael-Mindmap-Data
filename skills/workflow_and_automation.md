@@ -1,7 +1,7 @@
-# Calendar and Workflow Automation
+# Workflow and Automation
 
 ## Overview
-This micro-skill focuses on integrating applications with the Google Calendar API for scheduling and event management, as well as automating workflows and interactions to streamline processes. It covers initializing the Google Calendar API, handling OAuth authentication, performing CRUD operations on calendar events, and automating workflows to enhance productivity. Additionally, it includes implementing a Workflow DSL Parser for natural language processing and a Selector Inspector for capturing CSS paths of webpage elements.
+This micro-skill focuses on integrating applications with the Google Calendar API for scheduling and event management, automating workflows and interactions to streamline processes, and implementing web automation using voice commands and HTML technologies. It covers initializing the Google Calendar API, handling OAuth authentication, performing CRUD operations on calendar events, automating workflows for enhanced productivity, and building a voice-controlled web automation system using HTML and JavaScript.
 
 ## Google Calendar API Integration
 
@@ -79,11 +79,8 @@ async function deleteEvent(eventId) {
 ### Common Errors and Prevention
 
 - **OAuth Authentication Failure**: Ensure that the `credentials.json` file path is correct and that OAuth credentials are properly set up. Verify that the credentials have the necessary permissions and that the client is authorized to access the Google Calendar API.
-
 - **Insufficient Permissions**: Confirm that the application has been granted the required API scopes, such as `https://www.googleapis.com/auth/calendar`. Missing scopes will result in permission errors when attempting to perform certain operations.
-
 - **Incorrect Date-Time Formats**: Use ISO 8601 formatted date-time strings for all date and time parameters. Incorrect formats will cause the API requests to fail. For example, use `new Date().toISOString()` to generate the correct format.
-
 - **Invalid Calendar IDs**: Ensure that the `calendarId` provided is valid. For the primary calendar, use `'primary'`. For other calendars, obtain the correct `calendarId` from the user's calendar list.
 
 ## Workflow Automation
@@ -173,7 +170,6 @@ function parseCommand(command) {
 
 - **Error**: Command parsing errors leading to incorrect operation order.
   - **Solution**: Use a stricter syntax definition and add error handling mechanisms during parsing. For example, ensure each step conforms to the expected syntax structure and provide useful error information when encountering unrecognized steps.
-
 - **Error**: Unable to recognize certain action verbs.
   - **Solution**: Expand the parser's vocabulary and consider using machine learning models to improve parsing accuracy. For example, use natural language processing libraries (such as Natural) to enhance the recognition of different verbs and phrases.
 
@@ -223,9 +219,34 @@ function getCssSelector(element) {
 
 - **Error**: Inaccurate selector capture.
   - **Solution**: Use more complex selector generation logic, such as considering the element's hierarchy and attributes. You can generate a more specific selector by traversing the parent elements of the element or use attribute selectors to increase the uniqueness of the selector.
-
 - **Error**: Event handling conflicts.
   - **Solution**: Ensure that the selector inspector's event handling does not conflict with other event handlers. You can check in the event handling function whether it is necessary to execute the selector capture logic or use event delegation to manage multiple event handlers.
 
-## Conclusion
-By mastering the integration of the Google Calendar API and automating workflows, you can significantly enhance the efficiency of your applications and streamline scheduling and event management processes. Additionally, by implementing a Workflow DSL Parser and a Selector Inspector, you can further improve the flexibility and maintainability of automation workflows, making it easier for users to build and manage automation tasks.
+## Voice Web Automation HTML
+
+### Description
+This skill involves building a single HTML file that integrates voice recognition, command parsing, and web automation functionalities.
+
+### Key Code Snippets or Patterns
+```html
+<script>
+  // Web Speech API 语音识别
+  const recognition = new webkitSpeechRecognition();
+  recognition.onresult = (event) => {
+    const transcript = event.results[0][0].transcript;
+    // 命令解析与执行
+    parseCommand(transcript);
+  };
+  // 解析命令并执行相应操作
+  function parseCommand(command) {
+    // 解析逻辑，例如使用正则表达式匹配关键词
+  }
+</script>
+```
+
+### Common Errors and Prevention
+
+- **Error**: Voice recognition fails to start.
+  - **Solution**: Ensure that the browser supports the Web Speech API and that the user has granted microphone access.
+- **Error**: Command parsing errors leading to failed automation operations.
+  - **Solution**: Use more robust parsing

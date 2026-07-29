@@ -1,7 +1,7 @@
-# Robust API Security
+# API Security and Testing
 
 ## Overview
-Robust API security is essential for protecting applications from unauthorized access, data breaches, and malicious attacks. This micro-skill focuses on implementing strong authentication mechanisms, comprehensive security measures, and advanced techniques to defend against threats such as prompt injection attacks and SQL injection. By integrating authentication, authorization, anomaly detection, and secure coding practices, this micro-skill aims to create a secure, resilient, and reliable API environment.
+API security and testing are crucial for safeguarding applications against unauthorized access, data breaches, and malicious attacks. This micro-skill encompasses implementing robust security measures, comprehensive authentication mechanisms, and advanced testing techniques to defend against threats such as prompt injection, SQL injection, and ensuring the effectiveness of rate limiting. By integrating authentication, authorization, anomaly detection, secure coding practices, and thorough testing, this micro-skill aims to establish a secure, resilient, and reliable API environment.
 
 ---
 
@@ -216,6 +216,4 @@ Attackers exploit vulnerabilities in database queries to execute malicious SQL c
     stmt = select(User).where(User.username == username)
     ...
     ```
-- **Input Sanitization**: Validate and sanitize all user inputs to prevent malicious code execution.
-
-### 2.3
+- **Input Sanitization**: Validate and sanitize all user inputs

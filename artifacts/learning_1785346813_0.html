@@ -1,0 +1,1113 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RBAC 工作流編輯器 · React Flow 角色權限可視化</title>
+
+<!-- Tailwind CDN -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- React 18 (UMD dev) -->
+<script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+
+<!-- React Flow 11 (UMD) -->
+<link rel="stylesheet" href="https://unpkg.com/reactflow@11/dist/style.css" />
+<script src="https://unpkg.com/reactflow@11/dist/umd/index.js"></script>
+
+<style>
+  :root {
+    --bg-canvas: #0b0d12;
+    --bg-elev:   #14171f;
+    --bg-elev-2: #1b1f2a;
+    --line:      #2a2f3d;
+    --line-2:    #3a4154;
+    --ink:       #e6e9f2;
+    --ink-2:     #b3b8c8;
+    --ink-3:     #7a8194;
+    --accent:    #7c5cff;
+    --accent-2:  #2dd4bf;
+    --danger:    #ef4444;
+    --warn:      #f59e0b;
+    --ok:        #10b981;
+    --rbac:      #38bdf8;
+    --rbac-2:    #a78bfa;
+    --sans:      ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+    --mono:      ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+
+  html, body { height: 100%; margin: 0; }
+  body {
+    background:
+      radial-gradient(ellipse at 20% 0%, rgba(124,92,255,0.10) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 100%, rgba(45,212,191,0.08) 0%, transparent 50%),
+      var(--bg-canvas);
+    color: var(--ink);
+    font-family: var(--sans);
+    overflow: hidden;
+  }
+
+  /* React Flow default overrides for dark theme */
+  .react-flow {
+    background: transparent !important;
+  }
+  .react-flow__edge-path {
+    stroke: var(--line-2);
+    stroke-width: 1.5;
+  }
+  .react-flow__edge.selected .react-flow__edge-path,
+  .react-flow__edge:focus .react-flow__edge-path {
+    stroke: var(--accent);
+    stroke-width: 2;
+  }
+  .react-flow__edge.edge-deny .react-flow__edge-path {
+    stroke: var(--danger);
+    stroke-dasharray: 6 4;
+  }
+  .react-flow__edge.edge-allow .react-flow__edge-path {
+    stroke: var(--ok);
+  }
+  .react-flow__edge.edge-conditional .react-flow__edge-path {
+    stroke: var(--warn);
+    stroke-dasharray: 2 3;
+  }
+
+  .react-flow__handle {
+    width: 9px !important;
+    height: 9px !important;
+    background: var(--bg-elev-2) !important;
+    border: 1.5px solid var(--line-2) !important;
+  }
+  .react-flow__handle.source { left: -5px !important; }
+  .react-flow__handle.target { right: -5px !important; }
+
+  .react-flow__controls,
+  .react-flow__minimap {
+    background: var(--bg-elev) !important;
+    border: 1px solid var(--line) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4) !important;
+  }
+  .react-flow__controls-button {
+    background: var(--bg-elev) !important;
+    border-bottom: 1px solid var(--line) !important;
+    color: var(--ink-2) !important;
+    fill: var(--ink-2) !important;
+  }
+  .react-flow__controls-button:hover {
+    background: var(--bg-elev-2) !important;
+    color: var(--ink) !important;
+    fill: var(--ink) !important;
+  }
+  .react-flow__controls-button svg {
+    fill: currentColor;
+  }
+  .react-flow__minimap-mask {
+    fill: rgba(11,13,18,0.7) !important;
+  }
+  .react-flow__attribution {
+    background: transparent !important;
+    color: var(--ink-3) !important;
+    font-size: 10px !important;
+  }
+
+  .react-flow__node {
+    width: auto !important;
+    min-width: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+  }
+  .react-flow__node.selected .flow-card {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 2px rgba(124,92,255,0.35), 0 12px 28px rgba(0,0,0,0.5) !important;
+  }
+  .react-flow__node:focus { outline: none; }
+  .react-flow__node:focus-visible .flow-card {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* Custom node */
+  .flow-card {
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 10px 14px;
+    min-width: 200px;
+    max-width: 260px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+    transition: all 160ms cubic-bezier(0.16, 1, 0.3, 1);
+    color: var(--ink);
+  }
+  .flow-card:hover { border-color: var(--line-2); transform: translateY(-1px); }
+
+  .flow-card[data-node-type="role"] {
+    border-left: 3px solid var(--rbac);
+  }
+  .flow-card[data-node-type="action"] {
+    border-left: 3px solid var(--accent);
+  }
+  .flow-card[data-node-type="gate"] {
+    border-left: 3px solid var(--accent-2);
+  }
+  .flow-card[data-node-type="resource"] {
+    border-left: 3px solid var(--rbac-2);
+  }
+
+  .fc-eyebrow {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .fc-eyebrow .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent);
+  }
+  .fc-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink);
+    margin-top: 4px;
+    line-height: 1.3;
+  }
+  .fc-meta {
+    font-size: 11px;
+    color: var(--ink-2);
+    margin-top: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .fc-tag {
+    background: var(--bg-elev-2);
+    color: var(--ink-2);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 10px;
+    font-family: var(--mono);
+  }
+  .fc-tag.ok { color: var(--ok); border-color: rgba(16,185,129,0.4); }
+  .fc-tag.deny { color: var(--danger); border-color: rgba(239,68,68,0.4); }
+  .fc-tag.cond { color: var(--warn); border-color: rgba(245,158,11,0.4); }
+  .fc-perm {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--line);
+    font-size: 10.5px;
+    color: var(--ink-3);
+    font-family: var(--mono);
+  }
+  .fc-perm strong { color: var(--ink-2); }
+
+  /* App layout */
+  .app-shell {
+    display: grid;
+    grid-template-rows: 56px 1fr;
+    height: 100vh;
+  }
+  .topbar {
+    background: rgba(20,23,31,0.85);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 16px;
+    z-index: 30;
+  }
+  .brand-mark {
+    width: 28px; height: 28px;
+    background: linear-gradient(135deg, var(--accent), var(--rbac));
+    border-radius: 7px;
+    display: grid; place-items: center;
+    color: white; font-weight: 700; font-size: 13px;
+  }
+  .brand-name { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+  .brand-sub { font-size: 11px; color: var(--ink-3); font-family: var(--mono); }
+
+  .topbar-spacer { flex: 1; }
+
+  .role-switcher {
+    display: flex;
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 3px;
+    gap: 2px;
+  }
+  .role-btn {
+    background: transparent;
+    border: 0;
+    color: var(--ink-2);
+    padding: 5px 10px;
+    border-radius: 5px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 140ms ease;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .role-btn:hover { color: var(--ink); }
+  .role-btn.is-active {
+    background: var(--accent);
+    color: white;
+    box-shadow: 0 2px 8px rgba(124,92,255,0.4);
+  }
+  .role-btn .ri {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.7;
+  }
+
+  .icon-btn {
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    color: var(--ink-2);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 140ms ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .icon-btn:hover { background: var(--bg-elev-2); color: var(--ink); border-color: var(--line-2); }
+
+  /* Main */
+  .main {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    overflow: hidden;
+  }
+  .canvas-wrap { position: relative; }
+  .canvas-help {
+    position: absolute;
+    left: 16px;
+    top: 16px;
+    background: rgba(20,23,31,0.85);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 11px;
+    color: var(--ink-3);
+    font-family: var(--mono);
+    z-index: 10;
+    pointer-events: none;
+  }
+  .canvas-help kbd {
+    background: var(--bg-elev-2);
+    border: 1px solid var(--line-2);
+    border-radius: 3px;
+    padding: 1px 4px;
+    font-family: inherit;
+    color: var(--ink-2);
+    font-size: 10px;
+  }
+
+  /* Sidebar */
+  .sidebar {
+    background: var(--bg-elev);
+    border-left: 1px solid var(--line);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .sb-section {
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--line);
+  }
+  .sb-section h3 {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 0 0 12px 0;
+    font-family: var(--mono);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .sb-section h3 .badge {
+    background: var(--bg-elev-2);
+    color: var(--ink-2);
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-size: 9px;
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .perm-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 0;
+    font-size: 12px;
+  }
+  .perm-row + .perm-row { border-top: 1px dashed var(--line); }
+  .perm-label { color: var(--ink-2); }
+  .perm-state {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+  }
+  .perm-state.allow { background: rgba(16,185,129,0.12); color: var(--ok); }
+  .perm-state.deny  { background: rgba(239,68,68,0.12); color: var(--danger); }
+  .perm-state.cond  { background: rgba(245,158,11,0.12); color: var(--warn); }
+
+  .legend {
+    display: grid;
+    grid-template-columns: 16px 1fr;
+    gap: 6px 10px;
+    font-size: 11.5px;
+    color: var(--ink-2);
+  }
+  .legend .swatch {
+    width: 14px; height: 14px;
+    border-radius: 3px;
+    border: 1px solid var(--line-2);
+  }
+
+  .node-inspector-empty {
+    color: var(--ink-3);
+    font-size: 12px;
+    font-style: italic;
+    padding: 8px 0;
+  }
+
+  .node-inspector-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink);
+    margin-bottom: 4px;
+  }
+  .node-inspector-type {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 12px;
+  }
+
+  .matrix-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11.5px;
+  }
+  .matrix-table th, .matrix-table td {
+    text-align: left;
+    padding: 5px 6px;
+    border-bottom: 1px solid var(--line);
+  }
+  .matrix-table th {
+    color: var(--ink-3);
+    font-weight: 500;
+    font-family: var(--mono);
+    font-size: 10px;
+    text-transform: uppercase;
+  }
+  .matrix-table td { color: var(--ink-2); }
+  .matrix-table td.allowed { color: var(--ok); }
+  .matrix-table td.denied  { color: var(--danger); }
+  .matrix-table td.cond    { color: var(--warn); }
+
+  /* Toast */
+  .toast-host {
+    position: fixed;
+    bottom: 16px; right: 16px;
+    display: flex; flex-direction: column;
+    gap: 8px;
+    z-index: 50;
+    pointer-events: none;
+  }
+  .toast {
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12.5px;
+    color: var(--ink);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    min-width: 220px;
+    max-width: 360px;
+    animation: slide-in 240ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .toast.ok    { border-left-color: var(--ok); }
+  .toast.deny  { border-left-color: var(--danger); }
+  .toast.cond  { border-left-color: var(--warn); }
+  .toast strong { display: block; font-size: 12.5px; margin-bottom: 2px; }
+  .toast span { color: var(--ink-2); font-size: 11.5px; }
+  @keyframes slide-in {
+    from { opacity: 0; transform: translateX(20px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+
+  /* Empty state */
+  .empty-state {
+    color: var(--ink-3);
+    font-size: 12.5px;
+    text-align: center;
+    padding: 12px 0;
+    font-style: italic;
+  }
+
+  /* react-flow edge label */
+  .react-flow__edge-text {
+    fill: var(--ink-2) !important;
+    font-family: var(--mono);
+    font-size: 10px;
+  }
+  .react-flow__edge-textbg {
+    fill: var(--bg-elev) !important;
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<div class="toast-host" id="toastHost"></div>
+
+<script>
+/* ===========================
+ * RBAC Domain Model
+ * =========================== */
+
+// 6 個角色（依 audience-permission-logic C 方案 v4）
+const ROLES = [
+  { id: 'visitor',       name: '訪客',        short: 'GUEST',  dept: null,     isAuth: false, color: '#7a8194' },
+  { id: 'dept_officer',  name: '處室承辦',    short: 'OFFICER',dept: '教務處', isAuth: true,  color: '#7c5cff' },
+  { id: 'sysadmin',      name: '系統管理員',  short: 'ADMIN',  dept: '資訊組', isAuth: true,  color: '#ef4444' },
+  { id: 'teacher',       name: '教師',        short: 'TEACH',  dept: '教務處', isAuth: true,  color: '#38bdf8' },
+  { id: 'parent',        name: '家長',        short: 'PARENT', dept: '輔導處', isAuth: true,  color: '#a78bfa' },
+  { id: 'student',       name: '學生',        short: 'STUD',   dept: '學務處', isAuth: true,  color: '#2dd4bf' },
+];
+
+// 動態工作流節點（6 個節點：3 個 role 起點 + 3 個 action 終點）
+const initialNodes = [
+  {
+    id: 'role-officer',
+    type: 'rbac',
+    position: { x: 40,  y: 60 },
+    data: {
+      kind: 'role', roleId: 'dept_officer',
+      label: '處室承辦',
+      desc: '教務處 / 總務處 / 學務處',
+      scope: 'dept-scoped',
+      permissions: ['POST 公告', 'PATCH 公告', 'DELETE 公告', 'READ 全部'],
+    },
+  },
+  {
+    id: 'role-admin',
+    type: 'rbac',
+    position: { x: 40,  y: 220 },
+    data: {
+      kind: 'role', roleId: 'sysadmin',
+      label: '系統管理員',
+      desc: '資訊組 · 校長',
+      scope: 'global',
+      permissions: ['POST 公告', 'PATCH 公告', 'DELETE 公告', 'MANAGE USERS', 'READ 全部'],
+    },
+  },
+  {
+    id: 'role-teacher',
+    type: 'rbac',
+    position: { x: 40,  y: 380 },
+    data: {
+      kind: 'role', roleId: 'teacher',
+      label: '教師',
+      desc: '受眾身份',
+      scope: 'audience',
+      permissions: ['READ 全部', 'SIGN 公告'],
+    },
+  },
+  {
+    id: 'gate-audience',
+    type: 'rbac',
+    position: { x: 360, y: 300 },
+    data: {
+      kind: 'gate',
+      label: 'Audience Gate',
+      desc: 'matchAudience()',
+      scope: 'v4 noop',
+      permissions: ['return true (過渡期)', '等 isInternal 機制'],
+    },
+  },
+  {
+    id: 'action-create',
+    type: 'rbac',
+    position: { x: 660, y: 80 },
+    data: {
+      kind: 'action',
+      label: 'POST /announcements',
+      desc: '發布新公告',
+      scope: 'write',
+      permissions: ['requires: officer | admin'],
+    },
+  },
+  {
+    id: 'action-read',
+    type: 'rbac',
+    position: { x: 660, y: 280 },
+    data: {
+      kind: 'action',
+      label: 'GET /announcements',
+      desc: '讀取公告列表',
+      scope: 'read',
+      permissions: ['requires: any (含訪客)'],
+    },
+  },
+  {
+    id: 'action-sign',
+    type: 'rbac',
+    position: { x: 660, y: 480 },
+    data: {
+      kind: 'action',
+      label: 'POST /announcements/:id/sign',
+      desc: '簽收 / 確認',
+      scope: 'write',
+      permissions: ['requires: officer | teacher | parent | student'],
+    },
+  },
+];
+
+// 邊：role -> gate (條件) -> action (結果)
+const initialEdges = [
+  // 直接 allow
+  { id: 'e1', source: 'role-officer', target: 'action-create',  data: { decision: 'allow' }, label: 'ALLOW', className: 'edge-allow' },
+  { id: 'e2', source: 'role-admin',   target: 'action-create',  data: { decision: 'allow' }, label: 'ALLOW', className: 'edge-allow' },
+  { id: 'e3', source: 'role-admin',   target: 'action-sign',    data: { decision: 'allow' }, label: 'ALLOW', className: 'edge-allow' },
+  { id: 'e4', source: 'role-teacher', target: 'action-read',    data: { decision: 'allow' }, label: 'ALLOW', className: 'edge-allow' },
+
+  // 經過 audience gate
+  { id: 'e5', source: 'role-teacher', target: 'gate-audience',  data: { decision: 'conditional' }, label: 'matchAudience()', className: 'edge-conditional' },
+  { id: 'e6', source: 'gate-audience', target: 'action-read',   data: { decision: 'allow' }, label: 'TRUE (v4)', className: 'edge-allow' },
+
+  // 受眾 sign (allow 過，自己也能簽)
+  { id: 'e7', source: 'role-teacher', target: 'action-sign',    data: { decision: 'allow' }, label: 'ALLOW', className: 'edge-allow' },
+];
+
+// RBAC decision matrix（與 audience-permission-logic.md 對齊）
+const RBAC_MATRIX = {
+  visitor: {
+    'POST /announcements':         { state: 'deny', reason: '未登入' },
+    'PATCH /announcements/:id':    { state: 'deny', reason: '未登入' },
+    'DELETE /announcements/:id':   { state: 'deny', reason: '未登入' },
+    'GET /announcements':          { state: 'allow', reason: 'v4 過渡期：訪客可看全部' },
+    'POST /announcements/:id/sign':{ state: 'deny', reason: '未登入' },
+  },
+  dept_officer: {
+    'POST /announcements':         { state: 'allow', reason: '處室承辦可發布' },
+    'PATCH /announcements/:id':    { state: 'allow', reason: '處室承辦可編輯' },
+    'DELETE /announcements/:id':   { state: 'allow', reason: '處室承辦可刪除' },
+    'GET /announcements':          { state: 'allow', reason: 'C 方案：處室看全部' },
+    'POST /announcements/:id/sign':{ state: 'cond', reason: '通常受眾才簽，但承辦可代簽' },
+  },
+  sysadmin: {
+    'POST /announcements':         { state: 'allow', reason: '系統管理員最高權限' },
+    'PATCH /announcements/:id':    { state: 'allow', reason: '系統管理員最高權限' },
+    'DELETE /announcements/:id':   { state: 'allow', reason: '系統管理員最高權限' },
+    'GET /announcements':          { state: 'allow', reason: '全部可讀' },
+    'POST /announcements/:id/sign':{ state: 'allow', reason: '系統管理員全部權限' },
+  },
+  teacher: {
+    'POST /announcements':         { state: 'deny', reason: '受眾角色禁止寫入' },
+    'PATCH /announcements/:id':    { state: 'deny', reason: '受眾角色禁止寫入' },
+    'DELETE /announcements/:id':   { state: 'deny', reason: '受眾角色禁止寫入' },
+    'GET /announcements':          { state: 'allow', reason: 'v4：登入後看全部' },
+    'POST /announcements/:id/sign':{ state: 'allow', reason: '受眾簽收職責' },
+  },
+  parent: {
+    'POST /announcements':         { state: 'deny', reason: '受眾角色禁止寫入' },
+    'PATCH /announcements/:id':    { state: 'deny', reason: '受眾角色禁止寫入' },
+    'DELETE /announcements/:id':   { state: 'deny', reason: '受眾角色禁止寫入' },
+    'GET /announcements':          { state: 'allow', reason: 'v4：登入後看全部' },
+    'POST /announcements/:id/sign':{ state: 'allow', reason: '家長簽收職責' },
+  },
+  student: {
+    'POST /announcements':         { state: 'deny', reason: '受眾角色禁止寫入' },
+    'PATCH /announcements/:id':    { state: 'deny', reason: '受眾角色禁止寫入' },
+    'DELETE /announcements/:id':   { state: 'deny', reason: '受眾角色禁止寫入' },
+    'GET /announcements':          { state: 'allow', reason: 'v4：登入後看全部' },
+    'POST /announcements/:id/sign':{ state: 'allow', reason: '學生簽收職責' },
+  },
+};
+
+const ACTIONS = Object.keys(RBAC_MATRIX.visitor);
+</script>
+
+<script>
+/* ===========================
+ * React App
+ * =========================== */
+
+window.addEventListener('error', (e) => {
+  const host = document.getElementById('toastHost');
+  if (host) {
+    const el = document.createElement('div');
+    el.className = 'toast deny';
+    el.innerHTML = '<strong>JS Error</strong><span></span>';
+    el.querySelector('span').textContent = (e.message || 'unknown') + ' @ ' + (e.filename || '').split('/').pop() + ':' + e.lineno;
+    host.appendChild(el);
+  }
+  console.error('SCRIPT_ERROR', e.message, e.filename, e.lineno);
+});
+
+const { useState, useMemo, useCallback, useEffect, useRef } = React;
+const RF = ReactFlow.ReactFlow;  // <-- the actual component, not the namespace
+const {
+  ReactFlowProvider,
+  Background,
+  Controls,
+  MiniMap,
+  Handle,
+  addEdge: rfAddEdge,
+  applyNodeChanges,
+  applyEdgeChanges,
+} = ReactFlow;
+const Position = ReactFlow.Position;
+const MarkerType = ReactFlow.MarkerType;
+
+
+/* ---------- Custom Node ---------- */
+function RBACNode({ data, selected }) {
+  return React.createElement(React.Fragment, null,
+    React.createElement(Handle, { type: 'target', position: Position.Left, id: 'in' }),
+    React.createElement('div', {
+      className: 'flow-card',
+      'data-node-type': data.kind,
+      style: selected ? { borderColor: 'var(--accent)', boxShadow: '0 0 0 2px rgba(124,92,255,0.35), 0 12px 28px rgba(0,0,0,0.5)' } : null,
+    },
+      React.createElement('div', { className: 'fc-eyebrow' },
+        React.createElement('span', { className: 'dot' }),
+        data.kind.toUpperCase(),
+        data.scope ? React.createElement('span', { style: { marginLeft: 'auto', opacity: 0.7 } }, '· ', data.scope) : null,
+      ),
+      React.createElement('div', { className: 'fc-title' }, data.label),
+      data.desc ? React.createElement('div', { className: 'fc-meta' }, data.desc) : null,
+      React.createElement('div', { className: 'fc-meta', style: { marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4 } },
+        (data.permissions || []).slice(0, 3).map(function (p, i) {
+          let cls = 'fc-tag';
+          if (p.indexOf('POST') >= 0 || p.indexOf('PATCH') >= 0 || p.indexOf('DELETE') >= 0 || p.indexOf('MANAGE') >= 0) cls += ' deny';
+          else if (p.indexOf('READ') >= 0 || p.indexOf('ALLOW') >= 0 || p.indexOf('TRUE') >= 0 || p.indexOf('return true') >= 0) cls += ' ok';
+          else if (p.indexOf('requires') >= 0 || p.indexOf('v4') >= 0 || p.indexOf('matchAudience') >= 0 || p.indexOf('等') >= 0) cls += ' cond';
+          return React.createElement('span', { key: i, className: cls }, p);
+        }),
+      ),
+      (data.permissions && data.permissions.length > 3) ?
+        React.createElement('div', { className: 'fc-perm' },
+          '+', data.permissions.length - 3, ' 個權限 · 點擊查看'
+        ) : null,
+    ),
+    React.createElement(Handle, { type: 'source', position: Position.Right, id: 'out' }),
+  );
+}
+
+/* ---------- Node Types (stable reference) ---------- */
+const NODE_TYPES = { rbac: RBACNode };
+
+/* ---------- Toast helper ---------- */
+function showToast(title, msg, kind = '') {
+  const host = document.getElementById('toastHost');
+  if (!host) return;
+  const el = document.createElement('div');
+  el.className = 'toast' + (kind ? ' ' + kind : '');
+  el.innerHTML = '<strong></strong><span></span>';
+  el.querySelector('strong').textContent = title;
+  el.querySelector('span').textContent = msg;
+  host.appendChild(el);
+  setTimeout(() => {
+    el.style.transition = 'opacity 220ms, transform 220ms';
+    el.style.opacity = '0';
+    el.style.transform = 'translateX(20px)';
+    setTimeout(() => el.remove(), 240);
+  }, 3200);
+}
+
+/* ---------- Inner Flow Component ---------- */
+function FlowCanvas({
+  nodes, edges, setNodes, setEdges, onConnect, onSelectionChange, activeRoleId,
+}) {
+  const wrapperRef = useRef(null);
+
+  const onNodesChange = useCallback((changes) => setNodes((nds) => applyNodeChanges(changes, nds)), [setNodes]);
+  const onEdgesChange = useCallback((changes) => setEdges((eds) => applyEdgeChanges(changes, eds)), [setEdges]);
+
+  console.log('FlowCanvas types:',
+    'Background=', typeof Background,
+    'Controls=', typeof Controls,
+    'MiniMap=', typeof MiniMap,
+    'RF=', typeof RF,
+    'NODE_TYPES=', typeof NODE_TYPES
+  );
+
+  return React.createElement('div', { ref: wrapperRef, style: { width: '100%', height: '100%' } },
+    React.createElement(RF, {
+      nodes, edges,
+      onNodesChange, onEdgesChange,
+      onConnect,
+      onSelectionChange,
+      nodeTypes: NODE_TYPES,
+      fitView: true,
+      fitViewOptions: { padding: 0.2 },
+      minZoom: 0.3,
+      maxZoom: 1.6,
+      defaultEdgeOptions: {
+        type: 'smoothstep',
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#7a8194' },
+        style: { strokeWidth: 1.5 },
+      },
+      proOptions: { hideAttribution: false },
+    },
+      React.createElement(Background, { key: 'bg', color: '#1b1f2a', gap: 24, size: 1, variant: 'dots' }),
+      React.createElement(Controls, { key: 'ctrl', position: 'bottom-left', showInteractive: false }),
+      React.createElement(MiniMap, {
+        key: 'mm', position: 'bottom-right',
+        pannable: true, zoomable: true,
+        nodeColor: function (n) {
+          if (n.data && n.data.kind === 'role') return '#38bdf8';
+          if (n.data && n.data.kind === 'action') return '#7c5cff';
+          if (n.data && n.data.kind === 'gate') return '#2dd4bf';
+          return '#7a8194';
+        },
+        maskColor: 'rgba(11,13,18,0.7)',
+        style: { width: 180, height: 120, background: '#14171f' },
+      }),
+    ),
+  );
+}
+
+/* ---------- Root App ---------- */
+function App() {
+  const [activeRoleId, setActiveRoleId] = useState('dept_officer');
+  const [nodes, setNodes] = useState(initialNodes);
+  const [edges, setEdges] = useState(initialEdges);
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [logEntries, setLogEntries] = useState([]);
+
+  const activeRole = ROLES.find(r => r.id === activeRoleId);
+
+  // 動態計算 edge className (依 activeRole 高亮路徑)
+  const computedEdges = useMemo(() => {
+    return edges.map(edge => {
+      const sourceNode = nodes.find(n => n.id === edge.source);
+      const targetNode = nodes.find(n => n.id === edge.target);
+      if (!sourceNode || !targetNode) return edge;
+
+      // 起點 = 當前 role node
+      if (sourceNode.data?.roleId === activeRoleId) {
+        return {
+          ...edge,
+          animated: true,
+          style: { stroke: activeRole.color, strokeWidth: 2.5 },
+          labelStyle: { fill: activeRole.color, fontWeight: 700, fontSize: 10, fontFamily: 'var(--mono)' },
+          labelBgStyle: { fill: '#14171f' },
+        };
+      }
+      // 經過 audience gate
+      if (targetNode.data?.kind === 'gate' || sourceNode.data?.kind === 'gate') {
+        return { ...edge, animated: false, style: { stroke: '#3a4154', strokeWidth: 1.2 } };
+      }
+      return { ...edge, animated: false, style: { stroke: '#3a4154', strokeWidth: 1.2 } };
+    });
+  }, [edges, nodes, activeRoleId, activeRole]);
+
+  // 連線：自訂 allow / deny 邏輯（基於 activeRole）
+  const onConnect = useCallback((params) => {
+    const sourceNode = nodes.find(n => n.id === params.source);
+    const targetNode = nodes.find(n => n.id === params.target);
+    if (!sourceNode || !targetNode) return;
+
+    // 角色不能連到角色
+    if (sourceNode.data?.kind === 'role' && targetNode.data?.kind === 'role') {
+      showToast('連線拒絕', '角色節點不能直接相連（請經過 gate 或 action）', 'deny');
+      return;
+    }
+    if (sourceNode.data?.kind === 'action') {
+      showToast('連線拒絕', 'Action 節點為終點，不能再向外連線', 'deny');
+      return;
+    }
+
+    // 計算該連線在 activeRole 下的決策
+    let decision = 'allow';
+    if (sourceNode.data?.kind === 'role' && targetNode.data?.kind === 'action') {
+      const action = targetNode.data.label;
+      const matrix = RBAC_MATRIX[activeRoleId];
+      const result = matrix && matrix[action];
+      if (result) {
+        decision = result.state === 'allow' ? 'allow'
+                 : result.state === 'deny'  ? 'deny'
+                 : 'conditional';
+      }
+    }
+
+    const newEdge = {
+      ...params,
+      id: `e-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      data: { decision, createdBy: activeRoleId },
+      label: decision === 'allow' ? 'ALLOW' : decision === 'deny' ? 'DENY' : 'CONDITIONAL',
+      className: decision === 'allow' ? 'edge-allow' : decision === 'deny' ? 'edge-deny' : 'edge-conditional',
+      type: 'smoothstep',
+      markerEnd: { type: MarkerType.ArrowClosed, color: decision === 'allow' ? '#10b981' : decision === 'deny' ? '#ef4444' : '#f59e0b' },
+    };
+
+    setEdges((eds) => rfAddEdge(newEdge, eds));
+    setLogEntries((prev) => [{
+      ts: new Date().toLocaleTimeString('en-GB', { hour12: false }),
+      role: activeRoleId,
+      action: 'CONNECT',
+      target: targetNode.data.label,
+      decision,
+    }, ...prev].slice(0, 12));
+
+    showToast(
+      decision === 'allow' ? '連線建立 · ALLOW' : decision === 'deny' ? '連線建立 · DENY' : '連線建立 · CONDITIONAL',
+      `${activeRole.name} → ${targetNode.data.label}`,
+      decision,
+    );
+  }, [nodes, activeRoleId, activeRole, setEdges]);
+
+  // 切換 role 時模擬「試探」
+  const handleRoleSwitch = (newRoleId) => {
+    if (newRoleId === activeRoleId) return;
+    setActiveRoleId(newRoleId);
+    const role = ROLES.find(r => r.id === newRoleId);
+    showToast(
+      '已切換角色',
+      `${role.name} (${role.short})${role.dept ? ' · ' + role.dept : ''}`,
+      role.isAuth ? 'ok' : 'cond',
+    );
+    setLogEntries((prev) => [{
+      ts: new Date().toLocaleTimeString('en-GB', { hour12: false }),
+      role: newRoleId,
+      action: 'SWITCH_ROLE',
+      target: role.name,
+      decision: 'info',
+    }, ...prev].slice(0, 12));
+  };
+
+  // 模擬按鈕：對當前 role 跑全部 action 的決策
+  const simulateAllActions = () => {
+    let allow = 0, deny = 0, cond = 0;
+    ACTIONS.forEach(action => {
+      const result = RBAC_MATRIX[activeRoleId][action];
+      if (result.state === 'allow') allow++;
+      else if (result.state === 'deny') deny++;
+      else cond++;
+      showToast(
+        result.state.toUpperCase() + ' · ' + action,
+        result.reason,
+        result.state,
+      );
+    });
+    setLogEntries((prev) => [{
+      ts: new Date().toLocaleTimeString('en-GB', { hour12: false }),
+      role: activeRoleId,
+      action: 'SIMULATE',
+      target: `${allow}A / ${deny}D / ${cond}C`,
+      decision: 'info',
+    }, ...prev].slice(0, 12));
+  };
+
+  // 重置
+  const handleReset = () => {
+    setNodes(initialNodes);
+    setEdges(initialEdges);
+    setSelectedNode(null);
+    setLogEntries([]);
+    showToast('已重置', '節點與邊已還原到預設', 'ok');
+  };
+
+  // 匯出 JSON
+  const handleExport = () => {
+    const data = {
+      activeRole: activeRoleId,
+      roles: ROLES,
+      matrix: RBAC_MATRIX,
+      nodes, edges,
+      exportedAt: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `rbac-workflow-${activeRoleId}-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('匯出成功', 'rbac-workflow-*.json 已下載', 'ok');
+  };
+
+  // 選取事件
+  const onSelectionChange = useCallback((sel) => {
+    setSelectedNode(sel.nodes[0] || null);
+  }, []);
+
+  // 計算當前 role 的有效權限統計
+  const stats = useMemo(() => {
+    const matrix = RBAC_MATRIX[activeRoleId];
+    let allow = 0, deny = 0, cond = 0;
+    Object.values(matrix).forEach(v => {
+      if (v.state === 'allow') allow++;
+      else if (v.state === 'deny') deny++;
+      else cond++;
+    });
+    return { allow, deny, cond, total: ACTIONS.length };
+  }, [activeRoleId]);
+
+  return React.createElement(ReactFlowProvider, null,
+    React.createElement('div', { className: 'app-shell' },
+      /* ============ TOP BAR ============ */
+      React.createElement('div', { className: 'topbar' },
+        React.createElement('div', { className: 'brand-mark' }, 'R'),
+        React.createElement('div', null,
+          React.createElement('div', { className: 'brand-name' }, 'RBAC Workflow Editor'),
+          React.createElement('div', { className: 'brand-sub' }, 'React Flow · C 方案 v4 · 動態角色權限可視化'),
+        ),
+        React.createElement('div', { className: 'topbar-spacer' }),
+        React.createElement('div', { className: 'role-switcher', role: 'radiogroup', 'aria-label': '角色切換' },
+          ROLES.map(r => React.createElement('button', {
+            key: r.id,
+            className: 'role-btn' + (r.id === activeRoleId ? ' is-active' : ''),
+            onClick: () => handleRoleSwitch(r.id),
+            'aria-pressed': r.id === activeRoleId,
+            style: r.id === activeRoleId ? { background: r.color, boxShadow: `0 2px 8px ${r.color}55` } : null,
+          },
+            React.createElement('span', { className: 'ri', style: { background: r.color } }),
+            r.name,
+          )),
+        ),
+        React.createElement('button', { className: 'icon-btn', onClick: simulateAllActions, title: '模擬當前角色跑所有 action 的 RBAC 決策' },
+          '▶ 試探全部',
+        ),
+        React.createElement('button', { className: 'icon-btn', onClick: handleExport },
+          '↓ 匯出',
+        ),
+        React.createElement('button', { className: 'icon-btn', onClick: handleReset },
+          '↺ 重置',
+        ),
+      ),
+
+      /* ============ MAIN ============ */
+      React.createElement('div', { className: 'main' },
+        /* ----- Canvas ----- */
+        React.createElement('div', { className: 'canvas-wrap' },
+          React.createElement('div', { className: 'canvas-help' },
+            '從 ', React.createElement('kbd', null, '右側節點 handle'),
+            ' 拖到另一個 handle 建立連線 · ',
+            React.createElement('kbd', null, '點擊節點'),
+            ' 查看詳情 · ',
+            React.createElement('kbd', null, '滾輪'),
+            ' 縮放',
+          ),
+          React.createElement(FlowCanvas, {
+            nodes,
+            edges: computedEdges,
+            setNodes,
+            setEdges,
+            onConnect,
+            onSelectionChange,
+            activeRoleId,
+          }),
+        ),
+
+        /* ----- Sidebar ----- */
+        React.createElement('aside', { className: 'sidebar' },
+          /* Effective Permissions */
+          React.createElement('div', { className: 'sb-section' },
+            React.createElement('h3', null,
+              'Effective Permissions',
+              React.createElement('span', { className: 'badge' }, activeRole.short),
+            ),
+            ACTIONS.map(action => {
+              const result = RBAC_MATRIX[activeRoleId][action];
+              return React.createElement('div', { key: action, className: 'perm-row' },
+                React.createElement('span', { className: 'perm-label', title: result.reason }, action),
+                React.createElement('span', { className: 'perm-state ' + result.state }, result.state.toUpperCase()),
+              );
+            }),
+            React.createElement('div', { style: {
+              marginTop: 12, padding: 10, background: 'var(--bg-elev-2)',
+              borderRadius: 6, fontSize: 11, color: 'var(--ink-3)', fontFamily: 'var(--mono)',
+              lineHeight: 1.6,
+            } },
+              React.createElement('div', null, '統計：', stats.allow, ' ALLOW · ', stats.deny, ' DENY · ', stats.cond, ' COND'),
+              React.createElement('div', { style: { marginTop: 4, opacity: 0.7 } }, '總計 ', stats.total, ' 個 API endpoints'),
+            ),
+          ),
+
+          /* Node Inspector */
+          React.createElement('div', { className: 'sb-section' },
+            React.createElement('h3', null, 'Node Inspector'),
+            selectedNode ?
+              React.createElement(React.Fragment, null,
+                React.createElement('div', { className: 'node-inspector-type' }, selectedNode.data.kind + (selectedNode.data.roleId ? ' · ' + selectedNode.data.roleId : '')),
+                React.createElement('div', { className: 'node-inspector-name' }, selectedNode.data.label),
+                selectedNode.data.desc ? React.createElement('div', { style: { fontSize: 12, color: 'var(--ink-2)', marginBottom: 10 } }, selectedNode.data.desc) : null,
+                React.createElement('div', { style: { fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 8, marginBottom: 4 } }, 'Permissions'),
+                (selectedNode.data.permissions || []).map((p, i) =>
+                  React.createElement('div', { key: i, style: {
+                    fontSize: 11, color: 'var(--ink-2)', padding: '4px 0',
+                    borderBottom: '1px dashed var(--line)',
+                    fontFamily: 'var(--mono)',
+                  } }, '· ', p),
+                ),
+              )
+            : React.createElement('div', { className: 'node-inspector-empty' }, '點擊任一節點查看權限詳情'),
+          ),
+
+          /* Legend */
+          React.createElement('div', { className: 'sb-section' },
+            React.createElement('h3', null, '圖例'),
+            React.createElement('div', { className: 'legend' },
+              React.createElement('div', { className: 'swatch', style: { background: '#38bdf8' } }), React.createElement('span', null, 'Role 角色節點'),
+              React.createElement('div', { className: 'swatch', style: { background: '#7c5cff' } }), React.createElement('span', null, 'Action API 端點'),
+              React.createElement('div', { className: 'swatch', style: { background: '#2dd4bf' } }), React.createElement('span', null, 'Gate 守門邏輯'),
+              React.createElement('div', { className: 'swatch', style: { background: '#10b981' } }), React.createElement('span', null, 'ALLOW 連線'),
+              React.createElement('div', { className: 'swatch', style: { background: '#ef4444' } }), React.createElement('span', null, 'DENY 連線'),
+              React.createElement('div', { className: 'swatch', style: { background: '#f59e0b' } }), React.createElement('span', null, 'CONDITIONAL 連線'),
+            ),
+          ),
+
+          /* Recent Activity Log */
+          React.createElement('div', { className: 'sb-section' },
+            React.createElement('h3', null, '操作日誌'),
+            logEntries.length === 0 ?
+              React.createElement('div', { className: 'empty-state' }, '尚無操作 · 試著切換角色或建立連線')
+            :
+              React.createElement('div', { style: { fontFamily: 'var(--mono)', fontSize: 10.5, color: 'var(--ink-3)', maxHeight: 160, overflowY: 'auto' } },
+                logEntries.map((e, i) => React.createElement('div', { key: i, style: { padding: '3px 0', borderBottom: '1px dashed var(--line)' } },
+                  React.createElement('span', { style: { color: 'var(--ink-3)' } }, e.ts, ' '),
+                  React.createElement('span', { style: { color: e.decision === 'allow' ? 'var(--ok)' : e.decision === 'deny' ? 'var(--danger)' : e.decision === 'conditional' ? 'var(--warn)' : 'var(--ink-2)' } }, '[' + e.decision.toUpperCase() + ']'),
+                  ' ',
+                  React.createElement('span', { style: { color: 'var(--ink-2)' } }, e.action),
+                  e.target ? ' · ' + e.target : '',
+                )),
+              ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+/* ---------- Mount ---------- */
+try {
+  const root = ReactDOM.createRoot(document.getElementById('root'));
+  root.render(React.createElement(App));
+} catch (e) {
+  console.error('MOUNT', e);
+}
+</script>
+</body>
+</html>
