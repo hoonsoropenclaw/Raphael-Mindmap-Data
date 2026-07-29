@@ -1,21 +1,23 @@
-# telegram_bot_security_and_integration
+# bot_and_browser_automation
 
 ## Overview
-This micro-skill provides a comprehensive guide to integrating Telegram bots into a microservices architecture, focusing on tracing methods and security practices. It covers the initialization of a Telegram Bot, integrating a Distributed Tracing System for monitoring and troubleshooting, and implementing security measures to protect against prompt injection attacks and other vulnerabilities.
+This micro-skill combines the automation of interactions with Telegram bots and web browsers, focusing on security measures, integration techniques, and automation workflows. It provides a comprehensive guide for developers to integrate Telegram bots into microservices architectures, automate browser interactions for tasks like web scraping and testing, and implement robust security practices to protect against various threats.
 
 ---
 
-## Telegram Bot Initialization
+## Telegram Bot Automation and Security
 
-### Description
+### Telegram Bot Initialization
+
+#### Description
 This section outlines the foundational steps for creating a Telegram Bot, including essential components for handling commands and messages, and ensuring secure management of sensitive information.
 
-### Key Features
+#### Key Features
 - **Command Handling**: Processes commands such as `/start`.
 - **Message Handling**: Echoes user messages.
 - **Environment Variable Configuration**: Manages sensitive information like the bot token securely.
 
-### Code Snippet
+#### Code Snippet
 ```python
 import os
 import asyncio
@@ -44,20 +46,18 @@ if __name__ == '__main__':
     main()
 ```
 
-### Common Errors and Prevention
+#### Common Errors and Prevention
 - **Error**: `RuntimeError: This event loop is already running.`
   - **Prevention**: Avoid using `run_polling()` in environments like Jupyter or asyncio. Instead, implement an asynchronous loop manually. For standalone Python scripts, `run_polling()` is appropriate.
 
----
+### Distributed Tracing System Integration
 
-## Distributed Tracing System Integration
-
-### Description
+#### Description
 Integrating a Distributed Tracing System enhances the observability of the Telegram Bot by tracking requests, identifying bottlenecks, and diagnosing issues across microservices.
 
-### Key Components
+#### Key Components
 
-#### Distributed Tracing SDK
+##### Distributed Tracing SDK
 - **Purpose**: Seamlessly integrates tracing into FastAPI applications used by the bot.
 - **Features**:
   - Automatic creation of `SERVER` and `CLIENT` spans.
@@ -82,7 +82,7 @@ Integrating a Distributed Tracing System enhances the observability of the Teleg
   - **Error**: Circular dependencies or performance issues.
     - **Solution**: Use asynchronous programming and caching to optimize performance.
 
-#### Collector Service
+##### Collector Service
 - **Purpose**: Acts as the central repository for span data from various microservices.
 - **Features**:
   - Receives and processes span data.
@@ -103,7 +103,7 @@ Integrating a Distributed Tracing System enhances the observability of the Teleg
   - **Error**: API performance issues.
     - **Solution**: Optimize data structures and query logic, and use asynchronous programming.
 
-#### Dashboard Frontend
+##### Dashboard Frontend
 - **Purpose**: Provides a web-based interface for visualizing trace data.
 - **Features**:
   - Displays a list of traces with key metrics.
@@ -133,20 +133,18 @@ Integrating a Distributed Tracing System enhances the observability of the Teleg
   - **Error**: Inaccurate or incomplete data visualization.
     - **Solution**: Ensure data accuracy and completeness, and use reliable data visualization libraries.
 
----
+### Security Practices for Telegram Bots
 
-## Security Practices for Telegram Bots
-
-### Description
+#### Description
 Implementing robust security measures is crucial for protecting Telegram Bots from various threats, including prompt injection attacks, unauthorized access, and data breaches.
 
-### Key Features
+#### Key Features
 - **Input Validation**: Ensures that all user inputs are sanitized and validated to prevent injection attacks.
 - **Authentication and Authorization**: Implements secure authentication mechanisms and enforces authorization policies to restrict access to sensitive resources.
 - **Data Encryption**: Encrypts sensitive data both in transit and at rest to protect against eavesdropping and data breaches.
 - **Error Handling**: Implements secure error handling to prevent leakage of sensitive information.
 
-### Code Snippet
+#### Code Snippet
 ```python
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes
@@ -167,7 +165,7 @@ def main():
     application.run_polling()
 ```
 
-### Common Errors and Prevention
+#### Common Errors and Prevention
 - **Error**: Improper input validation leading to injection attacks.
   - **Prevention**: Always validate and sanitize user inputs, and use parameterized queries or prepared statements.
 - **Error**: Weak authentication mechanisms.
@@ -177,5 +175,71 @@ def main():
 
 ---
 
-## Conclusion
-By integrating Telegram Bots with a Distributed Tracing System and implementing robust security practices, developers can ensure efficient monitoring, troubleshooting, and protection against security threats. This comprehensive approach enhances the bot's performance, reliability, and security, leading to a more resilient and trustworthy system.
+## Browser Interaction Automation
+
+### Overview
+Automate interactions with web browsers, including navigation, JavaScript execution, clicking elements, and capturing snapshots. This is essential for tasks such as web scraping, automated testing, and browser-based automation workflows.
+
+### Key Features
+
+#### 1. Browser Navigation
+Automate navigation to a specified URL and wait for the page to load completely.
+
+##### Key Code Snippet
+```javascript
+await page.goto('http://127.0.0.1:18791', { waitUntil: 'networkidle0' });
+```
+
+##### Common Errors and Prevention
+- **Error**: Navigation fails or page load times out.
+  - **Solution**: 
+    - Verify that the URL is correct.
+    - Ensure the server is running.
+    - Increase the wait time using the `timeout` option if necessary.
+
+#### 2. Browser Console Interaction
+Execute JavaScript code in the browser console to interact with the page or retrieve its state.
+
+##### Key Code Snippet
+```javascript
+await page.evaluate(() => {
+  document.querySelector('#viewer').value = 'u2';
+  document.querySelector('#viewer').dispatchEvent(new Event('change'));
+});
+```
+
+##### Common Errors and Prevention
+- **Error**: Selector errors or element not found.
+  - **Solution**: 
+    - Use browser developer tools to verify the correctness of the element selector.
+    - Ensure that the element exists on the page before attempting to interact with it.
+
+#### 3. Browser Click
+Simulate a user clicking a specific element in the browser.
+
+##### Key Code Snippet
+```javascript
+await page.click('button#submit');
+```
+
+##### Common Errors and Prevention
+- **Error**: Element is not clickable or is obscured.
+  - **Solution**: 
+    - Ensure the element is visible and clickable.
+    - Use explicit waits (e.g., `await page.waitForSelector('button#submit')`) to wait for the element to become available.
+    - Use `page.click` options like `force` or `noWaitAfter` if necessary.
+
+#### 4. Browser Snapshot
+Capture a snapshot of the current browser page for later analysis or verification.
+
+##### Key Code Snippet
+```javascript
+const screenshot = await page.screenshot({ fullPage: true });
+```
+
+##### Common Errors and Prevention
+- **Error**: Screenshot fails or the file is corrupted.
+  - **Solution**: 
+    - Check the file path and ensure the target directory exists.
+    - Verify that the process has the necessary permissions to write to the specified location.
+    - Handle exceptions using try-c
