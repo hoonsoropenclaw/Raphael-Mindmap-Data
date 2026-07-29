@@ -1,14 +1,18 @@
-# RBAC System with Audit and Dynamic Policy Management
+# Access Control and Authentication
 
 ## Overview
-Implement a comprehensive Role-Based Access Control (RBAC) system that includes permission checks, audit logging, and dynamic policy management. This system allows for flexible permission handling, detailed auditing of access control decisions, and the ability for administrators to modify policies in real-time without requiring system restarts or code changes.
+Implement a comprehensive access control and authentication system that combines Role-Based Access Control (RBAC), dynamic policy management, and secure authentication mechanisms. This system ensures secure access to resources, detailed auditing of access control decisions, and the ability for administrators to modify policies in real-time without requiring system restarts or code changes.
 
-## RBAC Permission Check
+---
 
-### Purpose
+## 1. Role-Based Access Control (RBAC) System
+
+### 1.1 RBAC Permission Check
+
+#### Purpose
 Develop a robust permission-checking engine that supports various types of permission handling logic based on roles.
 
-### Key Features and Code Patterns
+#### Key Features and Code Patterns
 
 1. **Boolean-Type Permissions**
    - **Description**: Simple allow or deny permissions.
@@ -58,7 +62,7 @@ Develop a robust permission-checking engine that supports various types of permi
      };
      ```
 
-### Common Errors and Prevention
+#### Common Errors and Prevention
 
 - **Error**: Incorrect handling of role inheritance leading to incorrect permission assignments.
   - **Solution**: Recursively expand the inheritance chain during permission checks to ensure all inherited roles' permissions are correctly evaluated.
@@ -86,12 +90,12 @@ Develop a robust permission-checking engine that supports various types of permi
     };
     ```
 
-## Audit Logging
+### 1.2 Audit Logging
 
-### Purpose
+#### Purpose
 Maintain detailed logs of each permission decision for auditing and tracking purposes.
 
-### Key Features and Code Patterns
+#### Key Features and Code Patterns
 
 1. **Log Recording**
    - **Description**: Capture decision details such as timestamp, user information, permission type, and decision outcome.
@@ -133,7 +137,7 @@ Maintain detailed logs of each permission decision for auditing and tracking pur
      }
      ```
 
-### Common Errors and Prevention
+#### Common Errors and Prevention
 
 - **Error**: Incomplete or incorrectly formatted log records.
   - **Solution**: Ensure all necessary information is correctly captured during logging and use a standardized log format.
@@ -163,12 +167,12 @@ Maintain detailed logs of each permission decision for auditing and tracking pur
     }
     ```
 
-## Dynamic Policy Management
+### 1.3 Dynamic Policy Management
 
-### Purpose
+#### Purpose
 Enable administrators to modify permission policies at runtime without restarting the system or changing the codebase.
 
-### Key Features and Code Patterns
+#### Key Features and Code Patterns
 
 1. **Policy Storage**
    - **Description**: Store policies in `localStorage` or other persistent storage mechanisms.
@@ -212,7 +216,7 @@ Enable administrators to modify permission policies at runtime without restartin
      }
      ```
 
-### Common Errors and Prevention
+#### Common Errors and Prevention
 
 - **Error**: Policies not taking effect immediately after modification.
   - **Solution**: After policy modification, immediately trigger a policy reload and notify the permission-checking engine to use the new policy.
@@ -249,5 +253,58 @@ Enable administrators to modify permission policies at runtime without restartin
     }
     ```
 
-## Summary
-This comprehensive RBAC system integrates permission checks, audit logging, and dynamic policy management to provide a secure, auditable, and flexible access control solution. By adhering to the outlined patterns and avoiding common pitfalls, the system ensures reliable and maintainable access control management.
+---
+
+## 2. Authentication System Integration and Security
+
+### 2.1 Auth Middleware Protection
+
+#### Description
+Protect routes using Next.js middleware to ensure only authenticated users can access protected routes.
+
+#### Key Code Snippets and Patterns
+```typescript
+// middleware.ts
+import { NextResponse } from 'next/server';
+import { auth } from '@/auth';
+
+export default auth((req) => {
+  const { nextUrl } = req;
+  const isLoggedIn = !!req.auth?.user;
+
+  if (nextUrl.pathname.startsWith('/api/auth')) {
+    return NextResponse.next();
+  }
+
+  if (PUBLIC_PATHS.has(nextUrl.pathname)) {
+    if (isLoggedIn && nextUrl.pathname === '/') {
+      return NextResponse.redirect(new URL('/dashboard', nextUrl));
+    }
+    return NextResponse.next();
+  }
+
+  if (!isLoggedIn) {
+    const loginUrl = new URL('/login', nextUrl);
+    loginUrl.searchParams.set('callbackUrl', nextUrl.pathname + nextUrl.search);
+    return NextResponse.redirect(loginUrl);
+  }
+
+  return NextResponse.next();
+});
+```
+
+#### Common Errors and Prevention
+- **Error**: Forgetting to whitelist `/api/auth/*` paths, blocking OAuth callbacks.
+  - **Solution**: Explicitly allow `/api/auth/*` paths in the middleware.
+- **Error**: Incorrectly setting public paths, preventing unauthenticated users from accessing the homepage.
+  - **Solution**: Ensure public paths (e.g., `/` and `/login`) are correctly added to the `PUBLIC_PATHS` set.
+
+### 2.2 Server-Side Session Handling
+
+#### Description
+Handle sessions on the server side using NextAuth to ensure sensitive operations are performed securely.
+
+#### Key Code Snippets and Patterns
+```typescript
+// session.ts
+import {

@@ -1,40 +1,33 @@
 # 學習微技能目錄 (SKILL CATALOG)
 此目錄為拉斐爾已掌握的微技能模組。在進行任務前，應先檢索此目錄尋找可重用的經驗。
 
-# SKILL_CATALOG
+# SKILL_CATALOG.md
 
-1. **frontend_ui_design_and_integration** - Mastering user interface design and seamless integration techniques.
-2. **end_to_end_browser_testing_and_management** - Comprehensive browser testing and efficient management strategies.
-3. **godot_application_development** - Developing applications using the Godot game engine.
-4. **design_system_and_tailwind_css_application** - Implementing design systems with Tailwind CSS for efficient styling.
-5. **data_storage_and_system_management** - Effective data storage solutions and system management practices.
-6. **file_management_with_validation** - Managing files with robust validation processes.
-7. **api_endpoint_testing** - Testing and validating API endpoints for reliability and performance.
-8. **react_integration_and_injection** - Integrating React components and managing dependency injection.
-9. **advanced_site_parsing_framework** - Building advanced frameworks for parsing and analyzing website data.
-10. **trial_and_error_problem_solving** - Solving problems through iterative trial and error methods.
-11. **html_validation_tools** - Utilizing tools for validating and ensuring HTML code quality.
-12. **selenium_playwright_comparison** - Comparing Selenium and Playwright for browser automation.
-13. **api_security_analysis_and_testing** - Analyzing and testing API security measures.
-14. **port_conflict_resolution** - Resolving port conflicts in network and application configurations.
-15. **rbac_system_with_audit_and_dynamic_policy** - Implementing Role-Based Access Control with auditing and dynamic policy management.
-16. **end_to_end_browser_testing_and_resource_management** - Comprehensive browser testing and resource management strategies.
-17. **browser_testing_and_interaction** - Testing browser interactions and ensuring seamless user experiences.
-18. **oauth_integration** - Integrating OAuth for secure authentication and authorization.
-19. **e2e_testing_with_browser_automation** - End-to-end testing using browser automation tools.
-20. **background_process_management** - Managing and optimizing background processes for efficiency.
-21. **skill_task_selection_and_automation** - Selecting and automating tasks to enhance skill development.
-22. **full_stack_javascript_development** - Developing full-stack applications using JavaScript technologies.
-23. **prompt_injection_security** - Ensuring security against prompt injection attacks.
-24. **cross_validate_data_sources** - Cross-validating data sources for accuracy and consistency.
-25. **fixture_mode_management** - Managing fixture modes for testing and development.
-26. **web_resource_verification** - Verifying the integrity and availability of web resources.
-27. **ethereum_smart_contract_development** - Developing smart contracts on the Ethereum blockchain.
-28. **auth_system_integration_and_security** - Integrating and securing authentication systems.
-29. **frontend_design_and_workflow_integration** - Designing frontend interfaces with workflow integration in mind.
-30. **tesseract_js_ocr_mastery** - Mastering Tesseract.js for Optical Character Recognition tasks.
-31. **frontend_design_and_system_application** - Applying frontend design principles to system applications.
-32. **game_development_and_native_integration** - Developing games with native platform integration.
-33. **prompt_injection_prevention_and_response** - Preventing prompt injection and implementing effective response strategies.
-34. **comprehensive_task_and_information_management** - Managing tasks and information comprehensively for optimal productivity.
-35. **text_recognition_integration** - Integrating text recognition technologies into applications.
+1. **godot_application_development** - Developing applications using the Godot game engine.
+2. **data_storage_and_system_management** - Managing data storage and system operations efficiently.
+3. **react_integration_and_injection** - Integrating and injecting React components into applications.
+4. **advanced_site_parsing_framework** - Building advanced frameworks for parsing website data.
+5. **api_security_and_testing** - Ensuring security and conducting testing for APIs.
+6. **speech_text_and_ocr_integration** - Integrating speech-to-text and optical character recognition technologies.
+7. **prompt_injection_mitigation** - Implementing measures to prevent prompt injection attacks.
+8. **port_conflict_resolution** - Resolving conflicts related to port usage in systems.
+9. **ui_development_and_validation** - Developing and validating user interfaces for applications.
+10. **browser_testing_and_verification** - Testing and verifying applications in web browsers.
+11. **browser_testing_and_interaction** - Testing and interacting with applications in web browsers.
+12. **oauth_integration** - Integrating OAuth for secure authentication and authorization.
+13. **background_process_management** - Managing processes that run in the background of systems.
+14. **data_and_resource_verification** - Verifying the integrity and availability of data and resources.
+15. **access_control_and_authentication** - Implementing access control and authentication mechanisms.
+16. **full_stack_javascript_development** - Developing full-stack applications using JavaScript.
+17. **cross_validate_data_sources** - Cross-validating data from multiple sources for accuracy.
+18. **end_to_end_browser_testing** - Conducting comprehensive browser testing from start to finish.
+19. **fixture_mode_management** - Managing fixture modes in testing environments.
+20. **automated_problem_solving_and_skill_selection** - Automating problem-solving processes and selecting appropriate skills.
+21. **ethereum_smart_contract_development** - Developing smart contracts on the Ethereum blockchain.
+22. **game_development_and_native_integration** - Developing games and integrating them with native features.
+23. **comprehensive_task_and_information_management** - Managing tasks and information comprehensively.
+24. **frontend_design_and_integration** - Designing and integrating frontend components for applications.
+25. **text_recognition_integration** - Integrating text recognition technologies into applications.- **phaser_webgl_context_setup**: 配置 Phaser 的 WebGL 上下文以支持 E2E 截屏
+- **matter_physics_debug_toggle**: 切換 Phaser Matter 物理引擎的調試模式
+- **phaser_graphics_lazy_initialization**: 延遲初始化 Phaser 的 Graphics 對象以避免初始化順序問題
+- **phaser_matter_physics_event_debugging**: 使用 Playwright 捕獲並分析 Phaser Matter 物理引擎的事件錯誤
