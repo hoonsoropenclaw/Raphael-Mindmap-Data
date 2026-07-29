@@ -17,4 +17,6 @@
 12. **ethereum_smart_contract_development** - Develop smart contracts on the Ethereum blockchain platform.
 13. **collaborative_task_management** - Manage tasks collaboratively for enhanced team productivity.
 14. **ocr_enhanced_automation** - Utilize Optical Character Recognition (OCR) for enhanced automation processes.
-15. **game_development_and_native_integration** - Develop games and integrate with native platforms for a seamless user experience.
+15. **game_development_and_native_integration** - Develop games and integrate with native platforms for a seamless user experience.- **react_autoload_injection**: 在 React 應用中通過 URL 查詢參數自動載入和注入文件
+- **tesseract_js_direct_test**: 使用 Tesseract.js 進行獨立的 OCR 功能測試
+- **http_server_file_serving**: 使用 Python 啟動本地 HTTP 服務器以提供文件
