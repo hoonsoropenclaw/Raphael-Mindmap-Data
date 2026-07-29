@@ -1,16 +1,16 @@
-# 动态用户界面设计与实现
+# 动态用户界面开发指南
 
 ## 概述
-动态用户界面设计与实现（dynamic_ui_design_and_implementation）涵盖了主题切换功能以及现代用户界面设计与审计，确保用户界面既美观又实用。该技能结合了现代设计原则、先进的UI开发技术以及全面的设计系统与HTML结构审计。
+动态用户界面开发（dynamic_ui_development）涵盖了从设计到实现的各个方面，包括主题切换功能、现代用户界面设计与审计，以及使用React Flow创建交互式流程编辑器。此外，还包括通过集成Tailwind CSS和DaisyUI来增强前端UI的功能。本文档将详细介绍这些技术及其实现方法，并提供最佳实践和常见错误的解决方案。
 
 ---
 
 ## 1. 主题切换功能实现
 
-### 1.1 说明
-主题切换功能使用户能够在浅色和深色模式之间切换。此功能通常依赖于CSS变量来管理颜色主题，并通过JavaScript处理用户交互和状态管理。
+### 1.1 功能说明
+主题切换功能允许用户在浅色和深色模式之间切换。该功能依赖于CSS变量来管理颜色主题，并通过JavaScript处理用户交互和状态管理。
 
-### 1.2 关键代码片段与模式
+### 1.2 实现步骤
 
 #### 1.2.1 HTML结构
 ```html
@@ -22,18 +22,18 @@
 const toggleButton = document.getElementById('theme-toggle');
 toggleButton.addEventListener('click', () => {
   document.documentElement.classList.toggle('dark-theme');
-  // 将用户偏好保存到localStorage
+  // 保存用户偏好到localStorage
   localStorage.setItem('theme', document.documentElement.classList.contains('dark-theme') ? 'dark' : 'light');
 });
 ```
 
-### 1.3 常见错误及避免方法
+### 1.3 常见错误及预防
 
 - **错误**：主题切换后，页面元素未正确更新。
-  **避免方法**：确保所有主题相关的CSS变量正确应用，并在切换主题时重新渲染必要的元素。
+  **预防方法**：确保所有主题相关的CSS变量正确应用，并在切换主题时重新渲染必要的元素。
   
 - **错误**：主题切换状态未持久化，导致用户偏好丢失。
-  **避免方法**：将用户的主题偏好保存到`localStorage`或其他持久化存储中，并在页面加载时应用。
+  **预防方法**：将用户的主题偏好保存到`localStorage`或其他持久化存储中，并在页面加载时应用。
 
 ---
 
@@ -239,5 +239,4 @@ function WorkflowManager() {
 ```css
 :root {
   --daisyui-theme-primary: oklch(60% 0.2 257);
-  --daisyui-theme-secondary: oklch(50% 0.2 240);
-  --d
+  --daisyui-theme-secondary: oklch(50%

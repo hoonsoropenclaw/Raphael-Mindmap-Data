@@ -3,17 +3,18 @@
 
 # SKILL_CATALOG
 
-1. **data_storage_and_integration** - Expertise in managing and integrating data storage solutions.
-2. **api_security_and_testing** - Proficiency in securing and testing APIs for robust applications.
-3. **browser_development_and_testing** - Skills in developing and testing applications for web browsers.
-4. **modern_javascript_and_typescript_development** - Mastery in modern JavaScript and TypeScript for application development.
-5. **advanced_ocr_integration_and_automation** - Advanced capabilities in integrating and automating Optical Character Recognition (OCR) technologies.
-6. **performance_optimization_and_ai_integration** - Expertise in optimizing performance and integrating AI technologies.
-7. **workflow_and_automation** - Skills in designing and automating workflows for efficiency.
-8. **ethereum_smart_contract_development** - Proficiency in developing smart contracts on the Ethereum platform.
-9. **middleware_and_system_management** - Expertise in managing middleware and system infrastructure.
-10. **full_stack_application_development** - Comprehensive skills in developing full-stack applications.
-11. **react_flow_comprehensive_integration** - Mastery in integrating React Flow for dynamic user interfaces.
-12. **dynamic_ui_design_and_implementation** - Skills in designing and implementing dynamic and interactive user interfaces.
-13. **game_development_and_native_integration** - Expertise in developing games and integrating with native platforms.
-14. **collaborative_task_and_decision_management** - Skills in managing collaborative tasks and decision-making processes.
+- **data_storage_and_integration**: Master data storage solutions and seamless integration techniques.
+- **api_security_and_testing**: Ensure robust API security and conduct thorough testing.
+- **browser_development_and_testing**: Develop and test applications for web browsers.
+- **dynamic_ui_development**: Create interactive and dynamic user interfaces.
+- **sop_based_decision_making**: Implement decision-making processes based on Standard Operating Procedures (SOPs).
+- **prompt_injection_detection**: Detect and prevent prompt injection attacks in AI systems.
+- **ocr_integration**: Integrate Optical Character Recognition (OCR) technology into workflows.
+- **full_stack_javascript_development**: Develop end-to-end applications using JavaScript technologies.
+- **task_decomposition**: Break down complex tasks into manageable components.
+- **ai_driven_workflow_automation**: Automate workflows using artificial intelligence.
+- **ocr_enhanced_workflow_automation**: Enhance workflow automation with OCR technology.
+- **ethereum_smart_contract_development**: Develop smart contracts on the Ethereum blockchain.
+- **middleware_and_system_management**: Manage and maintain middleware and system infrastructure.
+- **game_development_and_native_integration**: Develop games and integrate with native platforms.
+- **collaborative_task_and_decision_management**: Manage collaborative tasks and decision-making processes.

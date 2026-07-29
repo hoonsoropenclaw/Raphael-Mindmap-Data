@@ -1,14 +1,14 @@
-# 现代 JavaScript 与 TypeScript 开发：集成、构建与配置
+# 全端 JavaScript 与 TypeScript 开发：构建现代 Web 应用
 
 ## 概述
-本微技能涵盖了现代 JavaScript 开发技术，包括 TypeScript 类型安全、ESM 配置、SH 打包以及 importmap 配置。通过本技能，开发者将能够高效地构建可维护、可扩展且具备良好用户体验的 Web 应用，并确保代码的可靠性和性能。
+本微技能专注于使用现代 JavaScript 和 TypeScript 进行全端应用开发，涵盖前端与后端的集成、实时数据处理、用户界面设计以及安全性与权限管理。通过本技能，开发者将能够构建高效、可维护、可扩展且具备良好用户体验的 Web 应用，确保代码的可靠性和性能。
 
 ---
 
-## 1. React 与 Flow 集成
+## 1. React 与 Flow 集成：实现静态类型检查与可视化工作流程
 
 ### 1.1 目的
-在 React 项目中集成 Flow，以实现静态类型检查，提升代码的可维护性和可靠性。通过可视化节点画布，实现工作流程的可视化编辑。
+在 React 项目中集成 Flow，以实现静态类型检查，提升代码的可维护性和可靠性。同时，通过 React Flow 实现工作流程的可视化编辑。
 
 ### 1.2 关键代码片段
 ```javascript
@@ -16,8 +16,14 @@
 import ReactFlow from 'reactflow';
 
 // 定义节点和边的数据
-const nodes = [/* 节点数据 */];
-const edges = [/* 边数据 */];
+const nodes = [
+  { id: '1', type: 'input', position: { x: 250, y: 5 }, data: { label: '输入节点' } },
+  // 其他节点
+];
+const edges = [
+  { id: 'e1-2', source: '1', target: '2', animated: true },
+  // 其他边
+];
 
 // 渲染 React Flow 组件
 <ReactFlow
@@ -66,7 +72,7 @@ const edges = [/* 边数据 */];
 
 ---
 
-## 2. 实时 HTML 仪表板与后端 API 集成
+## 2. 实时 HTML 仪表板与后端 API 集成：实现数据可视化与实时更新
 
 ### 2.1 目的
 将实时 HTML 仪表板与后端 API（如 Flask）集成，实现数据可视化、交互和实时更新。该集成使用户能够通过 Web 界面和第三方应用监控系统状态、查看统计数据并与应用程序进行交互。
@@ -257,15 +263,4 @@ def get_stats():
     stats = pipeline.get_stats()
     return jsonify(stats), 200
 
-@app.route('/api/docs', methods=['GET'])
-def get_docs():
-    pipeline = Pipeline()
-    docs = pipeline.get_docs()
-    return jsonify(docs), 200
-
-@app.route('/api/health', methods=['GET'])
-def health_check():
-    return jsonify({'status': 'ok'}), 200
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+@app.route('/api/docs', methods=['
