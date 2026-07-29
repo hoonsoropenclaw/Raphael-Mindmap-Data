@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<title>React Flow 動態 RBAC 權限管理流程圖</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+<!-- React 18 ESM (透過 importmap 解析) — Babel 也會用同一個 React instance
+     ⚠️ 不能用 UMD + ESM 共存，會出現 "Invalid hook call" / 兩個 React instance 的問題 -->
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0",
+    "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime",
+    "react-dom": "https://esm.sh/react-dom@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client"
+  }
+}
+</script>
+
+<!-- Babel Standalone (瀏覽器內 JSX) — data-type="module" 讓它編出 ESM，跟 React Flow 共用同一個 React -->
+<script src="https://unpkg.com/@babel/standalone@7.24.0/babel.min.js"></script>
+
+<!-- React Flow 11 — UMD 11 之後不再維護，透過 esm.sh ESM 載入
+     ⚠️ 必須 deps=react@18.2.0 否則 esm.sh 自動拉到 React 19，跟 importmap 衝突 -->
+<script type="module">
+  import * as RF from 'https://esm.sh/reactflow@11.10.1?deps=react@18.2.0,react-dom@18.2.0';
+  window.ReactFlow = RF;
+  window.dispatchEvent(new Event('reactflow-ready'));
+</script>
+
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif; background: #0d1117; color: #e6edf3; }
+  #root { height: 100vh; display: flex; flex-direction: column; }
+
+  .topbar { height: 56px; padding: 0 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #21262d; background: #161b22; flex-shrink: 0; }
+  .topbar h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  .topbar h1 .badge { background: #1f6feb; color: white; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-left: 8px; }
+  .topbar .spacer { flex: 1; }
+  .topbar button { background: #238636; color: white; border: 0; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; }
+  .topbar button:hover { background: #2ea043; }
+  .topbar button.secondary { background: #21262d; color: #e6edf3; border: 1px solid #30363d; }
+  .topbar button.secondary:hover { background: #30363d; }
+  .topbar button.danger { background: #da3633; }
+  .topbar button.danger:hover { background: #f85149; }
+  .topbar .status { font-size: 12px; color: #7d8590; padding: 4px 10px; background: #0d1117; border: 1px solid #21262d; border-radius: 6px; }
+  .topbar .status.error { color: #f85149; border-color: #da3633; }
+  .topbar .status.ok { color: #3fb950; border-color: #238636; }
+
+  .main { flex: 1; display: flex; min-height: 0; }
+
+  .sidebar { width: 240px; background: #161b22; border-right: 1px solid #21262d; padding: 12px; overflow-y: auto; flex-shrink: 0; }
+  .sidebar h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #7d8590; margin: 14px 0 8px 0; font-weight: 600; }
+  .sidebar h3:first-child { margin-top: 0; }
+  .palette-section { margin-bottom: 6px; }
+  .palette-node { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 10px 12px; margin-bottom: 6px; cursor: grab; font-size: 13px; display: flex; align-items: center; gap: 10px; transition: border-color 0.15s; }
+  .palette-node:hover { border-color: #58a6ff; }
+  .palette-node:active { cursor: grabbing; }
+  .palette-node .node-icon { width: 28px; height: 28px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+  .palette-node .node-info .node-title { font-weight: 600; }
+  .palette-node .node-info .node-desc { font-size: 11px; color: #7d8590; }
+
+  .flow { flex: 1; position: relative; background: #0d1117; }
+  .flow .loading-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(13, 17, 23, 0.9); z-index: 10; flex-direction: column; gap: 12px; }
+  .flow .loading-overlay .spinner { width: 32px; height: 32px; border: 3px solid #21262d; border-top-color: #58a6ff; border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .right-panel { width: 320px; background: #161b22; border-left: 1px solid #21262d; padding: 14px; overflow-y: auto; flex-shrink: 0; font-size: 13px; }
+  .right-panel h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #7d8590; margin: 0 0 8px 0; font-weight: 600; }
+  .right-panel .panel-section { margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid #21262d; }
+  .right-panel .panel-section:last-child { border-bottom: 0; }
+  .right-panel .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: 12px; }
+  .right-panel .stat-row .label { color: #7d8590; }
+  .right-panel .stat-row .value { font-weight: 600; color: #e6edf3; }
+  .right-panel .stat-row .value.ok { color: #3fb950; }
+  .right-panel .stat-row .value.warn { color: #d29922; }
+  .right-panel .stat-row .value.error { color: #f85149; }
+  .right-panel .stat-row .value.muted { color: #7d8590; }
+  .right-panel .validation-list { font-size: 11px; font-family: ui-monospace, "SF Mono", monospace; line-height: 1.6; max-height: 140px; overflow-y: auto; background: #0d1117; border: 1px solid #21262d; border-radius: 4px; padding: 8px; }
+  .right-panel .validation-list .v-item { padding: 2px 0; }
+  .right-panel .validation-list .v-item.error { color: #f85149; }
+  .right-panel .validation-list .v-item.warn { color: #d29922; }
+  .right-panel .validation-list .v-item.ok { color: #3fb950; }
+
+  .inspector .form-group { margin-bottom: 10px; }
+  .inspector .form-group label { display: block; font-size: 11px; color: #7d8590; margin-bottom: 4px; }
+  .inspector .form-group input, .inspector .form-group textarea, .inspector .form-group select { width: 100%; background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 4px; padding: 6px 8px; font-size: 12px; font-family: inherit; }
+  .inspector .form-group input:focus, .inspector .form-group textarea:focus, .inspector .form-group select:focus { outline: none; border-color: #58a6ff; }
+  .inspector .form-group textarea { resize: vertical; min-height: 50px; }
+  .inspector .form-group .actions { display: flex; gap: 6px; margin-top: 6px; }
+  .inspector .form-group .actions button { flex: 1; background: #21262d; color: #e6edf3; border: 1px solid #30363d; padding: 5px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; }
+  .inspector .form-group .actions button:hover { background: #30363d; }
+  .inspector .form-group .actions button.danger { color: #f85149; border-color: #da3633; }
+  .inspector .form-group .actions button.danger:hover { background: #da3633; color: white; }
+
+  /* React Flow 自訂節點 */
+  .rbac-node { border-radius: 8px; padding: 10px 14px; min-width: 180px; max-width: 220px; background: #161b22; color: #e6edf3; font-size: 12px; border: 2px solid #30363d; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+  .rbac-node.selected { box-shadow: 0 0 0 3px rgba(88,166,255,0.4), 0 4px 12px rgba(0,0,0,0.4); }
+  .rbac-node.kind-role { border-color: #a371f7; }
+  .rbac-node.kind-role .node-icon { background: #a371f7; }
+  .rbac-node.kind-permission { border-color: #58a6ff; }
+  .rbac-node.kind-permission .node-icon { background: #58a6ff; }
+  .rbac-node.kind-resource { border-color: #3fb950; }
+  .rbac-node.kind-resource .node-icon { background: #3fb950; }
+  .rbac-node.kind-user { border-color: #d29922; }
+  .rbac-node.kind-user .node-icon { background: #d29922; }
+
+  .rbac-node .node-header { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .rbac-node .node-icon { width: 24px; height: 24px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; color: #0d1117; flex-shrink: 0; font-weight: 700; }
+  .rbac-node .node-type { font-size: 10px; color: #7d8590; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px; }
+  .rbac-node .node-summary { font-size: 11px; color: #7d8590; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rbac-node .node-tag-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .rbac-node .node-tag { background: #0d1117; border: 1px solid #30363d; padding: 1px 6px; border-radius: 10px; font-size: 10px; color: #7d8590; }
+
+  /* React Flow edge 自訂 */
+  .react-flow__edge-path { stroke: #58a6ff; stroke-width: 2; }
+  .react-flow__edge.selected .react-flow__edge-path { stroke: #f85149; stroke-width: 3; }
+  .react-flow__edge-text { fill: #e6edf3; font-size: 11px; font-weight: 500; }
+  .react-flow__edge-textbg { fill: #161b22; stroke: #30363d; }
+
+  .react-flow__handle { width: 8px; height: 8px; background: #58a6ff; border: 2px solid #0d1117; }
+  .react-flow__attribution { display: none; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div style="display: flex; align-items: center; justify-content: center; height: 100vh; flex-direction: column; gap: 16px;">
+    <div style="width: 32px; height: 32px; border: 3px solid #21262d; border-top-color: #58a6ff; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+    <div style="color: #7d8590; font-size: 14px;">載入 React Flow 11 (esm.sh)...</div>
+  </div>
+</div>
+
+<script type="text/babel" data-type="module" data-presets="react">
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { createRoot } from 'react-dom/client';
+const RF = window.ReactFlow;
+const {
+  ReactFlow, ReactFlowProvider, Background, Controls, MiniMap, Panel,
+  Handle, Position, MarkerType, addEdge, useNodesState, useEdgesState,
+  applyNodeChanges, applyEdgeChanges, useReactFlow,
+} = RF;
+
+// 等 window.ReactFlow 準備好才掛載（避免 race condition）
+function waitForReactFlow() {
+  return new Promise((resolve) => {
+    if (window.ReactFlow && window.ReactFlow.ReactFlow) return resolve();
+    window.addEventListener('reactflow-ready', () => resolve(), { once: true });
+  });
+}
+
+// ─────────────────────────────────────────────
+// 節點類型定義 (kind)
+// ─────────────────────────────────────────────
+const NODE_KINDS = {
+  role:        { label: '角色 Role',       color: '#a371f7', icon: 'R', desc: '一組權限的集合',        outHandles: ['right'], inHandles: ['left'] },
+  permission:  { label: '權限 Permission', color: '#58a6ff', icon: 'P', desc: '具體的操作動作',        outHandles: ['right'], inHandles: ['left'] },
+  resource:    { label: '資源 Resource',   color: '#3fb950', icon: 'O', desc: '被保護的對象',          outHandles: [],        inHandles: ['left'] },
+  user:        { label: '使用者 User',     color: '#d29922', icon: 'U', desc: '系統操作者',            outHandles: ['right'], inHandles: [] },
+};
+
+// 邊類型定義 (semantic meaning of edge)
+const EDGE_TYPES = {
+  grants:        { label: '賦予 grants',        color: '#a371f7', description: 'Role 授予 Permission',         validFrom: 'role',       validTo: 'permission' },
+  applies_to:    { label: '作用於 applies_to',  color: '#58a6ff', description: 'Permission 作用於 Resource',  validFrom: 'permission', validTo: 'resource'   },
+  assigned:      { label: '指派 assigned',      color: '#d29922', description: 'User 被指派 Role',            validFrom: 'user',       validTo: 'role'       },
+  inherits:      { label: '繼承 inherits',      color: '#8b949e', description: 'Role 繼承另一個 Role',        validFrom: 'role',       validTo: 'role'       },
+};
+
+// ─────────────────────────────────────────────
+// 自訂節點
+// ─────────────────────────────────────────────
+function RBACNode({ data, selected }) {
+  const kind = data.kind || 'role';
+  const k = NODE_KINDS[kind];
+  return (
+    <div className={`rbac-node kind-${kind} ${selected ? 'selected' : ''}`}>
+      {k.inHandles.map((h) => (
+        <Handle key={`in-${h}`} type="target" position={Position[h.charAt(0).toUpperCase() + h.slice(1)] || Position.Left} style={{ background: '#58a6ff' }} />
+      ))}
+      <div className="node-header">
+        <span className="node-icon">{k.icon}</span>
+        <span>{data.label || k.label}</span>
+      </div>
+      <div className="node-type">{k.label}</div>
+      {data.description && <div className="node-summary">{data.description}</div>}
+      {data.tags && data.tags.length > 0 && (
+        <div className="node-tag-row">
+          {data.tags.slice(0, 3).map((t, i) => <span key={i} className="node-tag">{t}</span>)}
+          {data.tags.length > 3 && <span className="node-tag">+{data.tags.length - 3}</span>}
+        </div>
+      )}
+      {k.outHandles.map((h) => (
+        <Handle key={`out-${h}`} type="source" position={Position[h.charAt(0).toUpperCase() + h.slice(1)] || Position.Right} style={{ background: '#58a6ff' }} />
+      ))}
+    </div>
+  );
+}
+
+const nodeTypes = { rbac: RBACNode };
+
+// ─────────────────────────────────────────────
+// 範例 RBAC 設定 (企業 CMS)
+// ─────────────────────────────────────────────
+function getInitialNodes() {
+  return [
+    // 使用者 (column 0, x=50)
+    { id: 'u_alice',   type: 'rbac', position: { x: 50,  y: 100 },  data: { kind: 'user', label: 'Alice',   description: '產品經理', tags: ['alice@cms.co'] } },
+    { id: 'u_bob',     type: 'rbac', position: { x: 50,  y: 350 },  data: { kind: 'user', label: 'Bob',     description: '後端工程師', tags: ['bob@cms.co'] } },
+    { id: 'u_carol',   type: 'rbac', position: { x: 50,  y: 600 },  data: { kind: 'user', label: 'Carol',   description: '外部審稿者', tags: ['carol@guest.io'] } },
+
+    // 角色 (column 1, x=380)
+    { id: 'r_admin',    type: 'rbac', position: { x: 380, y: 50 },   data: { kind: 'role', label: '系統管理員', description: '完整系統存取', tags: ['admin', 'full-access'] } },
+    { id: 'r_editor',   type: 'rbac', position: { x: 380, y: 220 },  data: { kind: 'role', label: '內容編輯', description: '可建立/編輯內容', tags: ['editor'] } },
+    { id: 'r_viewer',   type: 'rbac', position: { x: 380, y: 390 },  data: { kind: 'role', label: '只讀檢視者', description: '唯讀存取', tags: ['readonly'] } },
+    { id: 'r_guest',    type: 'rbac', position: { x: 380, y: 560 },  data: { kind: 'role', label: '外部訪客', description: '受限的審稿權限', tags: ['guest'] } },
+
+    // 權限 (column 2, x=720)
+    { id: 'p_user_mgmt',     type: 'rbac', position: { x: 720, y: 30 },   data: { kind: 'permission', label: '管理使用者',  description: '建立/刪除帳號', tags: ['user:*'] } },
+    { id: 'p_settings',      type: 'rbac', position: { x: 720, y: 150 },  data: { kind: 'permission', label: '修改系統設定', description: '全域設定', tags: ['settings:write'] } },
+    { id: 'p_content_pub',   type: 'rbac', position: { x: 720, y: 270 },  data: { kind: 'permission', label: '發布內容',    description: '將內容推送上線', tags: ['content:publish'] } },
+    { id: 'p_content_edit',  type: 'rbac', position: { x: 720, y: 390 },  data: { kind: 'permission', label: '編輯內容',    description: '建立/修改草稿', tags: ['content:write'] } },
+    { id: 'p_content_read',  type: 'rbac', position: { x: 720, y: 510 },  data: { kind: 'permission', label: '讀取內容',    description: '檢視已發布內容', tags: ['content:read'] } },
+    { id: 'p_audit_view',    type: 'rbac', position: { x: 720, y: 630 },  data: { kind: 'permission', label: '檢視稽核日誌', description: '檢視系統日誌', tags: ['audit:read'] } },
+
+    // 資源 (column 3, x=1080)
+    { id: 'o_users',     type: 'rbac', position: { x: 1080, y: 100 },  data: { kind: 'resource', label: '使用者資料庫', description: 'accounts 資料表', tags: ['/api/users'] } },
+    { id: 'o_settings',  type: 'rbac', position: { x: 1080, y: 250 },  data: { kind: 'resource', label: '系統設定',     description: '全域配置', tags: ['/api/settings'] } },
+    { id: 'o_articles',  type: 'rbac', position: { x: 1080, y: 400 },  data: { kind: 'resource', label: '文章 CMS',     description: '內容管理系統', tags: ['/api/articles'] } },
+    { id: 'o_reports',   type: 'rbac', position: { x: 1080, y: 550 },  data: { kind: 'resource', label: '稽核報表',     description: '稽核日誌', tags: ['/api/audit'] } },
+  ];
+}
+
+function getInitialEdges() {
+  return [
+    // User → Role (assigned)
+    { id: 'e1', source: 'u_alice', target: 'r_admin',  type: 'default', data: { edgeType: 'assigned' }, label: 'assigned', style: { stroke: EDGE_TYPES.assigned.color }, markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_TYPES.assigned.color } },
+    { id: 'e2', source: 'u_bob',   target: 'r_editor', type: 'default', data: { edgeType: 'assigned' }, label: 'assigned', style: { stroke: EDGE_TYPES.assigned.color }, markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_TYPES.assigned.color } },
+    { id: 'e3', source: 'u_carol', target: 'r_guest',  type: 'default', data: { edgeType: 'assigned' }, label: 'assigned', style: { stroke: EDGE_TYPES.assigned.color }, markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_TYPES.assigned.color } },
+
+    // Role → Permission (grants)
+    { id: 'e4',  source: 'r_admin',  target: 'p_user_mgmt',    type: 'default', data: { edgeType: 'grants' }, label: 'grants', style: { stroke: EDGE_TYPES.grants.color }, markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_TYPES.grants.color } },
+    { id: 'e5',  source: 'r_admin',  target: 'p_settings',     type: 'default', data: { edgeType: 'grants' }, label: 'grants', style: { stroke: EDGE_TYPES.grants.color }, markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_TYPES.grants.color } },
+    { id: 'e6',  source: 'r_admin',  target: 'p_audit_view',   type: 'default', data: { edgeType: 'grants' }, label: 'grants', style: { stroke: EDGE_TYPES.grants.color }, markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_TYPES.grants.color } },
+    { id: 'e7',  source: 'r_editor', target: 'p_content_edit', type: 'default', data: { edgeType: 'grants' }, label: 'grants', style: { stroke: EDGE_TYPES.grants.color }, markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_TYPES.grants.color } },
+    { id: 'e8',  source: 'r_editor', target: 'p_content_pub',  type: 'default', data: { edgeType: 'grants' }, label: 'grants', style: { stroke: EDGE_TYPES.grants.color }, markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_TYPES.grants.color } },
+    { id: 'e9',  source: 'r_viewer', target: 'p_content_read', type: 'default', data: { edgeType: 'grants' }, label: 'grants', style: { stroke: EDGE_TYPES.grants.color }, markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_TYPES.grants.color } },
+    { id: 'e10', source: 'r_viewer', target: 'p_audit_view',   type: 'default', data: { edgeType: 'grants' }, label: 'grants', style: { stroke: EDGE_TYPES.grants.color }, markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_TYPES.grants.color } },
+    { id: 'e11', source: 'r_guest',  target: 'p_content_read', type: 'default', data: { edgeType: 'grants' }, label: 'grants', style: { stroke: EDGE_TYPES.grants.color }, markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_TYPES.grants.color } },
+
+    // Role → Role (inherits)
+    { id: 'e12', source: 'r_admin', target: 'r_editor', type: 'default', data: { edgeType: 'inherits' }, label: 'inherits', style: { stroke: EDGE_TYPES.inherits.color, strokeDasharray: '6,4' }, markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_TYPES.inherits.color } },
+    { id: 'e13', source: 'r_editor', target: 'r_viewer', type: 'default', data: { edgeType: 'inherits' }, label: 'inherits', style: { stroke: EDGE_TYPES.inherits.color, strokeDasharray: '6,4' }, markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_TYPES.inherits.color } },
+
+    // Permission → Resource (applies_to)
+    { id: 'e14', source: 'p_user_mgmt',   target: 'o_users',    type: 'default', data: { edgeType: 'applies_to' }, label: 'applies_to', style: { stroke: EDGE_TYPES.applies_to.color }, markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_TYPES.applies_to.color } },
+    { id: 'e15', source: 'p_content_edit',target: 'o_articles', type: 'default', data: { edgeType: 'applies_to' }, label: 'applies_to', style: { stroke: EDGE_TYPES.applies_to.color }, markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_TYPES.applies_to.color } },
+    { id: 'e16', source: 'p_content_pub', target: 'o_articles', type: 'default', data: { edgeType: 'applies_to' }, label: 'applies_to', style: { stroke: EDGE_TYPES.applies_to.color }, markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_TYPES.applies_to.color } },
+    { id: 'e17', source: 'p_content_read',target: 'o_articles', type: 'default', data: { edgeType: 'applies_to' }, label: 'applies_to', style: { stroke: EDGE_TYPES.applies_to.color }, markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_TYPES.applies_to.color } },
+    { id: 'e18', source: 'p_audit_view',  target: 'o_reports',  type: 'default', data: { edgeType: 'applies_to' }, label: 'applies_to', style: { stroke: EDGE_TYPES.applies_to.color }, markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_TYPES.applies_to.color } },
+    { id: 'e19', source: 'p_settings',    target: 'o_settings', type: 'default', data: { edgeType: 'applies_to' }, label: 'applies_to', style: { stroke: EDGE_TYPES.applies_to.color }, markerEnd: { type: MarkerType.ArrowClosed, color: EDGE_TYPES.applies_to.color } },
+  ];
+}
+
+// ─────────────────────────────────────────────
+// 驗證器
+// ─────────────────────────────────────────────
+function validateGraph(nodes, edges) {
+  const issues = [];
+  const stats = { users: 0, roles: 0, permissions: 0, resources: 0, edges: edges.length };
+
+  nodes.forEach((n) => {
+    const kind = n.data?.kind;
+    if (kind === 'user') stats.users++;
+    if (kind === 'role') stats.roles++;
+    if (kind === 'permission') stats.permissions++;
+    if (kind === 'resource') stats.resources++;
+  });
+
+  // 1. 邊型別語意檢查 (source/target kind 必須符合 edge type)
+  edges.forEach((e) => {
+    const edgeType = e.data?.edgeType;
+    if (!edgeType) {
+      issues.push({ level: 'warn', msg: `邊 ${e.id} 沒有指定語意類型` });
+      return;
+    }
+    const def = EDGE_TYPES[edgeType];
+    if (!def) {
+      issues.push({ level: 'error', msg: `邊 ${e.id} 使用未知的語意類型 "${edgeType}"` });
+      return;
+    }
+    const sourceNode = nodes.find((n) => n.id === e.source);
+    const targetNode = nodes.find((n) => n.id === e.target);
+    if (!sourceNode || !targetNode) {
+      issues.push({ level: 'error', msg: `邊 ${e.id} 連線到不存在的節點` });
+      return;
+    }
+    const sourceKind = sourceNode.data?.kind;
+    const targetKind = targetNode.data?.kind;
+    if (sourceKind !== def.validFrom) {
+      issues.push({ level: 'error', msg: `邊 ${e.id} 用了 "${edgeType}" 但來源應為 ${def.validFrom}（實際為 ${sourceKind}）` });
+    }
+    if (targetKind !== def.validTo) {
+      issues.push({ level: 'error', msg: `邊 ${e.id} 用了 "${edgeType}" 但目標應為 ${def.validTo}（實際為 ${targetKind}）` });
+    }
+  });
+
+  // 2. 循環檢測 (Role 繼承關係不應形成循環)
+  const roleInheritEdges = edges.filter((e) => e.data?.edgeType === 'inherits');
+  const adj = {};
+  roleInheritEdges.forEach((e) => {
+    if (!adj[e.source]) adj[e.source] = [];
+    adj[e.source].push(e.target);
+  });
+  const visited = new Set();
+  const recStack = new Set();
+  function hasCycle(node, path) {
+    if (recStack.has(node)) {
+      issues.push({ level: 'error', msg: `角色繼承循環: ${[...path, node].join(' → ')}` });
+      return true;
+    }
+    if (visited.has(node)) return false;
+    visited.add(node);
+    recStack.add(node);
+    for (const next of (adj[node] || [])) {
+      if (hasCycle(next, [...path, node])) return true;
+    }
+    recStack.delete(node);
+    return false;
+  }
+  Object.keys(adj).forEach((n) => { if (!visited.has(n)) hasCycle(n, []); });
+
+  // 3. 孤立角色 (未被任何 user 指派、也沒繼承別人、也沒授予權限)
+  const roles = nodes.filter((n) => n.data?.kind === 'role');
+  roles.forEach((r) => {
+    const connected = edges.some((e) => e.source === r.id || e.target === r.id);
+    if (!connected) {
+      issues.push({ level: 'warn', msg: `角色 "${r.data?.label || r.id}" 沒有任何連線（孤立）` });
+    }
+  });
+
+  // 4. 沒有被任何 role 授予的 permission
+  const permissions = nodes.filter((n) => n.data?.kind === 'permission');
+  permissions.forEach((p) => {
+    const grantedBy = edges.some((e) => e.target === p.id && e.data?.edgeType === 'grants');
+    if (!grantedBy) {
+      issues.push({ level: 'warn', msg: `權限 "${p.data?.label || p.id}" 沒有被任何角色授予（孤兒權限）` });
+    }
+  });
+
+  // 5. 沒有被任何 permission 作用的 resource
+  const resources = nodes.filter((n) => n.data?.kind === 'resource');
+  resources.forEach((r) => {
+    const usedBy = edges.some((e) => e.target === r.id && e.data?.edgeType === 'applies_to');
+    if (!usedBy) {
+      issues.push({ level: 'warn', msg: `資源 "${r.data?.label || r.id}" 沒有任何權限保護（無存取控制）` });
+    }
+  });
+
+  if (issues.length === 0) {
+    issues.push({ level: 'ok', msg: '✓ 所有規則檢查通過' });
+  }
+
+  return { issues, stats };
+}
+
+// ─────────────────────────────────────────────
+// 解析從 palette 拖入的新節點
+// ─────────────────────────────────────────────
+function createNode(kind, position) {
+  const id = `${kind}_${Math.random().toString(36).slice(2, 8)}`;
+  return {
+    id,
+    type: 'rbac',
+    position,
+    data: {
+      kind,
+      label: NODE_KINDS[kind].label,
+      description: '',
+      tags: [],
+    },
+  };
+}
+
+// ─────────────────────────────────────────────
+// 主元件
+// ─────────────────────────────────────────────
+function RBACApp() {
+  const reactFlowWrapper = useRef(null);
+  const [nodes, setNodes, onNodesChange] = useNodesState(getInitialNodes());
+  const [edges, setEdges, onEdgesChange] = useEdgesState(getInitialEdges());
+  const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [saveMessage, setSaveMessage] = useState('');
+  // rfReady 從 window.ReactFlow 直接讀初始值，避免事件 race condition
+  const [rfReady, setRfReady] = useState(() => !!(window.ReactFlow && window.ReactFlow.ReactFlow));
+
+  const { screenToFlowPosition, setViewport, getViewport } = useReactFlow();
+
+  // 計算即時驗證結果
+  const validation = useMemo(() => validateGraph(nodes, edges), [nodes, edges]);
+  const errors = validation.issues.filter((i) => i.level === 'error').length;
+  const warnings = validation.issues.filter((i) => i.level === 'warn').length;
+
+  // RF 萬一 mount 完還沒就緒，做 10ms 輪詢 fallback
+  useEffect(() => {
+    if (rfReady) return;
+    const t = setInterval(() => {
+      if (window.ReactFlow && window.ReactFlow.ReactFlow) {
+        setRfReady(true);
+        clearInterval(t);
+      }
+    }, 50);
+    setTimeout(() => clearInterval(t), 5000);
+    return () => clearInterval(t);
+  }, [rfReady]);
+
+  // rfReady 後延遲 200ms 呼叫 fitView — 給 React Flow 內部 measure nodes 的時間
+  useEffect(() => {
+    if (!rfReady) return;
+    const t = setTimeout(() => {
+      try {
+        const rf = reactFlowWrapper.current?.querySelector('.react-flow');
+        if (rf && window.ReactFlow?.fitView) {
+          // 直接透過 React Flow 內部 API fitView
+          setViewport({ x: 50, y: 50, zoom: 0.7 }, { duration: 0 });
+        }
+      } catch (e) { /* noop */ }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [rfReady, setViewport]);
+
+  // 邊連線時根據 source/target kind 自動決定語意類型
+  const onConnect = useCallback((params) => {
+    const sourceNode = nodes.find((n) => n.id === params.source);
+    const targetNode = nodes.find((n) => n.id === params.target);
+    if (!sourceNode || !targetNode) return;
+
+    const sk = sourceNode.data?.kind;
+    const tk = targetNode.data?.kind;
+
+    let edgeType = null;
+    if (sk === 'user' && tk === 'role') edgeType = 'assigned';
+    else if (sk === 'role' && tk === 'permission') edgeType = 'grants';
+    else if (sk === 'permission' && tk === 'resource') edgeType = 'applies_to';
+    else if (sk === 'role' && tk === 'role') edgeType = 'inherits';
+    else {
+      const confirmed = window.confirm(`不常見的連線: ${sk} → ${tk}。仍要建立嗎？`);
+      if (!confirmed) return;
+      edgeType = 'manual';
+    }
+
+    const def = EDGE_TYPES[edgeType] || { color: '#58a6ff' };
+    const newEdge = {
+      ...params,
+      id: `e_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      type: 'default',
+      data: { edgeType },
+      label: edgeType,
+      style: { stroke: def.color, strokeDasharray: edgeType === 'inherits' ? '6,4' : undefined },
+      markerEnd: { type: MarkerType.ArrowClosed, color: def.color },
+    };
+    setEdges((eds) => addEdge(newEdge, eds));
+  }, [nodes, setEdges]);
+
+  // 從 palette 拖入新節點
+  const onDragOver = useCallback((event) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const onDrop = useCallback((event) => {
+    event.preventDefault();
+    const kind = event.dataTransfer.getData('application/rbac-kind');
+    if (!kind || !NODE_KINDS[kind]) return;
+    const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+    const newNode = createNode(kind, position);
+    setNodes((nds) => nds.concat(newNode));
+    setSelectedNodeId(newNode.id);
+  }, [screenToFlowPosition, setNodes]);
+
+  // 節點選取
+  const onNodeClick = useCallback((_, node) => setSelectedNodeId(node.id), []);
+  const onPaneClick = useCallback(() => setSelectedNodeId(null), []);
+
+  // 編輯節點
+  const updateSelectedNode = useCallback((patch) => {
+    setNodes((nds) => nds.map((n) => n.id === selectedNodeId ? { ...n, data: { ...n.data, ...patch } } : n));
+  }, [selectedNodeId, setNodes]);
+
+  const deleteSelectedNode = useCallback(() => {
+    if (!selectedNodeId) return;
+    setNodes((nds) => nds.filter((n) => n.id !== selectedNodeId));
+    setEdges((eds) => eds.filter((e) => e.source !== selectedNodeId && e.target !== selectedNodeId));
+    setSelectedNodeId(null);
+  }, [selectedNodeId, setNodes, setEdges]);
+
+  const selectedNode = nodes.find((n) => n.id === selectedNodeId);
+
+  // ── 匯出 JSON
+  const exportJSON = useCallback(() => {
+    const data = {
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      nodes: nodes.map((n) => ({ id: n.id, kind: n.data?.kind, label: n.data?.label, description: n.data?.description, tags: n.data?.tags || [] })),
+      edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target, edgeType: e.data?.edgeType })),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `rbac-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setSaveMessage('✓ 已匯出 JSON');
+    setTimeout(() => setSaveMessage(''), 2000);
+  }, [nodes, edges]);
+
+  // ── 匯入 JSON
+  const importJSON = useCallback((event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        if (!data.nodes || !data.edges) throw new Error('JSON 結構不正確');
+        const newNodes = data.nodes.map((n, i) => ({
+          id: n.id,
+          type: 'rbac',
+          position: { x: 100 + (i % 5) * 280, y: 50 + Math.floor(i / 5) * 180 },
+          data: { kind: n.kind, label: n.label, description: n.description, tags: n.tags || [] },
+        }));
+        const newEdges = data.edges.map((e) => {
+          const def = EDGE_TYPES[e.edgeType] || { color: '#58a6ff' };
+          return {
+            id: e.id,
+            source: e.source,
+            target: e.target,
+            type: 'default',
+            data: { edgeType: e.edgeType },
+            label: e.edgeType,
+            style: { stroke: def.color, strokeDasharray: e.edgeType === 'inherits' ? '6,4' : undefined },
+            markerEnd: { type: MarkerType.ArrowClosed, color: def.color },
+          };
+        });
+        setNodes(newNodes);
+        setEdges(newEdges);
+        setSaveMessage(`✓ 已匯入 ${newNodes.length} 節點 / ${newEdges.length} 邊`);
+        setTimeout(() => setSaveMessage(''), 2000);
+      } catch (err) {
+        setSaveMessage(`✗ 匯入失敗: ${err.message}`);
+        setTimeout(() => setSaveMessage(''), 3000);
+      }
+    };
+    reader.readAsText(file);
+  }, [setNodes, setEdges]);
+
+  // ── 重置範例
+  const resetExample = useCallback(() => {
+    if (!window.confirm('重置將清除目前所有節點與邊，確定？')) return;
+    setNodes(getInitialNodes());
+    setEdges(getInitialEdges());
+    setSelectedNodeId(null);
+    setSaveMessage('✓ 已重置為企業 CMS 範例');
+    setTimeout(() => setSaveMessage(''), 2000);
+  }, [setNodes, setEdges]);
+
+  // 全部清除
+  const clearAll = useCallback(() => {
+    if (!window.confirm('真的要清空整個畫布嗎？')) return;
+    setNodes([]);
+    setEdges([]);
+    setSelectedNodeId(null);
+  }, [setNodes, setEdges]);
+
+  return (
+    <div id="root" style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <header className="topbar">
+        <h1>RBAC 權限流程圖<span className="badge">React Flow 11</span></h1>
+        <div className={`status ${errors > 0 ? 'error' : warnings > 0 ? '' : 'ok'}`}>
+          {errors > 0 ? `✗ ${errors} 個錯誤` : warnings > 0 ? `⚠ ${warnings} 個警告` : '✓ 通過驗證'}
+        </div>
+        {saveMessage && <div className="status ok">{saveMessage}</div>}
+        <div className="spacer" />
+        <label className="topbar button secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          匯入 JSON
+          <input type="file" accept=".json" onChange={importJSON} style={{ display: 'none' }} />
+        </label>
+        <button className="secondary" onClick={exportJSON}>匯出 JSON</button>
+        <button className="secondary" onClick={resetExample}>重置範例</button>
+        <button className="danger" onClick={clearAll}>清空</button>
+      </header>
+
+      <div className="main">
+        <aside className="sidebar">
+          <div className="palette-section">
+            <h3>節點類型</h3>
+            {Object.entries(NODE_KINDS).map(([kind, info]) => (
+              <div
+                key={kind}
+                className="palette-node"
+                draggable
+                onDragStart={(event) => {
+                  event.dataTransfer.setData('application/rbac-kind', kind);
+                  event.dataTransfer.effectAllowed = 'move';
+                }}
+              >
+                <span className="node-icon" style={{ background: info.color }}>{info.icon}</span>
+                <div className="node-info">
+                  <div className="node-title">{info.label}</div>
+                  <div className="node-desc">{info.desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="palette-section">
+            <h3>連線語意</h3>
+            <div style={{ fontSize: '11px', color: '#7d8590', lineHeight: 1.7, padding: '4px 0' }}>
+              {Object.entries(EDGE_TYPES).map(([k, v]) => (
+                <div key={k} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                  <span style={{ display: 'inline-block', width: '12px', height: '2px', background: v.color }}></span>
+                  <span><strong style={{ color: '#e6edf3' }}>{v.label}</strong> · {v.description}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="palette-section">
+            <h3>使用提示</h3>
+            <div style={{ fontSize: '11px', color: '#7d8590', lineHeight: 1.7 }}>
+              • 拖左側節點到畫布新增<br/>
+              • 拖節點上的圓點連線<br/>
+              • 點節點開啟右側編輯<br/>
+              • 刪除節點會連帶刪除其邊<br/>
+              • 滾輪縮放、空白處拖曳移動
+            </div>
+          </div>
+        </aside>
+
+        <div className="flow" ref={reactFlowWrapper}>
+          {!rfReady && (
+            <div className="loading-overlay">
+              <div className="spinner"></div>
+              <div style={{ color: '#7d8590', fontSize: '14px' }}>React Flow 11 載入中...</div>
+            </div>
+          )}
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onDrop={onDrop}
+            onDragOver={onDragOver}
+            onNodeClick={onNodeClick}
+            onPaneClick={onPaneClick}
+            nodeTypes={nodeTypes}
+            fitView
+            fitViewOptions={{ padding: 0.15, includeHiddenNodes: false, duration: 0, minZoom: 0.5, maxZoom: 1.5 }}
+            minZoom={0.2}
+            maxZoom={2}
+            defaultEdgeOptions={{ type: 'default' }}
+            proOptions={{ hideAttribution: true }}
+          >
+            <Background color="#21262d" gap={20} />
+            <Controls style={{ background: '#161b22', border: '1px solid #21262d' }} />
+            <MiniMap
+              nodeColor={(n) => NODE_KINDS[n.data?.kind]?.color || '#58a6ff'}
+              maskColor="rgba(13,17,23,0.8)"
+              style={{ background: '#161b22', border: '1px solid #21262d' }}
+            />
+          </ReactFlow>
+        </div>
+
+        <aside className="right-panel">
+          <div className="panel-section">
+            <h3>圖表統計</h3>
+            <div className="stat-row"><span className="label">使用者</span><span className="value">{validation.stats.users}</span></div>
+            <div className="stat-row"><span className="label">角色</span><span className="value">{validation.stats.roles}</span></div>
+            <div className="stat-row"><span className="label">權限</span><span className="value">{validation.stats.permissions}</span></div>
+            <div className="stat-row"><span className="label">資源</span><span className="value">{validation.stats.resources}</span></div>
+            <div className="stat-row"><span className="label">連線</span><span className="value muted">{validation.stats.edges}</span></div>
+          </div>
+
+          <div className="panel-section">
+            <h3>驗證結果 ({validation.issues.length})</h3>
+            <div className="validation-list">
+              {validation.issues.map((v, i) => (
+                <div key={i} className={`v-item ${v.level}`}>{v.msg}</div>
+              ))}
+            </div>
+          </div>
+
+          <div className="panel-section inspector">
+            <h3>節點屬性編輯器</h3>
+            {!selectedNode && (
+              <div style={{ fontSize: '11px', color: '#7d8590', padding: '8px 0' }}>
+                點擊畫布上任一節點以編輯屬性。
+              </div>
+            )}
+            {selectedNode && (
+              <>
+                <div className="form-group">
+                  <label>類型</label>
+                  <select
+                    value={selectedNode.data?.kind || 'role'}
+                    onChange={(e) => updateSelectedNode({ kind: e.target.value })}
+                  >
+                    {Object.entries(NODE_KINDS).map(([k, v]) => (
+                      <option key={k} value={k}>{v.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>名稱</label>
+                  <input
+                    type="text"
+                    value={selectedNode.data?.label || ''}
+                    onChange={(e) => updateSelectedNode({ label: e.target.value })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>描述</label>
+                  <textarea
+                    value={selectedNode.data?.description || ''}
+                    onChange={(e) => updateSelectedNode({ description: e.target.value })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>標籤 (以逗號分隔)</label>
+                  <input
+                    type="text"
+                    value={(selectedNode.data?.tags || []).join(', ')}
+                    onChange={(e) => updateSelectedNode({ tags: e.target.value.split(',').map((t) => t.trim()).filter(Boolean) })}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>節點 ID</label>
+                  <input type="text" value={selectedNode.id} disabled style={{ opacity: 0.5 }} />
+                </div>
+                <div className="form-group">
+                  <div className="actions">
+                    <button className="danger" onClick={deleteSelectedNode}>刪除節點</button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// 進入點：等 ReactFlow 準備好才 render
+// ─────────────────────────────────────────────
+waitForReactFlow().then(() => {
+  const root = createRoot(document.getElementById('root'));
+  root.render(
+    <ReactFlowProvider>
+      <RBACApp />
+    </ReactFlowProvider>
+  );
+});
+</script>
+</body>
+</html>
