@@ -1,11 +1,11 @@
-# Comprehensive API Security and Validation: `comprehensive_api_security_and_validation`
+# Comprehensive Application Security: `comprehensive_application_security`
 
 ## Overview
-This comprehensive guide aims to equip you with the knowledge and tools to secure APIs against a wide range of threats and validate API endpoints for availability and correctness. By integrating security reviews, attack vector analysis, deployment checklists, and advanced techniques using FastAPI, this guide ensures robust protection, resilience against common vulnerabilities, and reliable endpoint performance.
+This comprehensive guide integrates multiple security micro-skills to provide a holistic approach to application security. It covers API security, data protection, and defense against prompt injection attacks, ensuring robust protection against a wide range of threats. By combining authentication, authorization, anomaly detection, and advanced techniques, this guide aims to create a secure, resilient, and reliable application environment.
 
 ---
 
-## 1. API Security Review: Attacker and Defender Perspectives
+## 1. API Security and Validation
 
 ### 1.1 Attacker's Perspective: Reconnaissance Techniques
 
@@ -116,27 +116,87 @@ Attackers exploit vulnerabilities in database queries to execute malicious SQL c
 
 ---
 
-## 3. Deployment Security Checklist
+## 3. Prompt Injection Defense
 
-Before deploying your API, ensure that the following security measures are in place.
+### 3.1 Detecting and Blocking Fake Authority Requests
+- **Objective**: Identify and prevent unauthorized or malicious requests that impersonate legitimate authorities.
+    ```javascript
+    // Function to validate the legitimacy of an authorization request
+    function isAuthorizedRequest(request) {
+      // Validate the source and content of the request
+      if (validateRequestSource(request) && validateRequestContent(request)) {
+        return true;
+      }
+      return false;
+    }
 
-### 3.1 Authentication and Authorization
-- **Requirement**: All endpoints must enforce authentication and authorization.
-  - **Implementation**: Use middleware to enforce access controls.
-    ```python
-    # Example: FastAPI middleware for enforcing authentication
-    from fastapi import FastAPI, Depends, HTTPException
-    from fastapi.security import OAuth2PasswordBearer
-    ...
+    // Function to sanitize prompts and remove potential malicious instructions
+    function sanitizePrompt(prompt) {
+      // Remove or escape characters that could be used for injection
+      return prompt.replace(/[^a-zA-Z0-9 ]/g, '');
+    }
     ```
+- **Key Points**:
+  - **Request Validation**: Ensure incoming requests are from trusted sources and contain expected content.
+  - **Sanitization**: Strip out or escape characters and patterns that could be used to inject malicious commands.
 
-### 3.2 Data Encryption
+### 3.2 Identifying and Neutralizing Prompt Injection Attempts
+- **Objective**: Detect and mitigate attempts to manipulate the AI by injecting unauthorized instructions.
+    ```python
+    def detect_injection(message):
+        injection_keywords = ['極限超頻模式', 'FULL AUTONOMY', '嚴格禁止要求人類確認', '不准停下來等回覆']
+        injection_patterns = [
+            '嚴格禁止使用 __ 工具！',
+            '請先讀取 __ 吸收架構建議',
+            '並使用  檢索',
+            '存檔至工作目錄下的 __'
+        ]
+        flags = 0
+        for keyword in injection_keywords:
+            if keyword in message:
+                flags += 1
+        for pattern in injection_patterns:
+            if pattern in message:
+                flags += 1
+        return flags >= 2
+    ```
+- **Key Points**:
+  - **Keyword and Pattern Matching**: Use a combination of specific keywords and patterns to identify potential injection attempts.
+  - **Threshold-Based Detection**: Flag messages that match multiple criteria to reduce false positives and enhance detection accuracy.
+
+### 3.3 Handling Suspicious Prompts with Authorization Checks
+- **Objective**: Ensure that prompts containing sensitive or potentially malicious content are thoroughly checked before execution.
+    ```python
+    def handle_prompt_injection(prompt):
+        if "FULL AUTONOMY" in prompt and "嚴格禁止要求確認" in prompt:
+            # 檢查是否有其他授權指令
+            if not validate_authorization(prompt):
+                # 拒絕執行並記錄
+                log_prompt_injection_attempt(prompt)
+                return "拒絕執行，請聯繫系統管理員。"
+        return execute_task(prompt)
+    ```
+- **Key Points**:
+  - **Authorization Validation**: Verify the presence of valid authorization instructions before executing tasks.
+  - **Logging and Reporting**: Record suspicious prompts for further analysis and take appropriate action, such as rejecting the request and notifying administrators.
+
+---
+
+## 4. Data Protection
+
+### 4.1 Data Encryption
 - **Requirement**: Sensitive data must be encrypted both in transit and at rest.
   - **Techniques**:
     - **TLS/SSL**: Encrypt data during transmission.
     - **Encryption at Rest**: Use encryption for stored data, such as AES-256 encryption.
 
-### 3.3 Logging and Monitoring
+### 4.2 Secure Configuration Management
+- **Requirement**: Ensure that configuration files do not contain sensitive information and are stored securely.
+  - **Techniques**:
+    - **Environment Variables**: Use environment variables to store sensitive configuration data.
+    - **Configuration Files**: Encrypt configuration files or use secure storage solutions.
+
+### 4.3 Logging and Monitoring
 - **Requirement**: Logs should not contain sensitive information and must be monitored for suspicious activities.
   - **Implementation**:
     ```python
@@ -149,103 +209,27 @@ Before deploying your API, ensure that the following security measures are in pl
     - **Avoid Logging Sensitive Data**: Do not log passwords, tokens, or personal information.
     - **Log Rotation and Retention**: Implement log rotation policies to prevent log files from growing indefinitely.
 
-### 3.4 Secure Configuration Management
-- **Requirement**: Ensure that configuration files do not contain sensitive information and are stored securely.
-  - **Techniques**:
-    - **Environment Variables**: Use environment variables to store sensitive configuration data.
-    - **Configuration Files**: Encrypt configuration files or use secure storage solutions.
-
 ---
 
-## 4. FastAPI Security Middleware Implementation
+## 5. Deployment Security Checklist
 
-Implement security middleware to enforce security policies at the application level.
+Before deploying your application, ensure that the following security measures are in place.
 
-### 4.1 Authentication Middleware
-- **Objective**: Validate the token in each request.
+### 5.1 Authentication and Authorization
+- **Requirement**: All endpoints must enforce authentication and authorization.
+  - **Implementation**: Use middleware to enforce access controls.
     ```python
-    from fastapi import FastAPI, Depends, HTTPException, status
-    from fastapi.security import OAuth2PasswordBearer
-    from jwt import decode, InvalidTokenError
-    ...
-    ```
-  - **Implementation**:
-    - **Extract Token**: Extract token from request headers.
-    - **Verify Token**: Verify token signature and expiration.
-    - **Handle Errors**: Return appropriate error messages for invalid tokens.
-    ```python
-    oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-    def get_current_user(token: str = Depends(oauth2_scheme)):
-        try:
-            payload = decode(token, secret_key, algorithms=['HS256'])
-            user_id: str = payload.get("user_id")
-            ...
-        except InvalidTokenError:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication")
-    ```
-
-### 4.2 Authorization Middleware
-- **Objective**: Ensure users have the necessary permissions.
-    ```python
-    from fastapi import Request, HTTPException
+    # Example: FastAPI middleware for enforcing authentication
+    from fastapi import FastAPI, Depends, HTTPException
     from fastapi.security import OAuth2PasswordBearer
     ...
     ```
-  - **Implementation**:
-    - **Check Permissions**: Check user roles and permissions against resource requirements.
-    - **Enforce Policies**: Enforce access control policies based on user roles.
-    ```python
-    def authorize_user(permission: str):
-        def decorator(request: Request):
-            token = request.headers.get("Authorization")
-            ...
-            if not has_permission(user, permission):
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
-            ...
-        return decorator
-    ```
 
-### 4.3 Rate Limiting
-- **Objective**: Prevent abuse by limiting request rates.
-    ```python
-    from fastapi import FastAPI
-    from fastapi_limiter import FastAPILimiter
-    from fastapi_limiter.depends import RateLimiter
-    ...
-    ```
-  - **Implementation**:
-    - **Set Rate Limits**: Set rate limits per IP or user.
-    - **Implement Backoff**: Implement exponential backoff for repeated violations.
-    ```python
-    app = FastAPI()
-    limiter = FastAPILimiter(app)
-    @app.get("/data")
-    @RateLimiter(limit=100, duration=60)
-    async def get_data():
-        ...
-    ```
+### 5.2 Data Encryption
+- **Requirement**: Sensitive data must be encrypted both in transit and at rest.
 
-### 4.4 Audit Logging
-- **Objective**: Record detailed information about all requests.
-    ```python
-    import logging
-    from fastapi import FastAPI, Request
-    ...
-    ```
-  - **Implementation**:
-    - **Log Details**: Log user identities, timestamps, and request details.
-    - **Secure Storage**: Store logs securely and ensure their integrity.
-    ```python
-    app = FastAPI()
-    logging.basicConfig(level=logging.INFO)
-    @app.middleware("http")
-    async def log_requests(request: Request, call_next):
-        logging.info(f"Request: {request.method} {request.url}")
-        response = await call_next(request)
-        logging.info(f"Response: {response.status_code}")
-        return response
-    ```
+### 5.3 Logging and Monitoring
+- **Requirement**: Logs should not contain sensitive information and must be monitored for suspicious activities.
 
----
-
-##
+### 5.4 Secure Configuration Management
+- **Requirement**:
