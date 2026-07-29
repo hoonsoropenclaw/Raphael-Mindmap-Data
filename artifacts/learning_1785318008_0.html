@@ -1,0 +1,1069 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RBAC 動態權限管理 — React Flow 視覺化</title>
+<!--
+  React Flow v11 (UMD) + React 18 UMD + Babel standalone
+  單檔 HTML、零建置、直接瀏覽器開啟即可互動
+  設計：角色 (nodes) × 權限 (edges) 視覺化矩陣 + 拖拽編輯 + 群組
+-->
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+<link href="https://unpkg.com/reactflow@11.11.4/dist/style.css" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-2: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --accent-2: #818cf8;
+    --ok: #10b981;
+    --warn: #f59e0b;
+    --err: #ef4444;
+    --border: #475569;
+  }
+  * { box-sizing: border-box; }
+  html, body, #root { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC",
+      "Microsoft JhengHei", Roboto, "Helvetica Neue", Arial, sans-serif;
+    overflow: hidden;
+  }
+  .app {
+    display: grid;
+    grid-template-columns: 280px 1fr 320px;
+    grid-template-rows: 56px 1fr;
+    height: 100vh;
+    gap: 0;
+  }
+  header.topbar {
+    grid-column: 1 / -1;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 16px;
+  }
+  header.topbar h1 {
+    font-size: 16px;
+    margin: 0;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+  header.topbar h1 .accent { color: var(--accent); }
+  header.topbar .stats {
+    margin-left: auto;
+    display: flex;
+    gap: 18px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  header.topbar .stats strong { color: var(--text); font-weight: 600; }
+  header.topbar .actions {
+    display: flex;
+    gap: 8px;
+  }
+  button.btn {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  button.btn:hover { background: var(--accent); color: #0c1426; border-color: var(--accent); }
+  button.btn.primary { background: var(--accent); color: #0c1426; border-color: var(--accent); font-weight: 600; }
+  button.btn.danger { background: transparent; color: var(--err); border-color: var(--err); }
+  button.btn.danger:hover { background: var(--err); color: white; }
+
+  aside.sidebar {
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 16px;
+  }
+  aside.sidebar.right {
+    border-right: none;
+    border-left: 1px solid var(--border);
+  }
+  aside.sidebar h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 10px;
+    letter-spacing: 1px;
+  }
+  .palette-item {
+    background: var(--panel-2);
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    cursor: grab;
+    user-select: none;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .palette-item:hover { border-color: var(--accent); border-style: solid; }
+  .palette-item .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--accent);
+  }
+  .palette-item.role-admin .dot { background: var(--err); }
+  .palette-item.role-editor .dot { background: var(--warn); }
+  .palette-item.role-viewer .dot { background: var(--ok); }
+  .palette-item.permission .dot { background: var(--accent-2); }
+
+  .role-list, .perm-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 16px;
+  }
+  .role-list li, .perm-list li {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    font-size: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .role-list li .swatch {
+    width: 8px; height: 8px; border-radius: 50%;
+    display: inline-block;
+    margin-right: 6px;
+  }
+  .role-list li button, .perm-list li button {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0 4px;
+  }
+  .role-list li button:hover, .perm-list li button:hover { color: var(--err); }
+
+  .matrix {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    margin-top: 8px;
+  }
+  .matrix th, .matrix td {
+    border: 1px solid var(--border);
+    padding: 4px;
+    text-align: center;
+  }
+  .matrix th {
+    background: var(--panel-2);
+    color: var(--muted);
+    font-weight: 500;
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    white-space: nowrap;
+    max-width: 32px;
+  }
+  .matrix th.row-label, .matrix td.row-label {
+    writing-mode: horizontal-tb;
+    transform: none;
+    text-align: left;
+    padding-left: 8px;
+    background: var(--panel-2);
+    color: var(--text);
+    font-weight: 500;
+    max-width: 90px;
+  }
+  .matrix td.granted { background: rgba(16, 185, 129, 0.25); color: var(--ok); cursor: pointer; }
+  .matrix td.denied { background: rgba(239, 68, 68, 0.1); color: var(--muted); cursor: pointer; }
+  .matrix td.granted:hover { background: rgba(16, 185, 129, 0.5); }
+  .matrix td.denied:hover { background: rgba(16, 185, 129, 0.25); }
+  .matrix caption {
+    caption-side: top;
+    text-align: left;
+    color: var(--muted);
+    font-size: 11px;
+    margin-bottom: 6px;
+  }
+
+  .flow-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    background: var(--bg);
+  }
+  .react-flow__node {
+    font-family: inherit;
+  }
+  .rbac-node {
+    background: var(--panel);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    min-width: 140px;
+    color: var(--text);
+    font-size: 13px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  }
+  .rbac-node.role {
+    border-left: 4px solid var(--accent);
+  }
+  .rbac-node.role.selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent), 0 4px 12px rgba(0,0,0,0.3);
+  }
+  .rbac-node.permission {
+    border-left: 4px solid var(--accent-2);
+    background: var(--panel-2);
+  }
+  .rbac-node.permission.selected {
+    border-color: var(--accent-2);
+    box-shadow: 0 0 0 2px var(--accent-2), 0 4px 12px rgba(0,0,0,0.3);
+  }
+  .rbac-node .label {
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .rbac-node .sub {
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .rbac-node .badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 500;
+    margin-top: 4px;
+  }
+  .rbac-node .badge.admin { background: rgba(239, 68, 68, 0.2); color: var(--err); }
+  .rbac-node .badge.editor { background: rgba(245, 158, 11, 0.2); color: var(--warn); }
+  .rbac-node .badge.viewer { background: rgba(16, 185, 129, 0.2); color: var(--ok); }
+  .rbac-node select {
+    margin-top: 6px;
+    width: 100%;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 3px 6px;
+    font-size: 11px;
+  }
+
+  .react-flow__edge-path { stroke: var(--accent); stroke-width: 2; }
+  .react-flow__edge.selected .react-flow__edge-path {
+    stroke: var(--ok);
+    stroke-width: 3;
+  }
+  .react-flow__edge-text { fill: var(--text); font-size: 11px; }
+  .react-flow__edge-textbg { fill: var(--bg); }
+  .react-flow__controls {
+    background: var(--panel);
+    border: 1px solid var(--border);
+  }
+  .react-flow__controls button {
+    background: var(--panel);
+    color: var(--text);
+    border-bottom: 1px solid var(--border);
+  }
+  .react-flow__controls button:hover { background: var(--panel-2); }
+  .react-flow__controls button svg { fill: var(--text); }
+  .react-flow__minimap {
+    background: var(--panel) !important;
+    border: 1px solid var(--border);
+  }
+  .react-flow__background {
+    background-color: var(--bg);
+  }
+  .react-flow__attribution { background: var(--panel) !important; color: var(--muted) !important; }
+
+  .hint {
+    position: absolute;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(15, 23, 42, 0.92);
+    border: 1px solid var(--border);
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 12px;
+    color: var(--muted);
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  .modal-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100;
+  }
+  .modal {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    width: 420px;
+    max-width: 90vw;
+  }
+  .modal h2 { margin: 0 0 16px; font-size: 16px; }
+  .modal label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; margin-top: 12px; }
+  .modal input, .modal select {
+    width: 100%;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+  .modal .row { display: flex; gap: 8px; margin-top: 20px; }
+  .modal .row button { flex: 1; }
+
+  .empty-hint {
+    color: var(--muted);
+    font-size: 11px;
+    text-align: center;
+    padding: 12px;
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    margin-top: 8px;
+  }
+</style>
+</head>
+<body>
+<div id="root">
+  <div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#94a3b8;font-family:sans-serif;">
+    載入中…
+  </div>
+</div>
+
+<script>
+const {
+  useState,
+  useCallback,
+  useMemo,
+  useEffect,
+  useRef
+} = React;
+const {
+  ReactFlow,
+  ReactFlowProvider,
+  Background,
+  Controls,
+  MiniMap,
+  applyNodeChanges,
+  applyEdgeChanges,
+  addEdge,
+  MarkerType,
+  Handle,
+  Position
+} = window.ReactFlow;
+
+// ===== 內建 demo 資料（角色/權限）=====
+const DEFAULT_PERMISSIONS = [{
+  id: "p:read",
+  label: "讀取 (read)",
+  resource: "documents"
+}, {
+  id: "p:write",
+  label: "寫入 (write)",
+  resource: "documents"
+}, {
+  id: "p:delete",
+  label: "刪除 (delete)",
+  resource: "documents"
+}, {
+  id: "p:share",
+  label: "分享 (share)",
+  resource: "documents"
+}, {
+  id: "p:audit",
+  label: "稽核 (audit)",
+  resource: "system"
+}, {
+  id: "p:manage",
+  label: "管理 (manage)",
+  resource: "users"
+}];
+const DEFAULT_ROLES = [{
+  id: "r:admin",
+  label: "系統管理員",
+  tier: "admin",
+  color: "#ef4444"
+}, {
+  id: "r:editor",
+  label: "內容編輯",
+  tier: "editor",
+  color: "#f59e0b"
+}, {
+  id: "r:viewer",
+  label: "唯讀訪客",
+  tier: "viewer",
+  color: "#10b981"
+}];
+
+// 初始指派：admin 全拿 / editor 拿 read+write+share / viewer 只 read
+function buildInitialAssignments() {
+  return {
+    "r:admin": ["p:read", "p:write", "p:delete", "p:share", "p:audit", "p:manage"],
+    "r:editor": ["p:read", "p:write", "p:share"],
+    "r:viewer": ["p:read"]
+  };
+}
+
+// ===== 節點元件 =====
+function RoleNode({
+  data,
+  selected
+}) {
+  const tierClass = data.tier || "editor";
+  return /*#__PURE__*/React.createElement("div", {
+    className: `rbac-node role ${selected ? "selected" : ""}`,
+    style: {
+      borderLeftColor: data.color
+    }
+  }, /*#__PURE__*/React.createElement(Handle, {
+    type: "source",
+    position: Position.Right,
+    style: {
+      background: data.color
+    }
+  }), /*#__PURE__*/React.createElement(Handle, {
+    type: "target",
+    position: Position.Left,
+    style: {
+      background: data.color
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "label"
+  }, data.label), /*#__PURE__*/React.createElement("div", {
+    className: "sub"
+  }, data.permissionCount || 0, " 個權限"), /*#__PURE__*/React.createElement("span", {
+    className: `badge ${tierClass}`
+  }, tierClass));
+}
+function PermissionNode({
+  data,
+  selected
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: `rbac-node permission ${selected ? "selected" : ""}`
+  }, /*#__PURE__*/React.createElement(Handle, {
+    type: "target",
+    position: Position.Left,
+    style: {
+      background: "#818cf8"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "label"
+  }, data.label), /*#__PURE__*/React.createElement("div", {
+    className: "sub"
+  }, "resource: ", data.resource), /*#__PURE__*/React.createElement("span", {
+    className: "badge admin",
+    style: {
+      background: "rgba(129,140,248,0.2)",
+      color: "#818cf8"
+    }
+  }, "permission"));
+}
+const nodeTypes = {
+  roleNode: RoleNode,
+  permNode: PermissionNode
+};
+
+// ===== 邊的標籤渲染 (讓 granted 標籤顯示在 edge 上) =====
+function EdgeLabelRenderer({
+  assignments,
+  rolesById,
+  permsById
+}) {
+  return null; // 不用 React Flow 內建 label，自行計算
+}
+
+// ===== 主元件 =====
+function RbacApp() {
+  const [roles, setRoles] = useState(DEFAULT_ROLES);
+  const [permissions, setPermissions] = useState(DEFAULT_PERMISSIONS);
+  const [assignments, setAssignments] = useState(buildInitialAssignments());
+  const [nodes, setNodes] = useState([]);
+  const [edges, setEdges] = useState([]);
+  const [selectedRole, setSelectedRole] = useState(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState(null);
+  const [modal, setModal] = useState(null); // {type: 'role'|'perm', mode:'add'|'edit', data:{}}
+  const reactFlowWrapper = useRef(null);
+  const [rfInstance, setRfInstance] = useState(null);
+
+  // 計算 layout：左側放角色、右側放權限（自動排版）
+  const layoutNodesAndEdges = useCallback((roles, perms, assignments) => {
+    const ROLE_X = 80,
+      PERM_X = 480;
+    const ROW_HEIGHT = 110,
+      COL_WIDTH = 220;
+    const roleNodes = roles.map((r, i) => ({
+      id: r.id,
+      type: "roleNode",
+      position: {
+        x: ROLE_X,
+        y: 60 + i * ROW_HEIGHT
+      },
+      data: {
+        ...r,
+        permissionCount: (assignments[r.id] || []).length
+      }
+    }));
+    const permNodes = perms.map((p, i) => ({
+      id: p.id,
+      type: "permNode",
+      position: {
+        x: PERM_X + i % 3 * COL_WIDTH,
+        y: 40 + Math.floor(i / 3) * ROW_HEIGHT
+      },
+      data: {
+        ...p
+      }
+    }));
+    const newEdges = [];
+    Object.entries(assignments).forEach(([roleId, permIds]) => {
+      permIds.forEach(permId => {
+        newEdges.push({
+          id: `e:${roleId}-${permId}`,
+          source: roleId,
+          target: permId,
+          type: "smoothstep",
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: "#38bdf8"
+          },
+          data: {
+            granted: true,
+            roleId,
+            permId
+          }
+        });
+      });
+    });
+    return {
+      nodes: [...roleNodes, ...permNodes],
+      edges: newEdges
+    };
+  }, []);
+
+  // 初始化 layout
+  useEffect(() => {
+    const {
+      nodes: n,
+      edges: e
+    } = layoutNodesAndEdges(roles, permissions, assignments);
+    setNodes(n);
+    setEdges(e);
+  }, []); // 只跑一次
+
+  // 角色/權限/指派變動時重新 layout（保留現有 node position 想法：先簡單全部重建）
+  useEffect(() => {
+    const {
+      nodes: n,
+      edges: e
+    } = layoutNodesAndEdges(roles, permissions, assignments);
+    // 嘗試保留舊的 position
+    setNodes(prev => n.map(nn => {
+      const old = prev.find(p => p.id === nn.id);
+      return old ? {
+        ...nn,
+        position: old.position
+      } : nn;
+    }));
+    setEdges(e);
+  }, [roles, permissions, assignments, layoutNodesAndEdges]);
+  const onNodesChange = useCallback(changes => setNodes(nds => applyNodeChanges(changes, nds)), []);
+  const onEdgesChange = useCallback(changes => setEdges(eds => applyEdgeChanges(changes, eds)), []);
+  const onNodeClick = useCallback((evt, node) => {
+    if (node.type === "roleNode") setSelectedRole(node.id);
+  }, []);
+  const onEdgeClick = useCallback((evt, edge) => {
+    setSelectedEdgeId(edge.id);
+  }, []);
+  const onPaneClick = useCallback(() => {
+    setSelectedRole(null);
+    setSelectedEdgeId(null);
+  }, []);
+
+  // 拖放：從 palette 拖到畫布
+  const onDragOver = useCallback(event => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  }, []);
+  const onDrop = useCallback(event => {
+    event.preventDefault();
+    if (!rfInstance || !reactFlowWrapper.current) return;
+    const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
+    const type = event.dataTransfer.getData("application/rbac");
+    if (!type || !type.startsWith("add:")) return;
+    const subtype = type.slice(4);
+    const position = rfInstance.screenToFlowPosition({
+      x: event.clientX - reactFlowBounds.left,
+      y: event.clientY - reactFlowBounds.top
+    });
+    if (subtype === "role") {
+      const newId = "r:" + Date.now().toString(36);
+      setRoles(rs => [...rs, {
+        id: newId,
+        label: "新角色",
+        tier: "editor",
+        color: "#38bdf8"
+      }]);
+      setAssignments(a => ({
+        ...a,
+        [newId]: []
+      }));
+    } else if (subtype === "permission") {
+      const newId = "p:" + Date.now().toString(36);
+      setPermissions(ps => [...ps, {
+        id: newId,
+        label: "新權限",
+        resource: "documents"
+      }]);
+    }
+  }, [rfInstance]);
+  const onDragStart = (event, payload) => {
+    event.dataTransfer.setData("application/rbac", payload);
+    event.dataTransfer.effectAllowed = "move";
+  };
+
+  // 矩陣 cell 切換：grant/revoke
+  const toggleAssignment = (roleId, permId) => {
+    setAssignments(a => {
+      const current = a[roleId] || [];
+      const next = current.includes(permId) ? current.filter(x => x !== permId) : [...current, permId];
+      return {
+        ...a,
+        [roleId]: next
+      };
+    });
+  };
+
+  // 編輯/刪除角色/權限
+  const openAddRole = () => setModal({
+    type: "role",
+    mode: "add",
+    data: {
+      tier: "editor",
+      color: "#38bdf8"
+    }
+  });
+  const openAddPerm = () => setModal({
+    type: "perm",
+    mode: "add",
+    data: {
+      resource: "documents"
+    }
+  });
+  const openEditRole = r => setModal({
+    type: "role",
+    mode: "edit",
+    data: {
+      ...r
+    }
+  });
+  const openEditPerm = p => setModal({
+    type: "perm",
+    mode: "edit",
+    data: {
+      ...p
+    }
+  });
+  const submitModal = () => {
+    if (!modal) return;
+    const {
+      type,
+      mode,
+      data
+    } = modal;
+    if (type === "role") {
+      if (mode === "add") {
+        const newId = "r:" + Date.now().toString(36);
+        setRoles(rs => [...rs, data]);
+        setAssignments(a => ({
+          ...a,
+          [newId]: []
+        }));
+        // 重新整理（用 data 裡沒有 id 的方式觸發 layout）
+        // 直接操作 roles 已包含 id-less 的暫存 → 需要給 id
+        setRoles(rs => rs.map(r => r === data ? {
+          ...r,
+          id: newId
+        } : r));
+      } else {
+        setRoles(rs => rs.map(r => r.id === data.id ? {
+          ...data
+        } : r));
+      }
+    } else {
+      if (mode === "add") {
+        const newId = "p:" + Date.now().toString(36);
+        setPermissions(ps => [...ps, {
+          ...data,
+          id: newId
+        }]);
+      } else {
+        setPermissions(ps => ps.map(p => p.id === data.id ? {
+          ...data
+        } : p));
+      }
+    }
+    setModal(null);
+  };
+  const deleteRole = roleId => {
+    if (!confirm("刪除此角色？所有指派將一併移除。")) return;
+    setRoles(rs => rs.filter(r => r.id !== roleId));
+    setAssignments(a => {
+      const {
+        [roleId]: _,
+        ...rest
+      } = a;
+      return rest;
+    });
+    setSelectedRole(null);
+  };
+  const deletePerm = permId => {
+    if (!confirm("刪除此權限？所有角色指派將一併移除。")) return;
+    setPermissions(ps => ps.filter(p => p.id !== permId));
+    setAssignments(a => {
+      const next = {};
+      Object.entries(a).forEach(([rid, pids]) => {
+        next[rid] = pids.filter(p => p !== permId);
+      });
+      return next;
+    });
+  };
+
+  // 選中的角色資訊（給右側 panel 用）
+  const selectedRoleData = selectedRole ? roles.find(r => r.id === selectedRole) : null;
+
+  // 匯出 JSON
+  const exportConfig = () => {
+    const blob = new Blob([JSON.stringify({
+      roles,
+      permissions,
+      assignments
+    }, null, 2)], {
+      type: "application/json"
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "rbac-config.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  const resetToDefault = () => {
+    if (!confirm("重置為預設角色/權限/指派？")) return;
+    setRoles(DEFAULT_ROLES);
+    setPermissions(DEFAULT_PERMISSIONS);
+    setAssignments(buildInitialAssignments());
+  };
+
+  // 統計
+  const stats = useMemo(() => {
+    const totalAssign = Object.values(assignments).reduce((s, arr) => s + arr.length, 0);
+    return {
+      roleCount: roles.length,
+      permCount: permissions.length,
+      assignCount: totalAssign
+    };
+  }, [roles, permissions, assignments]);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "app"
+  }, /*#__PURE__*/React.createElement("header", {
+    className: "topbar"
+  }, /*#__PURE__*/React.createElement("h1", null, "RBAC ", /*#__PURE__*/React.createElement("span", {
+    className: "accent"
+  }, "動態權限管理")), /*#__PURE__*/React.createElement("div", {
+    className: "stats"
+  }, /*#__PURE__*/React.createElement("span", null, "角色 ", /*#__PURE__*/React.createElement("strong", null, stats.roleCount)), /*#__PURE__*/React.createElement("span", null, "權限 ", /*#__PURE__*/React.createElement("strong", null, stats.permCount)), /*#__PURE__*/React.createElement("span", null, "指派 ", /*#__PURE__*/React.createElement("strong", null, stats.assignCount))), /*#__PURE__*/React.createElement("div", {
+    className: "actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn",
+    onClick: exportConfig
+  }, "匯出 JSON"), /*#__PURE__*/React.createElement("button", {
+    className: "btn danger",
+    onClick: resetToDefault
+  }, "重置"))), /*#__PURE__*/React.createElement("aside", {
+    className: "sidebar"
+  }, /*#__PURE__*/React.createElement("h2", null, "拖拽新增"), /*#__PURE__*/React.createElement("div", {
+    className: "palette-item role-admin",
+    draggable: true,
+    onDragStart: e => onDragStart(e, "add:role")
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "dot"
+  }), "角色（Role）"), /*#__PURE__*/React.createElement("div", {
+    className: "palette-item permission",
+    draggable: true,
+    onDragStart: e => onDragStart(e, "add:permission")
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "dot"
+  }), "權限（Permission）"), /*#__PURE__*/React.createElement("h2", {
+    style: {
+      marginTop: 20
+    }
+  }, "角色列表"), /*#__PURE__*/React.createElement("ul", {
+    className: "role-list"
+  }, roles.map(r => /*#__PURE__*/React.createElement("li", {
+    key: r.id,
+    style: {
+      borderLeft: `4px solid ${r.color}`,
+      cursor: "pointer",
+      background: selectedRole === r.id ? "var(--accent)" : "var(--panel-2)",
+      color: selectedRole === r.id ? "#0c1426" : "var(--text)"
+    },
+    onClick: () => setSelectedRole(r.id)
+  }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
+    className: "swatch",
+    style: {
+      background: r.color
+    }
+  }), r.label), /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "flex",
+      gap: 4
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: e => {
+      e.stopPropagation();
+      openEditRole(r);
+    },
+    title: "編輯"
+  }, "✎"), /*#__PURE__*/React.createElement("button", {
+    onClick: e => {
+      e.stopPropagation();
+      deleteRole(r.id);
+    },
+    title: "刪除"
+  }, "✕"))))), /*#__PURE__*/React.createElement("button", {
+    className: "btn primary",
+    style: {
+      width: "100%"
+    },
+    onClick: openAddRole
+  }, "+ 新增角色"), /*#__PURE__*/React.createElement("h2", {
+    style: {
+      marginTop: 20
+    }
+  }, "權限列表"), /*#__PURE__*/React.createElement("ul", {
+    className: "perm-list"
+  }, permissions.map(p => /*#__PURE__*/React.createElement("li", {
+    key: p.id
+  }, /*#__PURE__*/React.createElement("span", null, p.label), /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "flex",
+      gap: 4
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => openEditPerm(p),
+    title: "編輯"
+  }, "✎"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => deletePerm(p.id),
+    title: "刪除"
+  }, "✕"))))), /*#__PURE__*/React.createElement("button", {
+    className: "btn primary",
+    style: {
+      width: "100%"
+    },
+    onClick: openAddPerm
+  }, "+ 新增權限")), /*#__PURE__*/React.createElement("div", {
+    className: "flow-container",
+    ref: reactFlowWrapper
+  }, /*#__PURE__*/React.createElement(ReactFlow, {
+    nodes: nodes,
+    edges: edges,
+    onNodesChange: onNodesChange,
+    onEdgesChange: onEdgesChange,
+    onNodeClick: onNodeClick,
+    onEdgeClick: onEdgeClick,
+    onPaneClick: onPaneClick,
+    onInit: setRfInstance,
+    onDrop: onDrop,
+    onDragOver: onDragOver,
+    nodeTypes: nodeTypes,
+    fitView: true,
+    attributionPosition: "bottom-left"
+  }, /*#__PURE__*/React.createElement(Background, {
+    color: "#1e293b",
+    gap: 20
+  }), /*#__PURE__*/React.createElement(Controls, null), /*#__PURE__*/React.createElement(MiniMap, {
+    nodeColor: n => n.type === "roleNode" ? "#38bdf8" : "#818cf8",
+    maskColor: "rgba(15,23,42,0.6)"
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "hint"
+  }, "從左側拖拽「角色」或「權限」到畫布 · 點擊節點/連線可編輯 · 矩陣點擊 cell 切換 grant")), /*#__PURE__*/React.createElement("aside", {
+    className: "sidebar right"
+  }, /*#__PURE__*/React.createElement("h2", null, "選中角色"), selectedRoleData ? /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "var(--panel-2)",
+      border: `1px solid ${selectedRoleData.color}`,
+      borderRadius: 6,
+      padding: 12,
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 600,
+      fontSize: 14
+    }
+  }, selectedRoleData.label), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--muted)",
+      marginTop: 4
+    }
+  }, "tier: ", selectedRoleData.tier, " · id: ", selectedRoleData.id)), /*#__PURE__*/React.createElement("h2", {
+    style: {
+      marginTop: 16
+    }
+  }, "權限矩陣（點擊切換）"), /*#__PURE__*/React.createElement("table", {
+    className: "matrix"
+  }, /*#__PURE__*/React.createElement("caption", null, "點 cell 可 grant/revoke；綠底 = 已授予"), /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    className: "row-label"
+  }), permissions.map(p => /*#__PURE__*/React.createElement("th", {
+    key: p.id,
+    title: p.label
+  }, p.id)))), /*#__PURE__*/React.createElement("tbody", null, roles.map(r => /*#__PURE__*/React.createElement("tr", {
+    key: r.id
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "row-label",
+    style: {
+      borderLeft: `3px solid ${r.color}`
+    }
+  }, r.label), permissions.map(p => {
+    const granted = (assignments[r.id] || []).includes(p.id);
+    return /*#__PURE__*/React.createElement("td", {
+      key: p.id,
+      className: granted ? "granted" : "denied",
+      onClick: () => toggleAssignment(r.id, p.id),
+      title: `${r.label} → ${p.label}: ${granted ? "granted" : "denied"}`
+    }, granted ? "✓" : "·");
+  }))))), selectedRoleData && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 16
+    }
+  }, /*#__PURE__*/React.createElement("h2", null, "已授予權限"), (assignments[selectedRoleData.id] || []).length === 0 ? /*#__PURE__*/React.createElement("div", {
+    className: "empty-hint"
+  }, "尚未授予任何權限") : /*#__PURE__*/React.createElement("ul", {
+    className: "perm-list"
+  }, (assignments[selectedRoleData.id] || []).map(pid => {
+    const p = permissions.find(x => x.id === pid);
+    return p ? /*#__PURE__*/React.createElement("li", {
+      key: pid
+    }, /*#__PURE__*/React.createElement("span", null, p.label), /*#__PURE__*/React.createElement("button", {
+      onClick: () => toggleAssignment(selectedRoleData.id, pid),
+      title: "撤銷"
+    }, "✕")) : null;
+  })))) : /*#__PURE__*/React.createElement("div", {
+    className: "empty-hint"
+  }, "點擊畫布上任一角色節點", /*#__PURE__*/React.createElement("br", null), "查看權限矩陣與 grant/revoke"), /*#__PURE__*/React.createElement("h2", {
+    style: {
+      marginTop: 20
+    }
+  }, "JSON 設定"), /*#__PURE__*/React.createElement("pre", {
+    style: {
+      background: "var(--bg)",
+      border: "1px solid var(--border)",
+      borderRadius: 6,
+      padding: 10,
+      fontSize: 10,
+      maxHeight: 180,
+      overflow: "auto",
+      color: "var(--muted)",
+      margin: 0
+    }
+  }, JSON.stringify({
+    roles,
+    permissions,
+    assignments
+  }, null, 1))), modal && /*#__PURE__*/React.createElement("div", {
+    className: "modal-backdrop",
+    onClick: () => setModal(null)
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "modal",
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("h2", null, modal.mode === "add" ? "新增" : "編輯", " ", modal.type === "role" ? "角色" : "權限"), modal.type === "role" ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("label", null, "名稱"), /*#__PURE__*/React.createElement("input", {
+    value: modal.data.label,
+    onChange: e => setModal(m => ({
+      ...m,
+      data: {
+        ...m.data,
+        label: e.target.value
+      }
+    }))
+  }), /*#__PURE__*/React.createElement("label", null, "層級"), /*#__PURE__*/React.createElement("select", {
+    value: modal.data.tier,
+    onChange: e => setModal(m => ({
+      ...m,
+      data: {
+        ...m.data,
+        tier: e.target.value
+      }
+    }))
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "admin"
+  }, "admin"), /*#__PURE__*/React.createElement("option", {
+    value: "editor"
+  }, "editor"), /*#__PURE__*/React.createElement("option", {
+    value: "viewer"
+  }, "viewer")), /*#__PURE__*/React.createElement("label", null, "顏色"), /*#__PURE__*/React.createElement("input", {
+    type: "color",
+    value: modal.data.color,
+    onChange: e => setModal(m => ({
+      ...m,
+      data: {
+        ...m.data,
+        color: e.target.value
+      }
+    }))
+  })) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("label", null, "名稱"), /*#__PURE__*/React.createElement("input", {
+    value: modal.data.label,
+    onChange: e => setModal(m => ({
+      ...m,
+      data: {
+        ...m.data,
+        label: e.target.value
+      }
+    }))
+  }), /*#__PURE__*/React.createElement("label", null, "資源 (resource)"), /*#__PURE__*/React.createElement("input", {
+    value: modal.data.resource,
+    onChange: e => setModal(m => ({
+      ...m,
+      data: {
+        ...m.data,
+        resource: e.target.value
+      }
+    }))
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "row"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn",
+    onClick: () => setModal(null)
+  }, "取消"), /*#__PURE__*/React.createElement("button", {
+    className: "btn primary",
+    onClick: submitModal
+  }, "確定")))));
+}
+function App() {
+  return /*#__PURE__*/React.createElement(ReactFlowProvider, null, /*#__PURE__*/React.createElement(RbacApp, null));
+}
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(/*#__PURE__*/React.createElement(App, null));
