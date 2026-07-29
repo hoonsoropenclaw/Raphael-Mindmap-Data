@@ -100,3 +100,7 @@
     Auditing design systems and HTML structures for consistency and optimization.- **react_flow_integration**: 將 React Flow 整合到 React 應用中以實現流程圖功能
 - **tailwind_css_integration**: 將 Tailwind CSS 整合到 React 應用中以實現現代化 UI/UX
 - **local_storage_integration**: 將 localStorage 整合到應用中以實現數據持久化
+- **react_flow_role_based_access_control**: 在 React Flow 中實現基於角色權限的流程控制
+- **esm_sh_bundling_and_importmap_configuration**: 使用 esm.sh 進行模塊打包並配置 importmap
+- **browser_console_debugging**: 使用瀏覽器控制台進行調試
+- **react_flow_dynamic_state_management**: 在 React Flow 中實現動態狀態管理
