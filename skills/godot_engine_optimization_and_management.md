@@ -1,8 +1,8 @@
-# Godot Engine Advanced Optimization and Management
+# Godot Engine Optimization and Management
 
 ## Overview
 
-The **godot_advanced_optimization_and_management** micro-skill focuses on advanced optimization and management techniques in Godot engine development. This includes object pooling, signal optimization, collision mask optimization, physics process control, and layer management. This document provides technical details, code snippets, and error-prevention strategies to ensure efficient and robust game development.
+The **godot_engine_optimization_and_management** micro-skill is designed to help developers optimize performance and apply advanced optimization techniques in the Godot game engine while ensuring efficient project management. This document covers essential topics such as object pooling, signal optimization, collision mask optimization, physics process control, and layer management. It provides technical details, code snippets, and error-prevention strategies to ensure robust and efficient game development.
 
 ---
 
@@ -10,7 +10,7 @@ The **godot_advanced_optimization_and_management** micro-skill focuses on advanc
 
 ### Description
 
-Object pooling is a technique for reusing nodes to avoid the performance overhead of frequent `instantiate()` and `queue_free()` calls. It is particularly useful for objects that are created and destroyed frequently, such as bullets or enemies.
+Object pooling is a technique for reusing nodes to minimize the performance overhead associated with frequent instantiation and destruction of objects. This is particularly beneficial for objects that are created and destroyed frequently, such as bullets or enemies.
 
 ### Key Code Snippets and Patterns
 
@@ -39,10 +39,11 @@ func acquire() -> Node:
 
 # Release an object back to the pool
 func release(obj: Node) -> void:
-    obj.set_physics_process(false)
-    obj.visible = false
-    _live_parent.remove_child(obj)
-    _free.append(obj)
+    if obj.is_instance_valid():
+        obj.set_physics_process(false)
+        obj.visible = false
+        _live_parent.remove_child(obj)
+        _free.append(obj)
 ```
 
 ### Common Errors and Prevention
@@ -95,7 +96,7 @@ func _on_body_exited(body: Node) -> void:
 
 ### Description
 
-Optimizing collision masks involves precisely setting collision masks to reduce unnecessary collision detections, thereby improving the physics engine's computational efficiency. For example, enabling collisions only with specific layers.
+Optimizing collision masks involves precisely setting collision masks to reduce unnecessary collision detections, thereby improving the physics engine's computational efficiency. This is achieved by enabling collisions only with specific layers.
 
 ### Key Code Snippets and Patterns
 
@@ -127,7 +128,7 @@ func _ready() -> void:
 
 ### Description
 
-Controlling physics processes involves enabling or disabling the `_physics_process` function to manage the execution of physics calculations, thereby reducing unnecessary computation overhead. For example, pausing physics calculations during specific stages or conditions.
+Controlling physics processes involves enabling or disabling the `_physics_process` function to manage the execution of physics calculations, thereby reducing unnecessary computation overhead. This is useful for pausing physics calculations during specific stages or conditions.
 
 ### Key Code Snippets and Patterns
 
@@ -148,6 +149,10 @@ func _toggle_physics(enable: bool) -> void:
    - **Solution**: Correctly set the state of `_physics_process` when needed.
 2. **Error**: Physics processing is frequently enabled and disabled, causing performance fluctuations.
    - **Solution**: Stabilize the control of physics processing based on actual requirements.
+3. **Error**: Pausing physics processing without freezing `RigidBody2D` objects, causing them to continue moving.
+   - **Solution**: When pausing, set the `freeze` property of all `RigidBody2D` objects to `true` and set it back to `false` when resuming.
+4. **Error**: Resuming physics processing without properly setting `set_physics_process`, causing physics processing to not resume.
+   - **Solution**: When resuming, ensure to call `set_physics_process(true)` and restore other related processing as needed.
 
 ---
 
@@ -155,7 +160,7 @@ func _toggle_physics(enable: bool) -> void:
 
 ### Description
 
-Managing layers involves naming and organizing physics layers to optimize collision detection efficiency. For example, using only the necessary layers and avoiding excessive layering.
+Managing layers involves naming and organizing physics layers to optimize collision detection efficiency. This includes using only the necessary layers and avoiding excessive layering.
 
 ### Key Code Snippets and Patterns
 

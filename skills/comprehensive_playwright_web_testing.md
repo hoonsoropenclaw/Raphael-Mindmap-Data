@@ -1,20 +1,21 @@
-# playwright_comprehensive_web_testing
+# comprehensive_playwright_web_testing
 
 ## Overview
 
 ### Purpose
-The `playwright_comprehensive_web_testing` micro-skill leverages Playwright to perform comprehensive web automation testing, including smoke testing, headless browser testing, and screenshot functionality. This micro-skill is designed to:
-- Render dynamic web pages and extract structured data.
-- Monitor network requests for API reverse engineering.
-- Automate frontend application interactions to verify functionality such as AI recommendations, node insertion, template application, process execution, and LLM script generation.
-- Perform smoke testing to ensure application stability across different scenarios.
-- Capture and save screenshots of the rendered pages for visual verification and debugging.
-- Output results in a structured JSON format for easy integration and analysis.
+The `comprehensive_playwright_web_testing` micro-skill is designed to master advanced web automation, end-to-end (E2E) testing, and smoke testing techniques using Playwright. This comprehensive approach ensures robust application testing by:
+- Rendering dynamic web pages and extracting structured data.
+- Monitoring network requests for API reverse engineering.
+- Automating frontend application interactions to verify functionalities such as AI recommendations, node insertion, template application, process execution, and LLM script generation.
+- Performing smoke testing to ensure application stability across different scenarios.
+- Capturing and saving screenshots of rendered pages for visual verification and debugging.
+- Outputting results in a structured JSON format for easy integration and analysis.
 
 ### Key Features and Techniques
 - **Dynamic Page Rendering**: Utilize Playwright to render JavaScript-heavy pages and wait for dynamic content to load.
 - **Network Request Monitoring**: Intercept and log network requests to understand API interactions and reverse engineer endpoints.
 - **Automated Testing**: Simulate user interactions and verify frontend functionalities through automated test scripts.
+- **E2E Testing**: Validate the complete workflow and functionality of the application from start to finish.
 - **Smoke Testing**: Conduct quick, high-level tests to ensure basic application functionality and stability.
 - **Screenshot Capture**: Capture and save screenshots of the rendered pages for visual verification and debugging.
 - **Data Extraction and Output**: Extract relevant data from web pages and format it into JSON for further processing or storage.
@@ -99,6 +100,24 @@ const { chromium } = require('playwright');
 })();
 ```
 
+### E2E Testing with Playwright (JavaScript Example)
+Example of using Playwright for E2E testing in a JavaScript environment:
+```javascript
+const interactiveTargets = await app.page.evaluate(() =>
+  [...document.querySelectorAll('button:not(:disabled), input:not([type="checkbox"]), select, textarea, .check-field')]
+    .filter((node) => {
+      const style = getComputedStyle(node);
+      const rect = node.getBoundingClientRect();
+      return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+    })
+    .map((node) => ({
+      name: node.getAttribute('aria-label') || node.textContent.trim(),
+      width: node.getBoundingClientRect().width,
+      height: node.getBoundingClientRect().height,
+    })),
+);
+```
+
 ### Smoke Testing with Playwright (Python Example)
 Example of using Playwright for smoke testing in a Python environment:
 ```python
@@ -149,13 +168,23 @@ def test_rbac():
 
 ### Smoke Testing Errors
 - **Selector Errors**: The test script uses incorrect selectors, leading to element location failures.
-  - **Prevention**: Use browser developer tools to verify selector correctness and include appropriate wait times for dynamic content.
+  - **Prevention**: Use browser developer tools to verify selector accuracy and include appropriate wait times for dynamic content.
 
 - **Environment Mismatch**: The test environment does not match the application environment, causing test failures.
   - **Prevention**: Ensure that the test environment mirrors the application environment, including database state and API dependencies.
 
 - **Insufficient Test Coverage**: Key functionalities are not tested, leading to potential issues going unnoticed.
-  - **Prevention**: Follow the principle of covering critical paths and edge cases when writing test cases and regularly review test coverage.
+  - **Prevention**: Follow a test case writing approach that covers critical paths and edge cases, and regularly review test coverage.
+
+### E2E Testing Errors
+- **Error in Test Script**: The test script contains errors or does not accurately reflect the application's workflow.
+  - **Prevention**: Review and validate the test script against the application's workflow, ensuring that all steps are correctly implemented.
+
+- **Environment Configuration Issues**: The test environment is not properly configured, leading to test failures.
+  - **Prevention**: Ensure that the test environment is correctly configured and that all necessary dependencies are in place.
+
+- **Flaky Tests**: Tests are inconsistent due to network issues or other transient problems.
+  - **Prevention**: Implement retry logic for flaky tests and ensure that the test environment is stable.
 
 ## Best Practices
 - **Use Robust Selectors**: Prefer `data-testid` attributes or other unique identifiers over fragile selectors based on HTML structure.
@@ -164,4 +193,4 @@ def test_rbac():
 - **Maintain Test Data**: Use separate test data sets and environments to ensure that tests are consistent and do not interfere with production data.
 - **Regularly Review and Update Tests**: As the application evolves, ensure that the test scripts are updated accordingly to maintain relevance and effectiveness.
 
-By following these guidelines and leveraging the provided code snippets, you can effectively utilize Playwright for comprehensive web automation and testing tasks, including smoke testing, headless browser testing, and screenshot capture.
+By following these guidelines and leveraging the provided code snippets, you can effectively utilize Playwright for comprehensive web automation and testing tasks, including smoke testing, E2E testing, headless browser testing, and screenshot capture.

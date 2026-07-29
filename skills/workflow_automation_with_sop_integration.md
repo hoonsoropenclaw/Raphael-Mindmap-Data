@@ -1,271 +1,46 @@
 # Workflow Automation with SOP Integration
 
-## Overview
-The `workflow_automation_with_sop_integration` micro-skill streamlines operations by combining task and workflow automation with Standard Operating Procedures (SOP) for decision-making. This approach enhances productivity, ensures seamless communication across systems, and provides a structured framework for handling various scenarios, such as prompt injection attacks. By leveraging tools like the BroadcastChannel API, subagent-driven development, and bot automation, this micro-skill optimizes task execution and fosters efficient collaboration.
+## 說明...
+### 目的
+將標準操作程序（SOP）集成到工作流自動化中，以實現流程的標準化和自動化。
 
-## Task Decomposition
-
-### Description
-Task decomposition involves breaking down complex tasks into smaller, manageable sub-tasks to ensure clarity, facilitate incremental progress, and allow for easier validation and adjustment throughout the project lifecycle.
-
-### Key Techniques and Patterns
-
-#### General Task Decomposition
-Analyze high-level objectives and identify logical divisions based on actions, objectives, or dependencies.
-
-```python
-def decompose_task(task: str) -> list:
-    sub_tasks = []
-    if 'read' in task.lower():
-        sub_tasks.append('read_data')
-    if 'retrieve' in task.lower():
-        sub_tasks.append('search_knowledge')
-    if 'process' in task.lower():
-        sub_tasks.append('process_data')
-    if 'analyze' in task.lower():
-        sub_tasks.append('analyze_data')
-    return sub_tasks
-```
-
-#### Decomposition Based on Product Requirement Documents (PRD)
-Break down product requirements into sub-tasks by identifying key features, user stories, and technical specifications.
-
-```python
-def decompose_product_task(requirement: str) -> list:
-    sub_tasks = []
-    if 'user authentication' in requirement.lower():
-        sub_tasks.append('implement_login')
-        sub_tasks.append('implement_registration')
-    if 'data visualization' in requirement.lower():
-        sub_tasks.append('create_charts')
-        sub_tasks.append('generate_reports')
-    if 'database integration' in requirement.lower():
-        sub_tasks.append('design_database_schema')
-        sub_tasks.append('implement_database_queries')
-    return sub_tasks
-```
-
-### Error Prevention
-
-- **Sub-tasks Not Independently Achievable**: Ensure each sub-task is specific, actionable, and has clear inputs and outputs.
-- **Missing Key Steps**: After decomposition, review the list to ensure all necessary steps are included. Use checklists or templates from past projects to verify completeness.
-- **Overcomplicating Sub-tasks**: Continuously assess sub-task complexity and further decompose if necessary.
-
-### Best Practices
-
-1. **Use Clear and Consistent Language**: Avoid confusion by using clear and consistent terminology.
-2. **Leverage Tools**: Utilize project and task management tools to organize and track sub-tasks.
-3. **Iterative Refinement**: Regularly review and refine the decomposition as the project progresses.
-4. **Collaborative Approach**: Involve team members to ensure all perspectives are considered.
-
-### Error Prevention Lessons
-
-- **Lesson 1**: Validate decomposition by ensuring the sum of sub-tasks equals the original task.
-- **Lesson 2**: Balance granularity and practicality. Sub-tasks should be small but not trivial.
-- **Lesson 3**: Document the rationale behind decomposition for future reviews and adjustments.
-
-## Subagent-Driven Development
-
-### Explanation
-Subagent-driven development involves creating autonomous subagents that handle specific tasks or modules. These subagents operate independently but are coordinated to achieve overarching project goals, enhancing modularity, scalability, and maintainability.
-
-### Key Techniques and Patterns
-
-#### Subagent Class
-Define a class to represent each subagent, including attributes for task assignment and status.
-
-#### Execution Method
-Implement a method for executing the assigned task and updating the status.
-
-```python
-class Subagent:
-    def __init__(self, task):
-        self.task = task
-        self.status = 'pending'
-    
-    def execute(self):
-        # Task execution logic goes here
-        self.status = 'completed'
-        return f"Task {self.task} completed."
-
-def coordinate_subagents(tasks):
-    subagents = [Subagent(task) for task in tasks]
-    for subagent in subagents:
-        result = subagent.execute()
-        print(result)
-    return [subagent.status for subagent in subagents]
-```
-
-### Error Prevention
-
-- **Communication Failures**: Implement robust communication protocols and error handling mechanisms.
-- **Architectural Misalignment**: Ensure subagents adhere to project architectural guidelines and undergo regular reviews.
-
-## Integration of Task Decomposition and Subagent Development
-
-### Explanation
-This integration involves assigning decomposed tasks to subagents for execution, ensuring each task is handled by a dedicated, autonomous unit. This promotes efficient and organized project management.
-
-### Key Techniques and Patterns
-
-#### Combined Function
-Create a function that integrates task decomposition and subagent execution.
-
-#### Sequential Processing
-Process tasks sequentially, assigning each to a subagent and executing them.
-
-```python
-def integrate_decomposition_and_subagents(prd_content):
-    tasks = decompose_task(prd_content)
-    subagents = [Subagent(task) for task in tasks]
-    results = [subagent.execute() for subagent in subagents]
-    return results
-```
-
-### Error Prevention
-
-- **Mismatch Between Tasks and Subagents**: Ensure tasks are decomposed to align with subagent functionalities and capacities.
-- **Inefficient Task Allocation**: Implement a task allocation strategy considering subagent availability, task priority, and resource constraints.
-
-## Workflow Management
-
-### Description
-Workflow management involves overseeing the execution flow of tasks, including decomposition, resource retrieval, and planning of execution steps.
-
-### Key Code or Patterns
-
-```python
-def execute_task(task_description):
-    steps = decompose_task(task_description)
-    for step in steps:
-        execute_step(step)
-```
-
-### Common Mistakes and Prevention
-
-- **Error**: Task decomposition is incomplete, leading to missing execution steps.
-  - **Prevention**: Use detailed checklists and task templates to ensure all steps are covered.
-
-## SOP-Based Decision Making
-
-### Explanation
-SOP-based decision making enables AI agents to make decisions based on predefined Standard Operating Procedures (SOP) to handle specific situations, such as prompt injection attacks.
-
-### Key Code Snippets or Patterns
-
-```python
-def execute_sop(sop_name, message):
-    if sop_name == 'prompt-injection-fake-authority':
-        if detect_injection(message):
-            return handle_prompt_injection(message)
-    elif sop_name == 'other_sop':
-        # Other SOP handling logic
-        pass
-    # Add more SOP handling logic
-
-def handle_prompt_injection(message):
-    # Execute specific actions based on SOP, such as verifying environment, logging, notifying administrators, etc.
-    return 'Reject execution based on SOP and take appropriate measures.'
-```
-
-### Common Errors and Prevention
-
-1. **SOP Execution Order Errors**: Ensure the correct execution order of SOPs to avoid missing key steps.
-   - **Solution**: Clearly define the SOP execution order in the code and perform unit tests to verify.
-
-2. **Incomplete or Inaccurate SOP Definitions**: Ensure SOP definitions are detailed and accurate enough to cover all possible scenarios.
-   - **Solution**: Collaborate with domain experts and regularly review and update SOPs.
-
-3. **Lack of Emergency Handling Mechanisms**: Ensure there are emergency handling mechanisms when unforeseen situations arise during SOP execution.
-   - **Solution**: Include emergency handling steps in the SOP and conduct simulation tests.
-
-## BroadcastChannel API Integration
-
-### Explanation
-The BroadcastChannel API enables real-time communication between different browser tabs or windows, facilitating data exchange and state synchronization.
-
-### Key Code Snippets
-
+### 關鍵代碼片段
 ```javascript
-// Create a BroadcastChannel instance
-const channel = new BroadcastChannel('flow_channel');
-
-// Send a message
-channel.postMessage({ type: 'UPDATE', data: { key: 'value' } });
-
-// Listen for messages
-channel.onmessage = (event) => {
-  if (event.data.type === 'UPDATE') {
-    console.log('Received update:', event.data.data);
-    // Update application state or UI
-  }
-};
-
-// Close the channel when done
-channel.close();
-```
-
-### Common Errors and Prevention
-
-- **Messages Not Sent or Received Correctly**: Verify message format, ensure proper initialization, and confirm event listeners are set up.
-- **Cross-Browser Compatibility Issues**: Check browser support and implement fallback mechanisms using `localStorage` events or `window.postMessage`.
-
-## Bot Automation Integration
-
-### Explanation
-Bot automation allows for automated responses and actions based on incoming messages, useful for tasks like real-time data processing, user notifications, and triggering background processes.
-
-### Key Code Snippets
-
-```javascript
-const botChannel = new BroadcastChannel('bot_channel');
-
-botChannel.onmessage = (event) => {
-  if (event.data.type === 'BOT_COMMAND') {
-    handleBotCommand(event.data.data);
-  }
-};
-
-function handleBotCommand(data) {
-  if (data.command === 'UPDATE_STATUS') {
-    console.log('Bot updating status:', data.status);
-    // Additional logic to update UI or notify users
+// DAG 執行引擎
+const executeWorkflow = (workflow) => {
+  const queue = [...workflow.startNodes];
+  while (queue.length > 0) {
+    const node = queue.shift();
+    executeNode(node);
+    queue.push(...getNextNodes(node));
   }
 }
 
-// Send a bot command message
-botChannel.postMessage({ type: 'BOT_COMMAND', data: { command: 'UPDATE_STATUS', status: 'active' } });
+// 執行節點
+const executeNode = (node) => {
+  switch (node.type) {
+    case 'OCR':
+      performOCR(node);
+      break;
+    case 'Transform':
+      performTransform(node);
+      break;
+    case 'Condition':
+      performCondition(node);
+      break;
+    case 'Output':
+      performOutput(node);
+      break;
+    default:
+      console.log('Unknown node type:', node.type);
+  }
+}
 ```
 
-### Common Errors and Prevention
-
-- **Bot Commands Not Triggered or Executed Correctly**: Ensure message type and data structure match expected format and verify event listener setup.
-- **Conflicts Between Bot Automation and User Interactions**: Implement clear separation between automated processes and user-driven actions using distinct message types or channels.
-
-## Debounce Batch Processor
-
-### Explanation
-The debounce batch processor handles frequent events by applying a debounce mechanism, ensuring events are processed once within a specified time frame or batched together for efficient processing.
-
-### Key Code Snippets
-
-```python
-import time
-from collections import deque
-
-def debounce(events, interval=0.5):
-    buffer = deque()
-    while events:
-        event = events.pop()
-        buffer.append(event)
-        time.sleep(interval)
-        if events:
-            process_batch(list(buffer))
-            buffer.clear()
-    if buffer:
-        process_batch(list(buffer))
-```
-
-### Common Errors and Prevention
-
-- **Debounce Time Inappropriately Set**: Adjust the debounce time based on the application
+### 常見錯誤及避免方法
+- **錯誤**：循環依賴導致無限循環。
+  **解決方法**：在執行前檢查工作流中是否存在循環。
+- **錯誤**：節點執行失敗導致整個工作流中斷。
+  **解決方法**：實現錯誤處理機制，確保單個節點的失敗不會影響整個工作流的執行。
+- **錯誤**：工作流執行順序錯誤。
+  **解決方法**：確保執行引擎按照正確的順序執行節點，並正確處理條件分支。
