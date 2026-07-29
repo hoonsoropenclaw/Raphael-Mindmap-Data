@@ -1,7 +1,7 @@
-# Collaborative Task and Decision Management
+# Collaborative Task Management
 
 ## Overview
-Collaborative Task and Decision Management is a comprehensive approach that integrates task management, decision-making, and collaboration to enhance team productivity and ensure consistency. This micro-skill leverages Standard Operating Procedures (SOPs) and collaborative tools to streamline workflows, facilitate informed decision-making, and foster effective communication.
+Collaborative Task Management is a comprehensive approach that integrates task decomposition, decision-making, and collaboration to enhance team productivity and ensure consistency. This micro-skill leverages Standard Operating Procedures (SOPs), collaborative tools, and task decomposition techniques to streamline workflows, facilitate informed decision-making, and foster effective communication.
 
 ## Key Components
 
@@ -39,7 +39,21 @@ Effective collaboration is supported by the use of appropriate tools and methodo
 - **Clear Protocols**: Establish communication protocols to ensure all team members understand how and when to communicate.
 - **Active Listening**: Encourage active listening to ensure all voices are heard and considered.
 
-### 3. Clarify Tool Usage
+### 3. Task Decomposition
+Task Decomposition involves breaking down complex tasks into smaller, manageable sub-tasks to enhance execution and tracking.
+
+#### Key Features:
+- **Task Tree Construction**: Decompose the main task into multiple sub-tasks and build a task tree structure.
+- **Priority Sorting**: Sort sub-tasks based on their priority and dependencies.
+- **Resource Allocation**: Assign necessary resources, such as computational power or data access rights, to each sub-task.
+
+#### Common Errors and Prevention Strategies:
+- **Over-Decomposition**: Decomposing tasks too finely, leading to increased management complexity. Determine the appropriate decomposition granularity based on the situation.
+    - **Prevention**: Assess the task complexity and resource availability to find the optimal balance.
+- **Dependency Errors**: Failing to correctly identify dependencies between sub-tasks, resulting in incorrect execution order.
+    - **Prevention**: Carefully analyze task relationships and use tools that support dependency mapping.
+
+### 4. Clarify Tool Usage
 The clarify tool is essential for identifying and resolving ambiguities or missing information within task instructions.
 
 #### Key Features:
@@ -61,7 +75,7 @@ The clarify tool is essential for identifying and resolving ambiguities or missi
     ```
 - **User Engagement**: Prompt users for confirmation or additional details when necessary to ensure clarity and accuracy.
 
-### 4. Feedback Collection and User Engagement
+### 5. Feedback Collection and User Engagement
 Continuous improvement is achieved through user feedback and engagement.
 
 #### Strategies:
@@ -92,7 +106,6 @@ Continuous improvement is achieved through user feedback and engagement.
 ### Handling Clarification Timeouts
 - **Error**: User does not respond to clarification requests.
   - **Prevention**: Implement a timeout mechanism and execute a default operation or log the incident.
-
     ```python
     def handle_clarification_timeout():
         default_operation()
@@ -102,7 +115,6 @@ Continuous improvement is achieved through user feedback and engagement.
 ### Misinterpretation of SOPs
 - **Error**: Misinterpreting SOPs.
   - **Prevention**: Ensure SOPs are clearly documented and use automated checks to verify SOP selection.
-
     ```python
     def verify_sop_selection(sop, task_details):
         if not is_sop_valid(sop, task_details):
@@ -123,4 +135,4 @@ Continuous improvement is achieved through user feedback and engagement.
 - **Feedback Loop**: Implement a feedback loop to capture user experiences and improve processes.
 
 ## Conclusion
-Collaborative Task and Decision Management is essential for maintaining consistency, security, and efficiency in task execution. By adhering to well-defined SOPs and utilizing collaborative tools, teams can ensure robust and reliable task management processes, leading to more effective and efficient decision-making.
+Collaborative Task Management is essential for maintaining consistency, security, and efficiency in task execution. By adhering to well-defined SOPs, utilizing collaborative tools, and effectively decomposing tasks, teams can ensure robust and reliable task management processes, leading to more effective and efficient decision-making.

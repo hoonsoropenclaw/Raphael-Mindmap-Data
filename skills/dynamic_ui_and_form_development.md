@@ -1,7 +1,7 @@
-# 动态用户界面开发指南
+# 动态用户界面与表单开发指南
 
 ## 概述
-动态用户界面开发（dynamic_ui_development）涵盖了从设计到实现的各个方面，包括主题切换功能、现代用户界面设计与审计，以及使用React Flow创建交互式流程编辑器。此外，还包括通过集成Tailwind CSS和DaisyUI来增强前端UI的功能。本文档将详细介绍这些技术及其实现方法，并提供最佳实践和常见错误的解决方案。
+动态用户界面与表单开发（dynamic_ui_and_form_development）旨在创建交互式和动态的用户界面，包括根据用户交互动态渲染表单。本文档涵盖主题切换功能、现代用户界面设计与审计、使用React Flow创建交互式流程编辑器，以及通过集成Tailwind CSS和DaisyUI增强前端UI的功能。此外，还包括动态表单渲染的实现方法和最佳实践。
 
 ---
 
@@ -239,4 +239,4 @@ function WorkflowManager() {
 ```css
 :root {
   --daisyui-theme-primary: oklch(60% 0.2 257);
-  --daisyui-theme-secondary: oklch(50%
+  --daisyui-theme-secondary:

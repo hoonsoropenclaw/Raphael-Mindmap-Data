@@ -3,18 +3,18 @@
 
 # SKILL_CATALOG
 
-- **data_storage_and_integration**: Master data storage solutions and seamless integration techniques.
-- **api_security_and_testing**: Ensure robust API security and conduct thorough testing.
-- **browser_development_and_testing**: Develop and test applications for web browsers.
-- **dynamic_ui_development**: Create interactive and dynamic user interfaces.
-- **sop_based_decision_making**: Implement decision-making processes based on Standard Operating Procedures (SOPs).
-- **prompt_injection_detection**: Detect and prevent prompt injection attacks in AI systems.
-- **ocr_integration**: Integrate Optical Character Recognition (OCR) technology into workflows.
-- **full_stack_javascript_development**: Develop end-to-end applications using JavaScript technologies.
-- **task_decomposition**: Break down complex tasks into manageable components.
-- **ai_driven_workflow_automation**: Automate workflows using artificial intelligence.
-- **ocr_enhanced_workflow_automation**: Enhance workflow automation with OCR technology.
-- **ethereum_smart_contract_development**: Develop smart contracts on the Ethereum blockchain.
-- **middleware_and_system_management**: Manage and maintain middleware and system infrastructure.
-- **game_development_and_native_integration**: Develop games and integrate with native platforms.
-- **collaborative_task_and_decision_management**: Manage collaborative tasks and decision-making processes.
+1. **data_storage_and_integration** - Master data storage solutions and seamless integration techniques.
+2. **api_security_and_testing** - Ensure robust API security and conduct thorough testing protocols.
+3. **browser_development_and_testing** - Develop and test applications for optimal browser performance.
+4. **sla_and_sop_management** - Manage Service Level Agreements (SLAs) and Standard Operating Procedures (SOPs) effectively.
+5. **system_and_data_management** - Oversee comprehensive system and data management strategies.
+6. **prompt_injection_detection** - Detect and prevent prompt injection attacks in AI systems.
+7. **dynamic_ui_and_form_development** - Create dynamic and interactive user interfaces and forms.
+8. **react_flow_integration** - Integrate and manage workflows using React Flow.
+9. **full_stack_javascript_development** - Develop full-stack applications using JavaScript technologies.
+10. **ai_driven_workflow_automation** - Automate workflows using AI-driven solutions for increased efficiency.
+11. **rbac_permission_check** - Implement and verify Role-Based Access Control (RBAC) permissions.
+12. **ethereum_smart_contract_development** - Develop smart contracts on the Ethereum blockchain platform.
+13. **collaborative_task_management** - Manage tasks collaboratively for enhanced team productivity.
+14. **ocr_enhanced_automation** - Utilize Optical Character Recognition (OCR) for enhanced automation processes.
+15. **game_development_and_native_integration** - Develop games and integrate with native platforms for a seamless user experience.
