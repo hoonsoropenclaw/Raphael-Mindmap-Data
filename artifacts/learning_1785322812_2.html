@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OCR Bot Dashboard — 文件自動化處理中心</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f172a;
+    --bg-2: #1e293b;
+    --bg-3: #334155;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --accent: #38bdf8;
+    --accent-2: #a78bfa;
+    --green: #10b981;
+    --yellow: #f59e0b;
+    --red: #ef4444;
+    --border: #334155;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  header {
+    background: linear-gradient(135deg, #1e3a8a 0%, #581c87 100%);
+    padding: 24px 32px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  header h1 { font-size: 22px; font-weight: 600; }
+  header .subtitle { font-size: 13px; color: rgba(255,255,255,0.7); margin-top: 4px; }
+  header .actions { display: flex; gap: 12px; }
+  .container { max-width: 1400px; margin: 0 auto; padding: 24px 32px; }
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .stat-card {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+    transition: transform 0.15s, border-color 0.15s;
+  }
+  .stat-card:hover { transform: translateY(-2px); border-color: var(--accent); }
+  .stat-card .label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-card .value { font-size: 28px; font-weight: 700; margin-top: 6px; color: var(--accent); }
+  .stat-card .value.green { color: var(--green); }
+  .stat-card .value.yellow { color: var(--yellow); }
+  .stat-card .value.red { color: var(--red); }
+  .stat-card .sub { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+  .panel h2 {
+    font-size: 14px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel h2::before { content: ""; width: 3px; height: 14px; background: var(--accent); border-radius: 2px; }
+  .cat-bar {
+    display: flex;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .cat-bar:last-child { border-bottom: none; }
+  .cat-bar .name { width: 120px; color: var(--text); }
+  .cat-bar .bar-wrap { flex: 1; height: 8px; background: var(--bg-3); border-radius: 4px; overflow: hidden; margin: 0 12px; }
+  .cat-bar .bar { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width 0.4s; }
+  .cat-bar .n { color: var(--text-dim); font-variant-numeric: tabular-nums; min-width: 40px; text-align: right; }
+  .cat-bar .conf { color: var(--text-dim); font-size: 11px; min-width: 50px; text-align: right; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 10px 12px; color: var(--text-dim); font-weight: 500; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  tr:hover td { background: rgba(56, 189, 248, 0.05); }
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge.ok { background: rgba(16, 185, 129, 0.2); color: var(--green); }
+  .badge.local { background: rgba(245, 158, 11, 0.2); color: var(--yellow); }
+  .badge.error { background: rgba(239, 68, 68, 0.2); color: var(--red); }
+  .badge.cat { background: rgba(167, 139, 250, 0.2); color: var(--accent-2); }
+  .progress { background: var(--bg-3); height: 4px; border-radius: 2px; overflow: hidden; min-width: 80px; }
+  .progress > div { height: 100%; background: var(--accent); }
+  button, .btn {
+    background: var(--accent);
+    color: #0f172a;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 13px;
+    transition: opacity 0.15s;
+  }
+  button:hover, .btn:hover { opacity: 0.85; }
+  button.ghost {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .empty { color: var(--text-dim); font-style: italic; padding: 20px; text-align: center; }
+  .upload-zone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .upload-zone:hover, .upload-zone.dragover {
+    border-color: var(--accent);
+    background: rgba(56, 189, 248, 0.05);
+  }
+  .upload-zone p { color: var(--text-dim); font-size: 13px; }
+  .upload-zone .ico { font-size: 32px; margin-bottom: 8px; }
+  #toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    padding: 12px 20px;
+    border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.2s, transform 0.2s;
+    pointer-events: none;
+    z-index: 999;
+  }
+  #toast.show { opacity: 1; transform: translateY(0); }
+  #toast.success { border-color: var(--green); }
+  #toast.error { border-color: var(--red); }
+  .filter-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .filter-bar button {
+    background: var(--bg-3);
+    color: var(--text);
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+  .filter-bar button.active { background: var(--accent); color: var(--bg); }
+  footer {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 12px;
+    padding: 20px;
+    border-top: 1px solid var(--border);
+    margin-top: 32px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>📄 OCR Bot Dashboard</h1>
+    <div class="subtitle">掃描文件自動 OCR + 分類 + 雲端歸檔</div>
+  </div>
+  <div class="actions">
+    <button class="ghost" onclick="refreshAll()">🔄 重新整理</button>
+    <a class="btn" href="/api/health" target="_blank" style="text-decoration:none;">🟢 API</a>
+  </div>
+</header>
+
+<div class="container">
+
+  <div class="stats-grid" id="statsGrid">
+    <div class="stat-card"><div class="label">總處理文件</div><div class="value" id="statTotal">—</div></div>
+    <div class="stat-card"><div class="label">成功上傳雲端</div><div class="value green" id="statOk">—</div></div>
+    <div class="stat-card"><div class="label">僅本地備援</div><div class="value yellow" id="statLocal">—</div></div>
+    <div class="stat-card"><div class="label">失敗</div><div class="value red" id="statErrors">—</div></div>
+    <div class="stat-card"><div class="label">總資料量</div><div class="value" id="statBytes">—</div></div>
+  </div>
+
+  <div class="grid-2">
+    <div class="panel">
+      <h2>📊 文件類型分布</h2>
+      <div id="catList"><div class="empty">載入中...</div></div>
+    </div>
+
+    <div class="panel">
+      <h2>📤 上傳新文件</h2>
+      <div class="upload-zone" id="uploadZone">
+        <div class="ico">📎</div>
+        <p>拖曳檔案到此處,或點擊選擇</p>
+        <p style="font-size:11px; margin-top:6px;">支援 PDF / PNG / JPG / TIFF</p>
+        <input type="file" id="fileInput" hidden accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp">
+      </div>
+      <div style="margin-top:12px; font-size:11px; color:var(--text-dim);">
+        <label><input type="checkbox" id="forceOcr"> 強制 OCR (忽略文字層)</label>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>📋 最近處理文件</h2>
+    <div class="filter-bar" id="filterBar">
+      <button class="active" data-cat="">全部</button>
+    </div>
+    <table id="docsTable">
+      <thead><tr>
+        <th>檔名</th>
+        <th>類別</th>
+        <th>信心</th>
+        <th>狀態</th>
+        <th>雲端</th>
+        <th>時間</th>
+      </tr></thead>
+      <tbody id="docsBody"><tr><td colspan="6" class="empty">載入中...</td></tr></tbody>
+    </table>
+  </div>
+
+</div>
+
+<div id="toast"></div>
+
+<footer>
+  OCR Bot · Powered by pymupdf + tesseract + rclone · N100 Hermes Agent
+</footer>
+
+<script>
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+let catChart = null;
+let currentFilter = '';
+
+// ── Toast ──
+function toast(msg, kind='') {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.className = 'show ' + kind;
+  setTimeout(() => t.className = '', 3000);
+}
+
+// ── Format bytes ──
+function fmtBytes(b) {
+  if (!b || b < 0) return '—';
+  const u = ['B','KB','MB','GB'];
+  let i = 0;
+  while (b >= 1024 && i < u.length-1) { b /= 1024; i++; }
+  return b.toFixed(1) + ' ' + u[i];
+}
+function fmtDate(iso) {
+  if (!iso) return '—';
+  try { return new Date(iso).toLocaleString('zh-TW', { hour12: false }); }
+  catch { return iso; }
+}
+
+// ── Stats ──
+async function loadStats() {
+  try {
+    const r = await fetch('/api/stats');
+    const s = await r.json();
+    const t = s.totals || {};
+    $('#statTotal').textContent = t.total ?? 0;
+    $('#statOk').textContent = t.ok ?? 0;
+    $('#statLocal').textContent = t.local_only ?? 0;
+    $('#statErrors').textContent = t.errors ?? 0;
+    $('#statBytes').textContent = fmtBytes(t.total_bytes);
+
+    // category list
+    const cl = $('#catList');
+    if (!s.by_category || s.by_category.length === 0) {
+      cl.innerHTML = '<div class="empty">尚無資料</div>';
+    } else {
+      const maxN = Math.max(...s.by_category.map(c => c.n));
+      cl.innerHTML = s.by_category.map(c => `
+        <div class="cat-bar">
+          <div class="name">${c.category}</div>
+          <div class="bar-wrap"><div class="bar" style="width:${(c.n/maxN*100).toFixed(1)}%"></div></div>
+          <div class="n">${c.n}</div>
+          <div class="conf">${(c.avg_conf*100).toFixed(0)}%</div>
+        </div>`).join('');
+      // 更新 filter 按鈕
+      const fb = $('#filterBar');
+      const buttons = [`<button class="${currentFilter===''?'active':''}" data-cat="">全部</button>`]
+        .concat(s.by_category.map(c => `<button class="${currentFilter===c.category?'active':''}" data-cat="${c.category}">${c.category} (${c.n})</button>`));
+      fb.innerHTML = buttons.join('');
+      $$('#filterBar button').forEach(b => b.onclick = () => {
+        currentFilter = b.dataset.cat;
+        loadDocs();
+        loadStats();
+      });
+    }
+  } catch (e) {
+    toast('載入統計失敗: ' + e.message, 'error');
+  }
+}
+
+// ── Documents ──
+async function loadDocs() {
+  try {
+    const url = currentFilter ? `/api/docs?category=${encodeURIComponent(currentFilter)}&limit=50` : '/api/docs?limit=50';
+    const r = await fetch(url);
+    const docs = await r.json();
+    const tbody = $('#docsBody');
+    if (!docs || docs.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty">尚無文件</td></tr>';
+      return;
+    }
+    tbody.innerHTML = docs.map(d => {
+      const cloudOk = (d.cloud_results || []).some(c => c.success);
+      const cloudText = (d.cloud_results || [])
+        .map(c => c.success ? '✓' : (c.skipped ? '⊘' : '✗'))
+        .join(' ') || '—';
+      const statusClass = d.status === 'ok' ? 'ok' : (d.status === 'local_only' ? 'local' : 'error');
+      const statusText = d.status === 'ok' ? '✓ 上傳成功' : (d.status === 'local_only' ? '⚠ 本地' : '✗ 失敗');
+      const cat = d.category || 'unknown';
+      return `<tr>
+        <td><strong>${d.filename}</strong></td>
+        <td><span class="badge cat">${cat}</span></td>
+        <td><div class="progress"><div style="width:${(d.confidence*100).toFixed(0)}%"></div></div> <span style="font-size:11px;color:var(--text-dim);">${(d.confidence*100).toFixed(0)}%</span></td>
+        <td><span class="badge ${statusClass}">${statusText}</span></td>
+        <td style="text-align:center;font-family:monospace;">${cloudText}</td>
+        <td style="font-size:12px;color:var(--text-dim);">${fmtDate(d.processed_at)}</td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    toast('載入文件列表失敗: ' + e.message, 'error');
+  }
+}
+
+// ── Upload ──
+const uploadZone = $('#uploadZone');
+uploadZone.onclick = () => $('#fileInput').click();
+uploadZone.ondragover = e => { e.preventDefault(); uploadZone.classList.add('dragover'); };
+uploadZone.ondragleave = () => uploadZone.classList.remove('dragover');
+uploadZone.ondrop = e => {
+  e.preventDefault();
+  uploadZone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) handleUpload(e.dataTransfer.files[0]);
+};
+$('#fileInput').onchange = e => { if (e.target.files.length) handleUpload(e.target.files[0]); };
+
+async function handleUpload(file) {
+  toast(`處理中: ${file.name}...`);
+  const fd = new FormData();
+  fd.append('file', file);
+  if ($('#forceOcr').checked) fd.append('force_ocr', '1');
+  try {
+    const r = await fetch('/api/process', { method: 'POST', body: fd });
+    const j = await r.json();
+    if (j.ok) {
+      const d = j.document;
+      toast(`✓ ${file.name} → ${d.category} (${(d.confidence*100).toFixed(0)}%)`, 'success');
+      refreshAll();
+    } else {
+      toast(`✗ 失敗: ${j.error || 'unknown'}`, 'error');
+    }
+  } catch (e) {
+    toast('上傳錯誤: ' + e.message, 'error');
+  }
+}
+
+// ── Refresh ──
+function refreshAll() { loadStats(); loadDocs(); }
+
+// 啟動 + 自動 refresh
+refreshAll();
+setInterval(refreshAll, 15000);  // 15s 自動更新
+</script>
+
+</body>
+</html>
