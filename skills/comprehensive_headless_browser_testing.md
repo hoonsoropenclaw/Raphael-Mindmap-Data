@@ -1,7 +1,7 @@
-# Comprehensive Browser Testing
+# Comprehensive Headless Browser Testing
 
 ## Overview
-The **comprehensive_browser_testing** micro-skill is designed to provide a thorough approach to testing, verifying, and interacting with web applications across different browsers and environments. This encompasses browser automation, resource management, visual verification, and end-to-end (E2E) testing to ensure that web applications function correctly and appear as intended.
+The **comprehensive_headless_browser_testing** micro-skill focuses on leveraging headless browsers to perform thorough end-to-end (E2E) testing. This approach ensures the integrity and functionality of HTML documents within a browser environment without the need for a graphical user interface. By combining browser automation, visual verification, and interaction simulation, this micro-skill provides a robust framework for validating web applications.
 
 ---
 
@@ -228,5 +228,4 @@ reference = cv2.imread('reference.png')
 screenshot = cv2.imread('screenshot.png')
 
 # Perform image comparison
-difference = cv2.absdiff(screenshot, reference)
-gray_diff = cv2.cvtColor(difference,
+difference = cv2.absdiff(s

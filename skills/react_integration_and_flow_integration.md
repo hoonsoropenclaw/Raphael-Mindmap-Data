@@ -1,7 +1,7 @@
-# React Integration and Injection of React Flow with Autoload
+# React Integration and Flow Integration
 
 ## Overview
-This skill focuses on integrating the React Flow library into a React application and implementing features for automatic loading and injection of files based on URL query parameters (e.g., `autoload=1`). The process includes setting up React Flow for visualization, handling file injection through URL parameters, and ensuring smooth interaction between these components.
+This skill focuses on seamlessly integrating the React Flow library into a React application, enabling the rendering and interaction of flowcharts. It also covers the implementation of automatic loading and injection of files based on URL query parameters (e.g., `autoload=1`). The process includes setting up React Flow for visualization, handling file injection through URL parameters, and ensuring smooth interaction between these components.
 
 ## Key Steps
 
@@ -21,7 +21,7 @@ This skill focuses on integrating the React Flow library into a React applicatio
 Set up the React Flow canvas with desired dimensions, node styles, and edge configurations.
 ```javascript
 import React from 'react';
-import ReactFlow from 'react-flow-renderer';
+import ReactFlow, { MiniMap, Controls, Background } from 'react-flow-renderer';
 
 const initialNodes = [
   { id: '1', position: { x: 250, y: 5 }, data: { label: 'Node 1' }, type: 'input' },
@@ -33,22 +33,30 @@ const initialEdges = [
   // Add more edges as needed
 ];
 
-const reactFlowInstance = React.createRef();
+const FlowComponent = () => {
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
-function FlowComponent() {
+  const onConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), []);
+
   return (
     <div style={{ width: '100%', height: '100vh' }}>
       <ReactFlow
-        nodes={initialNodes}
-        edges={initialEdges}
+        nodes={nodes}
+        edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
-        ref={reactFlowInstance}
-      />
+        /* 其他屬性，如默認邊選項、節點類型定義等 */
+      >
+        <MiniMap />
+        <Controls />
+        <Background />
+        {/* 其他組件，如工具欄、側邊面板等 */}
+      </ReactFlow>
     </div>
   );
-}
+};
 ```
 
 ### 2. **Implement Automatic Loading and Injection via URL Parameters**
@@ -158,3 +166,31 @@ function injectFile(file) {
 
 ## Summary
 By combining React Flow integration with automatic file loading and injection based on URL parameters, you can create dynamic and interactive React applications. Ensure to handle potential errors such as CORS issues, state update delays, and selector inaccuracies to maintain a robust and reliable application.
+
+## Common Errors and Prevention
+
+### 1. **React Flow Rendering Issues**
+- **Error**: React Flow fails to render or nodes/edges do not display correctly.
+- **Solution**: Ensure all necessary CDN resources (e.g., React Flow's UMD version) are correctly loaded and verify that the node and edge data formats are accurate.
+
+### 2. **Interaction Features Not Working**
+- **Error**: Node or edge interaction features are not functioning.
+- **Solution**: Confirm that event handling functions (e.g., `onConnect`, `onNodesChange`) are properly implemented and bound to the React Flow component.
+
+### 3. **Node Type Definition Errors**
+- **Error**: Nodes do not render correctly due to incorrect type definitions.
+- **Solution**: Ensure all node types are correctly defined in React Flow and properly referenced in the node data.
+
+### 4. **CORS and File Loading Problems**
+- **Error**: File loading fails due to CORS restrictions.
+- **Solution**: Serve files using a local HTTP server to bypass CORS issues.
+
+### 5. **State Update Delays**
+- **Error**: Injected files are not reflected in the React state immediately.
+- **Solution**: Use `setTimeout` or `Promise` to delay operations until the state is updated.
+
+### 6. **File Input Element Not Found**
+- **Error**: File injection fails because the file input element is not found.
+- **Solution**: Ensure accurate selectors and execute injection after the DOM is fully loaded.
+
+By following these guidelines and handling potential errors, you can effectively integrate React Flow into your React application and implement dynamic file loading and injection features.

@@ -1,19 +1,19 @@
-# Advanced Integration of React Flow in Single-Page Applications
+# Advanced Integration of React Flow with Dynamic RBAC in Single-Page Applications
 
 ## Overview
 
 ### Target Skill Name
-`react_flow_advanced_integration`
+`advanced_react_flow_rbac_integration`
 
 ### Summary
-Integrate the UMD version of React Flow into a single-page application (SPA), develop custom Controls components, and configure a Zustand store to manage application state effectively.
+Integrate the UMD version of React Flow into a single-page application (SPA) to create a dynamic RBAC (Role-Based Access Control) permission management flowchart. This involves developing custom Controls components, configuring a Zustand store for state management, and implementing RBAC-specific node and edge types.
 
 ---
 
-## 1. React Flow UMD Integration
+## 1. React Flow UMD Integration for RBAC
 
 ### Purpose
-Integrate the React Flow library into an SPA using the UMD (Universal Module Definition) version. This approach simplifies the setup by avoiding complex module bundling processes.
+Integrate the React Flow library into an SPA using the UMD (Universal Module Definition) version to facilitate dynamic RBAC flowchart creation without complex module bundling.
 
 ### Key Implementation Details
 
@@ -25,7 +25,7 @@ Include the necessary UMD scripts for React, ReactDOM, and React Flow in your HT
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>React Flow UMD Integration</title>
+  <title>Advanced React Flow RBAC Integration</title>
 </head>
 <body>
   <div id="root"></div>
@@ -76,51 +76,55 @@ Include the necessary UMD scripts for React, ReactDOM, and React Flow in your HT
 
 ---
 
-## 2. Custom Controls Component Development
+## 2. Custom Controls Component Development for RBAC
 
 ### Purpose
-Develop custom Controls components to extend React Flow's functionality, such as adding nodes, editing properties, or performing other interactive operations.
+Develop custom Controls components to extend React Flow's functionality, enabling the addition of RBAC-specific nodes (roles, groups, resources, actions) and managing their interactions.
 
 ### Key Implementation Details
 
 #### Creating a Custom Controls Component
-Use the `useReactFlow` hook to access the React Flow instance and implement custom logic.
+Use the `useReactFlow` hook to access the React Flow instance and implement custom logic for RBAC.
 
 ```jsx
 import React from 'react';
 import { useReactFlow } from 'react-flow';
 
-const CustomControls = () => {
+const CustomRBACControls = () => {
   const reactFlowInstance = useReactFlow();
 
-  // Custom logic to add a node
-  const onAddNode = () => {
+  // Custom logic to add an RBAC node
+  const onAddNode = (type, label) => {
     const position = reactFlowInstance.project({ x: 0, y: 0 });
     reactFlowInstance.addNodes([{
-      id: 'new-node',
+      id: `node-${type}-${Date.now()}`,
+      type,
       position,
-      data: { label: 'New Node' },
+      data: { label },
     }]);
   };
 
   return (
     <div style={{ position: 'absolute', right: 10, top: 10, zIndex: 4 }}>
-      <button onClick={onAddNode}>Add Node</button>
+      <button onClick={() => onAddNode('role', 'New Role')}>Add Role</button>
+      <button onClick={() => onAddNode('group', 'New Group')}>Add Group</button>
+      <button onClick={() => onAddNode('resource', 'New Resource')}>Add Resource</button>
+      <button onClick={() => onAddNode('action', 'New Action')}>Add Action</button>
     </div>
   );
 };
 
-export default CustomControls;
+export default CustomRBACControls;
 ```
 
 #### Integrating the Custom Controls Component
-Wrap the `CustomControls` component within the `ReactFlowProvider` to ensure it has access to the React Flow instance.
+Wrap the `CustomRBACControls` component within the `ReactFlowProvider` to ensure it has access to the React Flow instance.
 
 ```jsx
 import React from 'react';
 import ReactDOM from 'react-dom';
 import { ReactFlowProvider } from 'react-flow';
-import CustomControls from './CustomControls';
+import CustomRBACControls from './CustomRBACControls';
 
 const App = () => (
   <ReactFlowProvider>
@@ -129,7 +133,7 @@ const App = () => (
       onNodesChange={(changes) => console.log('Nodes changed', changes)}
       onEdgesChange={(changes) => console.log('Edges changed', changes)}
     />
-    <CustomControls />
+    <CustomRBACControls />
   </ReactFlowProvider>
 );
 
@@ -146,21 +150,21 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 
 ---
 
-## 3. Zustand Store Configuration
+## 3. Zustand Store Configuration for RBAC
 
 ### Purpose
-Configure a Zustand store to manage the state of React Flow, including nodes, edges, and application-level states. This ensures efficient state management and synchronization with React Flow.
+Configure a Zustand store to manage the state of React Flow, including RBAC-specific nodes (roles, groups, resources, actions) and edges, ensuring efficient state management and synchronization with React Flow.
 
 ### Key Implementation Details
 
 #### Setting Up the Zustand Store
-Create a Zustand store to manage nodes and edges.
+Create a Zustand store to manage RBAC nodes and edges.
 
 ```javascript
 import create from 'zustand';
 import { useStore } from 'react-flow';
 
-const useCustomStore = create((set) => ({
+const useRBACStore = create((set) => ({
   nodes: [],
   edges: [],
   addNode: (node) => set((state) => ({ nodes: [...state.nodes, node] })),
@@ -168,16 +172,16 @@ const useCustomStore = create((set) => ({
 }));
 
 // Example usage in a component
-const NodesUpdater = () => {
-  const nodes = useCustomStore((state) => state.nodes);
-  const addNode = useCustomStore((state) => state.addNode);
+const RBACNodesUpdater = () => {
+  const nodes = useRBACStore((state) => state.nodes);
+  const addNode = useRBACStore((state) => state.addNode);
 
-  const onAddNode = () => {
-    const newNode = { id: 'node-1', position: { x: 0, y: 0 }, data: { label: 'Node 1' } };
+  const onAddRole = () => {
+    const newNode = { id: 'role-1', type: 'role', position: { x: 0, y: 0 }, data: { label: 'Role 1' } };
     addNode(newNode);
   };
 
-  return <button onClick={onAddNode}>Add Node</button>;
+  return <button onClick={onAddRole}>Add Role</button>;
 };
 ```
 
@@ -188,13 +192,13 @@ Synchronize the Zustand store with React Flow by passing the store's state and e
 import React from 'react';
 import ReactDOM from 'react-dom';
 import { ReactFlowProvider, ReactFlow } from 'react-flow';
-import useCustomStore from './zustandStore';
+import useRBACStore from './zustandStore';
 
 const App = () => {
-  const nodes = useCustomStore((state) => state.nodes);
-  const edges = useCustomStore((state) => state.edges);
-  const addNode = useCustomStore((state) => state.addNode);
-  const addEdge = useCustomStore((state) => state.addEdge);
+  const nodes = useRBACStore((state) => state.nodes);
+  const edges = useRBACStore((state) => state.edges);
+  const addNode = useRBACStore((state) => state.addNode);
+  const addEdge = useRBACStore((state) => state.addEdge);
 
   const onNodesChange = (changes) => {
     // Update Zustand store based on node changes
@@ -234,13 +238,40 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 ### Common Errors and Prevention
 
 - **Error**: The Zustand store and React Flow states are not synchronized.
-  - **Solution**: Ensure that event handlers for React Flow events correctly update the Zustand store. Use the `useCustomStore` hook to access and update the store's state.
+  - **Solution**: Ensure that event handlers for React Flow events correctly update the Zustand store. Use the `useRBACStore` hook to access and update the store's state.
 
 - **Error**: The Zustand store is not initialized correctly.
   - **Solution**: Verify that the store is properly configured and initialized before the application starts. Ensure that all necessary state updates are handled within the store.
 
 ---
 
-## Summary
+## 4. RBAC-Specific Node and Edge Types
 
-By following the above guidelines, you can effectively integrate React Flow's UMD version into your SPA, develop custom Controls components, and configure a Zustand store for robust state management. This setup ensures a seamless and efficient development experience, allowing you to leverage the full power of React Flow in your projects.
+### Purpose
+Implement RBAC-specific node and edge types to represent roles, groups, resources, actions, and their relationships.
+
+### Key Implementation Details
+
+#### Defining Node and Edge Types
+Define custom node and edge types for RBAC.
+
+```javascript
+const nodeTypes = {
+  role: RoleNode,
+  group: GroupNode,
+  resource: ResourceNode,
+  action: ActionNode,
+};
+
+const edgeTypes = {
+  owns: OwnsEdge,
+  contains: ContainsEdge,
+  allows: AllowsEdge,
+};
+
+const FlowComponent = () => {
+  return (
+    <ReactFlow
+      nodeTypes={nodeTypes}
+      edgeTypes={edgeTypes}
+      elements={elements}
