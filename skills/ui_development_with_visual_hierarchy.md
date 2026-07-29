@@ -1,7 +1,7 @@
-# UI Development and Validation
+# UI Development with Visual Hierarchy
 
 ## Overview
-This micro-skill focuses on using the Tailwind CSS framework for designing responsive and customizable web page styles, as well as employing tools to validate the correctness and integrity of HTML documents. It covers extending Tailwind CSS configurations, applying utility classes, creating custom animations, and ensuring HTML tag balance and structural completeness.
+This micro-skill focuses on developing and validating user interfaces using the Tailwind CSS framework, creating dynamic visual hierarchies and micro-animations, and integrating a Node Inspector for debugging and displaying detailed node information. It covers extending Tailwind CSS configurations, applying utility classes, creating custom animations, ensuring HTML tag balance and structural completeness, and implementing a responsive Node Inspector.
 
 ---
 
@@ -229,5 +229,4 @@ def validate_html(file_path):
 - **Regular Code Reviews**: Conduct peer reviews to identify and rectify structural issues collaboratively.
 
 #### Extending the Tool
-- **Detailed Reporting**: Enhance the tool to provide more detailed error reports, including line numbers and suggested fixes.
--
+- **Detailed Reporting**: Enhance the tool to provide more

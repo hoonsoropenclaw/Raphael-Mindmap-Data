@@ -1,21 +1,21 @@
-# Advanced Integration of React Flow with Dynamic RBAC in Single-Page Applications
+# React Flow Integration with RBAC and Enhanced Features
 
 ## Overview
 
 ### Target Skill Name
-`advanced_react_flow_rbac_integration`
+`react_flow_integration`
 
 ### Summary
-Integrate the UMD version of React Flow into a single-page application (SPA) to create a dynamic RBAC (Role-Based Access Control) permission management flowchart. This involves developing custom Controls components, configuring a Zustand store for state management, and implementing RBAC-specific node and edge types.
+This document outlines the process of integrating the React Flow library into a React application to create dynamic and interactive flowcharts, incorporating Role-Based Access Control (RBAC) for permission management. It covers the integration of the UMD version of React Flow, development of custom Controls components for RBAC, Zustand store configuration for state management, and implementation of RBAC-specific node and edge types. Additionally, it provides guidance on automatic loading and injection of files based on URL query parameters, ensuring robust error handling and application performance.
 
 ---
 
-## 1. React Flow UMD Integration for RBAC
+## 1. Integrating React Flow with UMD for RBAC
 
 ### Purpose
-Integrate the React Flow library into an SPA using the UMD (Universal Module Definition) version to facilitate dynamic RBAC flowchart creation without complex module bundling.
+Integrate the UMD version of React Flow into a Single-Page Application (SPA) to facilitate dynamic RBAC flowchart creation without complex module bundling.
 
-### Key Implementation Details
+### Implementation
 
 #### HTML Setup
 Include the necessary UMD scripts for React, ReactDOM, and React Flow in your HTML file.
@@ -25,7 +25,7 @@ Include the necessary UMD scripts for React, ReactDOM, and React Flow in your HT
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Advanced React Flow RBAC Integration</title>
+  <title>React Flow RBAC Integration</title>
 </head>
 <body>
   <div id="root"></div>
@@ -42,7 +42,7 @@ Include the necessary UMD scripts for React, ReactDOM, and React Flow in your HT
     // Access React Flow from the global scope
     const ReactFlow = window.ReactFlow;
 
-    // Initialize React Flow components here
+    // Initialize React Flow components
     const root = document.getElementById('root');
 
     const elements = {
@@ -76,12 +76,12 @@ Include the necessary UMD scripts for React, ReactDOM, and React Flow in your HT
 
 ---
 
-## 2. Custom Controls Component Development for RBAC
+## 2. Developing Custom Controls Components for RBAC
 
 ### Purpose
-Develop custom Controls components to extend React Flow's functionality, enabling the addition of RBAC-specific nodes (roles, groups, resources, actions) and managing their interactions.
+Extend React Flow's functionality by creating custom Controls components that enable the addition of RBAC-specific nodes (roles, groups, resources, actions) and manage their interactions.
 
-### Key Implementation Details
+### Implementation
 
 #### Creating a Custom Controls Component
 Use the `useReactFlow` hook to access the React Flow instance and implement custom logic for RBAC.
@@ -150,12 +150,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 
 ---
 
-## 3. Zustand Store Configuration for RBAC
+## 3. Configuring Zustand Store for RBAC
 
 ### Purpose
-Configure a Zustand store to manage the state of React Flow, including RBAC-specific nodes (roles, groups, resources, actions) and edges, ensuring efficient state management and synchronization with React Flow.
+Set up a Zustand store to manage the state of React Flow, including RBAC-specific nodes (roles, groups, resources, actions) and edges, ensuring efficient state management and synchronization with React Flow.
 
-### Key Implementation Details
+### Implementation
 
 #### Setting Up the Zustand Store
 Create a Zustand store to manage RBAC nodes and edges.
@@ -245,12 +245,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 
 ---
 
-## 4. RBAC-Specific Node and Edge Types
+## 4. Implementing RBAC-Specific Node and Edge Types
 
 ### Purpose
-Implement RBAC-specific node and edge types to represent roles, groups, resources, actions, and their relationships.
+Define and implement RBAC-specific node and edge types to represent roles, groups, resources, actions, and their relationships.
 
-### Key Implementation Details
+### Implementation
 
 #### Defining Node and Edge Types
 Define custom node and edge types for RBAC.
@@ -269,9 +269,4 @@ const edgeTypes = {
   allows: AllowsEdge,
 };
 
-const FlowComponent = () => {
-  return (
-    <ReactFlow
-      nodeTypes={nodeTypes}
-      edgeTypes={edgeTypes}
-      elements={elements}
+const FlowComponent = () =>

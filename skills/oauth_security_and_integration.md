@@ -1,18 +1,66 @@
-# API Security Analysis and Testing
+# OAuth Security and Integration
 
 ## Overview
-API security analysis and testing are critical for safeguarding applications against unauthorized access, data breaches, and malicious attacks. This micro-skill emphasizes the implementation of robust security measures, comprehensive authentication mechanisms, and advanced testing techniques to protect against threats such as prompt injection, SQL injection, and to ensure the effectiveness of rate limiting. By integrating authentication, authorization, anomaly detection, secure coding practices, and thorough testing, this micro-skill aims to establish a secure, resilient, and reliable API environment.
+Implementing OAuth is essential for ensuring secure authentication and authorization in applications. This micro-skill focuses on integrating OAuth flows, such as Web Server Flow and Device Code Flow, to securely access user data from services like Google Calendar. Additionally, it emphasizes API security analysis and comprehensive testing to protect against threats like prompt injection and SQL injection, ensuring the API's resilience and reliability.
 
 ---
 
-## 1. Comprehensive Authentication and API Security
+## 1. OAuth Integration
 
-### 1.1 JWT Authentication with JOSE
+### 1.1 Implementation of OAuth Flows
 
-#### 1.1.1 Implementation in Next.js
+#### 1.1.1 Web Server Flow
+The Web Server Flow is commonly used for server-side applications where the client can securely store credentials.
 
-##### 1.1.1.1 Key Code Snippets
+##### Key Code Snippet
+```python
+from calendar_reminder.auth import run_oauth_web
 
+# Initiate Web Server Flow
+run_oauth_web(
+    client_secret_path='~/.hermes/google_client_secret.json',
+    scopes=['https://www.googleapis.com/auth/calendar'],
+    token_path='~/.hermes/calendar_tokens.json'
+)
+```
+
+#### 1.1.2 Device Code Flow
+The Device Code Flow is suitable for devices with limited input capabilities, such as smart TVs or IoT devices.
+
+##### Key Code Snippet
+```python
+from calendar_reminder.auth import run_oauth_device
+
+# Initiate Device Code Flow
+print('Please visit https://www.google.com/device and enter the user code.')
+run_oauth_device(
+    client_secret_path='~/.hermes/google_client_secret.json',
+    scopes=['https://www.googleapis.com/auth/calendar'],
+    token_path='~/.hermes/calendar_tokens.json'
+)
+```
+
+### 1.2 Common Errors and Prevention
+
+- **Authentication Flow Interruption**:
+  - **Error**: The OAuth authentication flow is interrupted, preventing the retrieval of access tokens.
+  - **Prevention**: Ensure the application correctly handles all possible error scenarios during the authentication process.
+
+- **Access Token Expiration**:
+  - **Error**: The access token expires, causing the application to lose access to data.
+  - **Prevention**: Implement a token refresh mechanism to maintain a valid access token at all times.
+
+---
+
+## 2. API Security Analysis and Testing
+
+### 2.1 Comprehensive Authentication and Security
+
+#### 2.1.1 JWT Authentication with JOSE
+
+##### 2.1.1.1 Implementation in Next.js
+
+###### Key Code Snippets
 ```typescript
 import { SignJWT, jwtVerify } from "jose";
 
@@ -49,22 +97,22 @@ export async function verify(token: string): Promise<{ username: string } | null
 }
 ```
 
-##### 1.1.1.2 Common Errors and Prevention
+###### Common Errors and Prevention
 
 - **Secret Misconfiguration**:
   - **Error**: The secret is not set correctly or is exposed.
   - **Solution**: Ensure that `PORTAL_JWT_SECRET` is set to a strong, random value and is not committed to version control systems.
-  
+
 - **Token Expiration Time**:
   - **Error**: The token expiration time is set too long or too short.
   - **Solution**: Set a reasonable expiration time based on application requirements and consider implementing a refresh token mechanism.
 
-### 1.2 JWT Security Testing
+#### 2.1.2 JWT Security Testing
 
-#### 1.2.1 Purpose
+##### 2.1.2.1 Purpose
 The primary goal is to verify the validity of the JWT token's signature and ensure that the payload has not been tampered with.
 
-#### 1.2.2 Key Testing Patterns
+##### 2.1.2.2 Key Testing Patterns
 
 - **Signature Verification Test**:
   ```python
@@ -76,7 +124,7 @@ The primary goal is to verify the validity of the JWT token's signature and ensu
       status, body = http_get("/admin/users", token=tampered)
       assert status == 401
   ```
-  
+
 - **Payload Tampering Test**:
   ```python
   def test_jwt_tampered_payload_rejected(self, http_get, admin_token):
@@ -90,17 +138,17 @@ The primary goal is to verify the validity of the JWT token's signature and ensu
       assert status == 401
   ```
 
-#### 1.2.3 Common Errors and Prevention
+##### 2.1.2.3 Common Errors and Prevention
 
 - **Test Data Errors**:
   - **Error**: Modifying the payload without ensuring that signature verification fails can lead to inaccurate test results.
   - **Solution**: Always verify that any modification to the payload results in a failed signature verification.
-  
+
 - **Incorrect Signature Algorithm**:
   - **Error**: The signature algorithm used in testing does not match the one used in the application.
   - **Solution**: Ensure that the signature algorithm in tests is consistent with the application's configuration to avoid mismatches that could cause tests to fail.
 
-### 1.3 Best Practices
+#### 2.1.3 Best Practices
 
 - **Use Strong, Random Secrets**: Always use cryptographically secure secrets for signing JWTs.
 - **Implement Token Expiration and Refresh**: Set appropriate token expiration times and implement refresh token mechanisms to enhance security.
@@ -109,15 +157,15 @@ The primary goal is to verify the validity of the JWT token's signature and ensu
 
 ---
 
-## 2. Comprehensive Application Security
+## 3. Comprehensive Application Security
 
-### 2.1 API Security and Validation
+### 3.1 API Security and Validation
 
-#### 2.1.1 Attacker's Perspective: Reconnaissance Techniques
+#### 3.1.1 Attacker's Perspective: Reconnaissance Techniques
 
 Understanding attacker methodologies is crucial for effective defense.
 
-##### 2.1.1.1 Passive Reconnaissance
+##### 3.1.1.1 Passive Reconnaissance
 - **Objective**: Gather endpoint information from public traffic and resources.
 - **Tools & Techniques**:
   - **Intercept HTTPS Traffic**: Use tools like `mitmproxy` to intercept and analyze encrypted traffic.
@@ -128,7 +176,7 @@ Understanding attacker methodologies is crucial for effective defense.
     ```
   - **Public Data Analysis**: Analyze publicly available data sources for API endpoints.
 
-##### 2.1.1.2 Active Reconnaissance
+##### 3.1.1.2 Active Reconnaissance
 - **Objective**: Identify hidden endpoints by scanning common paths.
 - **Tools & Techniques**:
   - **Automated Scanners**: Use tools like `DirBuster` to perform path scanning.
@@ -139,11 +187,11 @@ Understanding attacker methodologies is crucial for effective defense.
     ```
   - **Manual Testing**: Explore API documentation and test endpoints manually.
 
-#### 2.1.2 Defender's Perspective: Defense Mechanisms
+#### 3.1.2 Defender's Perspective: Defense Mechanisms
 
 Implement multiple layers of security to protect against various attack vectors.
 
-##### 2.1.2.1 Multi-Layered Defense
+##### 3.1.2.1 Multi-Layered Defense
 - **Techniques**:
   - **Authentication**: Verify client identity using methods like OAuth 2.0 or JWT.
   - **Authorization**: Control access to resources based on user roles and permissions.
@@ -158,7 +206,7 @@ Implement multiple layers of security to protect against various attack vectors.
 
 - **Implementation**: Combine these mechanisms to create a robust security framework.
 
-##### 2.1.2.2 Anomaly Detection and Monitoring
+##### 3.1.2.2 Anomaly Detection and Monitoring
 - **Objective**: Detect and respond to unusual access patterns.
 - **Techniques**:
   - **Monitoring Metrics**: Use tools like Prometheus to track API usage and performance.
@@ -170,50 +218,12 @@ Implement multiple layers of security to protect against various attack vectors.
     ```
   - **Alerting**: Set up alerts for suspicious activities, such as multiple failed login attempts or unusual traffic spikes.
 
-### 2.2 API Attack Vector Analysis
+### 3.2 API Attack Vector Analysis
 
-#### 2.2.1 JWT (JSON Web Token) Attacks
+#### 3.2.1 JWT (JSON Web Token) Attacks
 
 JWTs are commonly used for authentication and authorization, making them a prime target.
 
-##### 2.2.1.1 Attack Methods
+##### 3.2.1.1 Attack Methods
 - **Token Theft**: Intercepting tokens during transmission.
-- **Payload Tampering**: Modifying token claims to gain unauthorized access.
-- **Brute Force**: Guessing tokens or exploiting weak signing algorithms.
-
-##### 2.2.1.2 Defense Strategies
-- **Short-Lived Tokens**: Reduce the window of opportunity for attackers.
-- **Signature Verification**: Ensure tokens are not tampered with.
-    ```python
-    # Example: JWT signature verification
-    from jwt import decode, InvalidTokenError
-    try:
-        payload = decode(jwt_token, key=secret_key, algorithms=['HS256'])
-    except InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    ```
-- **Use HTTPS**: Protect tokens during transmission.
-- **Revocation Mechanisms**: Implement token revocation lists or mechanisms to revoke compromised tokens.
-
-#### 2.2.2 SQL Injection
-
-Attackers exploit vulnerabilities in database queries to execute malicious SQL code.
-
-##### 2.2.2.1 Attack Methods
-- **Injection of Malicious SQL Statements**: Manipulate input fields to alter SQL queries.
-
-##### 2.2.2.2 Defense Strategies
-- **Use ORM (Object-Relational Mapping)**: Abstract database interactions to prevent direct SQL manipulation.
-    ```python
-    # Example: Using SQLAlchemy ORM
-    from sqlalchemy import select
-    from sqlalchemy.orm import sessionmaker
-    ...
-    ```
-- **Parameterized Queries**: Ensure user input is treated as data, not executable code.
-    ```python
-    # Example: Parameterized query with SQLAlchemy
-    stmt = select(User).where(User.username == username)
-    ...
-    ```
-- **Input Sanitization**: Validate
+- **Payload Tampering**: Modifying token claims to gain unauthorized
