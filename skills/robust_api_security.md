@@ -1,15 +1,17 @@
-# Comprehensive Authentication and API Security
+# Robust API Security
 
 ## Overview
-This comprehensive micro-skill focuses on implementing secure authentication, comprehensive API security, and logging using JSON Web Tokens (JWT) and other relevant technologies. It integrates authentication, authorization, anomaly detection, and advanced security techniques to create a secure, resilient, and reliable application environment.
+Robust API security is essential for protecting applications from unauthorized access, data breaches, and malicious attacks. This micro-skill focuses on implementing strong authentication mechanisms, comprehensive security measures, and advanced techniques to defend against threats such as prompt injection attacks and SQL injection. By integrating authentication, authorization, anomaly detection, and secure coding practices, this micro-skill aims to create a secure, resilient, and reliable API environment.
 
 ---
 
-## 1. JWT Authentication with JOSE
+## 1. Comprehensive Authentication and API Security
 
-### 1.1 Implementation in Next.js
+### 1.1 JWT Authentication with JOSE
 
-#### 1.1.1 Key Code Snippets
+#### 1.1.1 Implementation in Next.js
+
+##### 1.1.1.1 Key Code Snippets
 
 ```typescript
 import { SignJWT, jwtVerify } from "jose";
@@ -47,7 +49,7 @@ export async function verify(token: string): Promise<{ username: string } | null
 }
 ```
 
-#### 1.1.2 Common Errors and Prevention
+##### 1.1.1.2 Common Errors and Prevention
 
 - **Secret Misconfiguration**:
   - **Error**: The secret is not set correctly or is exposed.
@@ -216,9 +218,4 @@ Attackers exploit vulnerabilities in database queries to execute malicious SQL c
     ```
 - **Input Sanitization**: Validate and sanitize all user inputs to prevent malicious code execution.
 
-### 2.3 Prompt Injection Defense
-
-#### 2.3.1 Detecting and Blocking Fake Authority Requests
-- **Objective**: Identify and prevent unauthorized or malicious requests that impersonate legitimate authorities.
-    ```javascript
-    // Function
+### 2.3

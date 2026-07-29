@@ -1,7 +1,7 @@
-# Full-Stack Development with Next.js and Role-Based Access Control (RBAC)
+# Full-Stack Development with RBAC in Next.js and React Flow
 
 ## Overview
-This micro-skill focuses on building a full-stack application using the Next.js framework while integrating Role-Based Access Control (RBAC). It covers middleware-based route protection, API route permission checks, UI-level permission enforcement, and best practices for maintaining a secure and scalable RBAC system.
+This micro-skill focuses on building a secure and scalable full-stack application using Next.js and React Flow while implementing Role-Based Access Control (RBAC). It covers middleware-based route protection, API route permission checks, UI-level permission enforcement, and best practices for maintaining a robust RBAC system.
 
 ## Key Components
 
@@ -108,42 +108,52 @@ export async function handle(req: NextRequest, platform: string, rest: string[])
 }
 ```
 
-### 4. UI-Level Permission Enforcement
+### 4. UI-Level Permission Enforcement in React Flow
 Enforce RBAC at the UI level by conditionally rendering components and disabling unauthorized actions.
 
-```typescript
-// components/ActionButtons.tsx
-import { useUser } from "@/lib/auth";
+```javascript
+// 角色定義
+const ROLES = {
+  guest: { name: '訪客', permissions: [] },
+  sysadmin: { name: '系統管理員', permissions: ['read', 'write', 'approve', 'reject', 'reset'] },
+  // 其他角色...
+};
 
-const perms = ROLE_PERMS[user.role][platform as keyof typeof ROLE_PERMS[typeof user.role]];
+// 節點權限矩陣
+const NODE_PERMS = {
+  'submit_request': { write: ['sysadmin', 'dept_officer'], approve: ['sysadmin'], reject: ['sysadmin'] },
+  // 其他節點...
+};
 
-export default function ActionButtons() {
-  return (
-    <>
-      <button
-        formAction={`/api/${platform}${sample}`}
-        formMethod="GET"
-        disabled={!perms.read}
-      >
-        List (GET)
-      </button>
-      <button
-        formAction={`/api/${platform}${sample}`}
-        formMethod="POST"
-        disabled={!perms.write}
-      >
-        Create (POST)
-      </button>
-      <button
-        formAction={`/api/${platform}${sample}`}
-        formMethod="DELETE"
-        disabled={!perms.delete}
-      >
-        Delete (DELETE)
-      </button>
-    </>
-  );
-}
+// 權限判定函式
+const canWrite = (role, nodeId) => NODE_PERMS[nodeId].write.includes(role);
+const canApprove = (role, nodeId) => NODE_PERMS[nodeId].approve.includes(role);
+
+// 自訂節點組件
+const FlowStepNode = ({ id, data, selected }) => (
+  <div className={`flow-node ${data.status}`}>
+    <div className="fn-title">{data.label}</div>
+    <div className="fn-meta">
+      {canWrite(currentRole, id) ? '可操作' : '只讀'}
+    </div>
+    {/* 其他內容... */}
+  </div>
+);
+
+// 動態狀態引擎
+const computedEdges = useMemo(() => {
+  return edges.map(edge => ({
+    ...edge,
+    className: edgeStatusMapping[edge.status],
+  }));
+}, [edges]);
+
+// 操作控制器
+const handleSubmit = (nodeId) => {
+  if (canWrite(currentRole, nodeId)) {
+    // 執行送審邏輯
+  }
+};
 ```
 
 ## Common Errors and Prevention
@@ -208,4 +218,4 @@ Optimize RBAC checks for performance by caching permission data and minimizing t
 ### 5. Integration with Authentication Systems
 Integrate RBAC with existing authentication systems to leverage existing user management and authentication mechanisms.
 
-By following these guidelines and implementing the provided code snippets, you can effectively enforce RBAC in your Next.js application, enhancing security and ensuring that users have appropriate access to resources and functionalities.
+By following these guidelines and implementing the provided code snippets, you can effectively enforce RBAC in your Next.js and React Flow applications, enhancing security and ensuring that users have appropriate access to resources and functionalities.
