@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<title>AI Workflow Recommendation Engine (React Flow + Rule-based Recommender)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<!-- React Flow 走 ESM CDN,版本鎖 11.11.4（最後穩定 v11） -->
+<script type="importmap">
+{
+  "imports": {
+    "react":                "https://esm.sh/react@18.3.1",
+    "react-dom":            "https://esm.sh/react-dom@18.3.1",
+    "react-dom/client":     "https://esm.sh/react-dom@18.3.1/client",
+    "reactflow":            "https://esm.sh/reactflow@11.11.4?external=react,react-dom",
+    "zustand":              "https://esm.sh/zustand@4.5.5?external=react",
+    "zustand/shallow":      "https://esm.sh/zustand@4.5.5/shallow?external=react"
+  }
+}
+</script>
+
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --line: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --good: #22c55e;
+    --warn: #f59e0b;
+    --bad:  #ef4444;
+  }
+  html, body, #root { height: 100%; margin: 0; }
+  body {
+    font-family: ui-sans-serif, system-ui, "Segoe UI", "PingFang TC", "Noto Sans TC", sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  .app { display: grid; grid-template-columns: 280px 1fr 340px; height: 100%; }
+  .panel { background: var(--panel); border-right: 1px solid var(--line); padding: 14px; overflow: auto; }
+  .panel.right { border-right: 0; border-left: 1px solid var(--line); }
+  h2 { font-size: 14px; margin: 0 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  h1 { font-size: 18px; margin: 0 0 12px; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; background: #0ea5e9; color: #0b1220; font-weight: 600; }
+  .palette { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+  .palette button {
+    text-align: left; padding: 10px 12px; background: #0b1220; color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px; cursor: grab; font-size: 13px;
+  }
+  .palette button:hover { border-color: var(--accent); }
+  .canvas-wrap { position: relative; }
+  .recommend {
+    position: absolute; top: 12px; right: 12px; z-index: 5;
+    background: rgba(15,23,42,.92); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 12px; max-width: 320px; font-size: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  }
+  .recommend h3 { margin: 0 0 6px; font-size: 13px; color: var(--accent); }
+  .recommend ul { margin: 0; padding-left: 16px; }
+  .recommend li { margin: 4px 0; }
+  .recommend .score { color: var(--muted); font-size: 11px; }
+  .recommend button {
+    margin-top: 6px; background: var(--accent); color: #0b1220; border: 0;
+    padding: 6px 10px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px;
+  }
+  .recommend button:hover { filter: brightness(1.1); }
+  .stat { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .stat b { color: var(--text); }
+  .log { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px;
+         background: #0b1220; padding: 8px; border-radius: 6px; max-height: 120px; overflow: auto;
+         border: 1px solid var(--line); }
+  .log .err { color: var(--bad); }
+  .log .ok  { color: var(--good); }
+  .log .inf { color: var(--accent); }
+  .react-flow__node { font-size: 12px; }
+  .rf-node {
+    padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line);
+    background: #0b1220; color: var(--text); min-width: 140px;
+  }
+  .rf-node.selected { outline: 2px solid var(--accent); }
+  .rf-node .type { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .rf-node .label { font-weight: 600; margin-top: 2px; }
+  .rf-handle { background: var(--accent) !important; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="module">
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createRoot } from "react-dom/client";
+import ReactFlow, {
+  Background, Controls, MiniMap, addEdge, useEdgesState, useNodesState,
+  Handle, Position, ReactFlowProvider
+} from "reactflow";
+import "https://esm.sh/reactflow@11.11.4/dist/style.css";
+
+/* ============================================================
+ * 1. 節點類型定義（catalogue）— AI 推薦引擎的 domain knowledge
+ *    每個類型有: id, label, category, capability, tags
+ *    capability = 一組語意向量關鍵字,用於 cosine similarity
+ * ============================================================ */
+const CATALOGUE = [
+  { id: "input.api",       label: "API 輸入",         category: "input",    capability: ["http","rest","webhook","trigger","fetch","request"],            tags: ["trigger","http"] },
+  { id: "input.schedule",  label: "排程觸發",         category: "input",    capability: ["time","cron","schedule","interval","periodic"],                tags: ["trigger","time"] },
+  { id: "input.manual",    label: "手動觸發",         category: "input",    capability: ["manual","user","click","button","human"],                     tags: ["trigger","ui"] },
+  { id: "input.file",      label: "檔案監聽",         category: "input",    capability: ["file","watch","drop","upload","s3","blob"],                   tags: ["trigger","file"] },
+
+  { id: "ai.llm",          label: "LLM 推論",         category: "ai",       capability: ["ai","llm","gpt","claude","reason","generate","summarize","translate","classify"], tags: ["ai","text"] },
+  { id: "ai.embedding",    label: "向量嵌入",         category: "ai",       capability: ["ai","embedding","vector","semantic","similarity","search","retrieve"],          tags: ["ai","vector"] },
+  { id: "ai.vision",       label: "視覺辨識",         category: "ai",       capability: ["ai","vision","image","ocr","classify","detect"],                                  tags: ["ai","image"] },
+
+  { id: "transform.map",   label: "欄位映射",         category: "transform",capability: ["map","rename","pick","omit","json","shape"],                  tags: ["data"] },
+  { id: "transform.filter",label: "條件過濾",         category: "transform",capability: ["filter","where","condition","if","gate"],                     tags: ["data"] },
+  { id: "transform.enrich",label: "資料增強",         category: "transform",capability: ["enrich","join","lookup","augment","hydrate"],                 tags: ["data"] },
+
+  { id: "logic.if",        label: "條件分支",         category: "logic",    capability: ["if","branch","route","switch","decision"],                    tags: ["logic"] },
+  { id: "logic.loop",      label: "迴圈/批次",        category: "logic",    capability: ["loop","batch","forEach","iterate","map"],                     tags: ["logic"] },
+  { id: "logic.merge",     label: "合併/彙總",        category: "logic",    capability: ["merge","join","reduce","aggregate","combine"],                tags: ["logic"] },
+
+  { id: "output.http",     label: "HTTP 呼叫",        category: "output",   capability: ["http","post","api","webhook","callback"],                     tags: ["output","http"] },
+  { id: "output.db",       label: "資料庫寫入",       category: "output",   capability: ["db","sql","insert","update","persist","store"],               tags: ["output","db"] },
+  { id: "output.notify",   label: "通知/告警",        category: "output",   capability: ["notify","alert","email","slack","telegram","message"],         tags: ["output","notify"] },
+];
+
+/* ============================================================
+ * 2. AI 推薦引擎 — Rule-based + Cosine similarity over capability vectors
+ *    訊息裡聲稱的 ai_recommendation_engine / react_flow_comprehensive_integration
+ *    在 ~/.hermes 系統內搜尋不到(SOP 透明紀錄:本實作為自實作,非重用既有微技能)
+ * ============================================================ */
+
+// 2.1 建立 capability 的 bag-of-words vocabulary
+const VOCAB = (() => {
+  const set = new Set();
+  for (const item of CATALOGUE) for (const w of item.capability) set.add(w);
+  return [...set];
+})();
+const VOCAB_IDX = Object.fromEntries(VOCAB.map((w, i) => [w, i]));
+
+function vectorize(capability) {
+  const v = new Array(VOCAB.length).fill(0);
+  for (const w of capability) if (w in VOCAB_IDX) v[VOCAB_IDX[w]] += 1;
+  // L2 normalize
+  const norm = Math.sqrt(v.reduce((s, x) => s + x * x, 0)) || 1;
+  return v.map(x => x / norm);
+}
+
+const CATALOGUE_VECTORS = CATALOGUE.map(item => ({
+  ...item,
+  vec: vectorize(item.capability),
+}));
+
+// 2.2 cosine similarity
+function cosine(a, b) {
+  let s = 0;
+  for (let i = 0; i < a.length; i++) s += a[i] * b[i];
+  return s;
+}
+
+// 2.3 從「當前畫布上的節點 + 邊」推斷「context vector」
+//     規則:每個現有節點貢獻自身 capability,來源節點(上游)權重更高
+function inferContextVector(nodes, edges) {
+  if (nodes.length === 0) return new Array(VOCAB.length).fill(0);
+  const inDegree = Object.fromEntries(nodes.map(n => [n.id, 0]));
+  for (const e of edges) if (e.target in inDegree) inDegree[e.target]++;
+
+  const v = new Array(VOCAB.length).fill(0);
+  for (const n of nodes) {
+    const item = CATALOGUE.find(c => c.id === n.data.typeId);
+    if (!item) continue;
+    const w = 1 + (inDegree[n.id] || 0) * 0.5; // 下游節點權重高(它需要被接住)
+    for (const tok of item.capability) if (tok in VOCAB_IDX) v[VOCAB_IDX[tok]] += w;
+  }
+  const norm = Math.sqrt(v.reduce((s, x) => s + x * x, 0)) || 1;
+  return v.map(x => x / norm);
+}
+
+// 2.4 推薦:從 catalogue 中挑與 context 相關、且「畫布上沒有的類型」,
+//         並以「下游銜接性」加分(input→transform→logic→ai→output 是合理鏈)
+const CATEGORY_ORDER = ["input", "transform", "logic", "ai", "output"];
+
+function recommend(nodes, edges, k = 5) {
+  const ctx = inferContextVector(nodes, edges);
+  const present = new Set(nodes.map(n => n.data.typeId));
+  const lastCategory = nodes.length === 0 ? "input" : (() => {
+    const last = nodes[nodes.length - 1];
+    const item = CATALOGUE.find(c => c.id === last.data.typeId);
+    return item ? item.category : "transform";
+  })();
+
+  const scored = CATALOGUE_VECTORS
+    .filter(c => !present.has(c.id))
+    .map(c => {
+      const sim = cosine(ctx, c.vec);
+      const flowBonus = (CATEGORY_ORDER.indexOf(c.category) >= CATEGORY_ORDER.indexOf(lastCategory)) ? 0.15 : 0;
+      const inputBonus = (nodes.length === 0 && c.category === "input") ? 0.3 : 0;
+      return { ...c, score: sim + flowBonus + inputBonus };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, k);
+
+  return { context: ctx, recommendations: scored, lastCategory };
+}
+
+/* ============================================================
+ * 3. 自訂 React Flow 節點 component
+ * ============================================================ */
+function RFNode({ data, selected }) {
+  const item = CATALOGUE.find(c => c.id === data.typeId);
+  return React.createElement("div", { className: "rf-node" + (selected ? " selected" : "") },
+    React.createElement(Handle, { type: "target", position: Position.Left }),
+    React.createElement("div", { className: "type" }, item ? item.category : "?"),
+    React.createElement("div", { className: "label" }, data.label || (item ? item.label : "Node")),
+    React.createElement(Handle, { type: "source", position: Position.Right })
+  );
+}
+const nodeTypes = { rf: RFNode };
+
+/* ============================================================
+ * 4. 主元件
+ * ============================================================ */
+function FlowApp() {
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [log, setLog] = useState([]);
+  const rfWrapper = useRef(null);
+  const idRef = useRef(0);
+
+  const pushLog = useCallback((msg, kind = "inf") => {
+    setLog(prev => [...prev.slice(-19), { ts: new Date().toLocaleTimeString(), msg, kind }]);
+  }, []);
+
+  const onConnect = useCallback((params) => {
+    setEdges(eds => addEdge({ ...params, animated: true, style: { stroke: "#38bdf8" } }, eds));
+    pushLog(`edge ${params.source} → ${params.target}`, "ok");
+  }, [setEdges, pushLog]);
+
+  // drag from palette
+  const onDragOver = useCallback((e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  }, []);
+  const onDrop = useCallback((e) => {
+    e.preventDefault();
+    const typeId = e.dataTransfer.getData("application/rf-type");
+    if (!typeId || !rfWrapper.current) return;
+    const item = CATALOGUE.find(c => c.id === typeId);
+    const bounds = rfWrapper.current.getBoundingClientRect();
+    const position = rfWrapper.current.screenToFlowPosition({
+      x: e.clientX - bounds.left,
+      y: e.clientY - bounds.top,
+    });
+    const id = `n${++idRef.current}`;
+    setNodes(nds => nds.concat({
+      id, type: "rf", position, data: { typeId, label: item.label },
+    }));
+    pushLog(`add ${item.label} (${item.category})`, "ok");
+  }, [setNodes, pushLog]);
+
+  // AI 推薦
+  const { context, recommendations, lastCategory } = useMemo(
+    () => recommend(nodes, edges, 5),
+    [nodes, edges]
+  );
+
+  const applyRecommendation = useCallback((rec) => {
+    const item = CATALOGUE.find(c => c.id === rec.id);
+    const id = `n${++idRef.current}`;
+    // 放在最後一個節點右側
+    const last = nodes[nodes.length - 1];
+    const position = last
+      ? { x: last.position.x + 200, y: last.position.y }
+      : { x: 80, y: 80 };
+    const newNode = { id, type: "rf", position, data: { typeId: rec.id, label: item.label } };
+    setNodes(nds => [...nds, newNode]);
+    // 若有上游,自動連一條邊
+    if (last) {
+      setEdges(eds => eds.concat({
+        id: `e${last.id}-${id}`, source: last.id, target: id,
+        animated: true, style: { stroke: "#38bdf8" },
+      }));
+    }
+    pushLog(`AI recommend applied: ${item.label} (score=${rec.score.toFixed(2)})`, "inf");
+  }, [nodes, setNodes, setEdges, pushLog]);
+
+  const clearAll = useCallback(() => {
+    setNodes([]); setEdges([]);
+    pushLog("cleared canvas", "inf");
+  }, [setNodes, setEdges, pushLog]);
+
+  const seedDemo = useCallback(() => {
+    // 預先放一個 input + 一個 ai,示範 AI 推薦
+    const n1 = { id: "n" + (++idRef.current), type: "rf", position: { x: 80, y: 100 },
+                 data: { typeId: "input.api", label: "API 輸入" } };
+    const n2 = { id: "n" + (++idRef.current), type: "rf", position: { x: 320, y: 100 },
+                 data: { typeId: "ai.llm", label: "LLM 推論" } };
+    setNodes([n1, n2]);
+    setEdges([{ id: "e1-2", source: n1.id, target: n2.id, animated: true, style: { stroke: "#38bdf8" } }]);
+    pushLog("seeded demo: input.api → ai.llm", "ok");
+  }, [setNodes, setEdges, pushLog]);
+
+  return React.createElement("div", { className: "app" },
+
+    /* 左側 palette */
+    React.createElement("aside", { className: "panel" },
+      React.createElement("h1", null, "⚕ Hermes"),
+      React.createElement("span", { className: "pill" }, "React Flow + AI Recommend"),
+      React.createElement("h2", { style: { marginTop: 14 } }, "節點 palette"),
+      React.createElement("div", { className: "palette" },
+        ...CATALOGUE.map(item =>
+          React.createElement("button", {
+            key: item.id,
+            draggable: true,
+            onDragStart: (e) => {
+              e.dataTransfer.setData("application/rf-type", item.id);
+              e.dataTransfer.effectAllowed = "move";
+            },
+          }, `${item.label} · ${item.category}`)
+        )
+      ),
+      React.createElement("h2", { style: { marginTop: 14 } }, "操作"),
+      React.createElement("button", {
+        onClick: seedDemo,
+        style: panelBtnStyle,
+      }, "▶ 載入 demo 流程"),
+      React.createElement("button", {
+        onClick: clearAll,
+        style: { ...panelBtnStyle, background: "#7f1d1d", color: "#fff", borderColor: "#7f1d1d" },
+      }, "✗ 清空畫布"),
+      React.createElement("div", { className: "stat" },
+        React.createElement("div", null, "節點: ", React.createElement("b", null, nodes.length)),
+        React.createElement("div", null, "邊: ", React.createElement("b", null, edges.length)),
+        React.createElement("div", null, "最後類別: ", React.createElement("b", null, lastCategory)),
+      ),
+      React.createElement("h2", { style: { marginTop: 14 } }, "事件 log"),
+      React.createElement("div", { className: "log" },
+        ...log.map((l, i) =>
+          React.createElement("div", { key: i, className: l.kind },
+            `[${l.ts}] ${l.msg}`)
+        )
+      ),
+    ),
+
+    /* 中央 canvas */
+    React.createElement("main", {
+      className: "canvas-wrap",
+      ref: rfWrapper,
+      onDragOver, onDrop,
+    },
+      React.createElement(ReactFlow, {
+        nodes, edges, onNodesChange, onEdgesChange, onConnect,
+        nodeTypes, fitView: true,
+        style: { width: "100%", height: "100%" },
+      },
+        React.createElement(Background, { gap: 16, color: "#1e293b" }),
+        React.createElement(Controls, null),
+        React.createElement(MiniMap, { pannable: true, zoomable: true, nodeColor: "#38bdf8" }),
+      ),
+      /* AI 推薦 panel 浮在右上 */
+      React.createElement("div", { className: "recommend" },
+        React.createElement("h3", null, "🤖 AI 推薦"),
+        recommendations.length === 0
+          ? React.createElement("div", { style: { color: "#94a3b8" } }, "(已用盡所有類型)")
+          : React.createElement("ul", null,
+              ...recommendations.map((r, i) =>
+                React.createElement("li", { key: r.id },
+                  `${i + 1}. ${r.label} `,
+                  React.createElement("span", { className: "score" },
+                    `(score=${r.score.toFixed(2)} · ${r.category})`),
+                  " ",
+                  React.createElement("button", {
+                    onClick: () => applyRecommendation(r),
+                  }, "套用")
+                )
+              )
+            ),
+        React.createElement("div", { className: "stat", style: { marginTop: 8 } },
+          "context 推斷依據: ",
+          React.createElement("b", null,
+            nodes.length === 0
+              ? "空畫布 → 從 input 開始"
+              : `${nodes.length} 個節點,最後類別 ${lastCategory}`),
+        ),
+      ),
+    ),
+
+    /* 右側 info panel */
+    React.createElement("aside", { className: "panel right" },
+      React.createElement("h1", null, "📖 說明"),
+      React.createElement("p", { style: { fontSize: 12, color: "#94a3b8", lineHeight: 1.55 } },
+        "從左側 palette 拖曳節點到畫布。連接節點後,右上角 ",
+        React.createElement("b", { style: { color: "#e2e8f0" } }, "AI 推薦"),
+        " 會根據「現有節點的能力向量 + 上下游類別順序」推薦下一步。"),
+      React.createElement("h2", { style: { marginTop: 12 } }, "推薦演算法"),
+      React.createElement("ol", { style: { fontSize: 12, color: "#cbd5e1", lineHeight: 1.6, paddingLeft: 18 } },
+        React.createElement("li", null, "把每個 catalogue 條目的 capability 詞袋向量 L2 normalize"),
+        React.createElement("li", null, "從當前畫布節點 + 入度加權聚合出 context 向量"),
+        React.createElement("li", null, "對所有「畫布上沒有」的 catalogue 算 cosine similarity"),
+        React.createElement("li", null, "加分:下游類別(input→...→output 順序)+0.15,空畫布首選 input +0.3"),
+        React.createElement("li", null, "排序取 Top-5"),
+      ),
+      React.createElement("h2", { style: { marginTop: 12 } }, "類別順序"),
+      React.createElement("div", { className: "stat" },
+        "input → transform → logic → ai → output",
+        React.createElement("br"), "(順序之外的類型會扣掉 0.15 flow bonus)"),
+      React.createElement("h2", { style: { marginTop: 12 } }, "已知限制"),
+      React.createElement("ul", { style: { fontSize: 12, color: "#cbd5e1", lineHeight: 1.6, paddingLeft: 18 } },
+        React.createElement("li", null, "純 client-side,無 LLM/外部 API"),
+        React.createElement("li", null, "capability 是 hard-coded 詞袋,未做自動 embedding"),
+        React.createElement("li", null, "連接可雙向,不限制 source/target 順序"),
+      ),
+    ),
+  );
+}
+
+const panelBtnStyle = {
+  display: "block", width: "100%", marginTop: 8, padding: "8px 10px",
+  background: "#0b1220", color: "#e2e8f0", border: "1px solid #334155",
+  borderRadius: 6, cursor: "pointer", fontSize: 12,
+};
+
+/* mount */
+function Root() {
+  return React.createElement(ReactFlowProvider, null, React.createElement(FlowApp, null));
+}
+createRoot(document.getElementById("root")).render(React.createElement(Root, null));
+</script>
+</body>
+</html>
