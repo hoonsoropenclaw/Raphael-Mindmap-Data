@@ -1,12 +1,12 @@
-# Comprehensive UI Development
+# Rapid UI Development with DaisyUI
 
 ## Overview
-This comprehensive micro-skill focuses on the development and integration of modern, responsive, and aesthetically pleasing user interfaces (UI). It encompasses the use of HTML, CSS, and JavaScript, along with frameworks like Tailwind CSS and DaisyUI, to build scalable, interactive, and accessible components. The skill also emphasizes the integration of these interfaces with backend APIs, ensuring a seamless and user-friendly application experience.
+This micro-skill focuses on leveraging DaisyUI, a component library based on Tailwind CSS, to rapidly develop comprehensive, responsive, and aesthetically pleasing user interfaces (UI). It integrates HTML, CSS, and JavaScript with DaisyUI's pre-designed components and Tailwind's utility-first approach to enable scalable, interactive, and accessible UI development. The skill emphasizes seamless integration with backend APIs, ensuring a cohesive and user-friendly application experience.
 
 ## 1. Web UI Development Fundamentals
 
 ### Description
-This aspect involves building frontend interfaces using HTML, CSS, and JavaScript, and integrating them with backend APIs to enable dynamic functionality.
+Build frontend interfaces using HTML, CSS, and JavaScript, integrating them with backend APIs to enable dynamic functionality.
 
 ### Key Code Snippets and Patterns
 ```html
@@ -34,7 +34,7 @@ This aspect involves building frontend interfaces using HTML, CSS, and JavaScrip
 ## 2. Frontend Design and Aesthetics
 
 ### Description
-This area emphasizes the foundational aspects of frontend design, focusing on aesthetics, user experience (UX) optimization, and the practical implementation of design principles using HTML, CSS, and JavaScript.
+Focus on aesthetics, user experience (UX) optimization, and the practical implementation of design principles using HTML, CSS, and JavaScript.
 
 ### Key Techniques and Patterns
 
@@ -105,7 +105,7 @@ document.addEventListener('DOMContentLoaded', () => {
 - **Mistake**: Ignoring semantic HTML tags and accessibility standards.
 - **Prevention**: Use semantic HTML elements to provide meaningful structure to web pages. Ensure interactive elements are accessible via keyboard and screen readers by following ARIA guidelines. Test accessibility using tools like Lighthouse and Wave.
 
-## 3. Modern UI Development and Integration
+## 3. Modern UI Development and Integration with DaisyUI
 
 ### Integration of Tailwind CSS and DaisyUI
 Leverage the utility-first approach of Tailwind CSS alongside DaisyUI's pre-designed components to streamline development and enable rapid prototyping with high customization.
@@ -214,4 +214,4 @@ Develop UI components that support theme persistence and accessibility features,
   }
 </script>
 <!-- Accessibility: Skip link -->
-<a href="#main
+<a href="#main" class

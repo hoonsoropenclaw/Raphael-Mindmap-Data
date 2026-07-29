@@ -1,19 +1,19 @@
-# Testing and Sandbox Environment Optimization
+# Efficient Testing and Sandbox Management
 
-## Target Skill Name: testing_and_sandbox_optimization
+## Target Skill Name: efficient_testing_and_sandbox_management
 
 ## Target Summary
-Optimizing testing procedures and sandbox environments through advanced testing techniques and in-depth sandbox environment analysis.
+Optimize testing environments and sandbox management to ensure code quality and functionality through advanced testing techniques, comprehensive sandbox analysis, and streamlined test execution.
 
 ---
 
 ## 1. Sandbox Environment Analysis and Optimization
 
 ### 1.1 Purpose
-This micro-skill aims to assess whether tasks should be executed within a sandbox environment and to analyze potential risks associated with these tasks.
+Assess whether tasks should be executed within a sandbox environment and analyze potential risks associated with these tasks to ensure safe and controlled execution.
 
 ### 1.2 Key Features
-- **Environment Verification**: Confirm if the current working directory is a sandbox environment by checking for keywords like "learning" or "sandbox" in the directory name.
+- **Environment Verification**: Confirm if the current working directory is a sandbox by checking for keywords like "learning" or "sandbox" in the directory name.
 - **Task Evaluation**: Analyze task content to identify sensitive operations or attempts at privilege escalation.
 - **Risk Assessment**: Evaluate the risk level based on the task's nature and decide whether further verification or task rejection is necessary.
 
@@ -210,4 +210,4 @@ except Exception as e:
    - Use HTTPS and secure communication channels for inter-service communication.
 
 6. **Documentation**
-   - Maintain comprehensive documentation for the data graph, including type definitions
+   - Maintain comprehensive documentation
