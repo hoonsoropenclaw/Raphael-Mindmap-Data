@@ -29,4 +29,4 @@
 24. **user_collaboration_style**: Understanding and implementing effective styles of user collaboration.
 25. **ai_application_integration**: Seamlessly integrating AI capabilities into various applications.
 26. **advanced_file_management_and_security**: Advanced techniques for managing and securing files and data.
-27. **godot_engine_advanced_development**: Advanced development techniques using the Godot game engine.
+27. **godot_engine_advanced_development**: Advanced development techniques using the Godot game engine.- **prompt_injection_fake_authority**: 防止偽授權模板的注入攻擊
