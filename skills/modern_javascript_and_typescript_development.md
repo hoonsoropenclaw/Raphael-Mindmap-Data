@@ -1,7 +1,7 @@
-# 现代 JavaScript 开发：React 与 Flow 集成及现代特性应用
+# 现代 JavaScript 与 TypeScript 开发：集成、构建与配置
 
 ## 概述
-本微技能旨在将 React 与 Flow 进行集成，以实现静态类型检查，并结合现代 JavaScript 特性与工具，打造前沿的 Web 开发体验。通过本技能，开发者将能够高效地构建可维护、可扩展且具备良好用户体验的 Web 应用。
+本微技能涵盖了现代 JavaScript 开发技术，包括 TypeScript 类型安全、ESM 配置、SH 打包以及 importmap 配置。通过本技能，开发者将能够高效地构建可维护、可扩展且具备良好用户体验的 Web 应用，并确保代码的可靠性和性能。
 
 ---
 
@@ -66,21 +66,19 @@ const edges = [/* 边数据 */];
 
 ---
 
-## 2. 现代 JavaScript 应用集成与事件管理
+## 2. 实时 HTML 仪表板与后端 API 集成
 
-### 2.1 实时 HTML 仪表板与后端 API 集成
-
-#### 2.1.1 目的
+### 2.1 目的
 将实时 HTML 仪表板与后端 API（如 Flask）集成，实现数据可视化、交互和实时更新。该集成使用户能够通过 Web 界面和第三方应用监控系统状态、查看统计数据并与应用程序进行交互。
 
-#### 2.1.2 关键组件与结构
+### 2.2 关键组件与结构
 
-##### 2.1.2.1 HTML 仪表板
+#### 2.2.1 HTML 仪表板
 - **结构**：包含头部、统计信息和面板容器以及底部信息或操作按钮。
 - **样式**：使用 CSS 实现简洁且响应式的设计。
 - **动态更新**：通过 JavaScript 和 Chart.js 等库管理动态数据更新和可视化。
 
-###### 示例代码
+##### 示例代码
 ```html
 <!DOCTYPE html>
 <html lang="zh-TW">
@@ -227,7 +225,7 @@ const edges = [/* 边数据 */];
 </html>
 ```
 
-###### Flask API
+##### Flask API
 - **端点**：
   - `POST /api/process`：上传并处理文件。
   - `GET /api/stats`：获取统计数据。
@@ -270,3 +268,4 @@ def health_check():
     return jsonify({'status': 'ok'}), 200
 
 if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)

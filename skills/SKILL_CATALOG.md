@@ -30,4 +30,11 @@
 25. **rate_limit_logic_testing** - Testing and validating rate limiting logic for API protection.
 26. **multimodal_data_integration** - Integrating and managing data from multiple modalities and sources.
 27. **audit_log_management** - Managing and maintaining audit logs for system monitoring and compliance.
-28. **collaborative_task_and_decision_management** - Managing collaborative tasks and decision-making processes for team efficiency.
+28. **collaborative_task_and_decision_management** - Managing collaborative tasks and decision-making processes for team efficiency.- **react_flow_minimap_positioning**: 調整 React Flow 中 MiniMap 的位置和樣式
+- **react_flow_viewport_centering**: 將 React Flow 的視圖中心對齊到特定節點或區域
+- **react_flow_node_size_override**: 覆蓋 React Flow 中節點的預設大小設置
+- **react_flow_panel_positioning**: 調整 React Flow 中控制面板的位置
+- **react_flow_umd_integration**: 在 UMD 環境下整合 React Flow 11 並處理 JSX 與模組依賴
+- **custom_node_types_stabilization**: 穩定自訂節點類型的引用以避免 React Flow 內部狀態重置
+- **edge_rendering_debugging**: 調試 React Flow 中邊緣渲染問題
+- **react_flow_umd_babel_interaction**: 處理 React Flow UMD 與 Babel 交互問題

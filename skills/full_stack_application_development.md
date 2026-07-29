@@ -1,12 +1,13 @@
-# Full-Stack Development with RBAC in Next.js and React Flow
+# Full-Stack Application Development with RBAC and SPA in Next.js
 
 ## Overview
-This micro-skill focuses on building a secure and scalable full-stack application using Next.js and React Flow while implementing Role-Based Access Control (RBAC). It covers middleware-based route protection, API route permission checks, UI-level permission enforcement, and best practices for maintaining a robust RBAC system.
+This comprehensive micro-skill focuses on building secure, scalable, and efficient full-stack applications using Next.js. It encompasses both **Role-Based Access Control (RBAC)** and **Single Page Application (SPA)** development. The guide covers essential aspects such as middleware-based route protection, API route permission checks, UI-level permission enforcement, strict TypeScript configurations, server-side rendering (SSR) optimization, and best practices for maintaining a robust and maintainable codebase.
 
 ## Key Components
 
 ### 1. Role and Permission Definitions
-Centralize role and permission definitions to maintain consistency across the application.
+
+Centralizing role and permission definitions is crucial for maintaining consistency across the application.
 
 ```javascript
 // lib/rbac.js
@@ -36,6 +37,7 @@ export function can(user, permission, resource) {
 ```
 
 ### 2. Middleware-Based Route Protection
+
 Protect specific routes by implementing middleware that verifies user authentication and role-based access.
 
 ```typescript
@@ -74,6 +76,7 @@ export const config = {
 ```
 
 ### 3. API Route Permission Checks
+
 Ensure that API routes enforce RBAC by validating user permissions before processing requests.
 
 ```typescript
@@ -109,38 +112,39 @@ export async function handle(req: NextRequest, platform: string, rest: string[])
 ```
 
 ### 4. UI-Level Permission Enforcement in React Flow
+
 Enforce RBAC at the UI level by conditionally rendering components and disabling unauthorized actions.
 
 ```javascript
-// 角色定義
+// Role Definitions
 const ROLES = {
-  guest: { name: '訪客', permissions: [] },
-  sysadmin: { name: '系統管理員', permissions: ['read', 'write', 'approve', 'reject', 'reset'] },
-  // 其他角色...
+  guest: { name: 'Guest', permissions: [] },
+  sysadmin: { name: 'System Administrator', permissions: ['read', 'write', 'approve', 'reject', 'reset'] },
+  // Other roles...
 };
 
-// 節點權限矩陣
+// Node Permission Matrix
 const NODE_PERMS = {
   'submit_request': { write: ['sysadmin', 'dept_officer'], approve: ['sysadmin'], reject: ['sysadmin'] },
-  // 其他節點...
+  // Other nodes...
 };
 
-// 權限判定函式
+// Permission Check Functions
 const canWrite = (role, nodeId) => NODE_PERMS[nodeId].write.includes(role);
 const canApprove = (role, nodeId) => NODE_PERMS[nodeId].approve.includes(role);
 
-// 自訂節點組件
+// Custom Node Component
 const FlowStepNode = ({ id, data, selected }) => (
   <div className={`flow-node ${data.status}`}>
     <div className="fn-title">{data.label}</div>
     <div className="fn-meta">
-      {canWrite(currentRole, id) ? '可操作' : '只讀'}
+      {canWrite(currentRole, id) ? 'Editable' : 'Read-Only'}
     </div>
-    {/* 其他內容... */}
+    {/* Other content... */}
   </div>
 );
 
-// 動態狀態引擎
+// Dynamic State Engine
 const computedEdges = useMemo(() => {
   return edges.map(edge => ({
     ...edge,
@@ -148,60 +152,23 @@ const computedEdges = useMemo(() => {
   }));
 }, [edges]);
 
-// 操作控制器
+// Operation Controller
 const handleSubmit = (nodeId) => {
   if (canWrite(currentRole, nodeId)) {
-    // 執行送審邏輯
+    // Execute submission logic
   }
 };
 ```
 
-## Common Errors and Prevention
+## Best Practices for RBAC Implementation
 
-### 1. Incorrect Permission Logic
-- **Error**: Permission checks are flawed, allowing unauthorized access.
-- **Prevention**: 
-  - Implement thorough unit tests for permission logic.
-  - Regularly review and audit permission checks.
-  - Use centralized RBAC modules to minimize inconsistencies.
-
-### 2. Incomplete Resource-Level Checks
-- **Error**: Sensitive resources lack proper permission checks.
-- **Prevention**: 
-  - Clearly define which resources require additional checks.
-  - Implement resource-level checks consistently across the application.
-  - Use middleware or higher-order functions to enforce checks.
-
-### 3. Inconsistent UI and Backend Permissions
-- **Error**: UI permissions do not align with backend RBAC policies.
-- **Prevention**: 
-  - Synchronize permission definitions between frontend and backend.
-  - Use shared permission constants or modules.
-  - Implement client-side validation based on user roles.
-
-### 4. Improper Matcher Configuration
-- **Error**: Middleware matcher incorrectly protects or exposes routes.
-- **Prevention**: 
-  - Carefully define the `matcher` regex to target specific routes.
-  - Test middleware with various routes to ensure correct behavior.
-  - Use tools like regex testers to validate matcher patterns.
-
-### 5. Insufficient Audit Logging
-- **Error**: Lack of audit logs for RBAC-related events.
-- **Prevention**: 
-  - Implement audit logging for all permission checks and access attempts.
-  - Use centralized logging systems to store and manage audit logs.
-  - Regularly review audit logs to detect and respond to potential security issues.
-
-## Best Practices
-
-- **Centralize RBAC Logic**: Keep all RBAC-related logic in a centralized module to ensure consistency and ease of maintenance.
+- **Centralize RBAC Logic**: Maintain all RBAC-related logic in a centralized module to ensure consistency and ease of maintenance.
 - **Least Privilege Principle**: Grant users the minimum permissions necessary to perform their tasks.
 - **Regular Audits**: Conduct regular security audits to verify RBAC implementation and identify vulnerabilities.
 - **Error Handling**: Provide clear and consistent error messages for unauthorized access attempts without revealing sensitive information.
 - **Secure Token Handling**: Ensure that tokens are securely stored and transmitted, using HTTPS and secure cookie settings.
 
-## Additional Recommendations
+## Additional Recommendations for RBAC
 
 ### 1. Role Hierarchy
 Implement a role hierarchy to simplify permission management. For example, an `admin` role can inherit permissions from `editor` and `viewer` roles.
@@ -218,4 +185,89 @@ Optimize RBAC checks for performance by caching permission data and minimizing t
 ### 5. Integration with Authentication Systems
 Integrate RBAC with existing authentication systems to leverage existing user management and authentication mechanisms.
 
-By following these guidelines and implementing the provided code snippets, you can effectively enforce RBAC in your Next.js and React Flow applications, enhancing security and ensuring that users have appropriate access to resources and functionalities.
+## Best Practices for SPA Development with Next.js
+
+### 1. Strict TypeScript Configuration
+
+Enforce strict TypeScript rules to catch potential type-related errors during development.
+
+```json
+// tsconfig.json
+{
+  "strict": true,
+  "noEmit": true,
+  "compilerOptions": {
+    // Additional compiler options can be added here
+  }
+}
+```
+
+- **File Extensions**: Use `.tsx` for files containing JSX and `.ts` for other TypeScript files.
+- **Type Sharing**: Utilize the `@/lib/data` directory and `import type` to share types between server and client, ensuring zero-cost type imports.
+
+### 2. Implementing API Routes
+
+Create backend endpoints within your Next.js application to handle various HTTP requests.
+
+```tsx
+// pages/api/health.ts
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const status = searchParams.get("status");
+  const role = searchParams.get("role");
+  // ... additional logic
+  return NextResponse.json({ /* response data */ }, { status: 200 });
+}
+
+// pages/api/users.ts
+export async function POST(request: Request) {
+  let body: CreateUserPayload = {};
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
+  }
+  // ... additional logic, such as creating a user
+  return NextResponse.json({ ok: true, user: created, note: "Echo only — not persisted in this demo" }, { status: 201 });
+}
+```
+
+### 3. Optimizing Server-Side Rendering (SSR)
+
+Leverage SSR to render pages on the server, enhancing initial load times and SEO performance.
+
+```tsx
+// pages/index.tsx
+export default function Home() {
+  return (
+    <div>
+      {/* Page content */}
+    </div>
+  );
+}
+
+// components/ServerComponent.tsx
+"use server";
+import { /* imports */ } from "...";
+
+const ServerComponent = () => {
+  // Server-only logic
+  return <div>Server Component</div>;
+};
+
+export default ServerComponent;
+```
+
+### 4. Component Organization
+
+Organize components within the `src/components/` directory, prioritizing server-rendered components and marking interactive components with `use client`.
+
+```tsx
+// Example of a server-first component
+const Navbar = () => {
+  return <nav>...</nav>;
+};
+
+export default Navbar;
+
+//
