@@ -3,30 +3,37 @@
 
 # SKILL_CATALOG.md
 
-1. **trial_and_error**: Mastering the art of iterative problem-solving through experimentation.
-2. **comprehensive_system_management**: Expertise in managing and optimizing complex systems.
-3. **playwright_advanced_web_automation**: Advanced techniques for automating web interactions using Playwright.
-4. **task_and_workflow_automation**: Streamlining processes with efficient task and workflow automation.
-5. **tdd-workflow**: Implementing Test-Driven Development for robust software development.
-6. **unit_testing**: Ensuring code reliability through comprehensive unit testing practices.
-7. **audio_streaming_and_visualization**: Handling audio streaming and creating dynamic visualizations.
-8. **video_processing_and_rendering**: Techniques for processing and rendering high-quality video content.
-9. **config_file_setup**: Setting up and managing configuration files for seamless application deployment.
-10. **enhanced_application_security_and_data_protection**: Advanced strategies for securing applications and protecting data.
-11. **cross_platform_application_development**: Developing applications that work seamlessly across multiple platforms.
-12. **react_flow_full_integration**: Integrating React Flow for dynamic and interactive user interfaces.
-13. **computer_vision_based_text_recognition**: Utilizing computer vision for accurate text recognition in images.
-14. **esm_importmap_configuration**: Configuring ESM and import maps for modern JavaScript applications.
-15. **efficient_testing_and_sandbox_management**: Optimizing testing processes and managing sandboxes for safe experimentation.
-16. **dashboard_and_api_integration**: Integrating dashboards with APIs for real-time data visualization and management.
-17. **llm_enhanced_application_integration**: Leveraging Large Language Models to enhance application capabilities and integration.
-18. **mini_yaml_parser**: Developing a compact parser for handling YAML configuration files.
-19. **rapid_ui_development_with_daisyui**: Accelerating UI development using the DaisyUI framework.
-20. **android_native_dev**: Mastering native Android application development for robust mobile experiences.
-21. **ethereum_smart_contract_development**: Creating and deploying smart contracts on the Ethereum blockchain.
-22. **nextjs_full_stack_development**: Building full-stack applications using the Next.js framework.
-23. **placeholder_based_file_modification**: Modifying files using placeholders for dynamic content replacement.
-24. **user_collaboration_style**: Understanding and implementing effective styles of user collaboration.
-25. **ai_application_integration**: Seamlessly integrating AI capabilities into various applications.
-26. **advanced_file_management_and_security**: Advanced techniques for managing and securing files and data.
-27. **godot_engine_advanced_development**: Advanced development techniques using the Godot game engine.- **prompt_injection_fake_authority**: 防止偽授權模板的注入攻擊
+1. **system_reliability_and_error_management** - Master techniques for ensuring system reliability and effective error management.
+2. **playwright_web_testing_and_automation** - Learn web testing and automation using Playwright.
+3. **api_security_mastery** - Achieve mastery in securing APIs against vulnerabilities.
+4. **frontend_theme_and_performance_optimization** - Enhance frontend themes and optimize performance for better user experience.
+5. **prompt_injection_mitigation** - Implement strategies to prevent and mitigate prompt injection attacks.
+6. **vision_based_rendering_analysis** - Analyze rendering techniques based on computer vision principles.
+7. **video_processing_and_rendering** - Develop skills in video processing and rendering for multimedia applications.
+8. **ai_application_with_cv_integration** - Integrate AI with computer vision for advanced applications.
+9. **javascript_event_handling** - Master event handling in JavaScript for dynamic web interactions.
+10. **nextauth_rbac_implementation** - Implement Role-Based Access Control (RBAC) using NextAuth for secure authentication.
+11. **multi_platform_native_development** - Develop native applications across multiple platforms efficiently.
+12. **workflow_automation_with_sop_integration** - Automate workflows with integration of Standard Operating Procedures (SOPs).
+13. **html_ui_layout_design** - Design and create effective UI layouts using HTML.
+14. **dynamic_ui_with_cross_domain_solution** - Create dynamic user interfaces with solutions for cross-domain challenges.
+15. **headless_browser_automation** - Automate tasks using headless browsers for efficient testing and scraping.
+16. **standardized_environment_management** - Manage and maintain standardized environments for consistent development and deployment.
+17. **godot_engine_performance_optimization** - Optimize performance in the Godot game engine for smoother gameplay.
+18. **mini_yaml_parser** - Develop a compact parser for YAML data serialization format.
+19. **speech_to_text_api_integration** - Integrate speech-to-text APIs for voice-enabled applications.
+20. **importmap_configuration** - Configure import maps for efficient JavaScript module resolution.
+21. **application_logging_and_error_management** - Implement robust logging and error management in applications for better troubleshooting.
+22. **ethereum_smart_contract_development** - Develop smart contracts on the Ethereum blockchain for decentralized applications.
+23. **telegram_bot_development** - Create Telegram bots for automating tasks and enhancing user interaction.
+24. **frontend_customization_and_optimization** - Customize and optimize frontend components for improved performance and user experience.
+25. **nextjs_full_stack_development** - Develop full-stack applications using Next.js for server-side rendering and static site generation.
+26. **advanced_application_security_and_data_management** - Implement advanced security measures and manage data effectively in applications.
+27. **godot_advanced_optimization_and_management** - Apply advanced optimization techniques and manage Godot projects efficiently.
+28. **ai_recommendation_engine** - Build AI-driven recommendation engines for personalized user experiences.
+29. **user_collaboration_style** - Understand and implement styles for effective user collaboration in projects.
+30. **modern_javascript_application_integration** - Integrate modern JavaScript features and tools for cutting-edge applications.
+31. **react_flow_comprehensive_integration** - Achieve comprehensive integration with React Flow for visualizing data flows.
+32. **google_calendar_api_integration** - Integrate with Google Calendar API for scheduling and event management.
+33. **framer_motion_advanced_animations** - Create advanced animations using Framer Motion for dynamic and interactive UI.
+34. **playwright_comprehensive_web_testing** - Conduct comprehensive web testing using Playwright for robust applications.
