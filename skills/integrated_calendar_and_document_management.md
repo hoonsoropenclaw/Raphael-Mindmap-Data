@@ -1,8 +1,8 @@
-# Document and Calendar Integration Micro-Skill
+# Integrated Calendar and Document Management Micro-Skill
 
 ## Overview
 
-This micro-skill combines advanced PDF and OCR processing with Google Calendar integration, enabling the extraction of data from various PDF documents and scheduling events directly into Google Calendar. It leverages multiple technologies, including PyMuPDF, Tesseract, PDF.js, Tesseract.js, Playwright, and the Google Calendar API, to provide a robust solution for document processing and event management.
+The **integrated_calendar_and_document_management** micro-skill seamlessly merges advanced PDF and OCR processing with Google Calendar integration. This enables the extraction of data from various PDF documents and the scheduling of events directly into Google Calendar. By leveraging technologies such as PyMuPDF, Tesseract, PDF.js, Tesseract.js, Playwright, and the Google Calendar API, this micro-skill provides a robust solution for document processing and event management.
 
 ---
 
@@ -11,7 +11,7 @@ This micro-skill combines advanced PDF and OCR processing with Google Calendar i
 ### 1.1 PDF Text Extraction and OCR Processing
 
 #### Purpose
-Extract text from PDF files, including text-based PDFs and scanned/image-based PDFs using OCR.
+Extract text from PDF files, including both text-based PDFs and scanned/image-based PDFs using OCR.
 
 #### Key Code Snippets and Patterns
 
@@ -225,5 +225,4 @@ def authenticate_device_flow(client_secret_path):
     flow = InstalledAppFlow.from_client_secrets_file(client_secret_path, SCOPES)
     device_flow_info = flow.device_flow()
     print(f"Visit the URL: {device_flow_info['verification_url']}")
-    print(f"Enter the code: {device_flow_info['user_code']}")
-    flow.fetch_token(device
+    print(f"Enter

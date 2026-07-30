@@ -3,29 +3,27 @@
 
 # SKILL_CATALOG.md
 
-1. **anti_panic_protocol** - Strategies to prevent and manage panic responses in systems.
-2. **anti_pattern_blocking_io** - Techniques to identify and resolve blocking I/O anti-patterns.
-3. **pdf_and_ocr_advanced_processing** - Advanced methods for processing PDFs and Optical Character Recognition (OCR).
-4. **anti_pattern_detection_and_resolution** - Identifying and resolving common anti-patterns in software development.
-5. **advanced_error_handling_and_debugging** - Techniques for sophisticated error management and debugging processes.
-6. **frontend_validation_and_component_design** - Designing and validating frontend components for robust user interfaces.
-7. **game_development_with_godot_and_native_integration** - Developing games using Godot and integrating with native functionalities.
-8. **anti_pattern_infinite_loop** - Preventing and resolving infinite loop anti-patterns in code.
-9. **calendar_management_system** - Building and managing systems for scheduling and calendar management.
-10. **umd_dependency_management** - Managing dependencies in Universal Module Definition (UMD) environments.
-11. **glassmorphism_design_system** - Implementing glassmorphism principles in design systems for modern UIs.
-12. **sop_based_decision_making** - Utilizing Standard Operating Procedures (SOPs) for effective decision-making.
-13. **rbac_system_security** - Enhancing system security through Role-Based Access Control (RBAC) mechanisms.
-14. **full_stack_deployment_with_docker** - Deploying full-stack applications using Docker for containerization.
-15. **prompt_injection_security** - Securing systems against prompt injection vulnerabilities.
-16. **document_and_calendar_integration** - Integrating document management with calendar functionalities.
-17. **ethereum_smart_contract_development** - Developing smart contracts on the Ethereum blockchain platform.
-18. **frontend_security_and_validation** - Ensuring security and data validation in frontend applications.
-19. **telegram_bot_development** - Creating and developing bots for the Telegram messaging platform.
-20. **react_frontend_animations** - Implementing animations in React-based frontend applications.
-21. **domain_expansion_strategy** - Strategies for expanding and scaling software application domains.
-22. **web_output_generation** - Techniques for generating dynamic web content and outputs.
-23. **user_collaboration_style** - Approaches to fostering and managing user collaboration in systems.
-24. **tailwind_config_extend** - Extending and customizing Tailwind CSS configurations for projects.
-25. **workflow_engine_optimization** - Optimizing the performance and efficiency of workflow engines.
-26. **advanced_ui_animation_and_design** - Advanced techniques for creating animations and designing user interfaces.
+1. **e2e_minimum_checklist** - Comprehensive end-to-end testing checklist for ensuring system reliability.
+2. **integrated_calendar_and_document_management** - Seamless integration of calendar and document management systems for efficient workflow.
+3. **pdf_and_ocr_advanced_processing** - Advanced processing techniques for PDF files and Optical Character Recognition (OCR) data.
+4. **advanced_error_handling_and_debugging** - Techniques for robust error handling and efficient debugging in complex systems.
+5. **game_development_with_godot_and_native_integration** - Game development using Godot engine with native platform integration.
+6. **anti_panic_and_anti_pattern_management** - Strategies for managing panic situations and avoiding common anti-patterns in software development.
+7. **manifest_validation** - Validation of system manifests to ensure integrity and correctness.
+8. **anti_pattern_infinite_loop** - Identification and prevention of infinite loop anti-patterns in programming.
+9. **workflow_and_performance_optimization** - Techniques for optimizing workflows and enhancing system performance.
+10. **umd_dependency_management** - Management of dependencies in Universal Module Definition (UMD) projects.
+11. **sop_based_decision_making** - Decision-making processes based on Standard Operating Procedures (SOPs).
+12. **rbac_system_security** - Implementation of Role-Based Access Control (RBAC) for system security.
+13. **full_stack_deployment_with_docker** - Full-stack application deployment using Docker for containerization.
+14. **prompt_injection_security** - Security measures against prompt injection attacks in interactive systems.
+15. **python_scripting** - Python scripting for automation and system management tasks.
+16. **redaction_sensitive_data** - Techniques for redacting sensitive information from documents and data.
+17. **frontend_security_and_design** - Security and design principles for frontend web development.
+18. **state_change_authorization** - Authorization processes for state changes in applications and systems.
+19. **ethereum_smart_contract_development** - Development of smart contracts on the Ethereum blockchain platform.
+20. **data_redaction** - Methods for redacting sensitive data to protect privacy and confidentiality.
+21. **telegram_bot_development** - Development of bots for the Telegram messaging platform.
+22. **web_output_generation** - Techniques for generating dynamic web page outputs and content.
+23. **user_collaboration_style** - Understanding and implementing effective user collaboration styles in projects.
+24. **tailwind_config_extend** - Extending and customizing Tailwind CSS configuration for enhanced styling.
