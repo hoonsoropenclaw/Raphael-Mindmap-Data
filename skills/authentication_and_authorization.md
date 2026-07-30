@@ -1,7 +1,7 @@
-# Access Control and Authentication
+# Authentication and Authorization
 
 ## Overview
-Implement a comprehensive access control and authentication system that combines Role-Based Access Control (RBAC), dynamic policy management, and secure authentication mechanisms. This system ensures secure access to resources, detailed auditing of access control decisions, and the ability for administrators to modify policies in real-time without requiring system restarts or code changes.
+This document outlines a comprehensive micro-skill for managing access control, authentication mechanisms, and OAuth security integration. The goal is to ensure secure access to resources, provide detailed auditing of access control decisions, and allow administrators to modify policies in real-time without requiring system restarts or code changes.
 
 ---
 
@@ -307,4 +307,4 @@ Handle sessions on the server side using NextAuth to ensure sensitive operations
 #### Key Code Snippets and Patterns
 ```typescript
 // session.ts
-import {
+import { NextApiRequest, NextApi
