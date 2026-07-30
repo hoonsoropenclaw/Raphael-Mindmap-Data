@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>OCR 文件數據提取工作流 · Hermes Desktop Automation</title>
+
+<!-- PDF.js (文字層提取) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!-- Tesseract.js (OCR 引擎) -->
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+<style>
+  :root{
+    --bg:#0f1115;
+    --panel:#171a21;
+    --panel-2:#1f242d;
+    --border:#2a313c;
+    --text:#e6e9ef;
+    --muted:#8b94a7;
+    --accent:#5eead4;
+    --accent-2:#7dd3fc;
+    --warn:#fbbf24;
+    --err:#f87171;
+    --ok:#34d399;
+    --shadow:0 6px 24px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;line-height:1.55}
+  header{padding:20px 28px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,#171a21 0%,#0f1115 100%);display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  header h1{margin:0;font-size:18px;font-weight:600;letter-spacing:.3px}
+  header .badge{margin-left:auto;font-size:12px;color:var(--muted);background:var(--panel);border:1px solid var(--border);padding:5px 10px;border-radius:999px}
+  header .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);display:inline-block;margin-right:6px;box-shadow:0 0 8px var(--accent)}
+
+  main{max-width:1200px;margin:0 auto;padding:24px;display:grid;grid-template-columns:1.1fr 1fr;gap:20px}
+  @media (max-width:980px){main{grid-template-columns:1fr}}
+
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:18px;box-shadow:var(--shadow)}
+  .card h2{margin:0 0 14px;font-size:14px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.8px}
+
+  /* Drop zone */
+  #dropzone{border:2px dashed var(--border);border-radius:12px;padding:32px;text-align:center;transition:.18s;cursor:pointer;background:var(--panel-2)}
+  #dropzone:hover, #dropzone.drag{border-color:var(--accent);background:rgba(94,234,212,.05)}
+  #dropzone strong{color:var(--accent-2)}
+  #dropzone small{display:block;color:var(--muted);margin-top:8px;font-size:12px}
+  #file{display:none}
+
+  /* Action row */
+  .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+  button{font:inherit;background:var(--panel-2);color:var(--text);border:1px solid var(--border);padding:9px 14px;border-radius:9px;cursor:pointer;transition:.15s;font-size:13px}
+  button:hover:not(:disabled){border-color:var(--accent);background:rgba(94,234,212,.08)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.primary{background:linear-gradient(180deg,#2dd4bf,#14b8a6);border-color:#0d9488;color:#062925;font-weight:600}
+  button.primary:hover:not(:disabled){filter:brightness(1.1);background:linear-gradient(180deg,#2dd4bf,#14b8a6)}
+  button.ghost{background:transparent}
+
+  /* Status / progress */
+  #status{margin-top:14px;padding:10px 12px;background:var(--panel-2);border:1px solid var(--border);border-radius:9px;font-size:13px;color:var(--muted);min-height:38px;display:flex;align-items:center;gap:8px}
+  #status.ok{color:var(--ok);border-color:rgba(52,211,153,.4)}
+  #status.warn{color:var(--warn);border-color:rgba(251,191,36,.4)}
+  #status.err{color:var(--err);border-color:rgba(248,113,113,.4)}
+  .pulse{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:p 1.1s ease-in-out infinite}
+  @keyframes p{0%,100%{transform:scale(.7);opacity:.5}50%{transform:scale(1.15);opacity:1}}
+
+  .progress{height:6px;background:var(--panel-2);border-radius:99px;overflow:hidden;margin-top:10px;border:1px solid var(--border)}
+  .progress > div{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-2));width:0;transition:width .25s}
+
+  /* Result */
+  .result-tabs{display:flex;gap:6px;margin-bottom:10px;border-bottom:1px solid var(--border);padding-bottom:6px}
+  .result-tabs button{padding:6px 12px;font-size:12px;border-radius:6px 6px 0 0;border:1px solid transparent;border-bottom:none}
+  .result-tabs button.active{background:var(--panel-2);border-color:var(--border);color:var(--accent-2)}
+
+  pre.code{background:#0a0c10;border:1px solid var(--border);border-radius:9px;padding:14px;max-height:340px;overflow:auto;font-family:"JetBrains Mono","SF Mono",Menlo,Consolas,monospace;font-size:12px;color:#cbd5e1;white-space:pre-wrap;word-break:break-word;margin:0}
+
+  .fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+  .field{background:var(--panel-2);border:1px solid var(--border);border-radius:9px;padding:10px 12px}
+  .field .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  .field .v{font-size:14px;color:var(--text);margin-top:4px;word-break:break-all}
+  .field .v.empty{color:var(--muted);font-style:italic;font-size:12px}
+
+  /* History */
+  .history-item{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--panel-2);border:1px solid var(--border);border-radius:9px;margin-bottom:8px;font-size:13px}
+  .history-item .meta{color:var(--muted);font-size:11px}
+  .history-item .name{max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  .footer-note{font-size:11px;color:var(--muted);text-align:center;margin-top:18px;padding-top:14px;border-top:1px solid var(--border)}
+  .kbd{font-family:monospace;background:var(--panel-2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-size:11px}
+
+  /* Preview */
+  .preview{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+  .preview img,.preview canvas{max-height:130px;border-radius:6px;border:1px solid var(--border);background:#fff}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📄 OCR 文件數據提取工作流</h1>
+  <span class="badge"><span class="dot"></span>Hermes · Desktop Automation</span>
+</header>
+
+<main>
+  <!-- ============== LEFT: Upload + Controls ============== -->
+  <section class="card">
+    <h2>① 上傳文件</h2>
+    <div id="dropzone">
+      <strong>拖曳檔案到此</strong> 或 點擊選擇
+      <small>支援 PDF · PNG · JPG · WebP · BMP (單檔 ≤ 20MB)</small>
+    </div>
+    <input type="file" id="file" accept=".pdf,image/*" />
+
+    <div id="preview" class="preview"></div>
+
+    <div class="row">
+      <button id="btnExtract" class="primary" disabled>開始提取</button>
+      <button id="btnCancel" class="ghost" disabled>取消</button>
+      <button id="btnClear" class="ghost">清空</button>
+    </div>
+
+    <div id="status" class="">準備就緒 · 請上傳檔案</div>
+    <div class="progress" id="progress" style="display:none"><div></div></div>
+
+    <h2 style="margin-top:22px">② 提取欄位</h2>
+    <div class="row">
+      <button id="btnCsv" disabled>⬇ 匯出 CSV</button>
+      <button id="btnJson" disabled>⬇ 匯出 JSON</button>
+      <button id="btnCopy" disabled>📋 複製結果</button>
+    </div>
+
+    <div class="fields" id="fields" style="margin-top:14px"></div>
+  </section>
+
+  <!-- ============== RIGHT: Results + History ============== -->
+  <section class="card">
+    <h2>③ 提取結果</h2>
+    <div class="result-tabs">
+      <button data-tab="fields" class="active">欄位視圖</button>
+      <button data-tab="raw">原始文字</button>
+      <button data-tab="json">JSON</button>
+    </div>
+    <div id="viewFields" class="fields"></div>
+    <pre id="viewRaw" class="code" style="display:none">尚未提取</pre>
+    <pre id="viewJson" class="code" style="display:none">尚未提取</pre>
+
+    <h2 style="margin-top:22px">④ 處理歷程</h2>
+    <div id="history"></div>
+
+    <div class="footer-note">
+      整合 PDF.js 文字層提取 + Tesseract.js OCR + 正則欄位解析 ·<br/>
+      按 <span class="kbd">Ctrl</span>+<span class="kbd">V</span> 貼上截圖亦可 · 一鍵匯出觸發瀏覽器下載 = 桌面自動化
+    </div>
+  </section>
+</main>
+
+<script>
+/* ============================================================
+ *  Hermes OCR 文件提取工作流
+ *  - PDF 含文字層 → PDF.js 文字提取
+ *  - 圖檔 / 掃描 PDF → Tesseract.js OCR
+ *  - 正則表達式欄位解析 (來自 document_data_extraction 微技能)
+ *  - CSV / JSON 匯出 (觸發瀏覽器原生下載 = 桌面自動化輸出)
+ * ============================================================ */
+
+if (typeof pdfjsLib !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
+/* ---------- State ---------- */
+const state = {
+  file: null,
+  rawText: '',
+  fields: {},
+  cancelled: false,
+  history: [],
+  tab: 'fields',
+};
+
+/* ---------- DOM ---------- */
+const $ = (s) => document.querySelector(s);
+const dropzone = $('#dropzone');
+const fileInput = $('#file');
+const btnExtract = $('#btnExtract');
+const btnCancel = $('#btnCancel');
+const btnClear = $('#btnClear');
+const btnCsv = $('#btnCsv');
+const btnJson = $('#btnJson');
+const btnCopy = $('#btnCopy');
+const statusEl = $('#status');
+const progressEl = $('#progress');
+const progressBar = progressEl.firstElementChild;
+const previewEl = $('#preview');
+const fieldsEl = $('#fields');
+const viewFields = $('#viewFields');
+const viewRaw = $('#viewRaw');
+const viewJson = $('#viewJson');
+const historyEl = $('#history');
+
+/* ---------- Helpers ---------- */
+function setStatus(msg, kind = '') {
+  statusEl.className = kind;
+  statusEl.innerHTML = (kind === '' && !msg.includes('準備')) ?
+    `<span class="pulse"></span>${msg}` : msg;
+}
+function setProgress(p) {
+  progressEl.style.display = p > 0 || p < 1 ? 'block' : 'none';
+  progressBar.style.width = (p * 100) + '%';
+}
+function fmtBytes(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024*1024) return (n/1024).toFixed(1) + ' KB';
+  return (n/1024/1024).toFixed(2) + ' MB';
+}
+function nowStr() {
+  return new Date().toLocaleString('zh-TW', { hour12: false });
+}
+function sanitizeText(t) {
+  return (t || '').replace(/\u0000/g, '').trim();
+}
+
+/* ---------- Drop zone ---------- */
+dropzone.addEventListener('click', () => fileInput.click());
+['dragenter','dragover'].forEach(ev =>
+  dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add('drag'); }));
+['dragleave','drop'].forEach(ev =>
+  dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove('drag'); }));
+dropzone.addEventListener('drop', e => {
+  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e => {
+  if (e.target.files[0]) handleFile(e.target.files[0]);
+});
+
+/* 支援 Ctrl+V 貼上截圖 */
+document.addEventListener('paste', e => {
+  const items = e.clipboardData?.items || [];
+  for (const it of items) {
+    if (it.type && it.type.startsWith('image/')) {
+      const blob = it.getAsFile();
+      if (blob) { handleFile(blob); break; }
+    }
+  }
+});
+
+function handleFile(file) {
+  if (file.size > 20 * 1024 * 1024) {
+    setStatus('檔案過大 (>20MB)', 'err'); return;
+  }
+  state.file = file;
+  state.rawText = ''; state.fields = {};
+  btnExtract.disabled = false; btnCancel.disabled = false;
+  btnCsv.disabled = true; btnJson.disabled = true; btnCopy.disabled = true;
+  previewEl.innerHTML = '';
+  setStatus(`已選擇：${file.name} · ${fmtBytes(file.size)}`, '');
+
+  // 預覽
+  if (file.type.startsWith('image/')) {
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(file);
+    previewEl.appendChild(img);
+  } else if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+    const badge = document.createElement('canvas');
+    badge.width = 100; badge.height = 130;
+    const ctx = badge.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0,0,100,130);
+    ctx.fillStyle = '#0f1115'; ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('PDF', 50, 70);
+    ctx.font = '11px sans-serif';
+    ctx.fillText(file.name.slice(0,12), 50, 90);
+    previewEl.appendChild(badge);
+  }
+}
+
+/* ---------- 取消 ---------- */
+btnCancel.addEventListener('click', () => { state.cancelled = true; });
+
+btnClear.addEventListener('click', () => {
+  state.file = null; state.rawText = ''; state.fields = {};
+  state.cancelled = false;
+  btnExtract.disabled = true; btnCancel.disabled = true;
+  btnCsv.disabled = true; btnJson.disabled = true; btnCopy.disabled = true;
+  previewEl.innerHTML = ''; fieldsEl.innerHTML = '';
+  viewFields.innerHTML = ''; viewRaw.textContent = '尚未提取'; viewJson.textContent = '尚未提取';
+  setProgress(0);
+  setStatus('準備就緒 · 請上傳檔案', '');
+});
+
+/* ---------- 核心：文字提取 ---------- */
+async function extractText(file) {
+  state.cancelled = false;
+  const isPdf = (file.type === 'application/pdf') || file.name.toLowerCase().endsWith('.pdf');
+  const isImg = file.type.startsWith('image/');
+
+  if (isPdf) {
+    return await extractPdf(file);
+  } else if (isImg) {
+    return await extractImage(file);
+  }
+  throw new Error('不支援的檔案類型：' + file.type);
+}
+
+/* PDF.js: 嘗試提取文字層,若頁面無文字則退回 OCR */
+async function extractPdf(file) {
+  setStatus('PDF.js 正在解析...', '');
+  setProgress(0.1);
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  let text = '';
+  const total = pdf.numPages;
+  for (let i = 1; i <= total; i++) {
+    if (state.cancelled) throw new Error('已取消');
+    setStatus(`PDF.js 解析第 ${i}/${total} 頁...`, '');
+    const page = await pdf.getPage(i);
+    const tc = await page.getTextContent();
+    const pageText = tc.items.map(it => it.str).join(' ');
+    if (pageText.trim().length < 5) {
+      // 文字層過少 → 此頁改走 OCR
+      setStatus(`第 ${i} 頁無文字層,改用 Tesseract OCR...`, 'warn');
+      const rendered = await renderPdfPageToImage(page);
+      const ocr = await runTesseract(rendered, i, total);
+      text += '\n' + ocr;
+    } else {
+      text += '\n' + pageText;
+    }
+    setProgress(0.1 + 0.5 * (i / total));
+  }
+  return sanitizeText(text);
+}
+
+async function renderPdfPageToImage(page) {
+  const viewport = page.getViewport({ scale: 2.0 });
+  const canvas = document.createElement('canvas');
+  canvas.width = viewport.width; canvas.height = viewport.height;
+  await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+  return canvas;
+}
+
+/* Tesseract.js OCR */
+async function extractImage(file) {
+  setStatus('Tesseract.js OCR 載入中 (首次需下載引擎)...', '');
+  setProgress(0.1);
+  return await runTesseract(file, 1, 1);
+}
+
+async function runTesseract(input, current, total) {
+  const { data } = await Tesseract.recognize(input, 'eng+chi_tra', {
+    logger: m => {
+      if (state.cancelled) throw new Error('已取消');
+      if (m.status === 'recognizing text') {
+        const p = (current - 1 + m.progress) / total;
+        setProgress(0.1 + 0.5 * p);
+        setStatus(`OCR 識別中... ${(m.progress * 100).toFixed(0)}%`, '');
+      } else {
+        setStatus(`OCR: ${m.status}`, '');
+      }
+    },
+  });
+  return sanitizeText(data.text);
+}
+
+/* ---------- 欄位正則解析 (來自 document_data_extraction 微技能) ---------- */
+const FIELD_PATTERNS = [
+  { key: '姓名 / Name',       re: /(?:員工姓名|應徵者|面試者|申請人|姓名|Employee\s*Name|Candidate|Name|面试者)[:：\s]+([A-Za-z\u4e00-\u9fa5][A-Za-z\u4e00-\u9fa5\s]*?[A-Za-z\u4e00-\u9fa5])(?=\s*\n|$|，|,|;|;)/i },
+  { key: 'Email',             re: /\b([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b/ },
+  { key: '手機 / Mobile',     re: /(?:\+?886[-\s]?)?(?:09\d{2}[-\s]?\d{3}[-\s]?\d{3}|\+?\d[-\s]?\d{3}[-\s]?\d{3}[-\s]?\d{4})/ },
+  { key: '身分證 / ID',       re: /[A-Z][12]\d{8}/ },
+  { key: '統一編號 / UIN',    re: /\b\d{8}\b/ },
+  { key: '到職日期 / Start',  re: /(?:到職日期|報到日期|到職日|Start\s*Date|Report\s*Date)\s*[:：]?\s*(\d{3,4}[\/.\-年]\d{1,2}[\/.\-月]\d{1,2}日?)/i },
+  { key: '生日 / Birthday',   re: /(?:生日|Birthday|Birth\s*Date)\s*[:：]?\s*(\d{3,4}[\/.\-年]\d{1,2}[\/.\-月]\d{1,2}日?)/i },
+  { key: '金額 / Amount',     re: /(?:NT\$|TWD|\$|金額|Amount|Total|總計)\s*[:：]?\s*([\d,]+(?:\.\d{1,2})?)/i },
+  { key: '電話 / Tel',        re: /(?:電話|Tel|Phone|聯絡電話)\s*[:：]?\s*(\+?\d[\d\-\(\)\s]{7,})/i },
+  { key: '地址 / Address',    re: /(?:地址|Address|聯絡地址|戶籍地址)\s*[:：]?\s*([^\n\r]{4,60})/i },
+  { key: '公司 / Company',    re: /(?:公司|Company|Employer|單位|機構)\s*[:：]?\s*([A-Za-z\u4e00-\u9fa5][A-Za-z\u4e00-\u9fa5&]{2,30})/i },
+  { key: '職稱 / Title',      re: /(?:職稱|職務|職位|Title|Position)[:：\s]+([A-Za-z\u4e00-\u9fa5][A-Za-z\u4e00-\u9fa5\s]*?[A-Za-z\u4e00-\u9fa5])(?=\s*\n|$)/i },
+  { key: '日期 (通用)',       re: /\b(\d{4}[\/\-年]\d{1,2}[\/\-月]\d{1,2}日?)\b/g },
+  { key: '序號 / Invoice #',  re: /(?:Invoice(?:\s*Number|\s*No\.?)?|發票(?:\s*號碼|\s*編號)?|序號|編號)[:：\s]+([A-Za-z0-9\-]{4,20})/i },
+];
+
+function parseFields(text) {
+  const out = {};
+  if (!text) return out;
+  for (const f of FIELD_PATTERNS) {
+    const flags = f.re.flags.includes('g') ? 'g' : '';
+    const re = new RegExp(f.re.source, flags || 'i');
+    const m = text.match(re);
+    if (m) {
+      out[f.key] = (m[1] || m[0]).toString().trim().replace(/\s+/g, ' ');
+    }
+  }
+  // 抽取所有通用日期
+  if (!out['日期 (通用)']) {
+    const ds = [...new Set(text.match(/\d{4}[\/\-年]\d{1,2}[\/\-月]\d{1,2}日?/g) || [])];
+    if (ds.length) out['日期 (通用)'] = ds.join(', ');
+  }
+  return out;
+}
+
+/* ---------- 主流程 ---------- */
+btnExtract.addEventListener('click', async () => {
+  if (!state.file) return;
+  btnExtract.disabled = true; btnCancel.disabled = false;
+  try {
+    const text = await extractText(state.file);
+    if (!text) throw new Error('未能提取任何文字');
+    state.rawText = text;
+    state.fields = parseFields(text);
+
+    // 渲染欄位視圖
+    renderFields(state.fields, fieldsEl);
+    renderFields(state.fields, viewFields);
+    viewRaw.textContent = text;
+    viewJson.textContent = JSON.stringify({ file: state.file.name, fields: state.fields, rawText: text }, null, 2);
+
+    btnCsv.disabled = false; btnJson.disabled = false; btnCopy.disabled = false;
+    setProgress(1);
+    setStatus(`✅ 提取完成 · 辨識 ${Object.keys(state.fields).length} 個欄位`, 'ok');
+
+    addHistory(state.file.name, Object.keys(state.fields).length);
+  } catch (err) {
+    if (err.message === '已取消') {
+      setStatus('已取消提取', 'warn');
+    } else {
+      console.error(err);
+      setStatus('提取失敗：' + err.message, 'err');
+    }
+  } finally {
+    btnExtract.disabled = false; btnCancel.disabled = true;
+    setTimeout(() => setProgress(0), 800);
+  }
+});
+
+function renderFields(fields, container) {
+  container.innerHTML = '';
+  const keys = Object.keys(fields);
+  if (!keys.length) {
+    container.innerHTML = '<div class="field" style="grid-column:1/-1"><div class="k">未辨識</div><div class="v empty">未從文字中提取到任何已知的欄位 (姓名/Email/日期等)</div></div>';
+    return;
+  }
+  for (const k of keys) {
+    const v = fields[k];
+    const f = document.createElement('div');
+    f.className = 'field';
+    f.innerHTML = `<div class="k">${escapeHtml(k)}</div><div class="v">${escapeHtml(v)}</div>`;
+    container.appendChild(f);
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+/* ---------- Tabs ---------- */
+document.querySelectorAll('.result-tabs button').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.result-tabs button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    state.tab = b.dataset.tab;
+    viewFields.style.display = state.tab === 'fields' ? '' : 'none';
+    viewRaw.style.display    = state.tab === 'raw'    ? '' : 'none';
+    viewJson.style.display   = state.tab === 'json'   ? '' : 'none';
+  });
+});
+
+/* ---------- 匯出 (瀏覽器原生下載 = 桌面自動化輸出) ---------- */
+function download(content, name, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function toCsv(fields) {
+  const keys = Object.keys(fields);
+  const esc = v => `"${String(v).replace(/"/g, '""')}"`;
+  return keys.length
+    ? '欄位,內容\n' + keys.map(k => `${esc(k)},${esc(fields[k])}`).join('\n')
+    : '欄位,內容\n(無資料)';
+}
+
+btnCsv.addEventListener('click', () => {
+  const base = (state.file?.name || 'result').replace(/\.[^.]+$/, '');
+  download(toCsv(state.fields), `${base}_fields.csv`, 'text/csv;charset=utf-8');
+  setStatus('⬇ 已下載 CSV', 'ok');
+});
+
+btnJson.addEventListener('click', () => {
+  const payload = {
+    file: state.file?.name,
+    extractedAt: nowStr(),
+    fields: state.fields,
+    rawText: state.rawText,
+  };
+  const base = (state.file?.name || 'result').replace(/\.[^.]+$/, '');
+  download(JSON.stringify(payload, null, 2), `${base}_result.json`, 'application/json;charset=utf-8');
+  setStatus('⬇ 已下載 JSON', 'ok');
+});
+
+btnCopy.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(state.fields, null, 2));
+    setStatus('📋 已複製到剪貼簿', 'ok');
+  } catch {
+    setStatus('複製失敗 — 請改用匯出按鈕', 'err');
+  }
+});
+
+/* ---------- History ---------- */
+function addHistory(name, count) {
+  state.history.unshift({ name, count, at: nowStr() });
+  if (state.history.length > 8) state.history.pop();
+  historyEl.innerHTML = state.history.map(h => `
+    <div class="history-item">
+      <div>
+        <div class="name">${escapeHtml(h.name)}</div>
+        <div class="meta">${escapeHtml(h.at)}</div>
+      </div>
+      <div class="meta">${h.count} 個欄位</div>
+    </div>
+  `).join('') || '<div class="meta" style="color:var(--muted);font-size:12px;padding:8px">尚無紀錄</div>';
+}
+
+/* ---------- 初始化 ---------- */
+setStatus('準備就緒 · 請上傳檔案', '');
+
+</script>
+</body>
+</html>

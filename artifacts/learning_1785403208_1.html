@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>動態卡片組件 — Tailwind × Framer Motion</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Tailwind 自訂 config -->
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ink: {
+              900: '#0b1220',
+              800: '#0f172a',
+              700: '#1e293b',
+            },
+            accent: {
+              violet: '#8b5cf6',
+              cyan:   '#22d3ee',
+              amber:  '#f59e0b',
+              rose:   '#f43f5e',
+              lime:   '#84cc16',
+              sky:    '#0ea5e9',
+            },
+          },
+          fontFamily: {
+            sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ===== Glassmorphism(從微技能 #4 改寫) ===== */
+    .glass {
+      position: relative;
+      isolation: isolate;
+      overflow: hidden;
+      border: 1px solid rgba(205, 238, 255, 0.16);
+      background: linear-gradient(145deg, rgba(221,244,255,0.12), rgba(83,143,168,0.045));
+      -webkit-backdrop-filter: blur(20px) saturate(145%);
+      backdrop-filter: blur(20px) saturate(145%);
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.18),
+        inset 0 -1px 0 rgba(128,198,229,0.05),
+        0 24px 70px rgba(0,7,12,0.28);
+    }
+    /* Fallback for browsers without backdrop-filter */
+    @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+      .glass { background: rgba(13, 31, 41, 0.96); }
+    }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background:
+        radial-gradient(ellipse at 15% 20%, rgba(139,92,246,0.25), transparent 50%),
+        radial-gradient(ellipse at 85% 15%, rgba(34,211,238,0.22), transparent 50%),
+        radial-gradient(ellipse at 50% 90%, rgba(245,158,11,0.18), transparent 55%),
+        linear-gradient(180deg, #0b1220 0%, #0f172a 50%, #0b1220 100%);
+      background-attachment: fixed;
+      min-height: 100vh;
+      color: #e2e8f0;
+    }
+
+    /* ===== prefers-reduced-motion(從微技能 #18 搬過來) ===== */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+      }
+    }
+
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.3); border-radius: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+  </style>
+</head>
+
+<body class="antialiased">
+  <header class="px-4 sm:px-6 lg:px-10 pt-8 pb-4 sm:pt-12 sm:pb-8 max-w-7xl mx-auto">
+    <div class="flex items-center justify-between flex-wrap gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl glass flex items-center justify-center">
+          <span class="text-xl">✨</span>
+        </div>
+        <div>
+          <h1 class="text-lg sm:text-xl font-bold tracking-tight text-white">Motion Cards</h1>
+          <p class="text-xs text-slate-400">Tailwind × Framer Motion · 響應式動態卡片組件</p>
+        </div>
+      </div>
+      <div id="filterBar" class="flex flex-wrap gap-2"></div>
+    </div>
+  </header>
+
+  <section class="px-4 sm:px-6 lg:px-10 pb-6 sm:pb-10 max-w-7xl mx-auto">
+    <h2 class="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-white leading-tight">
+      為介面注入<span class="bg-gradient-to-r from-accent-violet via-accent-cyan to-accent-amber bg-clip-text text-transparent">流暢節奏</span>
+    </h2>
+    <p class="mt-3 max-w-2xl text-sm sm:text-base text-slate-300/90 leading-relaxed">
+      採用行動優先的 Grid 佈局,結合毛玻璃質感卡片表面與 Framer Motion 的進場 stagger、hover 抬升、tap 縮放效果。
+      在桌機、平板、手機上都維持一致的視覺節奏與可讀性。
+    </p>
+  </section>
+
+  <main class="px-4 sm:px-6 lg:px-10 pb-20 max-w-7xl mx-auto">
+    <div id="cardGrid"></div>
+  </main>
+
+  <!-- React + Framer Motion + Babel standalone(單檔交付) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/framer-motion@11.3.19/dist/framer-motion.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script type="text/babel" data-presets="react">
+    const { useState, useMemo } = React;
+    const { motion, AnimatePresence } = window['framer-motion'] || window.FramerMotion || {};
+
+    // ============ 卡片資料 ============
+    const CARDS = [
+      { id: 'm1', cat: '動畫', title: 'Stagger 進場', desc: '父層 variants 控制 staggerChildren,讓子元素依序浮現,呈現節奏感。', tag: 'Framer Motion', emoji: '🎬', accent: 'from-accent-violet/30 to-accent-cyan/10' },
+      { id: 'm2', cat: '動畫', title: 'Hover 抬升', desc: 'whileHover 搭配 transform,讓卡片在滑鼠移入時浮起,帶出深度層次。', tag: 'Interaction', emoji: '🪄', accent: 'from-accent-cyan/30 to-accent-sky/10' },
+      { id: 'm3', cat: '互動', title: 'Tap 縮放回饋', desc: 'whileTap 給予按下時的物理回饋,讓點擊變得有觸感、可預期。', tag: 'Micro-interaction', emoji: '👆', accent: 'from-accent-rose/30 to-accent-amber/10' },
+      { id: 'l1', cat: '排版', title: '響應式 Grid', desc: '從 1 欄手機 → 2 欄平板 → 3 欄桌機,所有斷點自動重排。', tag: 'Tailwind', emoji: '📐', accent: 'from-accent-lime/30 to-accent-cyan/10' },
+      { id: 'l2', cat: '排版', title: '玻璃質感', desc: 'backdrop-filter 結合漸層,讓背景透出卡片,呈現現代毛玻璃。', tag: 'Glassmorphism', emoji: '🪟', accent: 'from-accent-amber/30 to-accent-rose/10' },
+      { id: 'm4', cat: '動畫', title: 'AnimatePresence', desc: '篩選切換時卡片優雅退場,新卡片從容進場,沒有突兀跳動。', tag: 'Exit / Enter', emoji: '🌊', accent: 'from-accent-sky/30 to-accent-violet/10' },
+      { id: 'i1', cat: '互動', title: '狀態膠囊篩選', desc: '點擊上方標籤即時切換分類,搭配 layout 讓重排流暢。', tag: 'Filter', emoji: '🧪', accent: 'from-accent-violet/30 to-accent-rose/10' },
+      { id: 'i2', cat: '互動', title: '無障礙設計', desc: 'prefers-reduced-motion 自動降低動效,尊重使用者偏好設定。', tag: 'A11y', emoji: '♿', accent: 'from-accent-lime/30 to-accent-amber/10' },
+      { id: 'l3', cat: '排版', title: '字型層級', desc: 'Inter 字體搭配明確的尺寸/權重階梯,在任何裝置都好讀。', tag: 'Typography', emoji: '🔤', accent: 'from-accent-cyan/30 to-accent-lime/10' },
+    ];
+
+    const FILTERS = ['全部', ...Array.from(new Set(CARDS.map(c => c.cat)))];
+
+    // ============ 篩選膠囊 ============
+    function Pill({ label, active, onClick }) {
+      return (
+        <motion.button
+          onClick={onClick}
+          whileHover={{ scale: 1.04 }}
+          whileTap={{ scale: 0.96 }}
+          className={`text-xs sm:text-sm px-3 sm:px-4 py-1.5 sm:py-2 rounded-full border transition-colors duration-200 ${
+            active
+              ? 'bg-white text-ink-900 border-white shadow-lg shadow-white/20 font-semibold'
+              : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10 hover:border-white/20'
+          }`}
+        >
+          {label}
+        </motion.button>
+      );
+    }
+
+    // ============ 卡片 ============
+    function Card({ card }) {
+      return (
+        <motion.article
+          layout
+          initial={{ opacity: 0, y: 24, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -16, scale: 0.95 }}
+          transition={{ type: 'spring', stiffness: 220, damping: 24 }}
+          whileHover={{ y: -6, scale: 1.015 }}
+          whileTap={{ scale: 0.985 }}
+          className="glass rounded-2xl p-5 sm:p-6 cursor-pointer group relative"
+        >
+          <div className={`absolute inset-0 rounded-2xl bg-gradient-to-br ${card.accent} opacity-40 group-hover:opacity-70 transition-opacity duration-500 pointer-events-none -z-10`} />
+
+          <div className="flex items-start justify-between mb-4">
+            <div className="w-11 h-11 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-2xl">
+              {card.emoji}
+            </div>
+            <span className="text-[10px] sm:text-xs font-medium uppercase tracking-wider text-slate-300/80 bg-white/5 border border-white/10 px-2.5 py-1 rounded-full">
+              {card.tag}
+            </span>
+          </div>
+
+          <h3 className="text-lg sm:text-xl font-bold text-white mb-2 leading-snug">{card.title}</h3>
+          <p className="text-sm text-slate-300/80 leading-relaxed mb-5">{card.desc}</p>
+
+          <div className="flex items-center justify-between text-xs text-slate-400 pt-4 border-t border-white/5">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-accent-cyan animate-pulse" />
+              {card.cat}
+            </span>
+            <span className="inline-flex items-center gap-1 group-hover:gap-2 transition-all duration-300">
+              查看更多
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12h14" />
+                <path d="m12 5 7 7-7 7" />
+              </svg>
+            </span>
+          </div>
+        </motion.article>
+      );
+    }
+
+    // ============ 主應用 ============
+    function App() {
+      const [active, setActive] = useState('全部');
+      const visible = useMemo(() => {
+        if (active === '全部') return CARDS;
+        return CARDS.filter(c => c.cat === active);
+      }, [active]);
+
+      return (
+        <React.Fragment>
+          {/* Portal:把篩選列送到 header 內的 #filterBar */}
+          {ReactDOM.createPortal(
+            <div className="flex flex-wrap gap-2">
+              {FILTERS.map(f => (
+                <Pill key={f} label={f} active={active === f} onClick={() => setActive(f)} />
+              ))}
+            </div>,
+            document.getElementById('filterBar')
+          )}
+
+          <motion.div layout className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+            <AnimatePresence mode="popLayout">
+              {visible.map(card => <Card key={card.id} card={card} />)}
+            </AnimatePresence>
+          </motion.div>
+
+          {visible.length === 0 && (
+            <div className="text-center py-16 text-slate-400">
+              <div className="text-5xl mb-3">🪐</div>
+              <p className="text-sm">目前這個分類還沒有卡片。換個篩選試試看。</p>
+            </div>
+          )}
+        </React.Fragment>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('cardGrid')).render(<App />);
+  </script>
+</body>
+</html>

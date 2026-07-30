@@ -3,30 +3,24 @@
 
 # SKILL_CATALOG.md
 
-1. **javascript_code_quality_management** - Tools and practices for maintaining high-quality JavaScript code.
-2. **apt_package_installer** - Automated installation of APT packages for system management.
-3. **document_data_extraction** - Techniques for extracting data from various document formats.
-4. **frontend_optimization_and_security** - Enhancing performance and security of frontend applications.
-5. **process_and_workflow_optimization** - Strategies for improving efficiency in processes and workflows.
-6. **prototype_design_and_development** - Rapid design and development of prototypes for testing and iteration.
-7. **python_automation_and_server_management** - Automating tasks and managing servers using Python.
-8. **game_development_with_godot_and_native_integration** - Developing games with Godot and integrating native features.
-9. **pixelmatch_image_comparison_and_integration** - Comparing and integrating images using the Pixelmatch library.
-10. **responsive_sidebar_with_hamburger_menu** - Creating responsive sidebars with hamburger menus for mobile-friendly design.
-11. **umd_dependency_management** - Managing dependencies in Universal Module Definition (UMD) projects.
-12. **user_interface_design_and_interaction** - Designing and implementing user-friendly interfaces and interactions.
-13. **glassmorphism_design_system** - Implementing the Glassmorphism design system for modern UI aesthetics.
-14. **bar_chart_with_scaleY_animation** - Creating bar charts with animated scaling on the Y-axis.
-15. **framer_motion_animation_techniques** - Utilizing Framer Motion for advanced animation techniques in web development.
-16. **system_resilience_and_security** - Ensuring system resilience and security against various threats and failures.
-17. **react_advanced_integration** - Advanced integration techniques for React applications.
-18. **prompt_injection_prevention** - Preventing prompt injection attacks in interactive systems.
-19. **mobile_first_design_with_tailwind** - Designing mobile-first layouts using the Tailwind CSS framework.
-20. **cors_issue_resolution** - Resolving Cross-Origin Resource Sharing (CORS) issues in web applications.
-21. **ethereum_smart_contract_development** - Developing smart contracts for the Ethereum blockchain.
-22. **playwright_comprehensive_testing** - Comprehensive testing of web applications using the Playwright framework.
-23. **anti_pattern_management** - Identifying and managing anti-patterns in software development.
-24. **command_line_data_processing** - Processing data using command-line tools and scripts.
-25. **dashboard_design_and_development** - Designing and developing interactive dashboards for data visualization.
-26. **user_collaboration_style** - Understanding and implementing effective user collaboration styles in applications.
-27. **platform_integration_for_automation** - Integrating platforms for seamless automation and workflow management.
+1. **webdriver_manager_chrome_setup** - Setting up and managing Chrome WebDriver for automated testing.
+2. **advanced_ui_development** - Mastering advanced techniques for user interface development.
+3. **event_bus_async_pub_sub** - Implementing asynchronous publish-subscribe patterns using an event bus.
+4. **apt_package_installer** - Automating the installation of APT packages in Linux environments.
+5. **anti_pattern_detection** - Identifying and mitigating common software design anti-patterns.
+6. **game_development_with_godot_and_native_integration** - Developing games with Godot and integrating native functionalities.
+7. **application_security_management** - Ensuring robust security measures in application development and deployment.
+8. **umd_dependency_management** - Managing dependencies in Universal Module Definition (UMD) projects.
+9. **headless_browser_automation** - Automating browser tasks using headless browser technologies.
+10. **domain_expansion_proposal** - Proposing strategies for expanding and scaling software domains.
+11. **comprehensive_visual_regression_testing** - Implementing thorough visual regression testing to ensure UI consistency.
+12. **advanced_ui_element_design_and_extraction** - Designing and extracting advanced UI elements for enhanced user experiences.
+13. **fastapi_test_client_websocket_integration** - Integrating WebSocket support with FastAPI's test client for real-time applications.
+14. **ethereum_smart_contract_development** - Developing smart contracts on the Ethereum blockchain platform.
+15. **prototype_and_mock_site_development** - Creating prototypes and mock websites for design and testing purposes.
+16. **iterative_testing_with_headless_browsers** - Conducting iterative testing using headless browsers for efficient QA processes.
+17. **frontend_testing_and_validation** - Ensuring quality and functionality in frontend development through testing and validation.
+18. **user_collaboration_style** - Exploring collaborative approaches and styles for effective user interaction.
+19. **data_management_and_analysis** - Managing and analyzing data to derive insights and support decision-making.
+20. **frontend_application_optimization** - Optimizing frontend applications for performance, speed, and user experience.
+21. **standalone_web_application_development** - Developing self-contained web applications with full functionality and independence.

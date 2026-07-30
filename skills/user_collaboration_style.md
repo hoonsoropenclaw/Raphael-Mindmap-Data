@@ -1,24 +1,21 @@
 # User Collaboration Style
 
 ## 說明...
-此技能使 AI 能夠根據用戶的合作風格調整其互動方式，例如在用戶偏好自主決策時減少詢問，或在用戶需要詳細解釋時提供更多信息。
+此技能涉及根據用戶的協作風格來調整溝通和交互方式。適用於需要與用戶進行有效互動的任務。
 
 ## 關鍵代碼片段或模式
 ```python
-def adjust_interaction_style(user_preferences):
-    if user_preferences.get("autonomy") == "high":
-        # 減少詢問，增加自主決策
-        reduce_clarifications()
-    elif user_preferences.get("autonomy") == "low":
-        # 增加詢問，提供詳細解釋
-        increase_clarifications()
+def user_collaboration_style(user_preferences):
+    if user_preferences['style'] == 'direct':
+        return 'Please provide the required information directly.'
+    elif user_preferences['style'] == 'interactive':
+        return 'Let’s work through this together. What would you like to do next?'
     else:
-        # 默認中等互動風格
-        set_default_interaction()
+        return 'Please let me know how you would like to proceed.'
 ```
 
 ## 常見錯誤及避免方法
-- **錯誤**: 未能準確識別用戶的合作風格。
-  **解決方法**: 通過多輪互動收集用戶偏好，並動態調整策略。
-- **錯誤**: 過度調整導致用戶不適應。
-  **解決方法**: 逐步調整互動風格，並根據用戶反饋進行修正。
+- **錯誤**：無法識別用戶的協作風格。
+  **解決方法**：在交互過程中，收集用戶的偏好信息，並根據這些信息調整溝通方式。
+- **錯誤**：溝通方式不當，導致用戶不滿。
+  **解決方法**：根據用戶的反饋，動態調整溝通策略。

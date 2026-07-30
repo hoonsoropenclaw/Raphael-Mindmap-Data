@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Real-time voice-message transcription console. Upload audio, speak via the browser, and watch transcripts stream live from a connected Telegram bot." />
+    <meta name="theme-color" content="#0f172a" />
+    <title>Telegram STT Transcriber · 即時語音轉錄</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              brand: { 50:'#f5f3ff',100:'#ede9fe',400:'#a78bfa',500:'#8b5cf6',600:'#7c3aed',700:'#6d28d9' },
+              ink: { 900:'#0f172a',800:'#1e293b',700:'#334155' },
+            },
+            fontFamily: {
+              sans: ['Inter','Noto Sans TC','system-ui','sans-serif'],
+              mono: ['"JetBrains Mono"','ui-monospace','SFMono-Regular','monospace'],
+            },
+            keyframes: {
+              'pulse-slow': { '0%,100%':{opacity:'0.6'},'50%':{opacity:'1'} },
+              'fade-up':    { '0%':{opacity:'0',transform:'translateY(8px)'},'100%':{opacity:'1',transform:'translateY(0)'} },
+              'wave':       { '0%,100%':{transform:'scaleY(0.4)'},'50%':{transform:'scaleY(1)'} },
+            },
+            animation: {
+              'pulse-slow':'pulse-slow 2.4s ease-in-out infinite',
+              'fade-up':'fade-up 280ms ease-out',
+              'wave':'wave 0.9s ease-in-out infinite',
+            },
+          },
+        },
+      };
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet" />
+
+    <style>
+      :root { color-scheme: dark; }
+      html, body { height: 100%; }
+      body {
+        background:
+          radial-gradient(1200px 600px at 10% -10%, rgba(139, 92, 246, 0.35), transparent 60%),
+          radial-gradient(900px 500px at 100% 0%,  rgba(56, 189, 248, 0.25), transparent 60%),
+          linear-gradient(180deg, #0b1020 0%, #0f172a 100%);
+        background-attachment: fixed;
+      }
+      .glass {
+        background: rgba(255, 255, 255, 0.06);
+        backdrop-filter: blur(14px) saturate(140%);
+        -webkit-backdrop-filter: blur(14px) saturate(140%);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+      }
+      .glass-strong {
+        background: rgba(255, 255, 255, 0.10);
+        backdrop-filter: blur(18px) saturate(160%);
+        -webkit-backdrop-filter: blur(18px) saturate(160%);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+      }
+      .nice-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+      .nice-scroll::-webkit-scrollbar-thumb {
+        background: rgba(148, 163, 184, 0.35);
+        border-radius: 999px;
+      }
+      .nice-scroll::-webkit-scrollbar-track { background: transparent; }
+      .bars { display: inline-flex; gap: 3px; align-items: end; height: 22px; }
+      .bars > i {
+        width: 3px;
+        height: 100%;
+        background: linear-gradient(180deg, #a78bfa, #38bdf8);
+        border-radius: 2px;
+        transform-origin: bottom;
+        animation: wave 0.9s ease-in-out infinite;
+      }
+      .bars > i:nth-child(2) { animation-delay: 0.15s; }
+      .bars > i:nth-child(3) { animation-delay: 0.30s; }
+      .bars > i:nth-child(4) { animation-delay: 0.45s; }
+      .bars > i:nth-child(5) { animation-delay: 0.60s; }
+      .bars.idle > i { animation-play-state: paused; opacity: 0.35; }
+      .conf {
+        position: relative;
+        height: 4px;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, 0.18);
+        overflow: hidden;
+      }
+      .conf > span {
+        position: absolute; inset: 0 auto 0 0;
+        background: linear-gradient(90deg, #f472b6, #a78bfa, #38bdf8);
+      }
+      .transcript-card { animation: fade-up 280ms ease-out; }
+      :focus-visible {
+        outline: 2px solid #a78bfa;
+        outline-offset: 2px;
+        border-radius: 6px;
+      }
+      .hero-grid {
+        background-image:
+          linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+        background-size: 32px 32px;
+        background-position: -1px -1px;
+      }
+      .sr-only {
+        position: absolute; width: 1px; height: 1px;
+        padding: 0; margin: -1px; overflow: hidden;
+        clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+      }
+      .tnum { font-variant-numeric: tabular-nums; }
+    </style>
+  </head>
+
+<body class="text-slate-100 font-sans antialiased">
+  <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50 focus:bg-brand-600 focus:px-3 focus:py-2 focus:rounded">Skip to main content</a>
+
+  <header class="sticky top-0 z-30">
+    <div class="glass border-b border-white/10 px-4 sm:px-6 py-3">
+      <div class="max-w-7xl mx-auto flex items-center gap-4">
+        <div class="flex items-center gap-2 min-w-0">
+          <div aria-hidden="true" class="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-sky-400 grid place-items-center shadow-lg shadow-brand-600/40">
+            <svg viewBox="0 0 24 24" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 1v6" /><path d="M19 8a7 7 0 0 1-14 0" /><rect x="9" y="13" width="6" height="6" rx="3" /><path d="M12 19v4" />
+            </svg>
+          </div>
+          <div class="min-w-0">
+            <h1 class="font-semibold leading-tight text-base sm:text-lg truncate">Telegram STT</h1>
+            <p class="text-xs text-slate-400 leading-tight">即時語音轉錄 · live transcription</p>
+          </div>
+        </div>
+
+        <div class="ml-auto flex items-center gap-2">
+          <div id="conn-pill" class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full glass text-xs font-medium">
+            <span id="conn-dot" class="w-2 h-2 rounded-full bg-amber-400 animate-pulse-slow"></span>
+            <span id="conn-text">connecting…</span>
+          </div>
+          <div id="backend-pill" class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full glass text-xs font-medium">
+            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+            <span>backend: <span id="backend-name" class="tnum">—</span></span>
+          </div>
+          <button id="btn-clear" type="button"
+                  class="px-3 py-1.5 rounded-full glass text-xs hover:bg-white/10 transition"
+                  aria-label="Clear transcript list">Clear</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main id="main" class="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
+
+    <section aria-labelledby="actions-title" class="lg:col-span-5 space-y-6">
+      <div>
+        <h2 id="actions-title" class="sr-only">Input actions</h2>
+
+        <article class="glass rounded-2xl p-5 sm:p-6 hero-grid">
+          <div class="flex items-start gap-3">
+            <div class="w-10 h-10 rounded-lg bg-brand-600/30 grid place-items-center" aria-hidden="true">
+              <svg viewBox="0 0 24 24" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2"/><path d="M12 19v3"/></svg>
+            </div>
+            <div class="flex-1 min-w-0">
+              <h3 class="font-semibold text-lg">即時錄音轉文字</h3>
+              <p class="text-sm text-slate-400">瀏覽器內建的 Web Speech API · 走到哪錄到哪</p>
+            </div>
+          </div>
+
+          <div class="mt-5 flex flex-wrap items-center gap-3">
+            <button id="btn-mic" type="button"
+                    class="group relative inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 transition shadow-lg shadow-brand-700/40 font-medium focus-visible:ring-2 focus-visible:ring-brand-400"
+                    aria-pressed="false">
+              <span id="mic-icon" aria-hidden="true" class="w-2 h-2 rounded-full bg-rose-300"></span>
+              <span id="mic-label">開始錄音</span>
+              <span class="bars ml-2" id="mic-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+            </button>
+
+            <label class="text-sm text-slate-300 flex items-center gap-2">
+              <span class="sr-only">Language</span>
+              <select id="sel-lang" class="bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-sm">
+                <option value="zh-Hant">中文 (zh-Hant)</option>
+                <option value="en-US">English (en-US)</option>
+              </select>
+            </label>
+
+            <div id="interim-card" class="hidden flex-1 min-w-[200px] glass-strong px-3 py-2 rounded-xl text-sm">
+              <span class="text-slate-400 mr-2">…</span>
+              <span id="interim-text" class="text-slate-200 italic">listening</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="glass rounded-2xl p-5 sm:p-6 mt-6">
+          <div class="flex items-start gap-3">
+            <div class="w-10 h-10 rounded-lg bg-sky-500/20 grid place-items-center" aria-hidden="true">
+              <svg viewBox="0 0 24 24" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            </div>
+            <div class="flex-1 min-w-0">
+              <h3 class="font-semibold text-lg">上傳音檔</h3>
+              <p class="text-sm text-slate-400">支援 mp3 / wav / ogg / m4a / webm · 25 MB 上限</p>
+            </div>
+          </div>
+
+          <form id="upload-form" class="mt-5 space-y-3" enctype="multipart/form-data">
+            <label class="block">
+              <span class="sr-only">Audio file</span>
+              <input type="file" id="file-input" name="audio" accept="audio/*"
+                     class="block w-full text-sm file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-brand-600 file:text-white file:font-medium hover:file:bg-brand-500 cursor-pointer bg-white/5 border border-white/10 rounded-lg" />
+            </label>
+            <div class="flex flex-wrap gap-2">
+              <button type="submit"
+                      class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 transition font-medium">
+                上傳並轉錄
+              </button>
+              <span id="upload-status" class="text-sm text-slate-400 self-center"></span>
+            </div>
+          </form>
+        </article>
+
+        <article class="glass rounded-2xl p-5 sm:p-6 mt-6">
+          <div id="drop-zone" role="button" tabindex="0"
+               class="border-2 border-dashed border-white/15 hover:border-brand-400/60 rounded-xl px-4 py-8 text-center cursor-pointer transition focus-visible:ring-2 focus-visible:ring-brand-400">
+            <div class="text-3xl mb-1" aria-hidden="true">📤</div>
+            <p class="text-sm text-slate-300">把音檔拖過來 · drag &amp; drop audio here</p>
+            <p class="text-xs text-slate-500 mt-1">或點此選擇檔案 · or click to select</p>
+          </div>
+        </article>
+
+        <article class="glass rounded-2xl p-5 sm:p-6 mt-6">
+          <div class="flex items-start gap-3">
+            <div class="w-10 h-10 rounded-lg bg-emerald-500/20 grid place-items-center" aria-hidden="true">
+              <svg viewBox="0 0 24 24" class="w-5 h-5" fill="currentColor" aria-hidden="true"><path d="M21.5 3.5 2.5 10.5l6 2 3 9 4-5 7 4 4-17-5 9-2-9z"/></svg>
+            </div>
+            <div class="flex-1 min-w-0">
+              <h3 class="font-semibold text-lg">透過 Telegram Bot 送語音</h3>
+              <p class="text-sm text-slate-400">Bot 收到 voice/audio 後會自動轉錄</p>
+            </div>
+          </div>
+          <ol class="mt-4 space-y-1.5 text-sm text-slate-300 list-decimal list-inside">
+            <li>在 Telegram 找到 bot 並開啟對話</li>
+            <li>直接按住麥克風送出語音訊息</li>
+            <li>這個頁面會即時顯示轉錄結果（WebSocket push）</li>
+          </ol>
+        </article>
+      </div>
+    </section>
+
+    <section aria-labelledby="stream-title" class="lg:col-span-7">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 id="stream-title" class="text-xl sm:text-2xl font-semibold tracking-tight">即時轉錄</h2>
+          <p class="text-sm text-slate-400">Live stream · WebSocket · 最後 <span id="count" class="tnum">0</span> 筆</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <label class="flex items-center gap-2 text-sm text-slate-300">
+            <input id="chk-autoscroll" type="checkbox" class="accent-brand-500" checked />
+            <span>自動捲動</span>
+          </label>
+          <button id="btn-replay" type="button"
+                  class="px-3 py-1.5 rounded-full glass text-xs hover:bg-white/10 transition"
+                  aria-label="Replay demo audio">
+            播放示範
+          </button>
+        </div>
+      </div>
+
+      <div id="empty-state" class="glass rounded-2xl p-8 text-center text-slate-400">
+        <div class="text-5xl mb-3" aria-hidden="true">🎙️</div>
+        <p>還沒有轉錄記錄 · 上傳音檔、按住開始錄音、或從 Telegram 送出語音訊息</p>
+        <p class="text-xs mt-2">No transcripts yet · upload, speak, or send a Telegram voice note</p>
+      </div>
+
+      <ol id="stream" aria-live="polite" aria-relevant="additions"
+          class="space-y-4 nice-scroll"></ol>
+
+      <footer class="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3" aria-label="Run statistics">
+        <div class="glass rounded-xl px-4 py-3">
+          <p class="text-xs text-slate-400">Backend</p>
+          <p class="text-base font-semibold"><span id="stat-backend" class="tnum">—</span></p>
+        </div>
+        <div class="glass rounded-xl px-4 py-3">
+          <p class="text-xs text-slate-400">Total</p>
+          <p class="text-base font-semibold tnum"><span id="stat-total">0</span></p>
+        </div>
+        <div class="glass rounded-xl px-4 py-3">
+          <p class="text-xs text-slate-400">Avg latency</p>
+          <p class="text-base font-semibold tnum"><span id="stat-latency">—</span></p>
+        </div>
+        <div class="glass rounded-xl px-4 py-3">
+          <p class="text-xs text-slate-400">WS</p>
+          <p class="text-base font-semibold tnum"><span id="stat-ws">—</span></p>
+        </div>
+      </footer>
+    </section>
+  </main>
+
+  <footer class="mt-12 border-t border-white/10">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-6 flex flex-col sm:flex-row items-center gap-3 sm:gap-6 text-xs text-slate-400">
+      <p>Built with FastAPI · python-telegram-bot · OpenAI Whisper · Web Speech API</p>
+      <p class="ml-auto">© 2026 · Hermes / Raphael Agent · dry-run friendly</p>
+    </div>
+  </footer>
+
+  <script>
+  (function() {
+    'use strict';
+
+    const $  = (s) => document.querySelector(s);
+    const fmtTime = (ts) => {
+      const d = new Date(ts * 1000);
+      return d.toLocaleTimeString([], { hour12: false });
+    };
+    const fmtDur = (s) => s < 60 ? s.toFixed(1)+'s' : Math.floor(s/60)+'m '+Math.round(s%60)+'s';
+    const escapeHtml = (str) => String(str ?? '').replace(/[&<>"']/g, (c) => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    })[c]);
+
+    const state = {
+      ws: null,
+      reconnectTimer: null,
+      backoff: 1000,
+      transcripts: [],
+      stats: { total: 0, latencySum: 0, latencyN: 0 },
+    };
+
+    function setConn(status, label) {
+      const dot = $('#conn-dot'), text = $('#conn-text');
+      dot.classList.remove('bg-amber-400','bg-emerald-400','bg-rose-500','animate-pulse-slow');
+      if (status === 'connected') {
+        dot.classList.add('bg-emerald-400');
+        text.textContent = label || 'live';
+      } else if (status === 'connecting') {
+        dot.classList.add('bg-amber-400','animate-pulse-slow');
+        text.textContent = label || 'connecting…';
+      } else {
+        dot.classList.add('bg-rose-500','animate-pulse-slow');
+        text.textContent = label || 'offline';
+      }
+    }
+
+    function setBackend(name) {
+      $('#backend-name').textContent = name || '—';
+      $('#stat-backend').textContent = name || '—';
+    }
+
+    function connectWS() {
+      if (state.ws && state.ws.readyState === WebSocket.OPEN) return;
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const url = `${proto}://${location.host}/ws`;
+      setConn('connecting');
+      const ws = new WebSocket(url);
+      state.ws = ws;
+      ws.addEventListener('open', () => {
+        setConn('connected','live');
+        state.backoff = 1000;
+        try { ws.send('ping'); } catch (_) {}
+      });
+      ws.addEventListener('message', (e) => {
+        let msg;
+        try { msg = JSON.parse(e.data); } catch (_) { return; }
+        handleEvent(msg);
+      });
+      ws.addEventListener('close', () => {
+        setConn('offline','reconnecting…');
+        if (state.reconnectTimer) clearTimeout(state.reconnectTimer);
+        state.reconnectTimer = setTimeout(() => {
+          state.backoff = Math.min(state.backoff * 2, 15000);
+          connectWS();
+        }, state.backoff);
+      });
+      ws.addEventListener('error', () => { /* close will follow */ });
+    }
+
+    function handleEvent(ev) {
+      if (ev.type === 'transcript.completed') {
+        renderTranscript(ev.payload, ev.ts);
+        bumpStats(ev.payload);
+      } else if (ev.type === 'transcript.error') {
+        renderError(ev.payload, ev.ts);
+      }
+    }
+
+    function bumpStats(p) {
+      if (typeof p.latency_ms === 'number') {
+        state.stats.total += 1;
+        state.stats.latencySum += p.latency_ms;
+        state.stats.latencyN   += 1;
+      }
+      $('#stat-total').textContent = state.stats.total;
+      if (state.stats.latencyN) {
+        $('#stat-latency').textContent =
+          (state.stats.latencySum / state.stats.latencyN).toFixed(0) + ' ms';
+      }
+    }
+
+    function renderTranscript(p, ts) {
+      const empty = $('#empty-state');
+      if (empty) empty.classList.add('hidden');
+
+      const card = document.createElement('li');
+      card.className = 'transcript-card glass rounded-2xl p-4 sm:p-5';
+      const segments = (p.segments || []).map(s => (
+        '<li class="leading-snug text-sm sm:text-base">' +
+          '<span class="text-slate-500 tnum mr-2 text-xs">[' +
+            fmtDur(s.start)+'→'+fmtDur(s.end)+']</span>' +
+          '<span class="text-slate-100">'+escapeHtml(s.text)+'</span>' +
+        '</li>'
+      )).join('');
+      const segs = p.segments || [];
+      const avgConf = segs.reduce((a,s)=>a + (s.confidence||0),0) /
+                      Math.max(1, segs.length);
+
+      const source = p.chat_id ? 'Telegram bot' : 'Upload / Web Speech';
+      card.innerHTML = (
+        '<header class="flex items-start gap-3 mb-2">' +
+          '<div class="w-9 h-9 rounded-lg bg-gradient-to-br from-brand-500 to-sky-500 grid place-items-center text-xs font-bold uppercase">' +
+            escapeHtml((p.chat_id || 'UP').toString().slice(0,2)) +
+          '</div>' +
+          '<div class="min-w-0 flex-1">' +
+            '<div class="flex items-center gap-2 text-xs text-slate-400">' +
+              '<span>'+escapeHtml(source)+'</span>' +
+              '<span aria-hidden="true">·</span>' +
+              '<time class="tnum" datetime="'+new Date(ts*1000).toISOString()+'">'+fmtTime(ts)+'</time>' +
+              '<span aria-hidden="true">·</span>' +
+              '<span>lang: <span class="text-slate-300">'+escapeHtml(p.language || '—')+'</span></span>' +
+              '<span aria-hidden="true">·</span>' +
+              '<span>backend: <span class="text-slate-300">'+escapeHtml(p.backend || '—')+'</span></span>' +
+            '</div>' +
+            '<div class="mt-1 flex items-center gap-2 text-xs">' +
+              '<span class="text-slate-400">latency</span>' +
+              '<span class="tnum text-slate-100">'+((p.latency_ms||0).toFixed(0))+' ms</span>' +
+              '<span aria-hidden="true">·</span>' +
+              '<span class="text-slate-400">dur</span>' +
+              '<span class="tnum text-slate-100">'+fmtDur(p.duration||0)+'</span>' +
+            '</div>' +
+          '</div>' +
+          '<button class="copy-btn px-2 py-1 rounded-md text-xs hover:bg-white/10 transition" data-text="'+escapeHtml(p.text||'')+'" aria-label="Copy transcript">' +
+            'copy' +
+          '</button>' +
+        '</header>' +
+        '<p class="text-slate-200 leading-relaxed mb-2">'+escapeHtml(p.text || '')+'</p>' +
+        '<ol class="space-y-1.5 pl-2 border-l border-white/10" aria-label="Segments">' +
+          segments +
+        '</ol>' +
+        '<div class="mt-3 flex items-center gap-3">' +
+          '<span class="text-xs text-slate-400 w-20 shrink-0">confidence</span>' +
+          '<div class="conf flex-1" aria-hidden="true"><span style="width:'+(avgConf*100).toFixed(1)+'%"></span></div>' +
+          '<span class="text-xs text-slate-300 tnum w-12 text-right">'+(avgConf*100).toFixed(0)+'%</span>' +
+        '</div>'
+      );
+      const list = $('#stream');
+      list.prepend(card);
+      state.transcripts.unshift(card);
+      $('#count').textContent = state.transcripts.length;
+      if ($('#chk-autoscroll').checked) {
+        const top = list.getBoundingClientRect().top + window.scrollY - 80;
+        window.scrollTo({ top, behavior: 'smooth' });
+      }
+
+      const copyBtn = card.querySelector('.copy-btn');
+      copyBtn.addEventListener('click', (e) => {
+        const text = e.currentTarget.getAttribute('data-text') || '';
+        try {
+          navigator.clipboard.writeText(text);
+          e.currentTarget.textContent = 'copied!';
+          setTimeout(() => { e.currentTarget.textContent = 'copy'; }, 1200);
+        } catch (_) {}
+      });
+    }
+
+    function renderError(p, ts) {
+      const list = $('#stream');
+      const empty = $('#empty-state');
+      if (empty) empty.classList.add('hidden');
+      const card = document.createElement('li');
+      card.className = 'transcript-card glass rounded-2xl p-4 border border-rose-500/30';
+      card.innerHTML =
+        '<div class="flex items-center gap-2 text-rose-300 font-medium">' +
+          '<span aria-hidden="true">⚠️</span>' +
+          '<span>Transcription error</span>' +
+        '</div>' +
+        '<pre class="text-sm text-slate-300 mt-2 font-mono break-all whitespace-pre-wrap">'+escapeHtml(JSON.stringify(p, null, 2))+'</pre>' +
+        '<p class="text-xs text-slate-500 mt-2">'+fmtTime(ts)+'</p>';
+      list.prepend(card);
+    }
+
+    function wireUpload() {
+      const form = $('#upload-form');
+      const fileInput = $('#file-input');
+      const status = $('#upload-status');
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) { status.textContent = '請選擇檔案'; return; }
+        const lang = $('#sel-lang').value === 'en-US' ? 'en' : 'zh';
+        const fd = new FormData();
+        fd.append('audio', file);
+        fd.append('language', lang);
+        status.textContent = '上傳中…';
+        try {
+          const resp = await fetch('/api/transcribe', { method: 'POST', body: fd });
+          if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.detail || resp.statusText);
+          }
+          status.textContent = '完成 ✓ — see above';
+          fileInput.value = '';
+        } catch (exc) {
+          status.textContent = '失敗 — ' + exc.message;
+        }
+      });
+
+      const dz = $('#drop-zone');
+      ['dragenter','dragover'].forEach(ev => {
+        dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('border-brand-400'); });
+      });
+      ['dragleave','drop'].forEach(ev => {
+        dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('border-brand-400'); });
+      });
+      dz.addEventListener('drop', (e) => {
+        const f = e.dataTransfer.files && e.dataTransfer.files[0];
+        if (f) { fileInput.files = e.dataTransfer.files; form.requestSubmit(); }
+      });
+      dz.addEventListener('click', () => fileInput.click());
+      dz.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
+      });
+    }
+
+    function wireMic() {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const btn = $('#btn-mic');
+      const label = $('#mic-label');
+      const icon = $('#mic-icon');
+      const bars = $('#mic-bars');
+      const interim = $('#interim-text');
+      const card = $('#interim-card');
+      if (!SR) {
+        btn.disabled = true;
+        btn.classList.add('opacity-50','cursor-not-allowed');
+        label.textContent = '瀏覽器不支援語音辨識';
+        return;
+      }
+      const recog = new SR();
+      recog.continuous = true;
+      recog.interimResults = true;
+      let listening = false;
+      let accumulated = '';
+
+      btn.addEventListener('click', () => {
+        if (listening) { recog.stop(); return; }
+        try {
+          recog.lang = $('#sel-lang').value;
+          recog.start();
+        } catch (_) {}
+      });
+
+      recog.addEventListener('start', () => {
+        listening = true;
+        label.textContent = '停止錄音';
+        icon.classList.remove('bg-rose-300');
+        icon.classList.add('bg-emerald-400');
+        bars.classList.remove('idle');
+        btn.setAttribute('aria-pressed', 'true');
+        card.classList.remove('hidden');
+        accumulated = '';
+      });
+      recog.addEventListener('end', () => {
+        listening = false;
+        label.textContent = '開始錄音';
+        icon.classList.add('bg-rose-300');
+        icon.classList.remove('bg-emerald-400');
+        bars.classList.add('idle');
+        btn.setAttribute('aria-pressed', 'false');
+        card.classList.add('hidden');
+        if (accumulated.trim()) {
+          publishBrowserFinal(accumulated.trim(), $('#sel-lang').value);
+        }
+      });
+      recog.addEventListener('error', (e) => {
+        interim.textContent = 'error: ' + (e.error || 'unknown');
+      });
+      recog.addEventListener('result', (e) => {
+        let interimText = '';
+        let appendedFinal = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const r = e.results[i];
+          if (r.isFinal) appendedFinal += r[0].transcript;
+          else interimText += r[0].transcript;
+        }
+        if (appendedFinal) {
+          accumulated += appendedFinal + ' ';
+          publishBrowserFinal(appendedFinal.trim(), $('#sel-lang').value);
+        }
+        interim.textContent = interimText || 'listening';
+      });
+
+      async function publishBrowserFinal(text, lang) {
+        try {
+          await fetch('/api/browser-note', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, lang }),
+          });
+        } catch (_) {}
+      }
+    }
+
+    function wireClear() {
+      $('#btn-clear').addEventListener('click', () => {
+        $('#stream').innerHTML = '';
+        $('#empty-state').classList.remove('hidden');
+        state.transcripts = [];
+        $('#count').textContent = '0';
+        state.stats = { total: 0, latencySum: 0, latencyN: 0 };
+        $('#stat-total').textContent = '0';
+        $('#stat-latency').textContent = '—';
+      });
+    }
+
+    function wireReplay() {
+      $('#btn-replay').addEventListener('click', async () => {
+        try {
+          const sr = 8000, dur = 4;
+          const buf = new ArrayBuffer(44 + sr * dur * 2);
+          const v = new DataView(buf);
+          const w32 = (off, x) => v.setUint32(off, x, true);
+          const w16 = (off, x) => v.setUint16(off, x, true);
+          w32(0, 0x52494646); w32(4, 36 + sr*dur*2);
+          w32(8, 0x57415645); w32(12, 0x666d7420);
+          w32(16, 16); w16(20, 1); w16(22, 1);
+          w32(24, sr); w32(28, sr*2); w16(32, 2); w16(34, 16);
+          w32(36, 0x64617461); w32(40, sr*dur*2);
+          for (let i = 0; i < sr*dur; i++) {
+            const sample = Math.sin(2*Math.PI*440*i/sr) * 0.3 * 32767;
+            v.setInt16(44 + i*2, sample, true);
+          }
+          const blob = new Blob([buf], { type: 'audio/wav' });
+          const fd = new FormData();
+          fd.append('audio', blob, 'demo.wav');
+          fd.append('language', 'auto');
+          await fetch('/api/transcribe', { method: 'POST', body: fd });
+        } catch (_) {}
+      });
+    }
+
+    function wireStatWs() {
+      const update = () => {
+        const open = state.ws && state.ws.readyState === WebSocket.OPEN;
+        $('#stat-ws').textContent = open ? 'live' : 'closed';
+      };
+      setInterval(update, 1000);
+      update();
+    }
+
+    async function boot() {
+      wireUpload();
+      wireMic();
+      wireClear();
+      wireReplay();
+      wireStatWs();
+      connectWS();
+      try {
+        const r = await fetch('/api/health');
+        const j = await r.json();
+        setBackend(j.stt_backend);
+      } catch (_) {
+        setBackend('—');
+      }
+    }
+
+    window.__demo_fire = function(payload) {
+      handleEvent({ type: 'transcript.completed', payload, ts: Date.now()/1000 });
+    };
+
+    if (document.readyState !== 'loading') boot();
+    else document.addEventListener('DOMContentLoaded', boot);
+  })();
+  </script>
+</body>
+</html>

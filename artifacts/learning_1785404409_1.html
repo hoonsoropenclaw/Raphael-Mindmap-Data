@@ -1,0 +1,685 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>赫米斯動態響應式 UI 範本 — Tailwind × Framer Motion</title>
+
+<!-- Tailwind CSS v3 Play CDN（零建置即用） -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  // Tailwind config：自訂主題（深色模式策略、字體、品牌色）
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+          mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+        },
+        colors: {
+          brand: {
+            50:  '#eef6ff',
+            100: '#d9eaff',
+            200: '#bcdaff',
+            300: '#8ec1ff',
+            400: '#599cff',
+            500: '#3478f6',
+            600: '#205aeb',
+            700: '#1a48d6',
+            800: '#1c3eac',
+            900: '#1d3986',
+          },
+        },
+        keyframes: {
+          'gradient-shift': {
+            '0%,100%': { backgroundPosition: '0% 50%' },
+            '50%':     { backgroundPosition: '100% 50%' },
+          },
+          'float': {
+            '0%,100%': { transform: 'translateY(0px)' },
+            '50%':     { transform: 'translateY(-12px)' },
+          },
+          'pulse-soft': {
+            '0%,100%': { opacity: 0.85 },
+            '50%':     { opacity: 1 },
+          },
+        },
+        animation: {
+          'gradient-shift': 'gradient-shift 12s ease infinite',
+          'float':         'float 6s ease-in-out infinite',
+          'pulse-soft':    'pulse-soft 2.4s ease-in-out infinite',
+        },
+      },
+    },
+  };
+</script>
+
+<!-- Inter 字體（CDN） -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+
+<!-- Babel standalone（瀏覽器內即時轉譯 JSX，單檔可開即跑） -->
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+
+<style>
+  /* 防止動畫出現前的 FOUC（無樣式閃爍） */
+  html.dark { color-scheme: dark; }
+  body { font-family: 'Inter', system-ui, sans-serif; }
+  /* 漸層背景流動用 */
+  .bg-mesh {
+    background: linear-gradient(120deg, #1d3986 0%, #205aeb 35%, #8ec1ff 70%, #1d3986 100%);
+    background-size: 300% 300%;
+  }
+  /* 細節：捲軸美化 */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: rgba(120,120,140,0.35); border-radius: 8px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(120,120,140,0.55); }
+  /* focus ring 一致性 */
+  :focus-visible { outline: 2px solid #3478f6; outline-offset: 2px; border-radius: 6px; }
+</style>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-800 antialiased dark:bg-slate-950 dark:text-slate-100">
+
+<!-- React 掛載點 -->
+<div id="root"></div>
+
+<!-- ====== React + Framer Motion（用 ESM 從 esm.sh 載入，避免版本漂移）====== -->
+<script type="text/babel" data-type="module" data-presets="react">
+// 使用 ESM 解析的 React 18 + framer-motion（esm.sh 會把 require 轉成可用的 ESM）
+import React, { useEffect, useMemo, useRef, useState } from 'https://esm.sh/react@18.3.1';
+import { createRoot }           from 'https://esm.sh/react-dom@18.3.1/client';
+import { motion, AnimatePresence, useScroll, useTransform, useReducedMotion } from 'https://esm.sh/framer-motion@11.3.19?deps=react@18.3.1,react-dom@18.3.1';
+
+/* =========================================================================
+   可重用微元件 —— 對應 SKILL_CATALOG #11 / #13 / #16 的「動態 UI 元件」
+   ========================================================================= */
+
+// ① 浮動卡片：hover scale / tap 微縮
+function FloatingCard({ children, delay = 0, className = '' }) {
+  const reduce = useReducedMotion();
+  return (
+    <motion.div
+      initial={reduce ? false : { opacity: 0, y: 24 }}
+      whileInView={reduce ? undefined : { opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.3 }}
+      transition={{ duration: 0.6, delay, ease: [0.16, 1, 0.3, 1] }}
+      whileHover={reduce ? undefined : { y: -6, scale: 1.02 }}
+      whileTap={reduce ? undefined : { scale: 0.98 }}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+// ② Stagger 容器：讓子項目依序入場
+function StaggerContainer({ children, className = '', stagger = 0.08 }) {
+  const reduce = useReducedMotion();
+  return (
+    <motion.div
+      className={className}
+      initial="hidden"
+      whileInView={reduce ? undefined : "show"}
+      viewport={{ once: true, amount: 0.2 }}
+      variants={{
+        hidden: {},
+        show: { transition: { staggerChildren: stagger, delayChildren: 0.1 } },
+      }}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+const itemFadeUp = {
+  hidden:  { opacity: 0, y: 18 },
+  show:    { opacity: 1, y: 0, transition: { duration: 0.55, ease: [0.16, 1, 0.3, 1] } },
+};
+
+// ③ Navbar：毛玻璃 + 滾動時縮小
+function Navbar({ theme, setTheme }) {
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 12);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+  const reduce = useReducedMotion();
+  return (
+    <motion.header
+      initial={reduce ? false : { y: -40, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+      className={`fixed inset-x-0 top-0 z-50 transition-all duration-300
+        ${scrolled
+          ? 'backdrop-blur-md bg-white/70 dark:bg-slate-950/70 shadow-md'
+          : 'bg-transparent'}`}
+    >
+      <nav className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
+        <a href="#" className="flex items-center gap-2 font-bold text-lg">
+          <span className="inline-block h-7 w-7 rounded-lg bg-gradient-to-br from-brand-500 to-brand-800 animate-float" />
+          <span className="tracking-tight">Hermes<span className="text-brand-500">.</span>UI</span>
+        </a>
+        <ul className="hidden items-center gap-6 text-sm font-medium md:flex">
+          {['首頁', '功能', '數據', '客戶', '價格'].map((label, i) => (
+            <li key={label}>
+              <a href={`#${['hero','features','stats','testimonials','pricing'][i]}`}
+                 className="text-slate-600 hover:text-brand-600 dark:text-slate-300 dark:hover:text-brand-400 transition-colors">
+                {label}
+              </a>
+            </li>
+          ))}
+        </ul>
+        <div className="flex items-center gap-2">
+          <motion.button
+            whileTap={reduce ? undefined : { scale: 0.92 }}
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            aria-label="切換深淺色"
+            className="rounded-lg border border-slate-200 bg-white/60 p-2 text-slate-700 backdrop-blur hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:bg-slate-800"
+          >
+            {theme === 'dark' ? '🌞' : '🌙'}
+          </motion.button>
+          <motion.button
+            whileHover={reduce ? undefined : { scale: 1.05 }}
+            whileTap={reduce ? undefined : { scale: 0.95 }}
+            className="hidden rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-700 sm:block"
+          >
+            開始使用
+          </motion.button>
+        </div>
+      </nav>
+    </motion.header>
+  );
+}
+
+// ④ Hero：漸層背景 + 視差滾動
+function Hero() {
+  const ref = useRef(null);
+  const { scrollYProgress } = useScroll({ target: ref, offset: ['start start', 'end start'] });
+  const yBlob1 = useTransform(scrollYProgress, [0, 1], [0, -160]);
+  const yBlob2 = useTransform(scrollYProgress, [0, 1], [0, -90]);
+  const opacity = useTransform(scrollYProgress, [0, 0.8], [1, 0]);
+  const reduce  = useReducedMotion();
+
+  return (
+    <section ref={ref} id="hero" className="relative isolate overflow-hidden pt-32 pb-24 md:pt-40 md:pb-32">
+      {/* 動態漸層層 */}
+      <motion.div
+        style={reduce ? undefined : { opacity }}
+        aria-hidden
+        className="absolute inset-0 -z-10 bg-mesh animate-gradient-shift opacity-20 dark:opacity-30"
+      />
+      {/* 漂浮裝飾 blob（視差） */}
+      <motion.div
+        aria-hidden
+        style={reduce ? undefined : { y: yBlob1 }}
+        className="absolute -top-24 -left-24 -z-10 h-96 w-96 rounded-full bg-brand-400/40 blur-3xl"
+      />
+      <motion.div
+        aria-hidden
+        style={reduce ? undefined : { y: yBlob2 }}
+        className="absolute -bottom-24 -right-16 -z-10 h-[28rem] w-[28rem] rounded-full bg-fuchsia-400/30 blur-3xl"
+      />
+
+      <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 text-center">
+        <motion.span
+          initial={reduce ? false : { opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+          className="inline-flex items-center gap-2 rounded-full border border-brand-300/40 bg-white/60 px-3 py-1 text-xs font-medium text-brand-700 backdrop-blur dark:border-brand-700/40 dark:bg-slate-900/60 dark:text-brand-300"
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-brand-500 animate-pulse-soft" /> v2.0 · 動態響應式
+        </motion.span>
+
+        <motion.h1
+          initial={reduce ? false : { opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+          className="mt-6 text-4xl font-extrabold tracking-tight sm:text-5xl md:text-6xl lg:text-7xl"
+        >
+          把 UI 變成<span className="bg-gradient-to-r from-brand-500 via-brand-700 to-fuchsia-500 bg-clip-text text-transparent">會呼吸的體驗</span>
+        </motion.h1>
+
+        <motion.p
+          initial={reduce ? false : { opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.15, ease: [0.16, 1, 0.3, 1] }}
+          className="mx-auto mt-6 max-w-2xl text-base text-slate-600 sm:text-lg dark:text-slate-300"
+        >
+          以 Tailwind utility 為骨架、Framer Motion 為神經，組合出能在任何裝置上都流暢、自然、且帶有精緻動態的現代介面。
+        </motion.p>
+
+        <motion.div
+          initial={reduce ? false : { opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.3 }}
+          className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row"
+        >
+          <motion.a
+            href="#features"
+            whileHover={reduce ? undefined : { scale: 1.05, y: -2 }}
+            whileTap={reduce ? undefined : { scale: 0.96 }}
+            className="rounded-xl bg-brand-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-brand-500/20 hover:bg-brand-700"
+          >立即體驗 →</motion.a>
+          <motion.a
+            href="#pricing"
+            whileHover={reduce ? undefined : { scale: 1.05, y: -2 }}
+            whileTap={reduce ? undefined : { scale: 0.96 }}
+            className="rounded-xl border border-slate-300 bg-white/70 px-6 py-3 text-sm font-semibold text-slate-800 backdrop-blur hover:bg-white dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-100 dark:hover:bg-slate-800"
+          >看定價方案</motion.a>
+        </motion.div>
+
+        {/* 響應式裝置示意（純 CSS） */}
+        <motion.div
+          initial={reduce ? false : { opacity: 0, scale: 0.96 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 1, delay: 0.45 }}
+          className="mx-auto mt-14 flex max-w-5xl items-end justify-center gap-3 sm:gap-5"
+        >
+          {/* 手機 */}
+          <div className="relative h-44 w-24 rounded-2xl border-4 border-slate-800 bg-slate-900 shadow-xl sm:h-56 sm:w-28 dark:border-slate-200">
+            <div className="absolute inset-1 rounded-xl bg-gradient-to-br from-brand-400 to-fuchsia-500" />
+            <div className="absolute left-1/2 top-1 h-3 w-8 -translate-x-1/2 rounded-b-lg bg-slate-800 sm:h-4 sm:w-10 dark:bg-slate-200" />
+          </div>
+          {/* 平板 */}
+          <div className="relative h-40 w-56 rounded-xl border-4 border-slate-800 bg-slate-900 shadow-xl sm:h-52 sm:w-72 dark:border-slate-200">
+            <div className="absolute inset-1 rounded-md bg-gradient-to-br from-brand-500 to-brand-800" />
+          </div>
+          {/* 桌機 */}
+          <div className="relative hidden h-64 w-96 rounded-xl border-4 border-slate-800 bg-slate-900 shadow-2xl lg:block dark:border-slate-200">
+            <div className="absolute inset-1 rounded-md bg-gradient-to-br from-brand-300 via-brand-500 to-brand-800" />
+            <div className="absolute -bottom-4 left-1/2 h-4 w-32 -translate-x-1/2 rounded-b-xl bg-slate-800 dark:bg-slate-200" />
+          </div>
+        </motion.div>
+      </div>
+    </section>
+  );
+}
+
+// ⑤ Feature Grid：6 個 feature card，含 icon、stagger 入場
+const features = [
+  { icon: '⚡', title: '零建置啟動',  desc: 'Tailwind Play CDN 直接在瀏覽器內 JIT 編譯，無需 bundler 即可生產可用樣式。' },
+  { icon: '🎞', title: '聲音般動效',  desc: 'Framer Motion variants + staggerChildren 編排出場順序，自然且不喧賓奪主。' },
+  { icon: '📱', title: '真正響應式',  desc: 'mobile-first 斷點：sm / md / lg / xl 隨 viewport 即時重排，桌機、平板、手機各有最佳佈局。' },
+  { icon: '♿', title: '無障礙友善',  desc: 'respect prefers-reduced-motion、ARIA 標籤、focus ring，降低對動暈使用者負擔。' },
+  { icon: '🌗', title: '深淺色切換',  desc: 'Tailwind darkMode: class + localStorage 持久化，跟隨使用者系統偏好。' },
+  { icon: '🧩', title: '單檔可攜',    desc: '整份成品只有一個 HTML，無 node_modules、無 build step、可離線快取。' },
+];
+
+function Features() {
+  return (
+    <section id="features" className="relative py-20 md:py-28">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.3 }}
+          transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+          className="mx-auto max-w-2xl text-center"
+        >
+          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl md:text-5xl">為什麼選這個組合</h2>
+          <p className="mt-4 text-slate-600 dark:text-slate-300">
+            Tailwind 給你原子化 utility、Framer Motion 給你聲音般的動效；兩者都是宣告式的、可被 React 編排。
+          </p>
+        </motion.div>
+
+        <StaggerContainer className="mt-12 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {features.map((f) => (
+            <motion.div
+              key={f.title}
+              variants={itemFadeUp}
+              whileHover={{ y: -6 }}
+              className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition-shadow hover:shadow-xl dark:border-slate-800 dark:bg-slate-900"
+            >
+              <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-brand-100 to-brand-300 text-2xl dark:from-brand-900 dark:to-brand-700">
+                <span>{f.icon}</span>
+              </div>
+              <h3 className="text-lg font-semibold">{f.title}</h3>
+              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{f.desc}</p>
+              <div className="absolute -right-12 -top-12 h-32 w-32 rounded-full bg-brand-500/10 blur-2xl transition-all duration-500 group-hover:bg-brand-500/30" />
+            </motion.div>
+          ))}
+        </StaggerContainer>
+      </div>
+    </section>
+  );
+}
+
+// ⑥ Animated Counter：滾動到視區時從 0 計數到目標
+function StatItem({ label, target, suffix = '' }) {
+  const [value, setValue] = useState(0);
+  const ref = useRef(null);
+  const started = useRef(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((e) => {
+        if (e.isIntersecting && !started.current) {
+          started.current = true;
+          const dur = 1400;
+          const t0 = performance.now();
+          const step = (now) => {
+            const p = Math.min(1, (now - t0) / dur);
+            const eased = 1 - Math.pow(1 - p, 3); // easeOutCubic
+            setValue(Math.round(target * eased));
+            if (p < 1) requestAnimationFrame(step);
+          };
+          requestAnimationFrame(step);
+        }
+      });
+    }, { threshold: 0.4 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [target]);
+
+  return (
+    <div ref={ref} className="text-center">
+      <div className="text-4xl font-extrabold tabular-nums tracking-tight text-brand-600 sm:text-5xl dark:text-brand-400">
+        {value.toLocaleString()}{suffix}
+      </div>
+      <div className="mt-2 text-sm text-slate-500 dark:text-slate-400">{label}</div>
+    </div>
+  );
+}
+
+function Stats() {
+  return (
+    <section id="stats" className="border-y border-slate-200 bg-slate-100/60 py-16 dark:border-slate-800 dark:bg-slate-900/60">
+      <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+        <StaggerContainer className="grid grid-cols-2 gap-8 md:grid-cols-4">
+          {[
+            { label: '活躍專案',   target: 1280,  suffix: '+' },
+            { label: '開發者採用',  target: 24000, suffix: '' },
+            { label: 'GitHub Stars',target: 92,    suffix: 'k' },
+            { label: '平均載入 ms', target: 128,   suffix: '' },
+          ].map((s) => (
+            <motion.div key={s.label} variants={itemFadeUp}>
+              <StatItem label={s.label} target={s.target} suffix={s.suffix} />
+            </motion.div>
+          ))}
+        </StaggerContainer>
+      </div>
+    </section>
+  );
+}
+
+// ⑦ Testimonial Carousel：自動輪播 + 手指拖曳
+function Testimonials() {
+  const items = [
+    { name: '林小柔', role: '前端工程師 @ Aurora',  quote: '把 Tailwind 的 utility 和 Framer Motion 的 variants 混用，整個 UI 的節奏感都不一樣了。' },
+    { name: '陳大仁', role: '設計主管 @ NorthStar', quote: '終於不用每次改一個 padding 還要重新 build。Play CDN 讓我直接在設計稿上驗證 motion。' },
+    { name: 'Sami',    role: 'Indie Hacker',         quote: '單檔 HTML 就能 demo 給客戶看，整包 zip 出去對方一打開就動，感動到哭。' },
+    { name: 'Yuki',    role: 'Tech Lead @ Helio',    quote: 'prefers-reduced-motion 的 fallback 寫得很乾淨，無障礙審查直接過。' },
+  ];
+  const [idx, setIdx] = useState(0);
+  const reduce = useReducedMotion();
+
+  useEffect(() => {
+    if (reduce) return;
+    const t = setInterval(() => setIdx((i) => (i + 1) % items.length), 5000);
+    return () => clearInterval(t);
+  }, [reduce, items.length]);
+
+  return (
+    <section id="testimonials" className="py-20 md:py-28">
+      <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
+        <motion.h2
+          initial={{ opacity: 0, y: 12 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className="text-center text-3xl font-bold sm:text-4xl"
+        >他們怎麼說</motion.h2>
+
+        <div className="relative mt-10 overflow-hidden">
+          <AnimatePresence mode="wait">
+            <motion.figure
+              key={idx}
+              initial={reduce ? false : { opacity: 0, x: 40 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={reduce ? undefined : { opacity: 0, x: -40 }}
+              transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+              className="rounded-2xl border border-slate-200 bg-white p-8 shadow-lg dark:border-slate-800 dark:bg-slate-900"
+            >
+              <blockquote className="text-lg leading-relaxed text-slate-700 dark:text-slate-200 sm:text-xl">
+                “{items[idx].quote}”
+              </blockquote>
+              <figcaption className="mt-4 flex items-center gap-3">
+                <div className="h-10 w-10 rounded-full bg-gradient-to-br from-brand-400 to-fuchsia-500" />
+                <div>
+                  <div className="font-semibold">{items[idx].name}</div>
+                  <div className="text-sm text-slate-500 dark:text-slate-400">{items[idx].role}</div>
+                </div>
+              </figcaption>
+            </motion.figure>
+          </AnimatePresence>
+          <div className="mt-6 flex items-center justify-center gap-2">
+            {items.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => setIdx(i)}
+                aria-label={`跳到第 ${i+1} 則`}
+                className={`h-2 rounded-full transition-all ${i === idx ? 'w-8 bg-brand-600' : 'w-2 bg-slate-300 dark:bg-slate-700'}`}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ⑧ Pricing：月切換 + 卡片（hover 升起）+ Modal CTA
+function Pricing({ onOpenModal }) {
+  const [yearly, setYearly] = useState(false);
+  const plans = useMemo(() => ([
+    { name: 'Starter',    monthly: 0,  desc: '個人玩玩、社群開源', features: ['單檔 HTML', 'Tailwind Play CDN', '社群支援'] },
+    { name: 'Pro',        monthly: 19, desc: '獨立開發者、小團隊',  features: ['完整 variants 庫', 'Email 支援', '可商用'], highlight: true },
+    { name: 'Team',       monthly: 49, desc: '中型團隊 / 工作室',    features: ['優先 issue 處理', 'Design tokens', 'SSO + audit log'] },
+  ]), []);
+
+  return (
+    <section id="pricing" className="bg-slate-50 py-20 dark:bg-slate-950 md:py-28">
+      <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+        <div className="text-center">
+          <motion.h2
+            initial={{ opacity: 0, y: 12 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            className="text-3xl font-bold sm:text-4xl"
+          >透明的定價</motion.h2>
+
+          <div className="mt-6 inline-flex rounded-full border border-slate-200 bg-white p-1 text-sm dark:border-slate-700 dark:bg-slate-900">
+            <button
+              onClick={() => setYearly(false)}
+              className={`rounded-full px-4 py-1.5 font-medium transition-colors ${!yearly ? 'bg-brand-600 text-white' : 'text-slate-600 dark:text-slate-300'}`}
+            >月繳</button>
+            <button
+              onClick={() => setYearly(true)}
+              className={`rounded-full px-4 py-1.5 font-medium transition-colors ${yearly ? 'bg-brand-600 text-white' : 'text-slate-600 dark:text-slate-300'}`}
+            >年繳 <span className={`ml-1 ${yearly ? 'text-white/80' : 'text-brand-500'}`}>省 20%</span></button>
+          </div>
+        </div>
+
+        <StaggerContainer className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-3">
+          {plans.map((p) => {
+            const price = yearly ? Math.round(p.monthly * 12 * 0.8 / 12) : p.monthly;
+            return (
+              <motion.div
+                key={p.name}
+                variants={itemFadeUp}
+                whileHover={{ y: -8 }}
+                className={`relative rounded-2xl border p-6 shadow-sm transition-shadow hover:shadow-2xl
+                  ${p.highlight
+                    ? 'border-brand-500/60 bg-gradient-to-br from-brand-50 to-white dark:from-brand-900/30 dark:to-slate-900'
+                    : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900'}`}
+              >
+                {p.highlight && (
+                  <span className="absolute -top-3 left-6 rounded-full bg-brand-600 px-3 py-0.5 text-xs font-semibold text-white">熱門</span>
+                )}
+                <h3 className="text-xl font-semibold">{p.name}</h3>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{p.desc}</p>
+                <div className="my-6 flex items-end gap-1">
+                  <span className="text-5xl font-extrabold tracking-tight">${price}</span>
+                  <span className="mb-1 text-sm text-slate-500 dark:text-slate-400">/ 月</span>
+                </div>
+                <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-200">
+                  {p.features.map((ft) => (
+                    <li key={ft} className="flex items-center gap-2">
+                      <span className="text-brand-500">✓</span>{ft}
+                    </li>
+                  ))}
+                </ul>
+                <motion.button
+                  onClick={() => onOpenModal({ plan: p.name, price })}
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.96 }}
+                  className={`mt-6 w-full rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors
+                    ${p.highlight
+                      ? 'bg-brand-600 text-white hover:bg-brand-700'
+                      : 'border border-slate-300 bg-white text-slate-800 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800'}`}
+                >選擇 {p.name}</motion.button>
+              </motion.div>
+            );
+          })}
+        </StaggerContainer>
+      </div>
+    </section>
+  );
+}
+
+// ⑨ Modal：portal 風格（背景模糊 + 縮放入場 + ESC 關閉）
+function Modal({ open, payload, onClose }) {
+  const reduce = useReducedMotion();
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = '';
+    };
+  }, [open, onClose]);
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+          initial={reduce ? { opacity: 1 } : { opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.25 }}
+        >
+          <motion.div
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            onClick={onClose}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          />
+          <motion.div
+            role="dialog" aria-modal="true"
+            className="relative z-10 w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-slate-900"
+            initial={reduce ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.92, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.92, y: 20 }}
+            transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <h3 className="text-xl font-semibold">
+              確認訂閱 {payload?.plan}？
+            </h3>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+              每月將收取 <span className="font-semibold text-brand-600">${payload?.price}</span>，
+              可隨時取消。我們不會寄送垃圾信。
+            </p>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                onClick={onClose}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
+              >取消</button>
+              <motion.button
+                onClick={onClose}
+                whileHover={{ scale: 1.04 }}
+                whileTap={{ scale: 0.96 }}
+                className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+              >確認訂閱</motion.button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+// ⑩ Footer
+function Footer() {
+  return (
+    <footer className="border-t border-slate-200 bg-white py-10 dark:border-slate-800 dark:bg-slate-950">
+      <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-4 text-sm text-slate-500 sm:flex-row sm:px-6 lg:px-8 dark:text-slate-400">
+        <div>© 2026 Hermes.UI · 用 Tailwind & Framer Motion 打造</div>
+        <div className="flex items-center gap-4">
+          <a href="#" className="hover:text-brand-600">GitHub</a>
+          <a href="#" className="hover:text-brand-600">X</a>
+          <a href="#" className="hover:text-brand-600">Email</a>
+        </div>
+      </div>
+    </footer>
+  );
+}
+
+/* =========================================================================
+   App：把所有模組組起來、處理 theme 持久化
+   ========================================================================= */
+function App() {
+  const [theme, setTheme] = useState(() => {
+    if (typeof window === 'undefined') return 'light';
+    const saved = localStorage.getItem('hermes-ui-theme');
+    if (saved) return saved;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalPayload, setModalPayload] = useState(null);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle('dark', theme === 'dark');
+    try { localStorage.setItem('hermes-ui-theme', theme); } catch {}
+  }, [theme]);
+
+  const openModal = (payload) => {
+    setModalPayload(payload);
+    setModalOpen(true);
+  };
+
+  return (
+    <>
+      <Navbar theme={theme} setTheme={setTheme} />
+      <main>
+        <Hero />
+        <Features />
+        <Stats />
+        <Testimonials />
+        <Pricing onOpenModal={openModal} />
+      </main>
+      <Footer />
+      <Modal open={modalOpen} payload={modalPayload} onClose={() => setModalOpen(false)} />
+    </>
+  );
+}
+
+const root = createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+
+<!-- 離線 / 載入失敗降級提示（CDN 死了也不會空白一片） -->
+<noscript>
+  <div style="padding:24px;font-family:Inter,system-ui,sans-serif;text-align:center;color:#1d3986">
+    這份成品需要啟用 JavaScript 才能看到完整的動態效果。
+  </div>
+</noscript>
+</body>
+</html>

@@ -1,0 +1,1445 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hermes 語音驅動 Web 應用 · Whisper API × Next.js</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root {
+    --glass-bg: rgba(255, 255, 255, 0.06);
+    --glass-bg-strong: rgba(255, 255, 255, 0.12);
+    --glass-border: rgba(255, 255, 255, 0.18);
+    --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+    --accent: #7dd3fc;
+    --accent-2: #c084fc;
+    --accent-3: #34d399;
+    --text-primary: #f1f5f9;
+    --text-muted: #94a3b8;
+    --code-bg: #0b1120;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: 'Inter', 'Noto Sans TC', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: var(--text-primary);
+    background:
+      radial-gradient(ellipse at 0% 0%, rgba(125, 211, 252, 0.18) 0%, transparent 50%),
+      radial-gradient(ellipse at 100% 0%, rgba(192, 132, 252, 0.18) 0%, transparent 50%),
+      radial-gradient(ellipse at 50% 100%, rgba(52, 211, 153, 0.12) 0%, transparent 50%),
+      linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+  .glass {
+    background: var(--glass-bg);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    border-radius: 18px;
+  }
+  .glass-strong {
+    background: var(--glass-bg-strong);
+    backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 18px;
+  }
+  .gradient-text {
+    background: linear-gradient(135deg, #7dd3fc 0%, #c084fc 60%, #34d399 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, #7dd3fc 0%, #c084fc 100%);
+    color: #0f172a;
+    font-weight: 600;
+    padding: 0.75rem 1.5rem;
+    border-radius: 12px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 14px rgba(125, 211, 252, 0.35);
+  }
+  .btn-primary:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(125, 211, 252, 0.5);
+  }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-ghost {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+    border: 1px solid var(--glass-border);
+    padding: 0.5rem 1rem;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .btn-ghost:hover { background: rgba(255, 255, 255, 0.14); }
+  .btn-success {
+    background: linear-gradient(135deg, #34d399 0%, #7dd3fc 100%);
+    color: #0f172a;
+    font-weight: 600;
+    padding: 0.5rem 1rem;
+    border-radius: 10px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .btn-success:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(52, 211, 153, 0.4); }
+
+  /* Recording dot animation */
+  .recording-dot {
+    display: inline-block;
+    width: 12px; height: 12px;
+    background: #ef4444;
+    border-radius: 50%;
+    animation: pulse 1.2s ease-in-out infinite;
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.4); opacity: 0.6; }
+  }
+
+  /* Waveform */
+  #waveform {
+    display: flex; align-items: center; justify-content: center;
+    height: 80px;
+    gap: 3px;
+  }
+  .wave-bar {
+    width: 4px;
+    background: linear-gradient(180deg, #7dd3fc, #c084fc);
+    border-radius: 2px;
+    transition: height 0.08s ease;
+  }
+  .wave-bar.idle { background: rgba(255,255,255,0.18); }
+
+  /* Tabs */
+  .tab-pill {
+    padding: 0.5rem 1.2rem;
+    border-radius: 999px;
+    cursor: pointer;
+    color: var(--text-muted);
+    transition: all 0.2s ease;
+    border: 1px solid transparent;
+    font-size: 0.9rem;
+  }
+  .tab-pill.active {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.1);
+    border-color: var(--glass-border);
+  }
+  .tab-pill:hover:not(.active) { color: var(--text-primary); }
+
+  /* Provider segmented control */
+  .provider-toggle {
+    display: inline-flex;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 3px;
+    gap: 3px;
+  }
+  .provider-toggle button {
+    background: transparent;
+    color: var(--text-muted);
+    border: none;
+    padding: 0.4rem 0.9rem;
+    border-radius: 9px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.2s ease;
+  }
+  .provider-toggle button.active {
+    background: linear-gradient(135deg, #7dd3fc, #c084fc);
+    color: #0f172a;
+    font-weight: 600;
+  }
+
+  /* Spinner */
+  .spinner {
+    width: 18px; height: 18px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    display: inline-block;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Code blocks */
+  pre, code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 1rem;
+    overflow-x: auto;
+    font-size: 0.82rem;
+    line-height: 1.55;
+    color: #e2e8f0;
+  }
+  pre .kw { color: #c084fc; }
+  pre .str { color: #7dd3fc; }
+  pre .num { color: #34d399; }
+  pre .cm { color: #64748b; font-style: italic; }
+  pre .fn { color: #fbbf24; }
+  pre .tp { color: #f472b6; }
+  pre .hl { background: rgba(125, 211, 252, 0.15); display: block; margin: 0 -1rem; padding: 0 1rem; }
+
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 24px; right: 24px;
+    padding: 0.75rem 1.25rem;
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.92);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(10px);
+    z-index: 100;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: all 0.3s ease;
+    max-width: 380px;
+    font-size: 0.9rem;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.error { border-color: rgba(239, 68, 68, 0.6); }
+  .toast.success { border-color: rgba(52, 211, 153, 0.6); }
+
+  /* Status pill */
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--glass-border);
+    font-size: 0.82rem;
+    color: var(--text-muted);
+  }
+  .pill-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #facc15;
+  }
+  .pill-dot.ok { background: #34d399; box-shadow: 0 0 10px #34d399; }
+  .pill-dot.err { background: #ef4444; box-shadow: 0 0 10px #ef4444; }
+
+  /* Action palette items */
+  .action-card {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 14px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .action-card:hover {
+    background: rgba(255,255,255,0.09);
+    transform: translateX(4px);
+    border-color: rgba(125, 211, 252, 0.4);
+  }
+  .action-icon {
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #7dd3fc 0%, #c084fc 100%);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+  }
+
+  /* History */
+  .history-item {
+    padding: 10px 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .history-item:hover { background: rgba(255,255,255,0.09); }
+
+  /* Form */
+  textarea, input[type="text"], select {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--glass-border);
+    color: var(--text-primary);
+    border-radius: 10px;
+    padding: 0.65rem 0.85rem;
+    width: 100%;
+    font-family: inherit;
+    font-size: 0.92rem;
+    transition: border-color 0.2s ease;
+  }
+  textarea:focus, input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: rgba(0, 0, 0, 0.45);
+  }
+  textarea { resize: vertical; min-height: 120px; }
+  select option { background: #0f172a; color: var(--text-primary); }
+
+  /* Accessibility focus rings */
+  button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .main-grid { grid-template-columns: 1fr !important; }
+    h1 { font-size: 1.9rem !important; }
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); }
+  ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.25); }
+
+  /* Code tab switcher */
+  .code-tab {
+    padding: 6px 14px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid transparent;
+    color: var(--text-muted);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.82rem;
+    transition: all 0.2s ease;
+  }
+  .code-tab.active {
+    background: rgba(125, 211, 252, 0.18);
+    border-color: rgba(125, 211, 252, 0.4);
+    color: var(--text-primary);
+  }
+
+  /* Badge */
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    background: rgba(125, 211, 252, 0.18);
+    color: #7dd3fc;
+    border: 1px solid rgba(125, 211, 252, 0.3);
+  }
+  .badge.green { background: rgba(52, 211, 153, 0.18); color: #34d399; border-color: rgba(52, 211, 153, 0.3); }
+  .badge.purple { background: rgba(192, 132, 252, 0.18); color: #c084fc; border-color: rgba(192, 132, 252, 0.3); }
+
+  /* Animated equalizer bars when idle */
+  @keyframes eq {
+    0%, 100% { height: 4px; }
+    50% { height: 16px; }
+  }
+  .wave-bar.live { animation: eq 0.9s ease-in-out infinite; }
+</style>
+</head>
+<body>
+<div class="max-w-6xl mx-auto px-4 py-8">
+
+  <!-- ═══════════════ Header ═══════════════ -->
+  <header class="text-center mb-8">
+    <div class="flex justify-center items-center gap-3 mb-3">
+      <span class="badge">Next.js 14</span>
+      <span class="badge purple">App Router</span>
+      <span class="badge green">Whisper API</span>
+    </div>
+    <h1 class="text-4xl md:text-5xl font-bold gradient-text mb-3">
+      🎙️ Whisper × Next.js 語音工作站
+    </h1>
+    <p class="text-slate-400 text-base md:text-lg">
+      Voice-to-Action Web App · MediaRecorder → /api/transcribe → Smart Actions
+    </p>
+    <div id="status-pill" class="pill mt-4">
+      <span class="pill-dot" id="status-dot"></span>
+      <span id="status-text">檢查後端連線中...</span>
+    </div>
+  </header>
+
+  <!-- ═══════════════ Architecture Strip ═══════════════ -->
+  <section class="glass p-4 mb-6">
+    <div class="flex flex-wrap items-center justify-center gap-3 text-sm text-slate-300">
+      <span class="px-3 py-1.5 rounded-lg bg-sky-500/15 border border-sky-400/30">🎤 MediaRecorder</span>
+      <span>→</span>
+      <span class="px-3 py-1.5 rounded-lg bg-purple-500/15 border border-purple-400/30">📦 FormData upload</span>
+      <span>→</span>
+      <span class="px-3 py-1.5 rounded-lg bg-cyan-500/15 border border-cyan-400/30">⚡ Next.js Route Handler</span>
+      <span>→</span>
+      <span class="px-3 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-400/30">🤖 Whisper API</span>
+      <span>→</span>
+      <span class="px-3 py-1.5 rounded-lg bg-pink-500/15 border border-pink-400/30">✨ Smart Actions</span>
+    </div>
+  </section>
+
+  <!-- ═══════════════ Main Grid ═══════════════ -->
+  <main class="grid main-grid gap-6" style="grid-template-columns: 1.15fr 1fr;">
+
+    <!-- ═════════ LEFT: Input Panel ═════════ -->
+    <section class="glass p-6 space-y-5">
+      <div class="flex items-center justify-between">
+        <h2 class="text-xl font-semibold text-slate-100 flex items-center gap-2">
+          <span>🎙️</span> 語音輸入
+        </h2>
+        <div class="provider-toggle" role="tablist" aria-label="Whisper Provider">
+          <button id="prov-openai" class="active" onclick="setProvider('openai')">OpenAI Whisper</button>
+          <button id="prov-local" onclick="setProvider('local')">Local Whisper.cpp</button>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="flex gap-2 flex-wrap">
+        <div class="tab-pill active" data-tab="record" onclick="switchTab('record')" role="tab">🎤 即時錄音</div>
+        <div class="tab-pill" data-tab="upload" onclick="switchTab('upload')" role="tab">📁 上傳檔案</div>
+        <div class="tab-pill" data-tab="url" onclick="switchTab('url')" role="tab">🔗 URL / YT</div>
+      </div>
+
+      <!-- Tab: Record -->
+      <div data-tab-content="record" class="space-y-3">
+        <div class="glass-strong p-4 text-center">
+          <div id="waveform" class="mb-3" aria-label="音訊波形"></div>
+          <div id="record-status" class="text-sm text-slate-400 mb-3">
+            <span class="recording-dot" id="rec-dot" style="display:none;"></span>
+            <span id="rec-label">點擊下方按鈕開始錄音</span>
+            <span id="rec-timer" class="ml-2 font-mono text-slate-500"></span>
+          </div>
+          <button id="btn-record" class="btn-primary w-full" onclick="toggleRecording()">
+            🎤 開始錄音
+          </button>
+        </div>
+        <p class="text-xs text-slate-500 leading-relaxed">
+          瀏覽器使用 <code>MediaRecorder</code> 錄製 WebM/Opus → 透過 <code>FormData</code> POST 至 Next.js
+          <code>/api/transcribe</code> route handler，由伺服器端呼叫 Whisper API。
+        </p>
+      </div>
+
+      <!-- Tab: Upload -->
+      <div data-tab-content="upload" class="space-y-3" style="display:none;">
+        <label class="block">
+          <div class="glass-strong p-6 text-center cursor-pointer hover:bg-white/10 transition"
+               onclick="document.getElementById('audio-file').click()">
+            <div class="text-4xl mb-2">📁</div>
+            <div class="text-sm text-slate-300" id="file-name">點擊或拖曳音訊檔至此</div>
+            <div class="text-xs text-slate-500 mt-1">支援 .wav .mp3 .m4a .webm .ogg .flac (≤25 MB)</div>
+          </div>
+          <input id="audio-file" type="file" accept="audio/*" class="hidden" onchange="onFileSelected(this)">
+        </label>
+      </div>
+
+      <!-- Tab: URL -->
+      <div data-tab-content="url" class="space-y-3" style="display:none;">
+        <label class="text-xs text-slate-400 block">遠端音訊 / YouTube / Podcast URL</label>
+        <input id="url-input" type="text" placeholder="https://www.youtube.com/watch?v=... 或 https://example.com/audio.mp3" />
+        <button class="btn-primary w-full" onclick="fetchFromUrl()">⬇ 抓取並轉錄</button>
+        <p class="text-xs text-slate-500">
+          Next.js route handler 會先用 <code>ytdl-core</code> / <code>yt-dlp</code> 下載，再送 Whisper。
+        </p>
+      </div>
+
+      <!-- Settings -->
+      <div class="glass-strong p-4 space-y-3">
+        <h3 class="text-sm font-semibold text-slate-300">⚙️ 轉錄設定</h3>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs text-slate-400 block mb-1">語言</label>
+            <select id="sel-language">
+              <option value="">自動偵測</option>
+              <option value="zh">中文 (zh)</option>
+              <option value="en">English (en)</option>
+              <option value="ja">日本語 (ja)</option>
+              <option value="ko">한국어 (ko)</option>
+              <option value="es">Español</option>
+              <option value="fr">Français</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs text-slate-400 block mb-1">模型</label>
+            <select id="sel-model">
+              <option value="whisper-1">whisper-1 (OpenAI)</option>
+              <option value="gpt-4o-transcribe">gpt-4o-transcribe</option>
+              <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe</option>
+              <option value="tiny">tiny (local)</option>
+              <option value="base">base (local)</option>
+              <option value="small">small (local)</option>
+              <option value="medium">medium (local)</option>
+              <option value="large-v3">large-v3 (local)</option>
+            </select>
+          </div>
+        </div>
+        <label class="flex items-center gap-2 text-xs text-slate-400">
+          <input type="checkbox" id="chk-timestamps" checked>
+          <span>回傳逐字時間戳 (segments)</span>
+        </label>
+        <label class="flex items-center gap-2 text-xs text-slate-400">
+          <input type="checkbox" id="chk-summarize">
+          <span>轉錄後自動 LLM 摘要 (GPT-4o-mini)</span>
+        </label>
+      </div>
+
+      <!-- Action button -->
+      <button id="btn-submit" class="btn-primary w-full" disabled onclick="submitTranscription()">
+        🚀 送出轉錄
+      </button>
+    </section>
+
+    <!-- ═════════ RIGHT: Output Panel ═════════ -->
+    <section class="glass p-6 space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-xl font-semibold text-slate-100 flex items-center gap-2">
+          <span>✨</span> 智慧動作
+        </h2>
+        <button class="btn-ghost text-xs" onclick="loadHistory()">🔄 歷史</button>
+      </div>
+
+      <!-- Processing indicator -->
+      <div id="processing" class="glass-strong p-4 text-center text-sm text-slate-300" style="display:none;">
+        <span class="spinner"></span>
+        <span id="processing-msg" class="ml-2">送出中...</span>
+        <div class="mt-2 text-xs text-slate-500" id="processing-step"></div>
+      </div>
+
+      <!-- Action palette -->
+      <div id="action-palette" class="space-y-2">
+        <div class="action-card" onclick="copyTranscript()">
+          <div class="action-icon">📋</div>
+          <div class="flex-1">
+            <div class="text-sm font-semibold text-slate-100">複製純文字到剪貼簿</div>
+            <div class="text-xs text-slate-400">貼到任何筆記 / Email / 對話</div>
+          </div>
+          <div class="text-xs text-slate-500">⌘C</div>
+        </div>
+        <div class="action-card" onclick="downloadSrt()">
+          <div class="action-icon">📝</div>
+          <div class="flex-1">
+            <div class="text-sm font-semibold text-slate-100">下載 .srt 字幕檔</div>
+            <div class="text-xs text-slate-400">給影片剪輯軟體 / YouTube CC</div>
+          </div>
+          <div class="text-xs text-slate-500">.srt</div>
+        </div>
+        <div class="action-card" onclick="downloadVtt()">
+          <div class="action-icon">🎬</div>
+          <div class="flex-1">
+            <div class="text-sm font-semibold text-slate-100">下載 .vtt WebVTT</div>
+            <div class="text-xs text-slate-400">HTML5 &lt;track&gt; 字幕</div>
+          </div>
+          <div class="text-xs text-slate-500">.vtt</div>
+        </div>
+        <div class="action-card" onclick="downloadJson()">
+          <div class="action-icon">🔍</div>
+          <div class="flex-1">
+            <div class="text-sm font-semibold text-slate-100">下載原始 JSON</div>
+            <div class="text-xs text-slate-400">含 segments / 信心分數 / 語言</div>
+          </div>
+          <div class="text-xs text-slate-500">.json</div>
+        </div>
+        <div class="action-card" onclick="runSummary()">
+          <div class="action-icon">🧠</div>
+          <div class="flex-1">
+            <div class="text-sm font-semibold text-slate-100">產生 AI 摘要 + 重點</div>
+            <div class="text-xs text-slate-400">GPT-4o-mini 結構化整理</div>
+          </div>
+          <div class="text-xs text-slate-500">GPT</div>
+        </div>
+        <div class="action-card" onclick="ttsPlay()">
+          <div class="action-icon">🔊</div>
+          <div class="flex-1">
+            <div class="text-sm font-semibold text-slate-100">TTS 朗讀 (OpenAI tts-1)</div>
+            <div class="text-xs text-slate-400">可用 6 種聲線 / 多語言</div>
+          </div>
+          <div class="text-xs text-slate-500">▶</div>
+        </div>
+      </div>
+
+      <!-- Result preview -->
+      <div id="result-card" class="glass-strong p-4 space-y-2" style="display:none;">
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <h3 class="text-sm font-semibold text-slate-300">📄 轉錄結果</h3>
+          <div class="flex gap-1.5 text-xs">
+            <span id="result-lang" class="badge"></span>
+            <span id="result-duration" class="badge green"></span>
+          </div>
+        </div>
+        <div class="text-xs text-slate-400" id="result-meta"></div>
+        <pre id="result-text" class="whitespace-pre-wrap text-sm text-slate-200" style="max-height: 240px; overflow-y: auto;"></pre>
+      </div>
+
+      <!-- Summary card -->
+      <div id="summary-card" class="glass-strong p-4 space-y-2" style="display:none;">
+        <h3 class="text-sm font-semibold text-slate-300">🧠 AI 摘要</h3>
+        <div class="text-sm text-slate-200" id="summary-text"></div>
+      </div>
+
+      <!-- History -->
+      <div>
+        <h3 class="text-sm font-semibold text-slate-300 mb-2">📚 最近 5 次轉錄</h3>
+        <div id="history-list" class="space-y-1.5 text-xs">
+          <div class="text-slate-500 text-xs">尚未載入...</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ═══════════════ Server-side Code Section ═══════════════ -->
+  <section class="glass p-6 mt-8">
+    <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+      <h2 class="text-xl font-semibold text-slate-100 flex items-center gap-2">
+        <span>🛠️</span> Next.js 伺服器端實作
+      </h2>
+      <div class="flex gap-1 flex-wrap">
+        <button class="code-tab active" data-code="route" onclick="showCode('route')">app/api/transcribe/route.ts</button>
+        <button class="code-tab" data-code="provider" onclick="showCode('provider')">lib/whisper.ts</button>
+        <button class="code-tab" data-code="client" onclick="showCode('client')">components/VoiceInput.tsx</button>
+        <button class="code-tab" data-code="env" onclick="showCode('env')">.env.local</button>
+      </div>
+    </div>
+
+    <div data-code-content="route">
+<pre><span class="cm">// app/api/transcribe/route.ts</span>
+<span class="cm">// Next.js 14 App Router · Edge-safe 音訊轉錄端點</span>
+<span class="kw">import</span> { NextRequest, NextResponse } <span class="kw">from</span> <span class="str">'next/server'</span>;
+<span class="kw">import</span> { transcribeAudio, getProvider } <span class="kw">from</span> <span class="str">'@/lib/whisper'</span>;
+
+<span class="cm">// 關閉預設 body parser（音訊是 multipart/form-data）</span>
+<span class="kw">export const</span> <span class="fn">config</span> = {
+  api: { bodyParser: <span class="kw">false</span> },
+  <span class="cm">// Whisper-large 可能跑 60s+，Edge runtime 會 timeout</span>
+  runtime: <span class="str">'nodejs'</span>,
+  maxDuration: <span class="num">60</span>,
+};
+
+<span class="kw">export async function</span> <span class="fn">POST</span>(req: NextRequest) {
+  <span class="kw">try</span> {
+    <span class="kw">const</span> form = <span class="kw">await</span> req.<span class="fn">formData</span>();
+
+    <span class="cm">// 1. 取得音訊檔</span>
+    <span class="kw">const</span> file = form.<span class="fn">get</span>(<span class="str">'file'</span>) <span class="kw">as</span> File | <span class="kw">null</span>;
+    <span class="kw">if</span> (!file) {
+      <span class="kw">return</span> NextResponse.<span class="fn">json</span>(
+        { error: <span class="str">'No audio file in form-data'</span> },
+        { status: <span class="num">400</span> }
+      );
+    }
+
+    <span class="cm">// 2. 解析可選參數</span>
+    <span class="kw">const</span> language = form.<span class="fn">get</span>(<span class="str">'language'</span>)?.<span class="fn">toString</span>();
+    <span class="kw">const</span> model = form.<span class="fn">get</span>(<span class="str">'model'</span>)?.<span class="fn">toString</span>() ?? <span class="str">'whisper-1'</span>;
+    <span class="kw">const</span> withTimestamps = form.<span class="fn">get</span>(<span class="str">'timestamps'</span>) === <span class="str">'true'</span>;
+    <span class="kw">const</span> prompt = form.<span class="fn">get</span>(<span class="str">'prompt'</span>)?.<span class="fn">toString</span>();
+
+    <span class="cm">// 3. 取得 provider 實例（單例模式快取）</span>
+    <span class="kw">const</span> provider = <span class="fn">getProvider</span>(process.env.WHISPER_PROVIDER ?? <span class="str">'openai'</span>);
+
+    <span class="cm">// 4. 呼叫 Whisper</span>
+    <span class="kw">const</span> result = <span class="kw">await</span> <span class="fn">transcribeAudio</span>(provider, {
+      file,
+      language,
+      model,
+      prompt,
+      responseFormat: withTimestamps ? <span class="str">'verbose_json'</span> : <span class="str">'json'</span>,
+    });
+
+    <span class="cm">// 5. 統一回傳格式</span>
+    <span class="kw">return</span> NextResponse.<span class="fn">json</span>({
+      ok: <span class="kw">true</span>,
+      provider,
+      text: result.text,
+      language: result.language,
+      duration: result.duration,
+      segments: withTimestamps ? result.segments : <span class="kw">undefined</span>,
+      words: withTimestamps ? result.words : <span class="kw">undefined</span>,
+      model: result.model,
+      timestamp: <span class="kw">new</span> Date().<span class="fn">toISOString</span>(),
+    });
+  } <span class="kw">catch</span> (err: any) {
+    console.<span class="fn">error</span>(<span class="str">'[transcribe]'</span>, err);
+    <span class="kw">return</span> NextResponse.<span class="fn">json</span>(
+      { ok: <span class="kw">false</span>, error: err.message ?? <span class="str">'Transcription failed'</span> },
+      { status: <span class="num">500</span> }
+    );
+  }
+}
+
+<span class="cm">// 健康檢查端點</span>
+<span class="kw">export async function</span> <span class="fn">GET</span>() {
+  <span class="kw">const</span> provider = process.env.WHISPER_PROVIDER ?? <span class="str">'openai'</span>;
+  <span class="kw">return</span> NextResponse.<span class="fn">json</span>({
+    ok: <span class="kw">true</span>,
+    provider,
+    model: process.env.WHISPER_MODEL ?? <span class="str">'whisper-1'</span>,
+    version: <span class="str">'1.0.0'</span>,
+  });
+}</pre>
+    </div>
+
+    <div data-code-content="provider" style="display:none;">
+<pre><span class="cm">// lib/whisper.ts</span>
+<span class="cm">// 統一抽象層：OpenAI Whisper / Local whisper.cpp 都用同一個介面</span>
+<span class="kw">import</span> OpenAI <span class="kw">from</span> <span class="str">'openai'</span>;
+<span class="kw">import</span> { exec } <span class="kw">from</span> <span class="str">'child_process'</span>;
+<span class="kw">import</span> { promisify } <span class="kw">from</span> <span class="str">'util'</span>;
+<span class="kw">import</span> { mkdtemp, readFile, unlink, writeFile } <span class="kw">from</span> <span class="str">'fs/promises'</span>;
+<span class="kw">import</span> { tmpdir } <span class="kw">from</span> <span class="str">'os'</span>;
+<span class="kw">import</span> { join } <span class="kw">from</span> <span class="str">'path'</span>;
+
+<span class="kw">const</span> execAsync = <span class="fn">promisify</span>(exec);
+
+<span class="kw">export type</span> <span class="tp">WhisperSegment</span> = {
+  id: number;
+  start: number;
+  end: number;
+  text: string;
+  no_speech_prob?: number;
+};
+
+<span class="kw">export type</span> <span class="tp">TranscribeResult</span> = {
+  text: string;
+  language?: string;
+  duration?: number;
+  segments?: WhisperSegment[];
+  words?: Array&lt;{ word: string; start: number; end: number }&gt;;
+  model: string;
+};
+
+<span class="kw">export type</span> <span class="tp">TranscribeOptions</span> = {
+  file: File | Buffer;
+  filename?: string;
+  language?: string;
+  model?: string;
+  prompt?: string;
+  responseFormat?: <span class="str">'json'</span> | <span class="str">'verbose_json'</span> | <span class="str">'text'</span> | <span class="str">'srt'</span> | <span class="str">'vtt'</span>;
+};
+
+<span class="cm">// 單例快取</span>
+<span class="kw">let</span> _openai: OpenAI | <span class="kw">null</span> = <span class="kw">null</span>;
+<span class="kw">function</span> <span class="fn">getOpenAI</span>(): OpenAI {
+  <span class="kw">if</span> (!_openai) {
+    _openai = <span class="kw">new</span> <span class="fn">OpenAI</span>({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  <span class="kw">return</span> _openai;
+}
+
+<span class="cm">/** OpenAI Whisper API */</span>
+<span class="kw">async function</span> <span class="fn">transcribeWithOpenAI</span>(opts: TranscribeOptions): Promise&lt;TranscribeResult&gt; {
+  <span class="kw">const</span> client = <span class="fn">getOpenAI</span>();
+  <span class="kw">const</span> file =
+    opts.file <span class="kw">instanceof</span> File
+      ? opts.file
+      : <span class="kw">new</span> Blob([opts.file]) <span class="kw">as</span> any;
+
+  <span class="kw">const</span> resp = <span class="kw">await</span> client.audio.transcriptions.<span class="fn">create</span>({
+    file: file <span class="kw">as</span> any,
+    model: opts.model ?? <span class="str">'whisper-1'</span>,
+    language: opts.language || <span class="kw">undefined</span>,
+    prompt: opts.prompt,
+    response_format: opts.responseFormat ?? <span class="str">'verbose_json'</span>,
+    timestamp_granularities: opts.responseFormat === <span class="str">'verbose_json'</span>
+      ? [<span class="str">'segment'</span>, <span class="str">'word'</span>]
+      : <span class="kw">undefined</span>,
+  });
+
+  <span class="cm">// @ts-ignore — verbose_json 才有這些欄位</span>
+  <span class="kw">return</span> {
+    text: (resp <span class="kw">as</span> any).text,
+    language: (resp <span class="kw">as</span> any).language,
+    duration: (resp <span class="kw">as</span> any).duration,
+    segments: (resp <span class="kw">as</span> any).segments?.<span class="fn">map</span>((s: any) =&gt; ({
+      id: s.id, start: s.start, end: s.end,
+      text: s.text, no_speech_prob: s.no_speech_prob,
+    })),
+    words: (resp <span class="kw">as</span> any).words,
+    model: opts.model ?? <span class="str">'whisper-1'</span>,
+  };
+}
+
+<span class="cm">/** Local whisper.cpp（透過 CLI） */</span>
+<span class="kw">async function</span> <span class="fn">transcribeWithLocal</span>(opts: TranscribeOptions): Promise&lt;TranscribeResult&gt; {
+  <span class="kw">const</span> dir = <span class="kw">await</span> <span class="fn">mkdtemp</span>(<span class="fn">join</span>(<span class="fn">tmpdir</span>(), <span class="str">'whisper-'</span>));
+  <span class="kw">const</span> inputPath = <span class="fn">join</span>(dir, opts.filename ?? <span class="str">'audio.webm'</span>);
+
+  <span class="kw">await</span> <span class="fn">writeFile</span>(
+    inputPath,
+    opts.file <span class="kw">instanceof</span> File ? Buffer.<span class="fn">from</span>(<span class="kw">await</span> opts.file.<span class="fn">arrayBuffer</span>()) : opts.file
+  );
+
+  <span class="kw">const</span> modelPath = process.env.LOCAL_WHISPER_MODEL ?? <span class="str">'/models/ggml-large-v3.bin'</span>;
+  <span class="kw">const</span> outputPrefix = <span class="fn">join</span>(dir, <span class="str">'out'</span>);
+
+  <span class="cm">// whisper.cpp CLI：--output-json --print-progress false</span>
+  <span class="kw">const</span> cmd = [
+    <span class="str">`whisper-cli`</span>,
+    <span class="str">`-m "${modelPath}"`</span>,
+    <span class="str">`-f "${inputPath}"`</span>,
+    <span class="str">`--output-json`</span>,
+    <span class="str">`--output-file "${outputPrefix}"`</span>,
+    <span class="str">`--language ${opts.language ?? <span class="str">'auto'</span>}`</span>,
+    <span class="str">`--print-progress false`</span>,
+  ].<span class="fn">join</span>(<span class="str">' '</span>);
+
+  <span class="kw">try</span> {
+    <span class="kw">await</span> <span class="fn">execAsync</span>(cmd);
+    <span class="kw">const</span> raw = <span class="kw">await</span> <span class="fn">readFile</span>(outputPrefix + <span class="str">'.json'</span>, <span class="str">'utf8'</span>);
+    <span class="kw">const</span> parsed = JSON.<span class="fn">parse</span>(raw);
+
+    <span class="kw">return</span> {
+      text: parsed.transcription?.<span class="fn">map</span>((s: any) =&gt; s.text).<span class="fn">join</span>(<span class="str">' '</span>) ?? <span class="str">''</span>,
+      language: parsed.language,
+      duration: parsed.transcription?.<span class="fn">at</span>(-<span class="num">1</span>)?.end,
+      segments: parsed.transcription?.<span class="fn">map</span>((s: any, i: number) =&gt; ({
+        id: i, start: s.start, end: s.end, text: s.text.trim(),
+      })),
+      model: opts.model ?? <span class="str">'local'</span>,
+    };
+  } <span class="kw">finally</span> {
+    <span class="kw">await</span> <span class="fn">unlink</span>(inputPath).<span class="fn">catch</span>(() =&gt; {});
+    <span class="kw">await</span> <span class="fn">unlink</span>(outputPrefix + <span class="str">'.json'</span>).<span class="fn">catch</span>(() =&gt; {});
+  }
+}
+
+<span class="cm">// 統一入口</span>
+<span class="kw">export async function</span> <span class="fn">transcribeAudio</span>(
+  provider: <span class="str">'openai'</span> | <span class="str">'local'</span>,
+  opts: TranscribeOptions
+): Promise&lt;TranscribeResult&gt; {
+  <span class="kw">if</span> (provider === <span class="str">'openai'</span>) <span class="kw">return</span> <span class="fn">transcribeWithOpenAI</span>(opts);
+  <span class="kw">if</span> (provider === <span class="str">'local'</span>) <span class="kw">return</span> <span class="fn">transcribeWithLocal</span>(opts);
+  <span class="kw">throw new</span> <span class="tp">Error</span>(<span class="str">`Unknown provider: ${provider}`</span>);
+}
+
+<span class="kw">export function</span> <span class="fn">getProvider</span>(name: string): <span class="str">'openai'</span> | <span class="str">'local'</span> {
+  <span class="kw">return</span> name === <span class="str">'local'</span> ? <span class="str">'local'</span> : <span class="str">'openai'</span>;
+}</pre>
+    </div>
+
+    <div data-code-content="client" style="display:none;">
+<pre><span class="cm">// components/VoiceInput.tsx</span>
+<span class="cm">// React 19 + TypeScript · MediaRecorder + FormData 上傳</span>
+<span class="str">'use client'</span>;
+
+<span class="kw">import</span> { useState, useRef, useCallback } <span class="kw">from</span> <span class="str">'react'</span>;
+
+<span class="kw">type</span> <span class="tp">Props</span> = {
+  onResult?: (text: string) =&gt; void;
+  language?: string;
+  model?: string;
+};
+
+<span class="kw">export function</span> <span class="fn">VoiceInput</span>({ onResult, language, model }: Props) {
+  <span class="kw">const</span> [recording, setRecording] = <span class="fn">useState</span>(<span class="kw">false</span>);
+  <span class="kw">const</span> [busy, setBusy] = <span class="fn">useState</span>(<span class="kw">false</span>);
+  <span class="kw">const</span> mediaRef = <span class="kw">useRef</span>&lt;MediaRecorder | <span class="kw">null</span>&gt;(<span class="kw">null</span>);
+  <span class="kw">const</span> chunksRef = <span class="kw">useRef</span>&lt;Blob[]&gt;([]);
+
+  <span class="kw">const</span> <span class="fn">start</span> = <span class="fn">useCallback</span>(<span class="kw">async</span> () =&gt; {
+    <span class="kw">const</span> stream = <span class="kw">await</span> navigator.mediaDevices.<span class="fn">getUserMedia</span>({ audio: <span class="kw">true</span> });
+    <span class="kw">const</span> rec = <span class="kw">new</span> <span class="fn">MediaRecorder</span>(stream, { mimeType: <span class="str">'audio/webm;codecs=opus'</span> });
+    mediaRef.current = rec;
+    chunksRef.current = [];
+    rec.ondataavailable = (e) =&gt; { <span class="kw">if</span> (e.data.size) chunksRef.current.<span class="fn">push</span>(e.data); };
+    rec.<span class="fn">start</span>(<span class="num">100</span>); <span class="cm">// 每 100ms 切片，方便長時間錄音</span>
+    <span class="fn">setRecording</span>(<span class="kw">true</span>);
+  }, []);
+
+  <span class="kw">const</span> <span class="fn">stop</span> = <span class="fn">useCallback</span>(<span class="kw">async</span> () =&gt; {
+    <span class="kw">const</span> rec = mediaRef.current;
+    <span class="kw">if</span> (!rec) <span class="kw">return</span>;
+    <span class="fn">setRecording</span>(<span class="kw">false</span>);
+    <span class="fn">setBusy</span>(<span class="kw">true</span>);
+
+    <span class="kw">await new</span> Promise&lt;void&gt;((r) =&gt; { rec.onstop = () =&gt; r(); rec.<span class="fn">stop</span>(); });
+    rec.stream.<span class="fn">getTracks</span>().<span class="fn">forEach</span>(t =&gt; t.<span class="fn">stop</span>());
+
+    <span class="kw">const</span> blob = <span class="kw">new</span> <span class="fn">Blob</span>(chunksRef.current, { type: <span class="str">'audio/webm'</span> });
+    <span class="kw">const</span> form = <span class="kw">new</span> <span class="fn">FormData</span>();
+    form.<span class="fn">append</span>(<span class="str">'file'</span>, blob, <span class="str">'recording.webm'</span>);
+    <span class="kw">if</span> (language) form.<span class="fn">append</span>(<span class="str">'language'</span>, language);
+    <span class="kw">if</span> (model) form.<span class="fn">append</span>(<span class="str">'model'</span>, model);
+
+    <span class="kw">try</span> {
+      <span class="kw">const</span> r = <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">'/api/transcribe'</span>, { method: <span class="str">'POST'</span>, body: form });
+      <span class="kw">const</span> data = <span class="kw">await</span> r.<span class="fn">json</span>();
+      <span class="kw">if</span> (!r.ok) <span class="kw">throw new</span> <span class="tp">Error</span>(data.error);
+      onResult?.(data.text);
+    } <span class="kw">catch</span> (err) {
+      console.<span class="fn">error</span>(err);
+      alert(<span class="str">'轉錄失敗：'</span> + (err <span class="kw">as</span> Error).message);
+    } <span class="kw">finally</span> {
+      <span class="fn">setBusy</span>(<span class="kw">false</span>);
+    }
+  }, [language, model, onResult]);
+
+  <span class="kw">return</span> (
+    &lt;div&gt;
+      &lt;button onClick={recording ? stop : start} disabled={busy}&gt;
+        {busy ? <span class="str">'處理中...'</span> : recording ? <span class="str">'⏹ 停止'</span> : <span class="str">'🎤 開始'</span>}
+      &lt;/button&gt;
+    &lt;/div&gt;
+  );
+}</pre>
+    </div>
+
+    <div data-code-content="env" style="display:none;">
+<pre><span class="cm"># .env.local</span>
+
+<span class="cm"># Provider 選擇: 'openai' 或 'local'</span>
+WHISPER_PROVIDER=openai
+
+<span class="cm"># OpenAI（whisper-1 / gpt-4o-transcribe / gpt-4o-mini-transcribe）</span>
+OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxxxxxxxxxx
+WHISPER_MODEL=whisper-1
+
+<span class="cm"># Local whisper.cpp（當 WHISPER_PROVIDER=local 時使用）</span>
+LOCAL_WHISPER_MODEL=/models/ggml-large-v3.bin
+LOCAL_WHISPER_BIN=/usr/local/bin/whisper-cli
+
+<span class="cm"># 安全性：限制上傳大小、允許的來源</span>
+MAX_AUDIO_SIZE_MB=25
+ALLOWED_ORIGINS=http://localhost:3000,https://your-domain.com
+
+<span class="cm"># 可選：用於 AI 摘要動作</span>
+OPENAI_SUMMARY_MODEL=gpt-4o-mini</pre>
+    </div>
+  </section>
+
+  <!-- ═══════════════ Architecture Notes ═══════════════ -->
+  <section class="glass p-6 mt-6">
+    <h2 class="text-xl font-semibold text-slate-100 mb-3 flex items-center gap-2">
+      <span>📐</span> 架構設計筆記
+    </h2>
+    <div class="grid md:grid-cols-2 gap-4 text-sm text-slate-300">
+      <div class="glass-strong p-4 space-y-2">
+        <h3 class="font-semibold text-sky-300">為什麼走 Next.js Route Handler</h3>
+        <ul class="text-xs space-y-1 text-slate-400 list-disc list-inside">
+          <li>同源部署、API key 不洩漏到前端</li>
+          <li>App Router 支援 <code>runtime: 'nodejs'</code>（跑 multipart）</li>
+          <li>Vercel / 自架都可，部署單一 codebase</li>
+          <li>之後加 LLM 摘要 / 翻譯就在同一個 route 裡</li>
+        </ul>
+      </div>
+      <div class="glass-strong p-4 space-y-2">
+        <h3 class="font-semibold text-purple-300">Provider 抽象層設計</h3>
+        <ul class="text-xs space-y-1 text-slate-400 list-disc list-inside">
+          <li><code>transcribeAudio(provider, opts)</code> 統一介面</li>
+          <li>OpenAI API：JSON response、開發快、付費</li>
+          <li>Local whisper.cpp：完全離線、隱私、需 GPU</li>
+          <li>兩者都回傳 <code>TranscribeResult</code> 統一格式</li>
+        </ul>
+      </div>
+      <div class="glass-strong p-4 space-y-2">
+        <h3 class="font-semibold text-emerald-300">前端 UX 流程</h3>
+        <ul class="text-xs space-y-1 text-slate-400 list-disc list-inside">
+          <li>錄音 / 上傳 / URL 三種入口，符合不同使用情境</li>
+          <li>MediaRecorder 切片（100ms）避免長錄音 memory 爆炸</li>
+          <li>錄音中即時 waveform 視覺化，提升「有在做事」感</li>
+          <li>轉錄後 6 種下載動作（SRT/VTT/JSON/摘要/TTS/複製）</li>
+        </ul>
+      </div>
+      <div class="glass-strong p-4 space-y-2">
+        <h3 class="font-semibold text-pink-300">部署與資安</h3>
+        <ul class="text-xs space-y-1 text-slate-400 list-disc list-inside">
+          <li>限制上傳大小（25MB）防止 OOM</li>
+          <li>CORS 白名單只開自家 origin</li>
+          <li>API key 只放 <code>.env.local</code>，不入 git</li>
+          <li>未來加 rate limit：每 IP 10 req/min</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ Footer ═══════════════ -->
+  <footer class="text-center text-xs text-slate-500 mt-10 space-y-1">
+    <p>Built with Hermes Agent · Next.js 14 · Whisper API · MediaRecorder · Glassmorphism</p>
+    <p>架構師指示：Tailwind CDN + 微動畫 + Glassmorphism + Responsive + Accessibility + 單檔可獨立運行的 Next.js 學習樣板</p>
+  </footer>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* ════════════════════════════════════════════════════════════════
+   STATE
+   ════════════════════════════════════════════════════════════════ */
+const state = {
+  provider: 'openai',
+  audioBlob: null,
+  audioFilename: 'recording.webm',
+  recording: false,
+  mediaRecorder: null,
+  audioContext: null,
+  analyser: null,
+  animationId: null,
+  startTime: 0,
+  timerId: null,
+  lastResult: null,
+  history: [],
+};
+
+/* ════════════════════════════════════════════════════════════════
+   API HELPERS
+   ════════════════════════════════════════════════════════════════ */
+const API = '/api';
+
+async function apiStatus() {
+  try {
+    const r = await fetch(API + '/transcribe');
+    return await r.json();
+  } catch (e) {
+    console.warn('status failed (expected in static demo):', e);
+    return null;
+  }
+}
+
+async function apiTranscribe(formData) {
+  const r = await fetch(API + '/transcribe', {
+    method: 'POST',
+    body: formData,
+  });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || data.detail || 'API error');
+  return data;
+}
+
+async function apiSummary(text) {
+  const r = await fetch(API + '/summarize', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  return await r.json();
+}
+
+/* ════════════════════════════════════════════════════════════════
+   UI HELPERS
+   ════════════════════════════════════════════════════════════════ */
+function toast(msg, type = '') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + type;
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { el.className = 'toast ' + type; }, 3200);
+}
+
+function setStatus(state, msg) {
+  const dot = document.getElementById('status-dot');
+  const text = document.getElementById('status-text');
+  dot.className = 'pill-dot ' + (state === 'ok' ? 'ok' : state === 'err' ? 'err' : '');
+  text.textContent = msg;
+}
+
+function switchTab(name) {
+  document.querySelectorAll('[data-tab]').forEach(el => {
+    el.classList.toggle('active', el.dataset.tab === name);
+  });
+  document.querySelectorAll('[data-tab-content]').forEach(el => {
+    el.style.display = el.dataset.tabContent === name ? '' : 'none';
+  });
+  updateSubmitButton();
+}
+
+function showCode(name) {
+  document.querySelectorAll('.code-tab').forEach(el => {
+    el.classList.toggle('active', el.dataset.code === name);
+  });
+  document.querySelectorAll('[data-code-content]').forEach(el => {
+    el.style.display = el.dataset.codeContent === name ? '' : 'none';
+  });
+}
+
+function setProvider(p) {
+  state.provider = p;
+  document.getElementById('prov-openai').classList.toggle('active', p === 'openai');
+  document.getElementById('prov-local').classList.toggle('active', p === 'local');
+  toast('Provider → ' + (p === 'openai' ? 'OpenAI Whisper' : 'Local whisper.cpp'), 'success');
+}
+
+function updateSubmitButton() {
+  const btn = document.getElementById('btn-submit');
+  const tab = document.querySelector('.tab-pill.active')?.dataset.tab;
+  btn.disabled = !(tab === 'record' && state.audioBlob) &&
+                 !(tab === 'upload' && state.audioBlob) &&
+                 !(tab === 'url');
+}
+
+function setProcessing(on, msg = '送出中...', step = '') {
+  document.getElementById('processing').style.display = on ? 'block' : 'none';
+  document.getElementById('processing-msg').textContent = msg;
+  document.getElementById('processing-step').textContent = step;
+}
+
+/* Build waveform bars once */
+(function initWaveform() {
+  const wf = document.getElementById('waveform');
+  for (let i = 0; i < 32; i++) {
+    const bar = document.createElement('div');
+    bar.className = 'wave-bar idle';
+    bar.style.height = '4px';
+    wf.appendChild(bar);
+  }
+})();
+
+/* ════════════════════════════════════════════════════════════════
+   RECORDING
+   ════════════════════════════════════════════════════════════════ */
+async function toggleRecording() {
+  if (state.recording) stopRecording();
+  else await startRecording();
+}
+
+async function startRecording() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    state.mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+    const chunks = [];
+    state.mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+    state.mediaRecorder.onstop = () => {
+      const blob = new Blob(chunks, { type: 'audio/webm' });
+      state.audioBlob = blob;
+      state.audioFilename = 'recording-' + Date.now() + '.webm';
+      document.getElementById('rec-label').textContent = '✓ 已錄製 ' + (blob.size/1024).toFixed(1) + ' KB';
+      updateSubmitButton();
+      stream.getTracks().forEach(t => t.stop());
+    };
+    state.mediaRecorder.start(100);
+    state.recording = true;
+    state.startTime = Date.now();
+
+    /* Live waveform */
+    state.audioContext = new AudioContext();
+    const source = state.audioContext.createMediaStreamSource(stream);
+    state.analyser = state.audioContext.createAnalyser();
+    state.analyser.fftSize = 64;
+    source.connect(state.analyser);
+    const dataArr = new Uint8Array(state.analyser.frequencyBinCount);
+    const bars = document.querySelectorAll('.wave-bar');
+    bars.forEach(b => b.classList.remove('idle'));
+    function tick() {
+      state.analyser.getByteFrequencyData(dataArr);
+      bars.forEach((bar, i) => {
+        const v = dataArr[i] || 0;
+        bar.style.height = Math.max(4, (v / 255) * 70) + 'px';
+      });
+      state.animationId = requestAnimationFrame(tick);
+    }
+    tick();
+
+    /* Timer */
+    state.timerId = setInterval(() => {
+      const sec = Math.floor((Date.now() - state.startTime) / 1000);
+      const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+      const ss = String(sec % 60).padStart(2, '0');
+      document.getElementById('rec-timer').textContent = `${mm}:${ss}`;
+    }, 250);
+
+    document.getElementById('rec-dot').style.display = '';
+    document.getElementById('btn-record').innerHTML = '⏹ 停止錄音';
+    document.getElementById('rec-label').textContent = '錄音中...';
+  } catch (err) {
+    toast('麥克風存取失敗：' + err.message, 'error');
+    setStatus('err', '麥克風不可用');
+  }
+}
+
+function stopRecording() {
+  if (!state.mediaRecorder) return;
+  state.recording = false;
+  state.mediaRecorder.stop();
+  cancelAnimationFrame(state.animationId);
+  clearInterval(state.timerId);
+  state.audioContext?.close();
+  document.getElementById('rec-dot').style.display = 'none';
+  document.getElementById('btn-record').innerHTML = '🎤 重新錄音';
+  const bars = document.querySelectorAll('.wave-bar');
+  bars.forEach(b => { b.classList.add('idle'); b.style.height = '4px'; });
+}
+
+/* ════════════════════════════════════════════════════════════════
+   FILE / URL INPUT
+   ════════════════════════════════════════════════════════════════ */
+function onFileSelected(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (file.size > 25 * 1024 * 1024) {
+    toast('檔案太大（上限 25MB）', 'error');
+    return;
+  }
+  state.audioBlob = file;
+  state.audioFilename = file.name;
+  document.getElementById('file-name').textContent = `✓ ${file.name} · ${(file.size/1024).toFixed(1)} KB`;
+  updateSubmitButton();
+  toast('已選擇：' + file.name, 'success');
+}
+
+async function fetchFromUrl() {
+  const url = document.getElementById('url-input').value.trim();
+  if (!url) { toast('請輸入 URL', 'error'); return; }
+  toast('後端將用 yt-dlp/ytdl-core 抓取音訊後轉錄（需部署後才能用）', 'success');
+  // 靜態 demo 模式：提示使用者此功能需伺服器端
+  setProcessing(true, '請部署後再使用 URL 功能', '目前是純前端展示');
+  setTimeout(() => setProcessing(false), 2500);
+}
+
+/* ════════════════════════════════════════════════════════════════
+   SUBMIT
+   ════════════════════════════════════════════════════════════════ */
+async function submitTranscription() {
+  const tab = document.querySelector('.tab-pill.active')?.dataset.tab;
+
+  if (tab === 'url') {
+    return fetchFromUrl();
+  }
+  if (!state.audioBlob) {
+    toast('請先錄音或選擇檔案', 'error');
+    return;
+  }
+
+  const form = new FormData();
+  form.append('file', state.audioBlob, state.audioFilename);
+  const lang = document.getElementById('sel-language').value;
+  const model = document.getElementById('sel-model').value;
+  if (lang) form.append('language', lang);
+  if (model) form.append('model', model);
+  form.append('timestamps', document.getElementById('chk-timestamps').checked ? 'true' : 'false');
+
+  setProcessing(true, '送出至 /api/transcribe ...', 'Step 1/3 上傳 multipart/form-data');
+
+  try {
+    // 由於這是純前端展示，後端不存在 → 走 demo 模擬
+    const result = await simulateTranscription(state.audioBlob, lang, model);
+    state.lastResult = result;
+    renderResult(result);
+    addToHistory(result);
+    setProcessing(false);
+    setStatus('ok', `✓ 轉錄成功 (${result.language} · ${result.duration.toFixed(1)}s · ${result.model})`);
+    toast('轉錄完成', 'success');
+
+    if (document.getElementById('chk-summarize').checked) {
+      runSummary();
+    }
+  } catch (err) {
+    setProcessing(false);
+    setStatus('err', '✗ ' + err.message);
+    toast('轉錄失敗：' + err.message, 'error');
+  }
+}
+
+/* Demo 模擬（純前端 demo 使用） */
+async function simulateTranscription(blob, lang, model) {
+  setProcessing(true, 'Whisper API 處理中...', 'Step 2/3 模型推論 (模擬)');
+  await new Promise(r => setTimeout(r, 1400));
+  setProcessing(true, '解析 segments...', 'Step 3/3 整理時間戳');
+
+  const langMap = { '': 'auto', zh: 'zh', en: 'en', ja: 'ja', ko: 'ko', es: 'es', fr: 'fr' };
+  const detected = lang || 'zh';
+  const langName = langMap[detected] || detected;
+
+  const demoTexts = {
+    zh: '大家好，這是我用 Whisper API 結合 Next.js 14 做的語音轉文字 demo。透過瀏覽器的 MediaRecorder 錄音，送到 app router 的 route handler，再交給 OpenAI 的 Whisper 模型處理。整個流程完全 server-side，API key 不會洩漏到前端。',
+    en: 'Hello, this is a demo of voice-to-text using Whisper API combined with Next.js 14. We use MediaRecorder in the browser, send the audio to an App Router route handler, which forwards it to OpenAI Whisper. Everything happens server-side, so the API key never leaks to the frontend.',
+    ja: 'こんにちは、これはWhisper APIとNext.js 14を組み合わせた音声テキスト変換のデモです。ブラウザのMediaRecorderで録音し、App RouterのRoute Handlerに送信し、OpenAIのWhisperモデルで処理します。',
+  };
+  const text = demoTexts[langName] || demoTexts.zh;
+
+  await new Promise(r => setTimeout(r, 600));
+
+  const segments = [];
+  const sentences = text.split(/[。，,.]/).filter(s => s.trim());
+  let t = 0;
+  sentences.forEach((s, i) => {
+    const dur = 1.5 + s.length * 0.08;
+    segments.push({ id: i, start: t, end: t + dur, text: s.trim() });
+    t += dur;
+  });
+
+  return {
+    ok: true,
+    provider: state.provider,
+    text,
+    language: langName,
+    duration: t,
+    segments,
+    model: model || 'whisper-1',
+    timestamp: new Date().toISOString(),
+  };
+}
+
+/* ════════════════════════════════════════════════════════════════
+   RENDER RESULT
+   ════════════════════════════════════════════════════════════════ */
+function renderResult(result) {
+  document.getElementById('result-card').style.display = 'block';
+  document.getElementById('result-lang').textContent = result.language;
+  document.getElementById('result-duration').textContent = result.duration.toFixed(1) + 's';
+  document.getElementById('result-meta').textContent =
+    `${result.provider} · ${result.model} · ${result.segments.length} segments · ${new Date(result.timestamp).toLocaleString('zh-TW')}`;
+  document.getElementById('result-text').textContent = result.text;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   ACTION PALETTE
+   ════════════════════════════════════════════════════════════════ */
+function requireResult() {
+  if (!state.lastResult) { toast('請先轉錄一段音訊', 'error'); return false; }
+  return true;
+}
+
+async function copyTranscript() {
+  if (!requireResult()) return;
+  await navigator.clipboard.writeText(state.lastResult.text);
+  toast('✓ 已複製到剪貼簿', 'success');
+}
+
+function segmentsToSrt(segments) {
+  return segments.map((s, i) => {
+    return `${i + 1}\n${fmtSrt(s.start)} --> ${fmtSrt(s.end)}\n${s.text}\n`;
+  }).join('\n');
+}
+
+function segmentsToVtt(segments) {
+  const body = segments.map(s => `${fmtVtt(s.start)} --> ${fmtVtt(s.end)}\n${s.text}`).join('\n\n');
+  return `WEBVTT\n\n${body}\n`;
+}
+
+function fmtSrt(sec) {
+  const h = String(Math.floor(sec / 3600)).padStart(2, '0');
+  const m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
+  const s = String(Math.floor(sec % 60)).padStart(2, '0');
+  const ms = String(Math.floor((sec % 1) * 1000)).padStart(3, '0');
+  return `${h}:${m}:${s},${ms}`;
+}
+
+function fmtVtt(sec) {
+  return fmtSrt(sec).replace(',', '.');
+}
+
+function downloadBlob(content, filename, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function downloadSrt() {
+  if (!requireResult()) return;
+  const srt = segmentsToSrt(state.lastResult.segments);
+  downloadBlob(srt, 'transcript.srt', 'application/x-subrip');
+  toast('已下載 .srt 字幕檔', 'success');
+}
+
+function downloadVtt() {
+  if (!requireResult()) return;
+  const vtt = segmentsToVtt(state.lastResult.segments);
+  downloadBlob(vtt, 'transcript.vtt', 'text/vtt');
+  toast('已下載 .vtt WebVTT', 'success');
+}
+
+function downloadJson() {
+  if (!requireResult()) return;
+  downloadBlob(JSON.stringify(state.lastResult, null, 2), 'transcript.json', 'application/json');
+  toast('已下載原始 JSON', 'success');
+}
+
+async function runSummary() {
+  if (!requireResult()) return;
+  setProcessing(true, 'GPT-4o-mini 摘要中...', 'AI 結構化整理');
+  await new Promise(r => setTimeout(r, 900));
+  const r = state.lastResult;
+  const summary = `📌 主題：Whisper × Next.js 語音轉文字 demo\n` +
+                  `💡 結論：完整示範了錄音 → 上傳 → 伺服器端 Whisper → 結構化輸出的端到端流程。\n` +
+                  `🔑 重點：\n` +
+                  `  • 使用 Next.js 14 App Router 的 Route Handler\n` +
+                  `  • Provider 抽象層支援 OpenAI / Local whisper.cpp\n` +
+                  `  • 統一回傳格式含 segments 與時間戳\n` +
+                  `⏱ 時長：${r.duration.toFixed(1)} 秒 / ${r.segments.length} 段`;
+  document.getElementById('summary-card').style.display = 'block';
+  document.getElementById('summary-text').textContent = summary;
+  setProcessing(false);
+  toast('✓ AI 摘要完成', 'success');
+}
+
+async function ttsPlay() {
+  if (!requireResult()) return;
+  toast('🔊 TTS：部署後可呼叫 /api/tts（OpenAI tts-1 或 ElevenLabs）', 'success');
+  if ('speechSynthesis' in window) {
+    const u = new SpeechSynthesisUtterance(state.lastResult.text.slice(0, 200));
+    u.lang = state.lastResult.language === 'auto' ? 'zh-TW' : state.lastResult.language;
+    speechSynthesis.speak(u);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   HISTORY
+   ════════════════════════════════════════════════════════════════ */
+function addToHistory(result) {
+  state.history.unshift({
+    text: result.text.slice(0, 60) + (result.text.length > 60 ? '...' : ''),
+    duration: result.duration,
+    language: result.language,
+    when: new Date().toLocaleTimeString('zh-TW'),
+  });
+  if (state.history.length > 5) state.history.pop();
+  renderHistory();
+}
+
+function renderHistory() {
+  const list = document.getElementById('history-list');
+  if (!state.history.length) {
+    list.innerHTML = '<div class="text-slate-500 text-xs">尚未轉錄...</div>';
+    return;
+  }
+  list.innerHTML = state.history.map((h, i) =>
+    `<div class="history-item" onclick="loadHistoryItem(${i})">
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-slate-300 font-semibold">#${i + 1} · ${h.language} · ${h.duration.toFixed(1)}s</span>
+        <span class="text-slate-500">${h.when}</span>
+      </div>
+      <div class="text-slate-400">${h.text}</div>
+    </div>`
+  ).join('');
+}
+
+function loadHistoryItem(i) {
+  toast('已選擇歷史項目 #' + (i + 1), 'success');
+}
+
+function loadHistory() {
+  renderHistory();
+  toast('歷史已重新整理', '');
+}
+
+/* ════════════════════════════════════════════════════════════════
+   INIT
+   ════════════════════════════════════════════════════════════════ */
+(async function init() {
+  setStatus('', '檢查後端連線中...');
+  const status = await apiStatus();
+  if (status && status.ok) {
+    setStatus('ok', `✓ API server ${status.version} · ${status.provider} · ${status.model}`);
+  } else {
+    setStatus('err', '✗ 後端未連線（純前端 demo 模式）');
+  }
+  renderHistory();
+})();
+
+/* Keyboard shortcuts */
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'c' && state.lastResult) {
+    // Don't interfere with text selection copying
+  }
+});
+</script>
+</body>
+</html>

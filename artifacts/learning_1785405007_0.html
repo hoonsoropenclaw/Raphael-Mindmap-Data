@@ -1,0 +1,955 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tailwind × Framer Motion 動態響應式 UI 元件庫</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- React 18 + Babel Standalone -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Framer Motion -->
+  <script src="https://unpkg.com/framer-motion@11.18.2/dist/framer-motion.js"></script>
+
+  <script>
+    // Tailwind config (dark mode + theme tokens)
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50:  '#eef4ff',
+              100: '#dae6ff',
+              200: '#bcd1ff',
+              300: '#8eb1ff',
+              400: '#5d86ff',
+              500: '#3a5dff',
+              600: '#293df0',
+              700: '#212fcf',
+              800: '#1f2aa6',
+              900: '#1d2883',
+            },
+            accent: {
+              400: '#ff8acb',
+              500: '#ff4ea3',
+              600: '#ed2e85',
+            },
+          },
+          fontFamily: {
+            sans: ['"Inter"', '"Noto Sans TC"', 'system-ui', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+          },
+          animation: {
+            'float-slow': 'float 8s ease-in-out infinite',
+            'float-fast': 'float 4s ease-in-out infinite',
+            'gradient-x': 'gradient-x 8s ease infinite',
+          },
+          keyframes: {
+            float: {
+              '0%, 100%': { transform: 'translateY(0px)' },
+              '50%':      { transform: 'translateY(-20px)' },
+            },
+            'gradient-x': {
+              '0%, 100%':  { 'background-position': '0% 50%' },
+              '50%':       { 'background-position': '100% 50%' },
+            },
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    html, body { font-family: 'Inter', 'Noto Sans TC', system-ui, sans-serif; }
+    .gradient-text {
+      background: linear-gradient(120deg, #3a5dff 0%, #ff4ea3 50%, #ff8acb 100%);
+      background-size: 200% 200%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      animation: gradient-x 8s ease infinite;
+    }
+    .glass {
+      background: rgba(255,255,255,0.65);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+    }
+    .dark .glass {
+      background: rgba(15, 17, 35, 0.65);
+    }
+    /* scrollbar polish */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-thumb { background: #bcd1ff; border-radius: 999px; }
+    .dark ::-webkit-scrollbar-thumb { background: #293df0; }
+  </style>
+</head>
+
+<body class="bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 antialiased">
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="env,react">
+    const { useState, useEffect, useRef, useMemo } = React;
+    const {
+      motion, AnimatePresence, useScroll, useTransform,
+      useMotionValue, useSpring, useInView,
+    } = window["framer-motion"] || window.FramerMotion || {};
+
+    // ---------- utility hooks ----------
+    function useDarkMode() {
+      const [dark, setDark] = useState(() => {
+        if (typeof window === 'undefined') return false;
+        const saved = localStorage.getItem('theme');
+        if (saved) return saved === 'dark';
+        return window.matchMedia('(prefers-color-scheme: dark)').matches;
+      });
+      useEffect(() => {
+        const root = document.documentElement;
+        root.classList.toggle('dark', dark);
+        localStorage.setItem('theme', dark ? 'dark' : 'light');
+      }, [dark]);
+      return [dark, setDark];
+    }
+
+    // ---------- animated background blobs ----------
+    function BackgroundBlobs() {
+      return (
+        <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+          <motion.div
+            className="absolute -top-32 -left-32 h-[420px] w-[420px] rounded-full
+                       bg-gradient-to-br from-brand-400/40 to-accent-500/30 blur-3xl"
+            animate={{ x: [0, 80, 0], y: [0, 40, 0] }}
+            transition={{ duration: 18, repeat: Infinity, ease: 'easeInOut' }}
+          />
+          <motion.div
+            className="absolute top-1/3 -right-40 h-[480px] w-[480px] rounded-full
+                       bg-gradient-to-br from-accent-400/30 to-brand-500/30 blur-3xl"
+            animate={{ x: [0, -60, 0], y: [0, -30, 0] }}
+            transition={{ duration: 22, repeat: Infinity, ease: 'easeInOut' }}
+          />
+          <motion.div
+            className="absolute bottom-0 left-1/4 h-[360px] w-[360px] rounded-full
+                       bg-gradient-to-br from-brand-300/30 to-brand-700/20 blur-3xl"
+            animate={{ x: [0, 40, 0], y: [0, -40, 0] }}
+            transition={{ duration: 16, repeat: Infinity, ease: 'easeInOut' }}
+          />
+        </div>
+      );
+    }
+
+    // ---------- navbar ----------
+    function Navbar({ dark, setDark }) {
+      const [open, setOpen] = useState(false);
+      const [scrolled, setScrolled] = useState(false);
+      useEffect(() => {
+        const onScroll = () => setScrolled(window.scrollY > 12);
+        onScroll();
+        window.addEventListener('scroll', onScroll, { passive: true });
+        return () => window.removeEventListener('scroll', onScroll);
+      }, []);
+
+      const links = [
+        { href: '#features', label: 'Features' },
+        { href: '#showcase', label: 'Showcase' },
+        { href: '#stats',    label: 'Stats'    },
+        { href: '#contact',  label: 'Contact'  },
+      ];
+
+      return (
+        <motion.nav
+          initial={{ y: -40, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ duration: 0.5, ease: 'easeOut' }}
+          className={`fixed inset-x-0 top-0 z-50 transition-all
+                     ${scrolled ? 'glass shadow-lg shadow-brand-500/5' : 'bg-transparent'}`}
+        >
+          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
+            <a href="#top" className="flex items-center gap-2 font-bold tracking-tight">
+              <motion.div
+                whileHover={{ rotate: 12, scale: 1.08 }}
+                transition={{ type: 'spring', stiffness: 300 }}
+                className="grid h-9 w-9 place-items-center rounded-xl
+                           bg-gradient-to-br from-brand-500 to-accent-500 text-white shadow-lg shadow-brand-500/30"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M4 12c0-4.4 3.6-8 8-8s8 3.6 8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  <circle cx="12" cy="14" r="3" fill="currentColor" />
+                </svg>
+              </motion.div>
+              <span className="text-lg">Moti<strong className="text-brand-600 dark:text-brand-400">UI</strong></span>
+            </a>
+
+            {/* desktop nav */}
+            <ul className="hidden items-center gap-1 md:flex">
+              {links.map(l => (
+                <li key={l.href}>
+                  <motion.a
+                    href={l.href}
+                    whileHover={{ y: -2 }}
+                    className="relative inline-block rounded-lg px-3 py-2 text-sm font-medium text-slate-700
+                               hover:text-brand-600 dark:text-slate-200 dark:hover:text-brand-300"
+                  >
+                    {l.label}
+                  </motion.a>
+                </li>
+              ))}
+            </ul>
+
+            <div className="flex items-center gap-2">
+              <motion.button
+                onClick={() => setDark(d => !d)}
+                whileTap={{ scale: 0.9, rotate: 15 }}
+                whileHover={{ scale: 1.06 }}
+                aria-label="切換深淺色"
+                className="grid h-10 w-10 place-items-center rounded-full
+                           bg-white/70 shadow ring-1 ring-slate-200
+                           hover:bg-white dark:bg-slate-800/70 dark:ring-slate-700 dark:hover:bg-slate-800"
+              >
+                <AnimatePresence mode="wait" initial={false}>
+                  <motion.span
+                    key={dark ? 'sun' : 'moon'}
+                    initial={{ rotate: -90, opacity: 0 }}
+                    animate={{ rotate: 0, opacity: 1 }}
+                    exit={{ rotate: 90, opacity: 0 }}
+                    transition={{ duration: 0.25 }}
+                    className="block"
+                  >
+                    {dark ? '☀️' : '🌙'}
+                  </motion.span>
+                </AnimatePresence>
+              </motion.button>
+
+              {/* mobile menu button */}
+              <button
+                onClick={() => setOpen(o => !o)}
+                aria-label="選單"
+                className="grid h-10 w-10 place-items-center rounded-lg md:hidden
+                           bg-white/70 shadow ring-1 ring-slate-200
+                           dark:bg-slate-800/70 dark:ring-slate-700"
+              >
+                <motion.span animate={{ rotate: open ? 90 : 0 }} className="block text-xl">
+                  {open ? '✕' : '☰'}
+                </motion.span>
+              </button>
+            </div>
+          </div>
+
+          {/* mobile menu */}
+          <AnimatePresence>
+            {open && (
+              <motion.ul
+                key="mobile-menu"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.25 }}
+                className="md:hidden overflow-hidden border-t border-slate-200/60 bg-white/95 backdrop-blur
+                           dark:border-slate-800 dark:bg-slate-900/95"
+              >
+                {links.map((l, i) => (
+                  <motion.li
+                    key={l.href}
+                    initial={{ x: -20, opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    transition={{ delay: 0.05 * i }}
+                  >
+                    <a
+                      href={l.href}
+                      onClick={() => setOpen(false)}
+                      className="block px-6 py-3 text-sm font-medium text-slate-700 hover:bg-brand-50
+                                 dark:text-slate-200 dark:hover:bg-slate-800"
+                    >
+                      {l.label}
+                    </a>
+                  </motion.li>
+                ))}
+              </motion.ul>
+            )}
+          </AnimatePresence>
+        </motion.nav>
+      );
+    }
+
+    // ---------- hero ----------
+    function Hero() {
+      const { scrollYProgress } = useScroll();
+      const y = useTransform(scrollYProgress, [0, 0.4], [0, -80]);
+      const opacity = useTransform(scrollYProgress, [0, 0.4], [1, 0]);
+
+      return (
+        <section id="top" className="relative isolate overflow-hidden pt-28 sm:pt-36">
+          <motion.div style={{ y, opacity }} className="mx-auto max-w-5xl px-4 text-center sm:px-6 lg:px-8">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6 }}
+              className="mx-auto inline-flex items-center gap-2 rounded-full border border-brand-200/60
+                         bg-white/60 px-3 py-1 text-xs font-medium text-brand-700 shadow-sm backdrop-blur
+                         dark:border-brand-800/60 dark:bg-slate-900/60 dark:text-brand-300"
+            >
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+              v3.0 · 全新互動體驗上線
+            </motion.div>
+
+            <motion.h1
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, delay: 0.1 }}
+              className="mt-6 text-4xl font-extrabold leading-tight tracking-tight sm:text-6xl lg:text-7xl"
+            >
+              把 <span className="gradient-text">動態響應式</span> UI<br className="hidden sm:block" />
+              變成<span className="gradient-text">指尖的詩</span>。
+            </motion.h1>
+
+            <motion.p
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, delay: 0.25 }}
+              className="mx-auto mt-6 max-w-2xl text-base text-slate-600 sm:text-lg dark:text-slate-300"
+            >
+              以 <strong>Tailwind CSS</strong> 打造原子化樣式，搭配 <strong>Framer Motion</strong> 提供彈性物理動畫。
+              這個頁面示範了 <em>12 種</em> 真實可用的互動元件，從手機到桌機都能完美運行。
+            </motion.p>
+
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, delay: 0.4 }}
+              className="mt-10 flex flex-wrap items-center justify-center gap-3"
+            >
+              <motion.a
+                href="#showcase"
+                whileHover={{ scale: 1.04, boxShadow: '0 10px 30px -10px rgba(58,93,255,0.6)' }}
+                whileTap={{ scale: 0.96 }}
+                className="rounded-full bg-gradient-to-r from-brand-600 to-accent-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-brand-500/30"
+              >
+                開始探索 →
+              </motion.a>
+              <motion.a
+                href="#features"
+                whileHover={{ scale: 1.04 }}
+                whileTap={{ scale: 0.96 }}
+                className="rounded-full border border-slate-300 bg-white/80 px-6 py-3 text-sm font-semibold text-slate-800 backdrop-blur hover:bg-white
+                           dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100 dark:hover:bg-slate-800"
+              >
+                了解原理
+              </motion.a>
+            </motion.div>
+
+            {/* floating preview chips */}
+            <div className="mt-16 grid grid-cols-2 gap-4 sm:grid-cols-4">
+              {[
+                { label: 'Components', value: '12+' },
+                { label: 'Animations', value: '30+' },
+                { label: 'Breakpoints', value: '5' },
+                { label: 'Dark Mode', value: '✓' },
+              ].map((c, i) => (
+                <motion.div
+                  key={c.label}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.6 + i * 0.08 }}
+                  whileHover={{ y: -4 }}
+                  className="rounded-2xl border border-slate-200/60 bg-white/70 p-4 text-left shadow-sm backdrop-blur
+                             dark:border-slate-800 dark:bg-slate-900/60"
+                >
+                  <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{c.label}</div>
+                  <div className="mt-1 text-2xl font-bold text-brand-600 dark:text-brand-300">{c.value}</div>
+                </motion.div>
+              ))}
+            </div>
+          </motion.div>
+        </section>
+      );
+    }
+
+    // ---------- feature cards ----------
+    function FeatureCard({ icon, title, desc, color, delay }) {
+      const ref = useRef(null);
+      const inView = useInView(ref, { once: true, margin: '-50px' });
+      return (
+        <motion.div
+          ref={ref}
+          initial={{ opacity: 0, y: 30 }}
+          animate={inView ? { opacity: 1, y: 0 } : {}}
+          transition={{ duration: 0.5, delay }}
+          whileHover={{ y: -6 }}
+          className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-sm
+                     hover:shadow-xl hover:shadow-brand-500/10
+                     dark:border-slate-800 dark:bg-slate-900"
+        >
+          <div className={`absolute -right-12 -top-12 h-32 w-32 rounded-full bg-gradient-to-br ${color} opacity-10 blur-2xl transition-opacity duration-500 group-hover:opacity-30`} />
+          <div className={`mb-4 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br ${color} text-2xl text-white shadow-lg`}>
+            {icon}
+          </div>
+          <h3 className="text-lg font-semibold">{title}</h3>
+          <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">{desc}</p>
+        </motion.div>
+      );
+    }
+
+    function Features() {
+      const items = [
+        { icon: '⚡', title: '物理彈性動畫', desc: '使用 spring 與 useTransform 模擬真實物理反應，讓互動更貼近手感。', color: 'from-amber-400 to-pink-500' },
+        { icon: '📱', title: '完整響應式', desc: '從 320px 手機到 1920px 桌機，每個斷點都精心調校。', color: 'from-brand-500 to-cyan-400' },
+        { icon: '♿', title: '無障礙設計', desc: 'aria-label、focus ring、reduced-motion 偵測，友善所有使用者。', color: 'from-emerald-400 to-teal-500' },
+        { icon: '🌗', title: '深淺色無縫切換', desc: 'Tailwind dark mode + Framer 過場動畫，切換不閃爍。', color: 'from-violet-500 to-indigo-500' },
+        { icon: '🧩', title: '組合式元件', desc: '每個元件都獨立、可重複使用，無副作用。', color: 'from-rose-400 to-red-500' },
+        { icon: '🚀', title: '極致效能', desc: 'GPU transform-only 動畫，60fps 不掉幀。', color: 'from-orange-400 to-amber-500' },
+      ];
+      return (
+        <section id="features" className="relative py-20 sm:py-28">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              className="mx-auto max-w-2xl text-center"
+            >
+              <p className="text-sm font-semibold uppercase tracking-wider text-brand-600 dark:text-brand-300">Features</p>
+              <h2 className="mt-2 text-3xl font-bold sm:text-4xl">為什麼選擇這個組合？</h2>
+              <p className="mt-3 text-slate-600 dark:text-slate-300">
+                Tailwind 的 utility-first 思維，遇上 Framer Motion 的宣告式動畫 — 開發速度快 3 倍。
+              </p>
+            </motion.div>
+            <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {items.map((it, i) => <FeatureCard key={it.title} {...it} delay={i * 0.08} />)}
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    // ---------- animated tabs ----------
+    function TabShowcase() {
+      const [active, setActive] = useState(0);
+      const tabs = [
+        { name: 'Overview',  icon: '👁',  content: '總覽整個元件庫 — 從導航列到表單，每個細節都被精心調整，確保一致的視覺語言與互動反饋。' },
+        { name: 'Animation', icon: '✨',  content: '所有動畫皆遵循「減法設計」原則：只動有意義的屬性 (transform / opacity)，避免 layout thrashing。' },
+        { name: 'A11y',      icon: '♿',  content: '所有按鈕具備 aria-label、focus ring；遵循 prefers-reduced-motion 自動關閉非必要動畫。' },
+        { name: 'Theming',   icon: '🎨',  content: '透過 Tailwind dark variant + CSS variable 切換主題，無需 reload。' },
+      ];
+      return (
+        <section id="showcase" className="relative py-20 sm:py-28">
+          <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              className="mx-auto max-w-2xl text-center"
+            >
+              <p className="text-sm font-semibold uppercase tracking-wider text-brand-600 dark:text-brand-300">Showcase</p>
+              <h2 className="mt-2 text-3xl font-bold sm:text-4xl">互動式 Tab 切換</h2>
+              <p className="mt-3 text-slate-600 dark:text-slate-300">
+                滑動指標動畫示範 — Framer Motion 的 layoutId 讓共享元素動畫寫起來超直覺。
+              </p>
+            </motion.div>
+
+            <div className="mt-10 rounded-3xl border border-slate-200 bg-white p-3 shadow-xl shadow-slate-200/40 sm:p-6
+                            dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/30">
+              <div className="relative flex flex-wrap gap-1 rounded-2xl bg-slate-100 p-1 dark:bg-slate-800/60">
+                {tabs.map((t, i) => (
+                  <button
+                    key={t.name}
+                    onClick={() => setActive(i)}
+                    className={`relative z-10 flex-1 rounded-xl px-3 py-2 text-sm font-medium transition-colors
+                                ${active === i ? 'text-white' : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'}`}
+                  >
+                    {active === i && (
+                      <motion.span
+                        layoutId="tab-pill"
+                        className="absolute inset-0 -z-10 rounded-xl bg-gradient-to-r from-brand-600 to-accent-500 shadow-lg shadow-brand-500/30"
+                        transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                      />
+                    )}
+                    <span className="mr-1">{t.icon}</span>{t.name}
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative mt-6 min-h-[140px] overflow-hidden px-2">
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={active}
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    transition={{ duration: 0.3 }}
+                    className="text-slate-700 dark:text-slate-200"
+                  >
+                    <h3 className="text-xl font-semibold">{tabs[active].name}</h3>
+                    <p className="mt-2 leading-relaxed">{tabs[active].content}</p>
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    // ---------- stats counter ----------
+    function CountUp({ to, suffix = '' }) {
+      const ref = useRef(null);
+      const inView = useInView(ref, { once: true });
+      const [val, setVal] = useState(0);
+      useEffect(() => {
+        if (!inView) return;
+        let start;
+        const dur = 1400;
+        const step = (ts) => {
+          if (!start) start = ts;
+          const p = Math.min((ts - start) / dur, 1);
+          setVal(Math.round(to * (1 - Math.pow(1 - p, 3))));
+          if (p < 1) requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      }, [inView, to]);
+      return <span ref={ref}>{val.toLocaleString()}{suffix}</span>;
+    }
+
+    function Stats() {
+      const items = [
+        { value: 12300, suffix: '+', label: '下載次數' },
+        { value: 98,    suffix: '%', label: '客戶滿意度' },
+        { value: 42,    suffix: 'ms', label: '平均互動延遲' },
+        { value: 24,    suffix: '/7', label: '支援服務' },
+      ];
+      return (
+        <section id="stats" className="relative py-20 sm:py-28">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+              {items.map((it, i) => (
+                <motion.div
+                  key={it.label}
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  whileInView={{ opacity: 1, scale: 1 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: i * 0.1, type: 'spring', stiffness: 200 }}
+                  className="rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-6 text-center shadow
+                             dark:border-slate-800 dark:from-slate-900 dark:to-slate-950"
+                >
+                  <div className="text-4xl font-extrabold gradient-text sm:text-5xl">
+                    <CountUp to={it.value} suffix={it.suffix} />
+                  </div>
+                  <div className="mt-2 text-sm text-slate-600 dark:text-slate-400">{it.label}</div>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    // ---------- modal ----------
+    function ModalDemo() {
+      const [open, setOpen] = useState(false);
+      return (
+        <section className="relative py-16">
+          <div className="mx-auto max-w-3xl px-4 text-center sm:px-6 lg:px-8">
+            <h2 className="text-3xl font-bold sm:text-4xl">動畫 Modal</h2>
+            <p className="mt-3 text-slate-600 dark:text-slate-300">
+              背景模糊 + scale + spring 物理 — 標準互動卻質感滿分。
+            </p>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setOpen(true)}
+              className="mt-6 rounded-full bg-brand-600 px-6 py-3 font-semibold text-white shadow-lg shadow-brand-500/40 hover:bg-brand-700"
+            >
+              開啟 Modal
+            </motion.button>
+          </div>
+
+          <AnimatePresence>
+            {open && (
+              <motion.div
+                className="fixed inset-0 z-50 grid place-items-center px-4"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <motion.div
+                  className="absolute inset-0 bg-slate-900/60 backdrop-blur-md"
+                  onClick={() => setOpen(false)}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                />
+                <motion.div
+                  role="dialog"
+                  aria-modal="true"
+                  initial={{ scale: 0.85, opacity: 0, y: 30 }}
+                  animate={{ scale: 1, opacity: 1, y: 0 }}
+                  exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                  transition={{ type: 'spring', stiffness: 320, damping: 24 }}
+                  className="relative w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl dark:bg-slate-900"
+                >
+                  <div className="mb-4 flex items-center gap-3">
+                    <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-brand-500 to-accent-500 text-2xl text-white">
+                      🚀
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold">歡迎使用 MotiUI</h3>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">這是個完整的示範對話框</p>
+                    </div>
+                  </div>
+                  <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+                    點擊背景或下方按鈕關閉。注意 scale 與 opacity 結合的進場動畫，
+                    加上 spring 物理讓互動顯得自然。
+                  </p>
+                  <div className="mt-6 flex justify-end gap-2">
+                    <button
+                      onClick={() => setOpen(false)}
+                      className="rounded-full px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100
+                                 dark:text-slate-300 dark:hover:bg-slate-800"
+                    >
+                      取消
+                    </button>
+                    <button
+                      onClick={() => setOpen(false)}
+                      className="rounded-full bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow hover:bg-brand-700"
+                    >
+                      確認
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => setOpen(false)}
+                    aria-label="關閉"
+                    className="absolute right-4 top-4 grid h-8 w-8 place-items-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700
+                               dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                  >
+                    ✕
+                  </button>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </section>
+      );
+    }
+
+    // ---------- form ----------
+    function FormDemo() {
+      const [form, setForm] = useState({ name: '', email: '', msg: '' });
+      const [errors, setErrors] = useState({});
+      const [sent, setSent] = useState(false);
+
+      const validate = () => {
+        const e = {};
+        if (!form.name.trim()) e.name = '請輸入姓名';
+        if (!/^\S+@\S+\.\S+$/.test(form.email)) e.email = 'Email 格式不正確';
+        if (form.msg.trim().length < 5) e.msg = '訊息至少 5 個字';
+        setErrors(e);
+        return Object.keys(e).length === 0;
+      };
+
+      const submit = (ev) => {
+        ev.preventDefault();
+        if (!validate()) return;
+        setSent(true);
+        setTimeout(() => {
+          setSent(false);
+          setForm({ name: '', email: '', msg: '' });
+        }, 2200);
+      };
+
+      const field = (key, label, type = 'text', placeholder = '') => (
+        <div>
+          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">{label}</label>
+          <motion.input
+            type={type}
+            value={form[key]}
+            onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+            placeholder={placeholder}
+            whileFocus={{ scale: 1.01, boxShadow: '0 0 0 4px rgba(58,93,255,0.18)' }}
+            transition={{ type: 'spring', stiffness: 300, damping: 22 }}
+            className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm outline-none transition
+                       focus:border-brand-500
+                       dark:border-slate-700 dark:bg-slate-900"
+          />
+          <AnimatePresence>
+            {errors[key] && (
+              <motion.p
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="mt-1 text-xs text-rose-500"
+              >
+                ⚠ {errors[key]}
+              </motion.p>
+            )}
+          </AnimatePresence>
+        </div>
+      );
+
+      return (
+        <section id="contact" className="relative py-20 sm:py-28">
+          <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              className="text-center"
+            >
+              <p className="text-sm font-semibold uppercase tracking-wider text-brand-600 dark:text-brand-300">Contact</p>
+              <h2 className="mt-2 text-3xl font-bold sm:text-4xl">留下訊息給我們</h2>
+              <p className="mt-3 text-slate-600 dark:text-slate-300">所有欄位都有 focus 動畫與即時錯誤反饋。</p>
+            </motion.div>
+
+            <motion.form
+              onSubmit={submit}
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              className="mt-10 rounded-3xl border border-slate-200 bg-white p-6 shadow-xl sm:p-8
+                         dark:border-slate-800 dark:bg-slate-900"
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                {field('name',  '姓名', 'text', '王小明')}
+                {field('email', 'Email', 'email', 'you@example.com')}
+              </div>
+              <div className="mt-4">
+                <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">訊息</label>
+                <motion.textarea
+                  rows={4}
+                  value={form.msg}
+                  onChange={(e) => setForm({ ...form, msg: e.target.value })}
+                  placeholder="想說點什麼呢？"
+                  whileFocus={{ scale: 1.01, boxShadow: '0 0 0 4px rgba(58,93,255,0.18)' }}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-brand-500
+                             dark:border-slate-700 dark:bg-slate-900"
+                />
+                <AnimatePresence>
+                  {errors.msg && (
+                    <motion.p
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0 }}
+                      className="mt-1 text-xs text-rose-500"
+                    >
+                      ⚠ {errors.msg}
+                    </motion.p>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              <div className="mt-6 flex items-center justify-between">
+                <p className="text-xs text-slate-500 dark:text-slate-400">送出即同意我們的隱私政策</p>
+                <motion.button
+                  type="submit"
+                  whileHover={{ scale: 1.04 }}
+                  whileTap={{ scale: 0.96 }}
+                  className="relative rounded-full bg-gradient-to-r from-brand-600 to-accent-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-brand-500/30"
+                >
+                  <AnimatePresence mode="wait" initial={false}>
+                    {sent ? (
+                      <motion.span key="ok" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
+                        ✓ 已送出
+                      </motion.span>
+                    ) : (
+                      <motion.span key="send" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
+                        送出訊息
+                      </motion.span>
+                    )}
+                  </AnimatePresence>
+                </motion.button>
+              </div>
+            </motion.form>
+          </div>
+        </section>
+      );
+    }
+
+    // ---------- accordion ----------
+    function Accordion() {
+      const [open, setOpen] = useState(0);
+      const items = [
+        { q: '為什麼選擇 Tailwind + Framer Motion？', a: 'Tailwind 提供 utility-first 的快速樣式開發；Framer Motion 提供宣告式、spring 物理動畫。組合起來既快速又彈性。' },
+        { q: '支援 SSR 嗎？',                        a: 'Framer Motion 完全支援 SSR。動畫在 hydrate 後無縫接軌，不會有閃爍問題。' },
+        { q: '如何處理 reduced-motion？',             a: 'Tailwind 有 motion-safe / motion-reduce variants；Framer Motion 也可偵測 useReducedMotion()。' },
+        { q: '可以打包進既有專案嗎？',                 a: '可以。Framer Motion 體積僅 ~50KB gzipped，Tailwind 可透過 JIT 移除未使用樣式。' },
+      ];
+      return (
+        <section className="relative py-16 sm:py-20">
+          <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
+            <h2 className="text-center text-3xl font-bold sm:text-4xl">常見問答</h2>
+            <div className="mt-10 space-y-3">
+              {items.map((it, i) => (
+                <motion.div
+                  key={it.q}
+                  layout
+                  className="overflow-hidden rounded-2xl border border-slate-200 bg-white
+                             dark:border-slate-800 dark:bg-slate-900"
+                >
+                  <button
+                    onClick={() => setOpen(open === i ? -1 : i)}
+                    className="flex w-full items-center justify-between px-5 py-4 text-left"
+                  >
+                    <span className="font-medium">{it.q}</span>
+                    <motion.span animate={{ rotate: open === i ? 45 : 0 }} className="text-xl text-brand-600 dark:text-brand-300">+</motion.span>
+                  </button>
+                  <AnimatePresence initial={false}>
+                    {open === i && (
+                      <motion.div
+                        key="content"
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.3, ease: 'easeInOut' }}
+                      >
+                        <div className="px-5 pb-4 text-sm text-slate-600 dark:text-slate-300">{it.a}</div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    // ---------- toast ----------
+    function ToastDemo() {
+      const [toasts, setToasts] = useState([]);
+      const idRef = useRef(0);
+      const add = (msg, type = 'info') => {
+        const id = ++idRef.current;
+        setToasts(t => [...t, { id, msg, type }]);
+        setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3200);
+      };
+      const colors = {
+        info:    'from-brand-500 to-brand-700',
+        success: 'from-emerald-500 to-teal-600',
+        warn:    'from-amber-500 to-orange-600',
+        error:   'from-rose-500 to-red-600',
+      };
+      return (
+        <section className="relative py-16">
+          <div className="mx-auto max-w-3xl px-4 text-center sm:px-6 lg:px-8">
+            <h2 className="text-3xl font-bold sm:text-4xl">Toast 通知系統</h2>
+            <p className="mt-3 text-slate-600 dark:text-slate-300">堆疊式通知，自動消失。</p>
+            <div className="mt-6 flex flex-wrap justify-center gap-3">
+              <button onClick={() => add('💡 這是普通提示', 'info')}    className="rounded-full bg-brand-600    px-4 py-2 text-sm font-medium text-white hover:opacity-90">Info</button>
+              <button onClick={() => add('✓ 儲存成功',         'success')} className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:opacity-90">Success</button>
+              <button onClick={() => add('⚠ 網路不穩',         'warn')}    className="rounded-full bg-amber-600   px-4 py-2 text-sm font-medium text-white hover:opacity-90">Warning</button>
+              <button onClick={() => add('✕ 發生錯誤',         'error')}   className="rounded-full bg-rose-600    px-4 py-2 text-sm font-medium text-white hover:opacity-90">Error</button>
+            </div>
+          </div>
+
+          <div className="pointer-events-none fixed bottom-6 right-6 z-50 flex w-full max-w-sm flex-col gap-2">
+            <AnimatePresence>
+              {toasts.map(t => (
+                <motion.div
+                  key={t.id}
+                  layout
+                  initial={{ opacity: 0, x: 80, scale: 0.9 }}
+                  animate={{ opacity: 1, x: 0,  scale: 1 }}
+                  exit={{    opacity: 0, x: 80, scale: 0.9 }}
+                  transition={{ type: 'spring', stiffness: 350, damping: 25 }}
+                  className={`pointer-events-auto rounded-2xl bg-gradient-to-r ${colors[t.type]} px-4 py-3 text-sm font-medium text-white shadow-xl`}
+                >
+                  {t.msg}
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </div>
+        </section>
+      );
+    }
+
+    // ---------- drag card ----------
+    function DragDemo() {
+      const cards = [
+        { id: 1, title: 'Draggable 1', color: 'from-rose-400 to-pink-500' },
+        { id: 2, title: 'Draggable 2', color: 'from-brand-400 to-cyan-500' },
+        { id: 3, title: 'Draggable 3', color: 'from-amber-400 to-orange-500' },
+      ];
+      return (
+        <section className="relative py-16">
+          <div className="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8">
+            <div className="text-center">
+              <h2 className="text-3xl font-bold sm:text-4xl">拖曳互動</h2>
+              <p className="mt-3 text-slate-600 dark:text-slate-300">用滑鼠 / 觸控拖動卡片 — 釋放後會彈回。</p>
+            </div>
+            <div className="mt-10 grid gap-6 sm:grid-cols-3">
+              {cards.map((c) => (
+                <motion.div
+                  key={c.id}
+                  drag
+                  dragConstraints={{ left: -50, right: 50, top: -50, bottom: 50 }}
+                  dragElastic={0.15}
+                  whileDrag={{ scale: 1.06, zIndex: 10, cursor: 'grabbing' }}
+                  className={`cursor-grab rounded-2xl bg-gradient-to-br ${c.color} p-6 text-white shadow-xl select-none`}
+                >
+                  <div className="text-xs uppercase tracking-wider opacity-80">Drag me</div>
+                  <div className="mt-2 text-xl font-bold">{c.title}</div>
+                  <div className="mt-4 text-sm opacity-90">用 spring 物理感，自由拖動。</div>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    // ---------- footer ----------
+    function Footer() {
+      return (
+        <footer className="mt-12 border-t border-slate-200 bg-white/60 py-10 dark:border-slate-800 dark:bg-slate-900/60">
+          <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-4 sm:flex-row sm:px-6 lg:px-8">
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              © 2026 MotiUI · Built with <span className="font-semibold text-brand-600 dark:text-brand-300">Tailwind CSS</span> + <span className="font-semibold text-accent-600 dark:text-accent-400">Framer Motion</span>
+            </p>
+            <div className="flex gap-3">
+              {['GitHub', 'Twitter', 'Discord'].map(t => (
+                <motion.a
+                  key={t}
+                  href="#"
+                  whileHover={{ y: -2 }}
+                  className="rounded-full border border-slate-300 px-3 py-1 text-xs text-slate-600 hover:border-brand-400 hover:text-brand-600
+                             dark:border-slate-700 dark:text-slate-300 dark:hover:border-brand-400 dark:hover:text-brand-300"
+                >
+                  {t}
+                </motion.a>
+              ))}
+            </div>
+          </div>
+        </footer>
+      );
+    }
+
+    // ---------- App ----------
+    function App() {
+      const [dark, setDark] = useDarkMode();
+      return (
+        <div className="min-h-screen">
+          <BackgroundBlobs />
+          <Navbar dark={dark} setDark={setDark} />
+          <main>
+            <Hero />
+            <Features />
+            <TabShowcase />
+            <Stats />
+            <ModalDemo />
+            <DragDemo />
+            <Accordion />
+            <ToastDemo />
+            <FormDemo />
+          </main>
+          <Footer />
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>

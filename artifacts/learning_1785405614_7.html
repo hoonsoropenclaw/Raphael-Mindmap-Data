@@ -1,0 +1,1098 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Next.js RBAC Demo · Role-Based Access Control</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          brand: {
+            50:  '#eef2ff',
+            100: '#e0e7ff',
+            500: '#6366f1',
+            600: '#4f46e5',
+            700: '#4338ca',
+            900: '#1e1b4b',
+          },
+        },
+        fontFamily: {
+          sans: ['ui-sans-serif', 'system-ui', '-apple-system', 'PingFang TC', 'Microsoft JhengHei', 'sans-serif'],
+          mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+        },
+      },
+    },
+  };
+</script>
+<style>
+  body { font-family: ui-sans-serif, system-ui, -apple-system, 'PingFang TC', 'Microsoft JhengHei', sans-serif; }
+  .glass {
+    background: rgba(255,255,255,0.7);
+    backdrop-filter: blur(12px) saturate(140%);
+    -webkit-backdrop-filter: blur(12px) saturate(140%);
+    border: 1px solid rgba(255,255,255,0.6);
+  }
+  .glass-dark {
+    background: rgba(15,23,42,0.6);
+    backdrop-filter: blur(14px) saturate(150%);
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .gradient-bg {
+    background:
+      radial-gradient(1200px 600px at -10% -10%, #c7d2fe 0%, transparent 60%),
+      radial-gradient(900px 500px at 110% 0%, #fbcfe8 0%, transparent 60%),
+      linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+  }
+  .pulse-dot { animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: .5; transform: scale(1.4); }
+  }
+  .fade-in { animation: fadeIn .35s ease-out both; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px);} to { opacity: 1; transform: translateY(0);} }
+  .mono-cell { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: rgba(99,102,241,.4); border-radius: 8px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(99,102,241,.6); }
+  [data-tip] { position: relative; }
+  [data-tip]:hover::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    white-space: nowrap;
+    z-index: 50;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body class="gradient-bg min-h-screen text-slate-800">
+
+<div id="app" class="min-h-screen flex flex-col"></div>
+
+<!-- React 18 + Babel Standalone -->
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<script type="text/babel" data-presets="env,react">
+const { useState, useEffect, useMemo, useCallback, createContext, useContext, useRef } = React;
+
+/* ===========================================================
+ * RBAC CORE — 模擬 Next.js 完整專案結構
+ *
+ *   /app
+ *     /layout.jsx              ← RootLayout (含 SessionProvider)
+ *     /(auth)/login/page.jsx   ← 登入頁
+ *     /(dashboard)/layout.jsx  ← 受保護佈局 (middleware 檢查)
+ *     /(dashboard)/page.jsx    ← 首頁
+ *     /(dashboard)/users/page.jsx
+ *     /(dashboard)/roles/page.jsx
+ *     /(dashboard)/audit/page.jsx
+ *     /api/auth/route.js       ← Next.js Route Handler
+ *     /api/audit/route.js
+ *   /middleware.js             ← 路由守衛 (Edge Runtime)
+ *   /lib/rbac.js               ← 純函式:can() / requirePermission()
+ * ============================================================ */
+
+/* ---------- 1) 權限定義 (對應真實 RBAC schema) ---------- */
+const PERMISSIONS = {
+  USER_READ:        'user:read',
+  USER_WRITE:       'user:write',
+  USER_DELETE:      'user:delete',
+  ROLE_READ:        'role:read',
+  ROLE_WRITE:       'role:write',
+  AUDIT_READ:       'audit:read',
+  DASHBOARD_VIEW:   'dashboard:view',
+  BILLING_READ:     'billing:read',
+  BILLING_WRITE:    'billing:write',
+  SETTINGS_WRITE:   'settings:write',
+};
+
+const ALL_PERMS = Object.values(PERMISSIONS);
+
+/* ---------- 2) 角色矩陣 (真實後端會在 DB) ---------- */
+const ROLES = {
+  admin: {
+    id: 'admin',
+    label: '系統管理員',
+    color: 'rose',
+    desc: '完整權限,可管理使用者、角色與系統設定',
+    permissions: new Set(ALL_PERMS),
+  },
+  manager: {
+    id: 'manager',
+    label: '部門主管',
+    color: 'amber',
+    desc: '可檢視使用者與稽核日誌,不能修改角色',
+    permissions: new Set([
+      PERMISSIONS.USER_READ, PERMISSIONS.ROLE_READ,
+      PERMISSIONS.AUDIT_READ, PERMISSIONS.DASHBOARD_VIEW,
+      PERMISSIONS.BILLING_READ,
+    ]),
+  },
+  member: {
+    id: 'member',
+    label: '一般員工',
+    color: 'sky',
+    desc: '僅可檢視個人儀表板與帳單',
+    permissions: new Set([
+      PERMISSIONS.DASHBOARD_VIEW, PERMISSIONS.BILLING_READ,
+    ]),
+  },
+  viewer: {
+    id: 'viewer',
+    label: '唯讀訪客',
+    color: 'slate',
+    desc: '最低權限,僅能看儀表板',
+    permissions: new Set([PERMISSIONS.DASHBOARD_VIEW]),
+  },
+};
+
+/* ---------- 3) 模擬使用者帳號 (真實會在 DB + hashed password) ---------- */
+const USERS = [
+  { id: 'u1', email: 'admin@demo.io',   name: '林雅婷',   role: 'admin',   avatar: '🛡️' },
+  { id: 'u2', email: 'manager@demo.io', name: '王建宏',   role: 'manager', avatar: '🧭' },
+  { id: 'u3', email: 'member@demo.io',  name: '陳怡君',   role: 'member',  avatar: '🧑‍💼' },
+  { id: 'u4', email: 'viewer@demo.io',  name: '張小明',   role: 'viewer',  avatar: '👀' },
+];
+
+/* ---------- 4) /lib/rbac.js — 純函式核心 ---------- */
+const rbac = {
+  // server-side 風格,接收 (session, permission) 回傳 boolean
+  can(session, permission) {
+    if (!session || !session.user) return false;
+    const role = ROLES[session.user.role];
+    if (!role) return false;
+    return role.permissions.has(permission);
+  },
+  // 高階,丟 exception 給 server action / API route 用
+  require(session, permission) {
+    if (!this.can(session, permission)) {
+      const err = new Error('FORBIDDEN');
+      err.code = 403;
+      err.required = permission;
+      err.role = session?.user?.role;
+      throw err;
+    }
+    return true;
+  },
+  // middleware 用:整個路由區段需要的權限
+  guardRoute(session, path) {
+    // 對應 Next.js middleware 的 matcher 設定
+    const protectedMap = [
+      { match: /^\/users(\/|$)/,   need: PERMISSIONS.USER_READ  },
+      { match: /^\/roles(\/|$)/,   need: PERMISSIONS.ROLE_READ  },
+      { match: /^\/audit(\/|$)/,   need: PERMISSIONS.AUDIT_READ },
+      { match: /^\/billing(\/|$)/, need: PERMISSIONS.BILLING_READ },
+      { match: /^\/settings(\/|$)/,need: PERMISSIONS.SETTINGS_WRITE },
+    ];
+    for (const rule of protectedMap) {
+      if (rule.match.test(path)) return this.can(session, rule.need);
+    }
+    // / 與 /dashboard 只要登入就放行
+    return !!session;
+  },
+};
+
+/* ---------- 5) 模擬稽核日誌 (對應 /api/audit) ---------- */
+const seedAudit = [
+  { id: 'a1', ts: '2026-07-30 09:12:04', user: '林雅婷',   role: 'admin',   action: 'LOGIN',           target: '-',          result: 'OK' },
+  { id: 'a2', ts: '2026-07-30 09:14:51', user: '林雅婷',   role: 'admin',   action: 'ROLE_UPDATE',     target: 'manager',    result: 'OK' },
+  { id: 'a3', ts: '2026-07-30 09:31:22', user: '王建宏',   role: 'manager', action: 'USER_READ',       target: 'u3',         result: 'OK' },
+  { id: 'a4', ts: '2026-07-30 10:02:17', user: '陳怡君',   role: 'member',  action: 'USER_DELETE',     target: 'u4',         result: 'DENIED' },
+  { id: 'a5', ts: '2026-07-30 10:15:48', user: '張小明',   role: 'viewer',  action: 'BILLING_READ',    target: 'invoice-0911', result: 'DENIED' },
+];
+
+let _auditCounter = 100;
+const logAudit = (entry) => {
+  const item = {
+    id: 'a' + (++_auditCounter),
+    ts: new Date().toISOString().replace('T',' ').slice(0,19),
+    ...entry,
+  };
+  seedAudit.unshift(item);
+  return item;
+};
+
+/* ===========================================================
+ * UI COMPONENTS
+ * ============================================================ */
+
+/* ---------- Icons (inline SVG, 不靠 CDN) ---------- */
+const Icon = {
+  Lock: (p) => <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>,
+  Shield: (p) => <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l8 4v6c0 5-3.5 9.5-8 10-4.5-.5-8-5-8-10V6l8-4z"/></svg>,
+  Users: (p) => <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>,
+  Key: (p) => <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="8" cy="15" r="4"/><path d="M10.85 12.15L19 4M15 8l2 2M18 5l2 2"/></svg>,
+  Eye: (p) => <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>,
+  List: (p) => <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>,
+  Log: (p) => <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>,
+  CreditCard: (p) => <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>,
+  Settings: (p) => <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 01-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 010-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 014 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 010 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>,
+  Home: (p) => <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
+  Check: (p) => <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>,
+  X: (p) => <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+  LogOut: (p) => <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
+  Alert: (p) => <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
+  Code: (p) => <svg {...p} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>,
+};
+
+/* ---------- Badge ---------- */
+const Badge = ({ color = 'slate', children }) => {
+  const map = {
+    rose:  'bg-rose-100 text-rose-700 ring-rose-200',
+    amber: 'bg-amber-100 text-amber-700 ring-amber-200',
+    sky:   'bg-sky-100 text-sky-700 ring-sky-200',
+    slate: 'bg-slate-100 text-slate-700 ring-slate-200',
+    green: 'bg-emerald-100 text-emerald-700 ring-emerald-200',
+    red:   'bg-red-100 text-red-700 ring-red-200',
+  };
+  return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ring-1 ring-inset ${map[color]||map.slate}`}>{children}</span>;
+};
+
+/* ---------- CanGuard — 客戶端用 Component-level guard ---------- */
+const Can = ({ perm, session, fallback = null, children }) => {
+  if (!rbac.can(session, perm)) return fallback;
+  return children;
+};
+
+/* ===========================================================
+ * /app/(auth)/login/page.jsx
+ * ============================================================ */
+const LoginPage = ({ onLogin }) => {
+  const [email, setEmail] = useState('admin@demo.io');
+  const [password, setPassword] = useState('demo1234');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError(''); setLoading(true);
+    // 模擬 fetch('/api/auth', { method: 'POST' })
+    await new Promise(r => setTimeout(r, 600));
+    const user = USERS.find(u => u.email === email);
+    if (!user || password.length < 4) {
+      setError('帳號或密碼錯誤');
+      setLoading(false);
+      return;
+    }
+    onLogin(user);
+  };
+
+  const quickLogin = (u) => {
+    setEmail(u.email);
+    setPassword('demo1234');
+    setLoading(true);
+    setTimeout(() => { onLogin(u); }, 300);
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-6">
+      <div className="w-full max-w-5xl grid md:grid-cols-2 gap-8 items-stretch fade-in">
+        {/* Left: brand panel */}
+        <div className="glass-dark rounded-3xl p-10 text-white relative overflow-hidden">
+          <div className="absolute -top-20 -right-20 w-64 h-64 bg-brand-500/30 rounded-full blur-3xl"></div>
+          <div className="absolute -bottom-20 -left-20 w-64 h-64 bg-pink-400/20 rounded-full blur-3xl"></div>
+          <div className="relative z-10 flex flex-col h-full">
+            <div className="flex items-center gap-3 mb-8">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-brand-500 to-pink-500 flex items-center justify-center shadow-lg">
+                <Icon.Shield className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold">RBAC Demo</h1>
+                <p className="text-xs text-white/60">Next.js 14 · App Router</p>
+              </div>
+            </div>
+            <h2 className="text-3xl font-bold leading-tight mb-3">Role-Based<br/>Access Control</h2>
+            <p className="text-white/70 text-sm leading-relaxed mb-6">
+              完整展示 <span className="text-brand-100 font-semibold">middleware 路由守衛</span>、
+              <span className="text-brand-100 font-semibold"> Server Component 權限檢查</span>、
+              <span className="text-brand-100 font-semibold"> API Route Handler</span> 與
+              <span className="text-brand-100 font-semibold"> 客戶端 CanGuard</span>。
+            </p>
+            <div className="space-y-2 text-sm">
+              <div className="flex items-center gap-2 text-white/80">
+                <Icon.Check className="w-4 h-4 text-emerald-300" /> /lib/rbac.js 純函式核心
+              </div>
+              <div className="flex items-center gap-2 text-white/80">
+                <Icon.Check className="w-4 h-4 text-emerald-300" /> /middleware.js Edge Runtime
+              </div>
+              <div className="flex items-center gap-2 text-white/80">
+                <Icon.Check className="w-4 h-4 text-emerald-300" /> 角色矩陣即時編輯
+              </div>
+              <div className="flex items-center gap-2 text-white/80">
+                <Icon.Check className="w-4 h-4 text-emerald-300" /> 完整稽核日誌追蹤
+              </div>
+            </div>
+            <div className="mt-auto pt-8 text-xs text-white/40 mono-cell">
+              /app/layout.jsx → /app/(auth)/login/page.jsx
+            </div>
+          </div>
+        </div>
+
+        {/* Right: form */}
+        <div className="glass rounded-3xl p-8 shadow-xl shadow-brand-900/5">
+          <h3 className="text-2xl font-bold text-slate-800 mb-1">歡迎回來 👋</h3>
+          <p className="text-sm text-slate-500 mb-6">使用任一示範帳號登入體驗不同角色權限</p>
+
+          <form onSubmit={submit} className="space-y-4">
+            <div>
+              <label className="text-xs font-medium text-slate-600 mb-1.5 block">Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white/80 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition"
+                placeholder="admin@demo.io"
+                required
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600 mb-1.5 block">Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white/80 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition"
+                placeholder="••••••••"
+                required
+              />
+            </div>
+            {error && (
+              <div className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg flex items-center gap-2">
+                <Icon.Alert className="w-4 h-4" /> {error}
+              </div>
+            )}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 text-white font-medium shadow-lg shadow-brand-500/30 hover:shadow-xl hover:shadow-brand-500/40 transition disabled:opacity-60"
+            >
+              {loading ? '驗證中…' : '登入'}
+            </button>
+          </form>
+
+          <div className="mt-6">
+            <div className="text-xs text-slate-500 mb-2 font-medium">⚡ 一鍵體驗 (quick login)</div>
+            <div className="grid grid-cols-2 gap-2">
+              {USERS.map(u => (
+                <button
+                  key={u.id}
+                  onClick={() => quickLogin(u)}
+                  className="text-left px-3 py-2 rounded-lg border border-slate-200 bg-white/60 hover:bg-brand-50 hover:border-brand-300 transition text-xs"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">{u.avatar}</span>
+                    <div>
+                      <div className="font-medium text-slate-700">{u.name}</div>
+                      <div className="text-slate-400 text-[10px]">{ROLES[u.role].label}</div>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ===========================================================
+ * /app/(dashboard)/layout.jsx — 含 Sidebar
+ * ============================================================ */
+const NAV_ITEMS = [
+  { path: '/',         label: '儀表板',  icon: Icon.Home,    need: PERMISSIONS.DASHBOARD_VIEW },
+  { path: '/users',    label: '使用者',  icon: Icon.Users,   need: PERMISSIONS.USER_READ      },
+  { path: '/roles',    label: '角色權限',icon: Icon.Key,     need: PERMISSIONS.ROLE_READ      },
+  { path: '/billing',  label: '帳務',    icon: Icon.CreditCard,need: PERMISSIONS.BILLING_READ },
+  { path: '/settings', label: '系統設定',icon: Icon.Settings,need: PERMISSIONS.SETTINGS_WRITE },
+  { path: '/audit',    label: '稽核日誌',icon: Icon.Log,     need: PERMISSIONS.AUDIT_READ     },
+];
+
+const Sidebar = ({ session, currentPath, onNavigate, onLogout }) => {
+  const role = ROLES[session.user.role];
+  return (
+    <aside className="w-64 glass-dark text-white p-5 flex flex-col gap-2 shrink-0">
+      <div className="flex items-center gap-3 px-2 py-3 mb-4">
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-pink-500 flex items-center justify-center shadow-lg">
+          <Icon.Shield className="w-5 h-5 text-white" />
+        </div>
+        <div>
+          <div className="font-bold">RBAC Demo</div>
+          <div className="text-[10px] text-white/50 mono-cell">v1.0.0</div>
+        </div>
+      </div>
+
+      <div className="text-[10px] uppercase tracking-wider text-white/40 px-2 mb-1">導覽列</div>
+      <nav className="flex-1 space-y-1">
+        {NAV_ITEMS.map(item => {
+          const allowed = rbac.can(session, item.need);
+          const active = currentPath === item.path;
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.path}
+              onClick={() => allowed && onNavigate(item.path)}
+              disabled={!allowed}
+              data-tip={allowed ? item.label : '權限不足,已被 middleware 阻擋'}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition
+                ${active ? 'bg-white/15 text-white shadow-inner' : 'text-white/70 hover:bg-white/10 hover:text-white'}
+                ${!allowed ? 'opacity-40 cursor-not-allowed hover:bg-transparent' : ''}`}
+            >
+              <Icon className="w-4 h-4 shrink-0" />
+              <span className="flex-1 text-left">{item.label}</span>
+              {!allowed && <Icon.Lock className="w-3 h-3 text-rose-300" />}
+              {active && <span className="w-1.5 h-1.5 rounded-full bg-brand-300 pulse-dot"></span>}
+            </button>
+          );
+        })}
+      </nav>
+
+      <div className="border-t border-white/10 pt-4 mt-4">
+        <div className="flex items-center gap-3 px-2 mb-3">
+          <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center text-lg">
+            {session.user.avatar}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium truncate">{session.user.name}</div>
+            <div className="text-[10px] text-white/50 mono-cell truncate">{session.user.email}</div>
+          </div>
+        </div>
+        <div className="px-2 mb-3">
+          <Badge color={role.color}>{role.label}</Badge>
+        </div>
+        <button
+          onClick={onLogout}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-white/70 hover:bg-rose-500/20 hover:text-rose-200 transition"
+        >
+          <Icon.LogOut className="w-4 h-4" />
+          <span>登出</span>
+        </button>
+      </div>
+    </aside>
+  );
+};
+
+/* ===========================================================
+ * /app/(dashboard)/page.jsx — Dashboard
+ * ============================================================ */
+const Dashboard = ({ session }) => {
+  const role = ROLES[session.user.role];
+  const stats = useMemo(() => {
+    return [
+      { label: '線上使用者', value: USERS.length, delta: '+2 本週', color: 'from-sky-500 to-blue-500' },
+      { label: '啟用角色', value: Object.keys(ROLES).length, delta: '4 預設', color: 'from-emerald-500 to-teal-500' },
+      { label: '權限項目', value: ALL_PERMS.length, delta: `${role.permissions.size} 你擁有`, color: 'from-amber-500 to-orange-500' },
+      { label: '稽核事件', value: seedAudit.length, delta: '即時更新', color: 'from-rose-500 to-pink-500' },
+    ];
+  }, [role]);
+
+  return (
+    <div className="space-y-6 fade-in">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-800">儀表板</h1>
+        <p className="text-sm text-slate-500">歡迎回來,{session.user.name} · 目前角色 <Badge color={role.color}>{role.label}</Badge></p>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {stats.map((s, i) => (
+          <div key={i} className="glass rounded-2xl p-5 shadow-sm hover:shadow-md transition">
+            <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${s.color} mb-3 shadow-lg`}></div>
+            <div className="text-3xl font-bold text-slate-800">{s.value}</div>
+            <div className="text-xs text-slate-500 mt-1">{s.label}</div>
+            <div className="text-[10px] text-slate-400 mt-2 mono-cell">{s.delta}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 glass rounded-2xl p-6 shadow-sm">
+          <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+            <Icon.Key className="w-4 h-4 text-brand-500" />
+            你的權限 ({role.permissions.size})
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            {ALL_PERMS.map(p => {
+              const has = role.permissions.has(p);
+              return (
+                <span key={p}
+                  className={`mono-cell px-2.5 py-1 rounded-lg text-[11px] border
+                    ${has ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-400 line-through'}`}>
+                  {p}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="glass rounded-2xl p-6 shadow-sm">
+          <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+            <Icon.Shield className="w-4 h-4 text-brand-500" />
+            角色說明
+          </h3>
+          <p className="text-sm text-slate-600 leading-relaxed mb-4">{role.desc}</p>
+          <div className="border-t border-slate-200 pt-4 space-y-2">
+            <div className="flex justify-between text-xs">
+              <span className="text-slate-500">權限密度</span>
+              <span className="font-mono text-slate-700">{role.permissions.size} / {ALL_PERMS.length}</span>
+            </div>
+            <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-brand-500 to-pink-500 transition-all"
+                style={{ width: `${(role.permissions.size / ALL_PERMS.length) * 100}%` }}
+              ></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="glass rounded-2xl p-6 shadow-sm">
+        <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+          <Icon.Code className="w-4 h-4 text-brand-500" />
+          RBAC 核心程式碼 (對應 /lib/rbac.js)
+        </h3>
+        <pre className="mono-cell bg-slate-900 text-slate-100 rounded-xl p-4 overflow-x-auto text-[11px] leading-relaxed">{`// /lib/rbac.js — Next.js 通用 RBAC 純函式核心
+export const PERMISSIONS = {
+  USER_READ: 'user:read', USER_WRITE: 'user:write', /* ... */
+};
+
+export const rbac = {
+  can(session, permission) {
+    if (!session?.user) return false;
+    const role = ROLES[session.user.role];
+    return role?.permissions.has(permission) ?? false;
+  },
+  require(session, permission) {
+    if (!this.can(session, permission)) {
+      throw Object.assign(new Error('FORBIDDEN'), { code: 403, required: permission });
+    }
+  },
+  guardRoute(session, path) {
+    const rules = [
+      [/^\\/users/,    'user:read'],
+      [/^\\/roles/,    'role:read'],
+      [/^\\/audit/,    'audit:read'],
+      [/^\\/settings/, 'settings:write'],
+    ];
+    for (const [re, p] of rules) if (re.test(path)) return this.can(session, p);
+    return !!session;
+  },
+};`}</pre>
+      </div>
+    </div>
+  );
+};
+
+/* ===========================================================
+ * /app/(dashboard)/users/page.jsx
+ * ============================================================ */
+const UsersPage = ({ session }) => {
+  const [users, setUsers] = useState(USERS);
+  const [filter, setFilter] = useState('');
+  const canWrite = rbac.can(session, PERMISSIONS.USER_WRITE);
+  const canDelete = rbac.can(session, PERMISSIONS.USER_DELETE);
+
+  const filtered = users.filter(u =>
+    u.name.includes(filter) || u.email.includes(filter) || ROLES[u.role].label.includes(filter)
+  );
+
+  const changeRole = (userId, newRole) => {
+    if (!canWrite) {
+      logAudit({ user: session.user.name, role: session.user.role, action: 'USER_WRITE', target: userId, result: 'DENIED' });
+      alert('⛔ 權限不足:你的角色沒有 user:write 權限。事件已寫入稽核日誌。');
+      return;
+    }
+    setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
+    const target = users.find(u => u.id === userId);
+    logAudit({ user: session.user.name, role: session.user.role, action: 'ROLE_UPDATE', target: `${target.name} → ${ROLES[newRole].label}`, result: 'OK' });
+  };
+
+  const delUser = (userId) => {
+    if (!canDelete) {
+      logAudit({ user: session.user.name, role: session.user.role, action: 'USER_DELETE', target: userId, result: 'DENIED' });
+      alert('⛔ 權限不足:user:delete 權限被拒。事件已寫入稽核日誌。');
+      return;
+    }
+    const target = users.find(u => u.id === userId);
+    if (!confirm(`確定刪除 ${target.name}?`)) return;
+    setUsers(prev => prev.filter(u => u.id !== userId));
+    logAudit({ user: session.user.name, role: session.user.role, action: 'USER_DELETE', target: target.name, result: 'OK' });
+  };
+
+  return (
+    <div className="space-y-6 fade-in">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">使用者管理</h1>
+          <p className="text-sm text-slate-500">對應 <span className="mono-cell text-xs bg-slate-100 px-1.5 py-0.5 rounded">/app/(dashboard)/users/page.jsx</span></p>
+        </div>
+        <Can perm={PERMISSIONS.USER_WRITE} session={session}>
+          <button className="px-4 py-2 rounded-xl bg-brand-600 text-white text-sm font-medium shadow-md hover:bg-brand-700 transition">
+            + 新增使用者
+          </button>
+        </Can>
+      </div>
+
+      <div className="glass rounded-2xl p-5 shadow-sm">
+        <input
+          type="text"
+          placeholder="🔍 搜尋姓名 / email / 角色…"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white/80 mb-4 focus:outline-none focus:ring-2 focus:ring-brand-500"
+        />
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-slate-500 border-b border-slate-200">
+                <th className="py-2 px-3">使用者</th>
+                <th className="py-2 px-3">Email</th>
+                <th className="py-2 px-3">角色</th>
+                <th className="py-2 px-3 text-right">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(u => (
+                <tr key={u.id} className="border-b border-slate-100 hover:bg-brand-50/40 transition">
+                  <td className="py-3 px-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">{u.avatar}</span>
+                      <span className="font-medium text-slate-700">{u.name}</span>
+                    </div>
+                  </td>
+                  <td className="py-3 px-3 mono-cell text-xs text-slate-500">{u.email}</td>
+                  <td className="py-3 px-3">
+                    <Can perm={PERMISSIONS.USER_WRITE} session={session}
+                         fallback={<Badge color={ROLES[u.role].color}>{ROLES[u.role].label}</Badge>}>
+                      <select
+                        value={u.role}
+                        onChange={(e) => changeRole(u.id, e.target.value)}
+                        className="px-2 py-1 rounded-lg border border-slate-200 bg-white text-xs"
+                      >
+                        {Object.values(ROLES).map(r => (
+                          <option key={r.id} value={r.id}>{r.label}</option>
+                        ))}
+                      </select>
+                    </Can>
+                  </td>
+                  <td className="py-3 px-3 text-right">
+                    <Can perm={PERMISSIONS.USER_DELETE} session={session}
+                         fallback={<span className="text-xs text-slate-400 mono-cell"><Icon.Lock className="w-3 h-3 inline mr-1"/>locked</span>}>
+                      <button
+                        onClick={() => delUser(u.id)}
+                        className="px-3 py-1 rounded-lg bg-rose-50 text-rose-600 text-xs font-medium hover:bg-rose-100 transition"
+                      >
+                        刪除
+                      </button>
+                    </Can>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="glass rounded-2xl p-5 shadow-sm border-l-4 border-amber-400">
+        <h4 className="font-bold text-slate-800 mb-2 flex items-center gap-2">
+          <Icon.Alert className="w-4 h-4 text-amber-500" />
+          試試看:切換角色觀察權限差異
+        </h4>
+        <p className="text-sm text-slate-600">
+          目前你的角色是 <Badge color={ROLES[session.user.role].color}>{ROLES[session.user.role].label}</Badge>。
+          {!canWrite && ' 你沒有 user:write 權限,所以無法變更其他人的角色。'}
+          {!canDelete && ' 你也沒有 user:delete 權限,刪除按鈕已被 CanGuard 隱藏。'}
+        </p>
+      </div>
+    </div>
+  );
+};
+
+/* ===========================================================
+ * /app/(dashboard)/roles/page.jsx — 角色權限矩陣
+ * ============================================================ */
+const RolesPage = ({ session }) => {
+  const [roleMatrix, setRoleMatrix] = useState(() => {
+    const m = {};
+    Object.entries(ROLES).forEach(([id, r]) => {
+      m[id] = new Set(r.permissions);
+    });
+    return m;
+  });
+  const canWrite = rbac.can(session, PERMISSIONS.ROLE_WRITE);
+
+  const togglePerm = (roleId, perm) => {
+    if (!canWrite) {
+      logAudit({ user: session.user.name, role: session.user.role, action: 'ROLE_WRITE', target: `${roleId}:${perm}`, result: 'DENIED' });
+      alert('⛔ 權限不足:role:write 被拒。事件已寫入稽核日誌。');
+      return;
+    }
+    setRoleMatrix(prev => {
+      const next = { ...prev, [roleId]: new Set(prev[roleId]) };
+      if (next[roleId].has(perm)) next[roleId].delete(perm);
+      else next[roleId].add(perm);
+      return next;
+    });
+    logAudit({
+      user: session.user.name, role: session.user.role,
+      action: 'ROLE_WRITE',
+      target: `${roleId} ${roleMatrix[roleId].has(perm) ? '−' : '+'} ${perm}`,
+      result: 'OK',
+    });
+  };
+
+  const reset = () => {
+    const m = {};
+    Object.entries(ROLES).forEach(([id, r]) => { m[id] = new Set(r.permissions); });
+    setRoleMatrix(m);
+  };
+
+  return (
+    <div className="space-y-6 fade-in">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">角色權限矩陣</h1>
+          <p className="text-sm text-slate-500">點擊格子切換權限 · 即時生效 · 對應 <span className="mono-cell text-xs bg-slate-100 px-1.5 py-0.5 rounded">/roles/page.jsx</span></p>
+        </div>
+        <Can perm={PERMISSIONS.ROLE_WRITE} session={session}>
+          <button onClick={reset} className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs hover:bg-slate-50">
+            ↺ 還原預設
+          </button>
+        </Can>
+      </div>
+
+      <div className="glass rounded-2xl p-5 shadow-sm overflow-x-auto">
+        <table className="w-full text-sm border-collapse">
+          <thead>
+            <tr>
+              <th className="text-left p-3 text-xs font-medium text-slate-500 sticky left-0 bg-white/80 backdrop-blur">權限 \ 角色</th>
+              {Object.entries(ROLES).map(([id, r]) => (
+                <th key={id} className="p-3 text-center min-w-[120px]">
+                  <div className="font-bold text-slate-700">{r.label}</div>
+                  <div className="text-[10px] text-slate-400 mono-cell mt-0.5">{id}</div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {ALL_PERMS.map(perm => (
+              <tr key={perm} className="border-t border-slate-100 hover:bg-brand-50/30 transition">
+                <td className="p-3 mono-cell text-[11px] text-slate-600 sticky left-0 bg-white/80 backdrop-blur">{perm}</td>
+                {Object.entries(ROLES).map(([roleId, role]) => {
+                  const has = roleMatrix[roleId].has(perm);
+                  return (
+                    <td key={roleId} className="p-2 text-center">
+                      <button
+                        onClick={() => togglePerm(roleId, perm)}
+                        disabled={!canWrite}
+                        className={`w-9 h-9 rounded-lg inline-flex items-center justify-center transition
+                          ${has ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/30' : 'bg-slate-100 text-slate-300'}
+                          ${canWrite ? 'hover:scale-110 cursor-pointer' : 'cursor-not-allowed opacity-70'}`}
+                        data-tip={has ? `已授權 ${perm}` : `未授權 ${perm}`}
+                      >
+                        {has ? <Icon.Check className="w-4 h-4" /> : <Icon.X className="w-4 h-4" />}
+                      </button>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {!canWrite && (
+        <div className="glass rounded-2xl p-5 shadow-sm border-l-4 border-rose-400">
+          <h4 className="font-bold text-slate-800 mb-2 flex items-center gap-2">
+            <Icon.Lock className="w-4 h-4 text-rose-500" />
+            目前為唯讀模式
+          </h4>
+          <p className="text-sm text-slate-600">
+            你的角色 <Badge color={ROLES[session.user.role].color}>{ROLES[session.user.role].label}</Badge> 沒有 role:write 權限。
+            切換到「系統管理員」即可編輯權限矩陣(變更會即時生效,並寫入稽核日誌)。
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* ===========================================================
+ * /app/(dashboard)/audit/page.jsx
+ * ============================================================ */
+const AuditPage = ({ session }) => {
+  const [filter, setFilter] = useState('ALL');
+  const filtered = useMemo(() => {
+    if (filter === 'ALL') return seedAudit;
+    return seedAudit.filter(a => a.result === filter);
+  }, [filter]);
+
+  return (
+    <div className="space-y-6 fade-in">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">稽核日誌</h1>
+          <p className="text-sm text-slate-500">所有 RBAC 決策都會記錄於此 · 對應 <span className="mono-cell text-xs bg-slate-100 px-1.5 py-0.5 rounded">/api/audit/route.js</span></p>
+        </div>
+        <div className="flex gap-2">
+          {['ALL','OK','DENIED'].map(f => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition
+                ${filter === f ? 'bg-brand-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}
+            >
+              {f === 'ALL' ? '全部' : f === 'OK' ? '✓ 通過' : '✗ 拒絕'}
+              <span className="ml-1 mono-cell opacity-70">
+                {f === 'ALL' ? seedAudit.length : seedAudit.filter(a => a.result === f).length}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="glass rounded-2xl p-5 shadow-sm">
+        <div className="space-y-2 max-h-[600px] overflow-y-auto">
+          {filtered.map(a => (
+            <div key={a.id} className={`flex items-start gap-3 px-4 py-3 rounded-xl border
+              ${a.result === 'OK' ? 'bg-emerald-50/40 border-emerald-100' : 'bg-rose-50/40 border-rose-100'}`}>
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0
+                ${a.result === 'OK' ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
+                {a.result === 'OK' ? <Icon.Check className="w-4 h-4" /> : <Icon.Lock className="w-4 h-4" />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-medium text-slate-700">{a.user}</span>
+                  <Badge color={ROLES[a.role]?.color || 'slate'}>{ROLES[a.role]?.label || a.role}</Badge>
+                  <span className="text-xs text-slate-500">→</span>
+                  <span className="mono-cell text-xs text-slate-700 font-medium">{a.action}</span>
+                  <span className="text-xs text-slate-500">on</span>
+                  <span className="mono-cell text-xs text-slate-700">{a.target}</span>
+                </div>
+                <div className="text-[10px] text-slate-400 mono-cell mt-1">{a.ts}</div>
+              </div>
+              <Badge color={a.result === 'OK' ? 'green' : 'red'}>{a.result}</Badge>
+            </div>
+          ))}
+          {filtered.length === 0 && (
+            <div className="text-center text-slate-400 py-8 text-sm">沒有符合的紀錄</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ===========================================================
+ * /app/(dashboard)/billing/page.jsx  &  /settings/page.jsx — 受保護頁面示範
+ * ============================================================ */
+const BillingPage = ({ session }) => (
+  <div className="space-y-6 fade-in">
+    <div>
+      <h1 className="text-2xl font-bold text-slate-800">帳務管理</h1>
+      <p className="text-sm text-slate-500">需要 <Badge color="sky">billing:read</Badge> 權限</p>
+    </div>
+    <div className="grid md:grid-cols-2 gap-4">
+      {[
+        { id: 'INV-2026-0712', amount: 'NT$ 12,400', status: '已付款', color: 'emerald' },
+        { id: 'INV-2026-0711', amount: 'NT$ 8,200',  status: '待付款', color: 'amber'   },
+        { id: 'INV-2026-0710', amount: 'NT$ 23,100', status: '已退款', color: 'slate'   },
+        { id: 'INV-2026-0709', amount: 'NT$ 4,500',  status: '已付款', color: 'emerald' },
+      ].map(inv => (
+        <div key={inv.id} className="glass rounded-2xl p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <span className="mono-cell text-xs text-slate-500">{inv.id}</span>
+            <Badge color={inv.color}>{inv.status}</Badge>
+          </div>
+          <div className="text-2xl font-bold text-slate-800">{inv.amount}</div>
+          <div className="text-xs text-slate-400 mt-1">2026-07-{10 + Math.floor(Math.random()*20)}</div>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+const SettingsPage = ({ session }) => (
+  <div className="space-y-6 fade-in">
+    <div>
+      <h1 className="text-2xl font-bold text-slate-800">系統設定</h1>
+      <p className="text-sm text-slate-500">需要 <Badge color="rose">settings:write</Badge> 權限</p>
+    </div>
+    <div className="glass rounded-2xl p-6 shadow-sm space-y-4">
+      <div className="flex items-center justify-between py-3 border-b border-slate-100">
+        <div>
+          <div className="font-medium text-slate-700">強制雙因素認證 (2FA)</div>
+          <div className="text-xs text-slate-500">所有管理員必須啟用 TOTP</div>
+        </div>
+        <Can perm={PERMISSIONS.SETTINGS_WRITE} session={session}
+             fallback={<Icon.Lock className="w-4 h-4 text-rose-500" />}>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" defaultChecked className="sr-only peer" />
+            <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:bg-emerald-500 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
+          </label>
+        </Can>
+      </div>
+      <div className="flex items-center justify-between py-3 border-b border-slate-100">
+        <div>
+          <div className="font-medium text-slate-700">Session 逾時 (分鐘)</div>
+          <div className="text-xs text-slate-500">無操作自動登出時間</div>
+        </div>
+        <Can perm={PERMISSIONS.SETTINGS_WRITE} session={session}
+             fallback={<span className="text-slate-400 mono-cell text-xs">60</span>}>
+          <input type="number" defaultValue={60} className="w-20 px-2 py-1 rounded-lg border border-slate-200 text-sm text-right" />
+        </Can>
+      </div>
+    </div>
+  </div>
+);
+
+/* ===========================================================
+ * Forbidden page (middleware 攔截後顯示)
+ * ============================================================ */
+const ForbiddenPage = ({ session, path, onNavigate }) => {
+  // 找出需要哪個權限
+  const required = (() => {
+    const m = path.match(/^\/(\w+)/);
+    const map = {
+      users: PERMISSIONS.USER_READ, roles: PERMISSIONS.ROLE_READ,
+      billing: PERMISSIONS.BILLING_READ, settings: PERMISSIONS.SETTINGS_WRITE,
+      audit: PERMISSIONS.AUDIT_READ,
+    };
+    return map[m?.[1]] || null;
+  })();
+  const role = ROLES[session.user.role];
+  return (
+    <div className="flex items-center justify-center min-h-[60vh] fade-in">
+      <div className="glass rounded-3xl p-10 max-w-lg text-center shadow-xl">
+        <div className="w-20 h-20 mx-auto mb-5 rounded-2xl bg-gradient-to-br from-rose-500 to-pink-500 flex items-center justify-center shadow-lg shadow-rose-500/40">
+          <Icon.Lock className="w-10 h-10 text-white" />
+        </div>
+        <h2 className="text-2xl font-bold text-slate-800 mb-2">403 · 存取被拒絕</h2>
+        <p className="text-sm text-slate-600 mb-4">
+          middleware.js 已攔截此路由,因為你的角色缺少必要權限。
+        </p>
+        <div className="bg-slate-50 rounded-xl p-4 mb-6 text-left space-y-2">
+          <div className="flex justify-between text-xs">
+            <span className="text-slate-500">嘗試存取路徑</span>
+            <span className="mono-cell text-slate-700">{path}</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-slate-500">必要權限</span>
+            <span className="mono-cell text-rose-600 font-medium">{required || '-'}</span>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-slate-500">你的角色</span>
+            <Badge color={role.color}>{role.label}</Badge>
+          </div>
+          <div className="flex justify-between text-xs">
+            <span className="text-slate-500">擁有此權限的角色</span>
+            <span className="text-xs text-slate-700">
+              {Object.entries(ROLES).filter(([_,r]) => required && r.permissions.has(required)).map(([id]) => ROLES[id].label).join('、')}
+            </span>
+          </div>
+        </div>
+        <button
+          onClick={() => onNavigate('/')}
+          className="px-5 py-2.5 rounded-xl bg-brand-600 text-white text-sm font-medium shadow-md hover:bg-brand-700 transition"
+        >
+          ← 返回儀表板
+        </button>
+      </div>
+    </div>
+  );
+};
+
+/* ===========================================================
+ * Root App — 對應 /app/layout.jsx
+ * ============================================================ */
+const App = () => {
+  // 模擬 sessionStorage 的 session (實際 Next.js 會用 cookies/JWT)
+  const [session, setSession] = useState(null);
+  const [currentPath, setCurrentPath] = useState('/');
+  const [bootDone, setBootDone] = useState(false);
+
+  useEffect(() => {
+    // 模擬 hydrate (Next.js 的 root layout 載入流程)
+    const saved = sessionStorage.getItem('rbac_session');
+    if (saved) {
+      try { setSession(JSON.parse(saved)); } catch {}
+    }
+    setBootDone(true);
+  }, []);
+
+  const handleLogin = (user) => {
+    const sess = { user, loginAt: Date.now() };
+    setSession(sess);
+    sessionStorage.setItem('rbac_session', JSON.stringify(sess));
+    logAudit({ user: user.name, role: user.role, action: 'LOGIN', target: '-', result: 'OK' });
+    setCurrentPath('/');
+  };
+
+  const handleLogout = () => {
+    logAudit({ user: session.user.name, role: session.user.role, action: 'LOGOUT', target: '-', result: 'OK' });
+    setSession(null);
+    sessionStorage.removeItem('rbac_session');
+    setCurrentPath('/');
+  };
+
+  // middleware 邏輯 — 在 render 前先檢查
+  const guardResult = useMemo(() => {
+    if (!bootDone) return 'loading';
+    if (!session) return 'no-session';
+    return rbac.guardRoute(session, currentPath) ? 'allow' : 'deny';
+  }, [session, currentPath, bootDone]);
+
+  if (!bootDone) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-slate-400 text-sm mono-cell">⟳ hydrating layout…</div>
+      </div>
+    );
+  }
+
+  if (!session || guardResult === 'no-session') {
+    return <LoginPage onLogin={handleLogin} />;
+  }
+
+  // 路由解析
+  let page;
+  if (guardResult === 'deny') {
+    page = <ForbiddenPage session={session} path={currentPath} onNavigate={setCurrentPath} />;
+  } else {
+    switch (currentPath) {
+      case '/':         page = <Dashboard session={session} />; break;
+      case '/users':    page = <UsersPage session={session} />; break;
+      case '/roles':    page = <RolesPage session={session} />; break;
+      case '/billing':  page = <BillingPage session={session} />; break;
+      case '/settings': page = <SettingsPage session={session} />; break;
+      case '/audit':    page = <AuditPage session={session} />; break;
+      default:          page = <Dashboard session={session} />;
+    }
+  }
+
+  return (
+    <div className="min-h-screen flex">
+      <Sidebar session={session} currentPath={currentPath} onNavigate={setCurrentPath} onLogout={handleLogout} />
+      <main className="flex-1 p-6 lg:p-8 overflow-y-auto">
+        <div className="max-w-6xl mx-auto">{page}</div>
+      </main>
+    </div>
+  );
+};
+
+const root = ReactDOM.createRoot(document.getElementById('app'));
+root.render(<App />);
+</script>
+</body>
+</html>
