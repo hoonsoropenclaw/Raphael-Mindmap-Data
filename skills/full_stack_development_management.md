@@ -1,7 +1,7 @@
-# 全端 JavaScript 与 TypeScript 开发：构建现代 Web 应用
+# 全栈开发管理：全面管理全栈开发中的 JavaScript、UI 和 API 组件
 
 ## 概述
-本微技能专注于使用现代 JavaScript 和 TypeScript 进行全端应用开发，涵盖前端与后端的集成、实时数据处理、用户界面设计以及安全性与权限管理。通过本技能，开发者将能够构建高效、可维护、可扩展且具备良好用户体验的 Web 应用，确保代码的可靠性和性能。
+本微技能旨在全面掌握全栈开发中的 JavaScript、UI 和 API 组件的管理与集成，涵盖前端与后端的集成、实时数据处理、用户界面设计、安全性与权限管理，以及 JavaScript 编译过程和自动化流程的优化。通过本技能，开发者将能够构建高效、可维护、可扩展且具备良好用户体验的 Web 应用，确保代码的可靠性和性能。
 
 ---
 
@@ -260,7 +260,4 @@ def process_file():
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
     pipeline = Pipeline()
-    stats = pipeline.get_stats()
-    return jsonify(stats), 200
-
-@app.route('/api/docs', methods=['
+    stats =

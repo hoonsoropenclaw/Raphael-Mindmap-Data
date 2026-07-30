@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<title>人事案件處理中心 — React Flow + RBAC</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+<!-- ESM-only: React + ReactDOM + React Flow 同一個 module graph,確保 hook dispatcher 一致 -->
+<script type="module">
+  import * as React from 'https://esm.sh/react@18.2.0';
+  import * as ReactDOM from 'https://esm.sh/react-dom@18.2.0/client';
+  import * as RF from 'https://esm.sh/reactflow@11.10.1?deps=react@18.2.0,react-dom@18.2.0';
+  window.React = React;
+  window.ReactDOM = ReactDOM;
+  window.ReactFlow = RF;
+  window.dispatchEvent(new Event('reactflow-ready'));
+</script>
+
+<!-- Babel for in-browser JSX (standalone, 不污染 global React) -->
+<script src="https://unpkg.com/@babel/standalone@7.24.0/babel.min.js"></script>
+
+<!-- Error overlay for debugging -->
+<script>
+  window.__hermesErrs = [];
+  function __hermesShowErr(msg) {
+    window.__hermesErrs.push(msg);
+    let box = document.getElementById('hermes-error-box');
+    if (!box) {
+      box = document.createElement('pre');
+      box.id = 'hermes-error-box';
+      box.style.cssText = 'position:fixed;top:8px;right:8px;max-width:600px;max-height:60vh;overflow:auto;background:#ff6b6b;color:#fff;padding:12px;font:11px ui-monospace,monospace;white-space:pre-wrap;z-index:99999;border-radius:6px;box-shadow:0 4px 20px rgba(0,0,0,0.4);';
+      document.body.appendChild(box);
+    }
+    box.textContent = window.__hermesErrs.join('\n\n---\n\n');
+  }
+  window.addEventListener('error', (e) => { __hermesShowErr('ERROR: ' + (e.message || '?') + ' @ ' + (e.filename||'?') + ':' + (e.lineno||'?') + '\n' + (e.error?.stack || '').slice(0, 800)); });
+  const _origConsoleError = console.error;
+  console.error = (...args) => { __hermesShowErr('console.error: ' + args.map(a => { try { return typeof a === 'string' ? a : (a?.message || JSON.stringify(a).slice(0,400)); } catch(e) { return String(a).slice(0,200); } }).join(' ')); _origConsoleError.apply(console, args); };
+</script>
+
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif; background: #0a0e1a; color: #e6e9ef; overflow: hidden; }
+  #root { height: 100vh; display: flex; flex-direction: column; }
+
+  /* ==== Top bar ==== */
+  .topbar { height: 56px; padding: 0 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #1a2030; background: linear-gradient(180deg, #0f1422 0%, #0a0e1a 100%); flex-shrink: 0; }
+  .topbar h1 { font-size: 15px; margin: 0; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .topbar .pulse { width: 8px; height: 8px; border-radius: 50%; background: #51cf66; box-shadow: 0 0 8px #51cf66; animation: pulse 1.4s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.85); } }
+  .topbar .spacer { flex: 1; }
+  .topbar button { background: #2a6df4; color: white; border: 0; padding: 7px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500; }
+  .topbar button:hover { background: #1e5ad8; }
+  .topbar button.toggle { background: #1c2230; border: 1px solid #2a3042; color: #c0c6d4; }
+  .topbar button.toggle.on { background: #51cf66; border-color: #51cf66; color: #0a0e1a; }
+  .topbar .stat { font-size: 11px; color: #8a93a6; padding: 4px 10px; background: #1c2230; border-radius: 4px; border: 1px solid #2a3042; }
+  .topbar .stat strong { color: #74c0fc; font-weight: 600; margin-left: 4px; }
+
+  /* ==== Layout ==== */
+  .main { flex: 1; display: flex; min-height: 0; }
+  .sidebar { width: 220px; background: #0f1422; border-right: 1px solid #1a2030; padding: 12px; overflow-y: auto; flex-shrink: 0; }
+  .sidebar h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #8a93a6; margin: 14px 0 8px 0; font-weight: 600; }
+  .sidebar h3:first-child { margin-top: 0; }
+  .palette-node { background: #1c2230; border: 1px solid #2a3042; border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; cursor: grab; font-size: 12px; transition: all 0.15s; }
+  .palette-node:hover { border-color: #2a6df4; transform: translateX(2px); }
+  .palette-node .pn-title { font-weight: 600; margin-bottom: 2px; display: flex; align-items: center; gap: 6px; }
+  .palette-node .pn-desc { font-size: 10px; color: #8a93a6; }
+
+  .flow { flex: 1; position: relative; background: #0a0e1a; }
+  .right-panel { width: 340px; background: #0f1422; border-left: 1px solid #1a2030; padding: 12px; overflow-y: auto; flex-shrink: 0; font-size: 12px; }
+  .right-panel .ptitle { font-size: 12px; font-weight: 600; margin: 0 0 8px 0; display: flex; align-items: center; gap: 6px; color: #c0c6d4; text-transform: uppercase; letter-spacing: 0.05em; }
+  .right-panel .ptitle:not(:first-child) { margin-top: 14px; }
+  .data-stream { background: #0a0e1a; border: 1px solid #1f2530; border-radius: 4px; padding: 8px; max-height: 260px; overflow-y: auto; font-family: ui-monospace, monospace; font-size: 11px; }
+  .data-row { display: flex; justify-content: space-between; padding: 3px 6px; border-bottom: 1px solid #1a2030; line-height: 1.45; }
+  .data-row:last-child { border-bottom: 0; }
+  .data-row .ts { color: #8a93a6; }
+  .data-row .val { font-weight: 600; }
+  .data-row .val.up { color: #51cf66; }
+  .data-row .val.down { color: #ff6b6b; }
+  .data-row .val.warn { color: #f59f00; }
+  .sparkline { background: #0a0e1a; border: 1px solid #1f2530; border-radius: 4px; padding: 8px; height: 70px; display: flex; align-items: flex-end; gap: 2px; }
+  .sparkline .bar { flex: 1; background: linear-gradient(180deg, #2a6df4, #1e5ad8); border-radius: 1px 1px 0 0; min-height: 4px; transition: height 0.3s ease; }
+  .sparkline .bar.over { background: linear-gradient(180deg, #ff6b6b, #c92a2a); }
+  .threshold-bar { background: #0a0e1a; border: 1px solid #1f2530; border-radius: 4px; padding: 10px; }
+  .threshold-bar .tlabel { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 4px; color: #8a93a6; }
+  .threshold-bar .tlabel .v { color: #74c0fc; font-weight: 600; }
+  .threshold-bar .track { height: 8px; background: #1c2230; border-radius: 4px; overflow: hidden; position: relative; }
+  .threshold-bar .fill { height: 100%; background: linear-gradient(90deg, #51cf66, #2a6df4); border-radius: 4px; transition: width 0.4s ease; }
+  .threshold-bar .fill.over { background: linear-gradient(90deg, #f59f00, #ff6b6b); }
+
+  /* ==== Custom node ==== */
+  .custom-node { background: #141a28; border: 2px solid #2a3042; border-radius: 10px; padding: 10px 12px; min-width: 180px; color: #e6e9ef; font-size: 12px; transition: all 0.25s; position: relative; overflow: hidden; }
+  .custom-node::before { content: ''; position: absolute; top: 0; left: -100%; width: 100%; height: 2px; background: linear-gradient(90deg, transparent, #2a6df4, transparent); animation: scan 2s linear infinite; }
+  .custom-node.active::before { animation: scan 0.8s linear infinite; }
+  .custom-node.active { border-color: #2a6df4; box-shadow: 0 0 0 3px rgba(42,109,244,0.15), 0 4px 12px rgba(42,109,244,0.2); }
+  .custom-node.alert { border-color: #ff6b6b; box-shadow: 0 0 0 3px rgba(255,107,107,0.2), 0 4px 12px rgba(255,107,107,0.25); animation: alert-shake 0.5s; }
+  .custom-node.alert::before { background: linear-gradient(90deg, transparent, #ff6b6b, transparent); }
+  @keyframes scan { 0% { left: -100%; } 100% { left: 100%; } }
+  @keyframes alert-shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+  .custom-node .cn-header { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 6px; }
+  .custom-node .cn-icon { width: 22px; height: 22px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; }
+  .custom-node .cn-type { font-size: 9px; color: #8a93a6; text-transform: uppercase; letter-spacing: 0.06em; }
+  .custom-node .cn-value { font-size: 18px; font-weight: 700; color: #74c0fc; margin-top: 4px; font-family: ui-monospace, monospace; line-height: 1.2; }
+  .custom-node .cn-value .unit { font-size: 11px; color: #8a93a6; margin-left: 3px; font-weight: 400; }
+  .custom-node .cn-meta { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 10px; color: #8a93a6; }
+  .custom-node .cn-meta .delta { font-weight: 600; }
+  .custom-node .cn-meta .delta.up { color: #51cf66; }
+  .custom-node .cn-meta .delta.down { color: #ff6b6b; }
+  .custom-node .cn-meta .delta.flat { color: #8a93a6; }
+  .custom-node .cn-spark { display: flex; align-items: flex-end; gap: 1px; height: 18px; margin-top: 6px; }
+  .custom-node .cn-spark .b { flex: 1; background: #2a6df4; border-radius: 1px 1px 0 0; min-height: 2px; transition: height 0.3s; }
+  .custom-node .cn-spark .b.warn { background: #f59f00; }
+  .custom-node .cn-spark .b.alert { background: #ff6b6b; }
+
+  /* Node type accent colors */
+  .node-source .cn-icon { background: #1864ab; color: #fff; }
+  .node-source { border-left: 3px solid #1864ab; }
+  .node-transform .cn-icon { background: #862e9c; color: #fff; }
+  .node-transform { border-left: 3px solid #862e9c; }
+  .node-aggregate .cn-icon { background: #5f3dc4; color: #fff; }
+  .node-aggregate { border-left: 3px solid #5f3dc4; }
+  .node-threshold .cn-icon { background: #e67700; color: #fff; }
+  .node-threshold { border-left: 3px solid #e67700; }
+  .node-alert .cn-icon { background: #c92a2a; color: #fff; }
+  .node-alert { border-left: 3px solid #c92a2a; }
+  .node-dashboard .cn-icon { background: #2b8a3e; color: #fff; }
+  .node-dashboard { border-left: 3px solid #2b8a3e; min-width: 200px; }
+
+  /* React Flow overrides */
+  .react-flow__edge-path { stroke: #4a5568; stroke-width: 2; }
+  .react-flow__edge.active .react-flow__edge-path { stroke: #2a6df4; stroke-width: 2.5; }
+  .react-flow__edge.alert .react-flow__edge-path { stroke: #ff6b6b; stroke-width: 2.5; }
+  .react-flow__edge .react-flow__edge-text { font-size: 10px; fill: #8a93a6; font-family: ui-monospace, monospace; }
+  .react-flow__edge-textbg { fill: #141a28; }
+  .react-flow__handle { background: #2a6df4; border: 2px solid #141a28; width: 10px; height: 10px; }
+  .react-flow__attribution { background: transparent !important; color: #4a5568 !important; }
+  .react-flow__controls button { background: #141a28 !important; color: #e6e9ef !important; border-bottom: 1px solid #1f2530 !important; fill: #e6e9ef !important; }
+  .react-flow__controls button:hover { background: #2a6df4 !important; }
+  .react-flow__minimap { background: #0f1422 !important; }
+  .react-flow__node.selected .custom-node { box-shadow: 0 0 0 2px #2a6df4, 0 4px 16px rgba(42,109,244,0.3); }
+  .react-flow__node.selected .custom-node::before { background: linear-gradient(90deg, transparent, #74c0fc, transparent); }
+
+  /* ==== Animated data particle on edge ==== */
+  @keyframes flow-particle { 0% { offset-distance: 0%; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { offset-distance: 100%; opacity: 0; } }
+  .data-particle { fill: #74c0fc; filter: drop-shadow(0 0 4px #74c0fc); }
+
+  /* ==== Hint ==== */
+  .hint { font-size: 10px; color: #4a5568; line-height: 1.7; padding: 8px; background: #0a0e1a; border-radius: 4px; border: 1px solid #1f2530; margin-top: 8px; }
+
+  /* ==== Toolbar inside node header ==== */
+  .node-toolbar { position: absolute; top: 4px; right: 4px; display: flex; gap: 3px; opacity: 0; transition: opacity 0.15s; }
+  .custom-node:hover .node-toolbar { opacity: 1; }
+  .node-toolbar button { background: #1c2230; border: 1px solid #2a3042; color: #8a93a6; width: 18px; height: 18px; border-radius: 3px; font-size: 10px; cursor: pointer; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+  .node-toolbar button:hover { background: #ff6b6b; color: white; border-color: #ff6b6b; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="env,react">
+const { useState, useEffect, useCallback, useRef, useMemo } = React;
+const e = React.createElement;
+
+// ====== 模擬即時數據源 (代替真實 WebSocket / API) ======
+class DataSimulator {
+  constructor() {
+    this.subscribers = new Set();
+    this.tick = 0;
+    this.timer = null;
+    this.metrics = {
+      cpu: 8,
+      memory: 62,
+      network_in: 4,
+      network_out: 85,
+      requests: 12,
+      latency: 24,
+      error_rate: 0.3,
+      revenue: 48,
+      active_users: 7,
+    };
+  }
+  subscribe(cb) { this.subscribers.add(cb); return () => this.subscribers.delete(cb); }
+  start(intervalMs = 800) {
+    if (this.timer) return;
+    this.timer = setInterval(() => {
+      this.tick++;
+      // 隨機擾動,讓某些 metric 偶爾突破 threshold
+      const noise = (v, range) => v + (Math.random() - 0.5) * range;
+      this.metrics.cpu = Math.max(10, Math.min(99, noise(this.metrics.cpu, 12)));
+      this.metrics.memory = Math.max(20, Math.min(95, noise(this.metrics.memory, 8)));
+      this.metrics.network_in = Math.max(50, noise(this.metrics.network_in, 40));
+      this.metrics.network_out = Math.max(30, noise(this.metrics.network_out, 30));
+      this.metrics.requests = Math.max(800, this.metrics.requests + Math.floor((Math.random() - 0.4) * 80));
+      this.metrics.latency = Math.max(5, Math.min(150, noise(this.metrics.latency, 10)));
+      this.metrics.error_rate = Math.max(0, Math.min(5, noise(this.metrics.error_rate, 0.4)));
+      this.metrics.revenue = Math.max(30000, this.metrics.revenue + Math.floor((Math.random() - 0.45) * 350));
+      this.metrics.active_users = Math.max(150, Math.min(800, noise(this.metrics.active_users, 18)));
+      // 廣播給所有 subscriber
+      this.subscribers.forEach(cb => cb({ ...this.metrics }, this.tick));
+    }, intervalMs);
+  }
+  stop() { if (this.timer) { clearInterval(this.timer); this.timer = null; } }
+}
+
+const dataSim = new DataSimulator();
+
+// ====== 等待 React Flow 模組載入 ======
+function App() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    if (window.ReactFlow) { setReady(true); return; }
+    const handler = () => setReady(true);
+    window.addEventListener('reactflow-ready', handler);
+    return () => window.removeEventListener('reactflow-ready', handler);
+  }, []);
+  if (!ready) return e('div', { style: { padding: 40, color: '#8a93a6' } }, '⏳ 載入 React Flow 模組中…');
+  return e(WorkflowApp);
+}
+
+// ====== 節點類型定義 ======
+const NODE_TYPES = {
+  source:      { label: '案件收件',   icon: '收', type: 'staff · create', color: '#1864ab', desc: '人事承辦建立案件與附件' },
+  transform:   { label: '資料檢核',   icon: '核', type: 'staff · edit', color: '#862e9c', desc: '檢查欄位、附件與法規依據' },
+  aggregate:   { label: '單位會辦',   icon: '會', type: 'manager · review', color: '#5f3dc4', desc: '相關單位提供會辦意見' },
+  threshold:   { label: '主管簽核', icon: '簽', type: 'manager · approve', color: '#e67700', desc: '依權限核准、退回或加簽' },
+  alert:       { label: '結果通知', icon: '通', type: 'staff · notify', color: '#c92a2a', desc: '通知申請人與相關承辦' },
+  dashboard:   { label: '歸檔稽核', icon: '檔', type: 'admin · audit', color: '#2b8a3e', desc: '唯讀稽核軌跡與案件歸檔' },
+};
+
+// 各節點的 metric 綁定 (顯示在節點上的數值)
+const NODE_METRIC = {
+  // source 顯示所有 metric
+  // transform: 對輸入做運算
+  // aggregate: 平均
+  // threshold: 比較值
+  // alert: 觸發次數
+  // dashboard: 總覽
+};
+
+// ====== 自訂節點元件 (即時數據視覺化) ======
+function CustomNode({ id, data, selected }) {
+  const { Handle, Position } = window.ReactFlow;
+  const meta = NODE_TYPES[data.kind] || NODE_TYPES.source;
+  const v = data.value;
+  const sparkData = data.spark || [];
+  const isAlert = data.alert;
+
+  // 根據 kind 決定顯示什麼
+  let displayValue = '—';
+  let displayUnit = '';
+  let sub = null;
+
+  if (data.kind === 'source') {
+    const metricKey = data.metric || 'cpu';
+    const mv = v ? v[metricKey] : null;
+    if (mv !== null && mv !== undefined) {
+      const decimals = ['requests', 'revenue', 'active_users'].includes(metricKey) ? 0 : 1;
+      displayValue = decimals === 0 ? Math.round(mv).toLocaleString() : mv.toFixed(1);
+      displayUnit = ({ cpu: '%', memory: '%', network_in: 'KB/s', network_out: 'KB/s', requests: 'rps', latency: 'ms', error_rate: '%', revenue: 'TWD', active_users: '人' })[metricKey] || '';
+    }
+    sub = e('div', { className: 'cn-meta' },
+      e('span', null, 'METRIC'),
+      e('span', { style: { color: '#74c0fc' } }, metricKey),
+    );
+  } else if (data.kind === 'transform') {
+    if (v) {
+      // 假設 input 是 network_in, transform 換算成 MB/s 並加 1.6 倍放大 (示例)
+      const transformed = ((v.network_in || 0) / 1024 * 1.6);
+      displayValue = transformed.toFixed(3);
+      displayUnit = 'MB/s';
+    }
+    sub = e('div', { className: 'cn-meta' }, e('span', null, 'ƒ(x) ÷1024 ×1.6'));
+  } else if (data.kind === 'aggregate') {
+    if (v) {
+      const sum = (v.cpu + v.memory + v.latency) / 3;
+      displayValue = sum.toFixed(1);
+      displayUnit = 'avg';
+    }
+    sub = e('div', { className: 'cn-meta' }, e('span', null, 'AVG(CPU+MEM+LAT)'));
+  } else if (data.kind === 'threshold') {
+    if (v) {
+      const err = v.error_rate;
+      displayValue = err.toFixed(2);
+      displayUnit = '%';
+      const isOver = err > (data.threshold || 2);
+      sub = e('div', { className: 'cn-meta' },
+        e('span', null, 'LIMIT'),
+        e('span', { className: 'delta ' + (isOver ? 'up' : 'flat') }, '≤ ' + (data.threshold || 2).toFixed(1) + '%'),
+      );
+    }
+  } else if (data.kind === 'alert') {
+    displayValue = String(data.alertCount || 0);
+    displayUnit = '次';
+    sub = e('div', { className: 'cn-meta' }, e('span', null, 'TRIGGERED'));
+  } else if (data.kind === 'dashboard') {
+    if (v) {
+      const total = Math.round((v.requests || 0) + (v.active_users || 0));
+      displayValue = total.toLocaleString();
+      displayUnit = 'sum';
+    }
+    sub = e('div', { className: 'cn-meta' }, e('span', null, 'TOTAL'));
+  }
+
+  return e('div', {
+    className: `custom-node node-${data.kind} ${selected ? 'selected' : ''} ${data.active ? 'active' : ''} ${isAlert ? 'alert' : ''}`,
+  },
+    data.kind !== 'source' && e(Handle, { type: 'target', position: Position.Left, style: { background: '#74c0fc' } }),
+    e('div', { className: 'cn-header' },
+      e('span', { className: 'cn-icon' }, meta.icon),
+      e('span', null, data.label || meta.label),
+    ),
+    e('div', { className: 'cn-type' }, meta.type + (data.tick ? ' · #' + data.tick : '')),
+    e('div', { className: 'cn-value' },
+      displayValue,
+      displayUnit && e('span', { className: 'unit' }, displayUnit),
+    ),
+    sub,
+    sparkData.length > 0 && e('div', { className: 'cn-spark' },
+      ...sparkData.slice(-20).map((sv, i) => {
+        const max = Math.max(...sparkData, 1);
+        const h = Math.max(2, (sv / max) * 18);
+        const cls = isAlert ? 'alert' : (h > 14 ? 'warn' : '');
+        return e('div', { key: i, className: 'b ' + cls, style: { height: h + 'px' } });
+      })
+    ),
+    e('div', { className: 'node-toolbar' },
+      e('button', { title: '刪除', onClick: (ev) => { ev.stopPropagation(); data.onDelete && data.onDelete(id); } }, '×'),
+    ),
+    !['alert', 'dashboard'].includes(data.kind) && e(Handle, { type: 'source', position: Position.Right, style: { background: '#74c0fc' } }),
+  );
+}
+
+const nodeTypes = { custom: CustomNode };
+
+// ====== 左側面板 ======
+function NodePalette({ onAdd }) {
+  return e('div', { className: 'sidebar' },
+    e('h3', null, '人事案件節點'),
+    ...Object.entries(NODE_TYPES).map(([key, meta]) =>
+      e('div', {
+        key,
+        className: 'palette-node',
+        draggable: true,
+        onDragStart: (ev) => {
+          ev.dataTransfer.setData('application/hermes-node', key);
+          ev.dataTransfer.effectAllowed = 'move';
+        },
+        onClick: () => onAdd(key),
+      },
+        e('div', { className: 'pn-title' },
+          e('span', null, meta.icon),
+          e('span', null, meta.label),
+        ),
+        e('div', { className: 'pn-desc' }, meta.desc),
+      )
+    ),
+    e('h3', null, 'RBAC 角色矩陣'),
+    e('div', { style: { fontSize: 11, color: '#c0c6d4', lineHeight: 1.7 } },
+      e('div', null, 'Admin：完整管理 / 稽核'),
+      e('div', null, 'Manager：會辦 / 簽核'),
+      e('div', null, 'Staff：建立 / 編修 / 通知'),
+      e('div', null, 'Viewer：唯讀案件進度'),
+    ),
+    e('h3', null, '使用說明'),
+    e('div', { className: 'hint' },
+      '① 從面板拖曳或點擊新增案件節點',
+      e('br'), '② 拖曳節點邊緣圓點建立連線',
+      e('br'), '③ 權限標示直接顯示於節點副標',
+      e('br'), '④ 流程異常會以紅色狀態提示',
+      e('br'), '⑤ 實務後端仍須再次強制授權',
+      e('br'), '⑥ 本頁為可互動的前端 RBAC 原型',
+    ),
+  );
+}
+
+// ====== 主應用 ======
+function WorkflowApp() {
+  const RF = window.ReactFlow;
+  const {
+    ReactFlowProvider, ReactFlow, Background, Controls, MiniMap,
+    applyNodeChanges, applyEdgeChanges, addEdge, MarkerType,
+  } = RF;
+
+  const reactFlowWrapper = useRef(null);
+  const [rfInstance, setRfInstance] = useState(null);
+
+  // 預設人事案件 SOP：收件 → 檢核/會辦 → 簽核 → 通知/歸檔
+  const initialNodes = [
+    { id: 'src1', type: 'custom', position: { x: 60, y: 60 }, data: { kind: 'source', label: '任免案收件', metric: 'requests', value: null, spark: [], tick: 0 } },
+    { id: 'src2', type: 'custom', position: { x: 60, y: 240 }, data: { kind: 'source', label: '差勤案收件', metric: 'active_users', value: null, spark: [], tick: 0 } },
+    { id: 'tx1', type: 'custom', position: { x: 340, y: 60 }, data: { kind: 'transform', label: '人事資料檢核', value: null, spark: [], tick: 0 } },
+    { id: 'ag1', type: 'custom', position: { x: 340, y: 240 }, data: { kind: 'aggregate', label: '主計／教務會辦', value: null, spark: [], tick: 0 } },
+    { id: 'th1', type: 'custom', position: { x: 620, y: 150 }, data: { kind: 'threshold', label: '人事主任簽核', threshold: 2, value: null, spark: [], tick: 0 } },
+    { id: 'al1', type: 'custom', position: { x: 880, y: 60 }, data: { kind: 'alert', label: '核定結果通知', alertCount: 0, value: null, spark: [], tick: 0 } },
+    { id: 'db1', type: 'custom', position: { x: 880, y: 240 }, data: { kind: 'dashboard', label: '案件歸檔與稽核', value: null, spark: [], tick: 0 } },
+  ];
+  const initialEdges = [
+    { id: 'e-src1-tx1', source: 'src1', target: 'tx1', animated: true, label: 'raw',  style: { stroke: '#4a5568' } },
+    { id: 'e-src2-ag1', source: 'src2', target: 'ag1', animated: true, label: 'stream', style: { stroke: '#4a5568' } },
+    { id: 'e-tx1-th1',  source: 'tx1',  target: 'th1', animated: true, label: 'normalized', style: { stroke: '#4a5568' } },
+    { id: 'e-ag1-th1',  source: 'ag1',  target: 'th1', animated: true, label: 'avg', style: { stroke: '#4a5568' } },
+    { id: 'e-th1-al1',  source: 'th1',  target: 'al1', animated: true, label: 'breach', style: { stroke: '#4a5568' }, markerEnd: { type: MarkerType.ArrowClosed } },
+    { id: 'e-ag1-db1',  source: 'ag1',  target: 'db1', animated: true, label: 'summary', style: { stroke: '#4a5568' } },
+    { id: 'e-tx1-db1',  source: 'tx1',  target: 'db1', animated: true, label: 'tx', style: { stroke: '#4a5568' } },
+  ];
+
+  const [nodes, setNodes] = useState(initialNodes);
+  const [edges, setEdges] = useState(initialEdges);
+  const [streaming, setStreaming] = useState(true);
+  const [tickCount, setTickCount] = useState(0);
+  const [streamLog, setStreamLog] = useState([]);
+  const [stats, setStats] = useState({ totalMsgs: 0, activeEdges: 0, alerts: 0 });
+
+  // 累積 alert 數
+  const alertCountRef = useRef(0);
+
+  // === 即時數據訂閱 ===
+  useEffect(() => {
+    if (!streaming) return;
+    const unsub = dataSim.subscribe((metrics, tick) => {
+      setTickCount(tick);
+
+      setNodes(prev => prev.map(n => {
+        const next = { ...n, data: { ...n.data } };
+        const kind = n.data.kind;
+
+        if (kind === 'source') {
+          const metricKey = n.data.metric || 'cpu';
+          const mv = metrics[metricKey];
+          next.data.value = metrics;
+          next.data.spark = [...(n.data.spark || []), mv].slice(-30);
+          next.data.tick = tick;
+          next.data.active = true;
+          // 1.5 秒後取消 active
+          setTimeout(() => {
+            setNodes(p => p.map(x => x.id === n.id ? { ...x, data: { ...x.data, active: false } } : x));
+          }, 1500);
+        } else if (kind === 'transform') {
+          const transformed = ((metrics.network_in || 0) / 1024 * 1.6);
+          next.data.value = { ...metrics, transformed };
+          next.data.spark = [...(n.data.spark || []), transformed].slice(-30);
+          next.data.tick = tick;
+          next.data.active = true;
+          setTimeout(() => {
+            setNodes(p => p.map(x => x.id === n.id ? { ...x, data: { ...x.data, active: false } } : x));
+          }, 1500);
+        } else if (kind === 'aggregate') {
+          const sum = (metrics.cpu + metrics.memory + metrics.latency) / 3;
+          next.data.value = { ...metrics, aggregate: sum };
+          next.data.spark = [...(n.data.spark || []), sum].slice(-30);
+          next.data.tick = tick;
+          next.data.active = true;
+          setTimeout(() => {
+            setNodes(p => p.map(x => x.id === n.id ? { ...x, data: { ...x.data, active: false } } : x));
+          }, 1500);
+        } else if (kind === 'threshold') {
+          const err = metrics.error_rate;
+          next.data.value = { ...metrics };
+          next.data.spark = [...(n.data.spark || []), err].slice(-30);
+          next.data.tick = tick;
+          const isOver = err > (n.data.threshold || 2);
+          next.data.active = true;
+          next.data.alert = isOver;
+          setTimeout(() => {
+            setNodes(p => p.map(x => x.id === n.id ? { ...x, data: { ...x.data, active: false, alert: false } } : x));
+          }, 1200);
+        } else if (kind === 'alert') {
+          const err = metrics.error_rate;
+          const triggered = err > 2;
+          if (triggered) {
+            alertCountRef.current++;
+            next.data.alertCount = alertCountRef.current;
+            next.data.alert = true;
+            next.data.value = { ...metrics };
+            next.data.tick = tick;
+            next.data.active = true;
+            next.data.spark = [...(n.data.spark || []), 1].slice(-30);
+            setTimeout(() => {
+              setNodes(p => p.map(x => x.id === n.id ? { ...x, data: { ...x.data, active: false, alert: false } } : x));
+            }, 2000);
+          } else {
+            next.data.value = { ...metrics };
+            next.data.tick = tick;
+            next.data.spark = [...(n.data.spark || []), 0].slice(-30);
+          }
+        } else if (kind === 'dashboard') {
+          const total = Math.round((metrics.requests || 0) + (metrics.active_users || 0));
+          next.data.value = { ...metrics, total };
+          next.data.spark = [...(n.data.spark || []), total].slice(-30);
+          next.data.tick = tick;
+          next.data.active = true;
+          setTimeout(() => {
+            setNodes(p => p.map(x => x.id === n.id ? { ...x, data: { ...x.data, active: false } } : x));
+          }, 1500);
+        }
+        return next;
+      }));
+
+      // 更新 edges (根據 threshold 是否有 breach 來 highlight)
+      const breach = metrics.error_rate > 2;
+      setEdges(prev => prev.map(edge => {
+        const isBreachEdge = edge.source === 'th1';
+        const isFlowEdge = edge.source !== 'th1' || !breach;
+        return {
+          ...edge,
+          animated: isFlowEdge,
+          className: isBreachEdge && breach ? 'alert' : (streaming ? 'active' : ''),
+          style: { ...edge.style, stroke: isBreachEdge && breach ? '#ff6b6b' : (streaming ? '#2a6df4' : '#4a5568') },
+        };
+      }));
+
+      // 日誌
+      setStreamLog(prev => [{
+        ts: new Date().toLocaleTimeString(),
+        tick,
+        cpu: metrics.cpu.toFixed(1),
+        mem: metrics.memory.toFixed(1),
+        netIn: metrics.network_in.toFixed(0),
+        netOut: metrics.network_out.toFixed(0),
+        req: metrics.requests,
+        lat: metrics.latency.toFixed(0),
+        err: metrics.error_rate.toFixed(2),
+        alert: breach,
+      }, ...prev].slice(0, 50));
+
+      setStats(prev => ({
+        totalMsgs: prev.totalMsgs + 1,
+        activeEdges: edges.length,
+        alerts: alertCountRef.current,
+      }));
+    });
+
+    dataSim.start(900);
+    return () => { unsub(); dataSim.stop(); };
+  }, [streaming, edges.length]);
+
+  const onNodesChange = useCallback((changes) => setNodes(nds => applyNodeChanges(changes, nds)), []);
+  const onEdgesChange = useCallback((changes) => setEdges(eds => applyEdgeChanges(changes, eds)), []);
+  const onConnect = useCallback((params) => setEdges(eds => addEdge({ ...params, animated: true, style: { stroke: '#4a5568' } }, eds)), []);
+
+  // 雙擊 source 切換 metric
+  const onNodeDoubleClick = useCallback((ev, node) => {
+    if (node.data.kind === 'source') {
+      const metrics = ['cpu', 'memory', 'network_in', 'network_out', 'requests', 'latency', 'error_rate', 'revenue', 'active_users'];
+      const cur = node.data.metric || 'cpu';
+      const next = metrics[(metrics.indexOf(cur) + 1) % metrics.length];
+      setNodes(nds => nds.map(n => n.id === node.id ? { ...n, data: { ...n.data, metric: next, spark: [] } } : n));
+    }
+  }, []);
+
+  // 從面板新增節點
+  const addNode = useCallback((kind) => {
+    const id = String(Date.now());
+    const baseData = { kind, label: NODE_TYPES[kind].label, value: null, spark: [], tick: 0 };
+    if (kind === 'source') baseData.metric = 'cpu';
+    if (kind === 'threshold') baseData.threshold = 2;
+    setNodes(nds => [...nds, {
+      id, type: 'custom',
+      position: { x: 200 + Math.random() * 200, y: 100 + Math.random() * 200 },
+      data: { ...baseData, onDelete: (nid) => {
+        setNodes(p => p.filter(x => x.id !== nid));
+        setEdges(p => p.filter(e => e.source !== nid && e.target !== nid));
+      } },
+    }]);
+  }, []);
+
+  // 從面板拖曳
+  const onDragOver = useCallback((ev) => {
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = 'move';
+  }, []);
+  const onDrop = useCallback((ev) => {
+    ev.preventDefault();
+    const kind = ev.dataTransfer.getData('application/hermes-node');
+    if (!kind || !rfInstance) return;
+    const bounds = reactFlowWrapper.current.getBoundingClientRect();
+    const pos = rfInstance.screenToFlowPosition({ x: ev.clientX - bounds.left, y: ev.clientY - bounds.top });
+    const id = String(Date.now());
+    const baseData = { kind, label: NODE_TYPES[kind].label, value: null, spark: [], tick: 0 };
+    if (kind === 'source') baseData.metric = 'cpu';
+    if (kind === 'threshold') baseData.threshold = 2;
+    setNodes(nds => nds.concat({
+      id, type: 'custom', position: pos,
+      data: { ...baseData, onDelete: (nid) => {
+        setNodes(p => p.filter(x => x.id !== nid));
+        setEdges(p => p.filter(e => e.source !== nid && e.target !== nid));
+      } },
+    }));
+  }, [rfInstance]);
+
+  // 將刪除 handler 注入所有現有 node
+  useEffect(() => {
+    setNodes(prev => prev.map(n => ({
+      ...n,
+      data: { ...n.data, onDelete: (nid) => {
+        setNodes(p => p.filter(x => x.id !== nid));
+        setEdges(p => p.filter(e => e.source !== nid && e.target !== nid));
+      } },
+    })));
+  }, []);
+
+  const reset = useCallback(() => {
+    alertCountRef.current = 0;
+    setNodes(initialNodes);
+    setEdges(initialEdges);
+    setStreamLog([]);
+    setTickCount(0);
+    setStats({ totalMsgs: 0, activeEdges: initialEdges.length, alerts: 0 });
+  }, []);
+
+  const toggleStream = useCallback(() => {
+    setStreaming(s => !s);
+  }, []);
+
+  // 從 streamLog 計算 sparkline bars
+  const recentCpu = streamLog.slice(0, 30).reverse().map(r => parseFloat(r.cpu));
+  const maxCpu = Math.max(...recentCpu, 1);
+
+  return e(ReactFlowProvider, null,
+    e('div', { className: 'topbar' },
+      e('h1', null,
+        e('span', { className: 'pulse' }),
+        '人事案件處理中心 · React Flow + RBAC',
+      ),
+      e('span', { className: 'stat' }, 'SYNC', e('strong', null, '#' + tickCount)),
+      e('span', { className: 'stat' }, 'CASES', e('strong', null, stats.totalMsgs.toLocaleString())),
+      e('span', { className: 'stat' }, 'OVERDUE', e('strong', { style: { color: stats.alerts > 0 ? '#ff6b6b' : '#74c0fc' } }, stats.alerts)),
+      e('div', { className: 'spacer' }),
+      e('button', { className: 'toggle ' + (streaming ? 'on' : ''), onClick: toggleStream },
+        streaming ? '暫停案件同步' : '啟動案件同步'),
+      e('button', { onClick: reset }, '重置示範流程'),
+    ),
+    e('div', { className: 'main' },
+      e(NodePalette, { onAdd: addNode }),
+      e('div', { className: 'flow', ref: reactFlowWrapper, onDragOver, onDrop },
+        e(ReactFlow, {
+          nodes, edges,
+          onNodesChange, onEdgesChange, onConnect,
+          onNodeDoubleClick,
+          nodeTypes,
+          onInit: (inst) => {
+            setRfInstance(inst);
+            // 多重保險:onInit + 多重 setTimeout,確保 ResizeObserver 計算完
+            const tries = [100, 300, 700, 1500];
+            tries.forEach(ms => setTimeout(() => {
+              try {
+                const nodes = inst.getNodes();
+                if (nodes.length > 0) {
+                  inst.fitView({ padding: 0.18, duration: 250 });
+                }
+              } catch(e) {}
+            }, ms));
+          },
+          // 不用內建 fitView prop(它在 ResizeObserver 還沒觸發時就會跑,可能失敗)
+          fitView: false,
+          defaultViewport: { x: 0, y: 80, zoom: 0.7 },
+          defaultEdgeOptions: { animated: true, style: { stroke: '#4a5568' } },
+        },
+          e(Background, { color: '#1a2030', gap: 18 }),
+          e(Controls, { position: 'bottom-right', showInteractive: false }),
+          e(MiniMap, {
+            position: 'bottom-left',
+            nodeColor: (n) => NODE_TYPES[n.data?.kind]?.color || '#495057',
+            maskColor: 'rgba(10,14,26,0.7)',
+          }),
+        ),
+      ),
+      e('div', { className: 'right-panel' },
+        e('div', { className: 'ptitle' }, '📈 即時 CPU 趨勢 (最近 30 tick)'),
+        e('div', { className: 'sparkline' },
+          ...recentCpu.map((v, i) => {
+            const h = Math.max(4, (v / maxCpu) * 60);
+            const over = v > 80;
+            return e('div', { key: i, className: 'bar' + (over ? ' over' : ''), style: { height: h + 'px' } });
+          })
+        ),
+        e('div', { className: 'ptitle' }, '🎯 當前關鍵指標'),
+        (() => {
+          const cur = streamLog[0];
+          if (!cur) return e('div', { style: { fontSize: 11, color: '#4a5568', padding: 12 } }, '等待第一筆數據…');
+          const cpu = parseFloat(cur.cpu);
+          const mem = parseFloat(cur.mem);
+          const err = parseFloat(cur.err);
+          return e('div', null,
+            e('div', { className: 'threshold-bar', style: { marginBottom: 6 } },
+              e('div', { className: 'tlabel' }, e('span', null, 'CPU 使用率'), e('span', { className: 'v' }, cpu.toFixed(1) + '%')),
+              e('div', { className: 'track' }, e('div', { className: 'fill' + (cpu > 80 ? ' over' : ''), style: { width: cpu + '%' } })),
+            ),
+            e('div', { className: 'threshold-bar', style: { marginBottom: 6 } },
+              e('div', { className: 'tlabel' }, e('span', null, '記憶體使用率'), e('span', { className: 'v' }, mem.toFixed(1) + '%')),
+              e('div', { className: 'track' }, e('div', { className: 'fill' + (mem > 85 ? ' over' : ''), style: { width: mem + '%' } })),
+            ),
+            e('div', { className: 'threshold-bar' },
+              e('div', { className: 'tlabel' },
+                e('span', null, '錯誤率'),
+                e('span', { className: 'v', style: { color: err > 2 ? '#ff6b6b' : '#74c0fc' } }, err.toFixed(2) + '%'),
+              ),
+              e('div', { className: 'track' }, e('div', { className: 'fill' + (err > 2 ? ' over' : ''), style: { width: Math.min(100, err * 20) + '%' } })),
+            ),
+          );
+        })(),
+        e('div', { className: 'ptitle' }, '📜 數據流日誌'),
+        e('div', { className: 'data-stream' },
+          streamLog.length === 0
+            ? e('div', { style: { color: '#4a5568', padding: 8 } }, '等待串流…')
+            : streamLog.map((r, i) => {
+                const err = parseFloat(r.err);
+                return e('div', { key: i, className: 'data-row' },
+                  e('span', { className: 'ts' }, r.ts + ' #' + r.tick),
+                  e('span', { className: 'val ' + (r.alert ? 'down' : 'up') },
+                    'CPU ' + r.cpu + '% · ERR ' + r.err + '%' + (r.alert ? ' ⚠' : ''),
+                  ),
+                );
+              })
+        ),
+      ),
+    ),
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(e(App));
+</script>
+</body>
+</html>

@@ -1,36 +1,35 @@
 # React Flow Integration
 
-## 說明
-React Flow 是一個用於構建自定義流程圖的 React 庫。此技能涵蓋如何將 React Flow 整合到 React 應用程式中，包括初始化、節點和邊的渲染以及與應用程式的交互。
+## 說明...
 
-## 關鍵代碼片段
+### 目的
+將 React Flow 集成到 React 應用中，實現可拖拽、可連接的流程圖功能。
+
+### 關鍵代碼片段
 ```javascript
-import React from 'react';
-import ReactDOM from 'react-dom';
-import ReactFlow, { Background, Controls, MiniMap } from 'reactflow';
+import ReactFlow from 'reactflow';
+import 'reactflow/dist/style.css';
 
-const nodes = [/* 節點數據 */];
-const edges = [/* 邊數據 */];
-
-function FlowComponent() {
+function App() {
   return (
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
-      onNodesChange={onNodesChange}
-      onEdgesChange={onEdgesChange}
-      fitView
-      fitViewOptions={{ padding: 0.22 }}
-    >
-      <Background gap={22} size={1} />
-      <Controls />
-      <MiniMap nodeColor={(n) => (n.id === 'policy' ? '#c9aa62' : '#d97757')} maskColor='#101315aa' />
-    </ReactFlow>
+    <ReactFlowProvider>
+      <ReactFlow
+        nodes={initialNodes}
+        edges={initialEdges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+      >
+        <Controls />
+        <MiniMap />
+      </ReactFlow>
+    </ReactFlowProvider>
   );
 }
 ```
 
-## 常見錯誤及避免方法
-1. **ReactFlow 命名空間錯誤**：ReactFlow UMD 版本中，ReactFlow 是物件命名空間而非函式。應使用 `RF.ReactFlow` 而非 `RF.ReactFlow()`。
-2. **節點和邊的數據格式錯誤**：確保節點和邊的數據格式符合 React Flow 的要求，否則可能導致渲染失敗。
-3. **缺少必要的依賴**：確保所有必要的 React Flow 組件（如 `Background`, `Controls`, `MiniMap`）都已正確導入。
+### 常見錯誤及避免方法
+- **錯誤**：節點無法拖拽或連接失敗。
+  **解決方法**：確保 `ReactFlowProvider` 包裹了 `ReactFlow` 組件，並正確設置 `nodes` 和 `edges` 狀態。
+- **錯誤**：樣式問題，導致流程圖顯示異常。
+  **解決方法**：確認已正確引入 React Flow 的 CSS 文件。

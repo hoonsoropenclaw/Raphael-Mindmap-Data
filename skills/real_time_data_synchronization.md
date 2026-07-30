@@ -1,19 +1,19 @@
-# Web Data Extraction and Recognition
+# Real-Time Data Synchronization
 
 ## Target Skill Name
-web_data_extraction_and_recognition
+real_time_data_synchronization
 
 ## Target Summary
-Dynamically scrape and parse web data while implementing text recognition and related testing to create a cohesive system for processing, validating, and extracting information from web sources.
+Implement real-time data extraction, synchronization, and output within applications, ensuring data integrity, security, and efficient handling across diverse sources and formats.
 
 ---
 
-## 1. Dynamic Web Scraping and Parsing
+## 1. Data Extraction and Security
 
 ### 1.1 Advanced Site Parsing Framework
 
 #### Purpose
-Develop a flexible and extensible website parsing framework that integrates an abstract interface, a lightweight CSS selector engine, and hybrid data extraction techniques to handle diverse website structures.
+Develop a flexible and extensible website parsing framework with an abstract interface, a lightweight CSS selector engine, and hybrid data extraction techniques to handle diverse website structures.
 
 #### Site Parser Abstract Interface
 - **Purpose**: Provide an abstract interface for developers to implement custom parsing logic without altering the core framework.
@@ -149,89 +149,90 @@ def store_data(data: dict, filename_csv: str, filename_json: str, db_path: str):
 - **Parsing Errors**: Different websites have varying HTML structures, causing parsing failures.
   - **Solution**: Use more robust parsing logic or customize parsing for specific websites.
 
+### 1.3 Prompt Injection Handling
+
+#### Overview
+This skill involves handling prompt injection attacks to ensure system security. By validating and sanitizing input data, we can prevent malicious code execution.
+
+#### Key Code Snippets and Patterns
+```javascript
+function sanitizeInput(input) {
+  return input.replace(/[^a-zA-Z0-9 ]/g, '');
+}
+
+function handlePrompt(prompt) {
+  const sanitizedPrompt = sanitizeInput(prompt);
+  // Further process sanitizedPrompt
+}
+```
+
+#### Common Errors and Prevention
+- **Error**: Failure to validate and sanitize user input, leading to prompt injection attacks.
+  - **Solution**: Use regular expressions or other methods to validate and sanitize input, removing potential malicious code.
+- **Error**: Over-sanitizing input, resulting in the removal of legitimate data.
+  - **Solution**: Carefully design sanitization rules to ensure only malicious code is removed without affecting legitimate data.
+- **Error**: Lack of subsequent validation on sanitized data, leading to security vulnerabilities.
+  - **Solution**: Perform subsequent validation on sanitized data to ensure its integrity and security.
+
 ---
 
-## 2. Text Recognition and Testing
+## 2. PDF Data Extraction and Excel Output
 
-### 2.1 Text Recognition Integration
+### 2.1 Extracting Tables from Digital PDFs with `pdfplumber`
 
-#### 2.1.1 OCR Integration for Text Extraction
-- **Purpose**: Extract text from images using OCR technologies.
-- **Key Steps**:
-  1. **Library Setup**: Include Tesseract.js via CDN or npm.
-     ```html
-     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@v2.1.5/dist/tesseract.min.js"></script>
-     ```
-     or
-     ```bash
-     npm install tesseract.js
-     ```
-  2. **Image Preprocessing**: Enhance image quality through grayscale conversion, noise reduction, and contrast adjustment.
-     - **Grayscale Conversion**
-       ```javascript
-       function convertToGrayscale(imageData) {
-         const grayscaleData = [];
-         for (let i = 0; i < imageData.data.length; i += 4) {
-           const avg = (imageData.data[i] + imageData.data[i + 1] + imageData.data[i + 2]) / 3;
-           grayscaleData.push(avg, avg, avg, imageData.data[i + 3]);
-         }
-         return new ImageData(new Uint8ClampedArray(grayscaleData), imageData.width, imageData.height);
-       }
-       ```
-     - **Noise Reduction**
-       ```javascript
-       function applyGaussianBlur(imageData) {
-         // Implement Gaussian blur algorithm or use a library
-       }
-       ```
-  3. **OCR Execution**: Use Tesseract.js to perform OCR on processed images.
-     ```javascript
-     import Tesseract from 'tesseract.js';
+#### Description
+The `pdfplumber` library is used to parse and extract tables from digitally created PDF files. The `extract_tables()` method identifies and extracts table structures based on the PDF's text layout.
 
-     async function extractTextFromImage(imageElement) {
-       try {
-         const worker = await Tesseract.createWorker({
-           logger: m => console.log(`Tesseract: ${m.status} (${m.progress})`)
-         });
-         await worker.load();
-         await worker.loadLanguage('eng');
-         await worker.initialize('eng');
-         const { data: { text } } = await worker.recognize(imageElement);
-         await worker.terminate();
-         return text;
-       } catch (error) {
-         console.error('Error during OCR processing:', error);
-         throw new Error('OCR processing failed. Please try again.');
-       }
-     }
-     ```
-  4. **Text Post-processing**: Clean and format the extracted text as needed.
+#### Key Code Snippet
+```python
+import pdfplumber
 
-- **Common Pitfalls and Solutions**:
-  - **Performance Issues**: Optimize image size and resolution and use web workers to prevent blocking the main thread.
-  - **Language Support**: Ensure correct language packs are loaded.
-  - **Complex Text Structures**: Handle multi-column layouts and special characters through preprocessing or advanced OCR configurations.
+def extract_tables_with_pdfplumber(pdf_path):
+    tables = []
+    with pdfplumber.open(pdf_path) as pdf:
+        for page_number, page in enumerate(pdf.pages, start=1):
+            extracted_tables = page.extract_tables()
+            if extracted_tables:
+                for table in extracted_tables:
+                    tables.append({'page': page_number, 'data': table})
+    return tables
+```
 
-#### 2.1.2 Speech Recognition Integration
-- **Purpose**: Incorporate speech-to-text capabilities for voice-based interactions.
-- **Implementation Details**:
-  - **Client-Side Speech Processing**: Use browser-based APIs or third-party services.
-  - **Audio Preprocessing**: Enhance accuracy through noise reduction and audio normalization.
-  - **Data Extraction and Automation**: Convert spoken words into text and automate tasks.
-- **Key Code Snippet**
-  ```javascript
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const recognition = new SpeechRecognition();
+#### Common Errors and Solutions
+- **Issue**: Incorrect table boundary detection or merged cells not recognized.
+  - **Solution**: Adjust the `table_settings` parameters, such as increasing the sensitivity of `vertical_strategy` or `horizontal_strategy`.
+- **Issue**: Poor performance with large PDF files.
+  - **Solution**: Implement pagination or use multithreading to speed up the processing.
 
-  recognition.onresult = (event) => {
-    const transcript = event.results[0][0].transcript;
-    console.log('Speech recognized:', transcript);
-    // Process the transcript as needed
-  };
+### 2.2 OCR Processing for Scanned PDFs with `pytesseract`
 
-  recognition.start();
-  ```
+#### Description
+For scanned or image-based PDFs, `pytesseract` is employed to perform OCR (Optical Character Recognition) to convert images into text. The `PyMuPDF` library (`fitz`) is used to convert PDF pages into images.
 
-- **Common Pitfalls and Solutions**:
-  - **Browser Compatibility Issues**: Provide fallback options or use third-party libraries.
-  - **Audio Quality Problems**: Implement audio preprocessing and
+#### Key Code Snippet
+```python
+import pytesseract
+from PIL import Image
+import fitz  # PyMuPDF
+
+def ocr_with_pytesseract(pdf_path):
+    text = ""
+    doc = fitz.open(pdf_path)
+    for page_number in range(len(doc)):
+        page = doc.load_page(page_number)
+        pix = page.get_pixmap(dpi=300)
+        image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        ocr_text = pytesseract.image_to_string(image, lang='chi_tra+eng')
+        text += ocr_text + "\n"
+    return text
+```
+
+#### Common Errors and Solutions
+- **Issue**: Low OCR recognition accuracy.
+  - **Solution**: Ensure the image resolution is high enough (recommended 300 DPI) and use appropriate language packs (e.g., `chi_tra.traineddata`).
+- **Issue**: High memory consumption with large PDF files.
+  - **Solution**: Implement pagination or use memory-optimized processing techniques.
+
+---
+
+## 3. Real-Time Data Synchronization with WebSockets

@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calendar Workflow — Single-File Demo</title>
+  <style>
+    :root {
+      --bg: #0f1419; --panel: #1a1f2e; --panel-2: #232838; --border: #2c3344;
+      --text: #e5e9f0; --muted: #8a93a6; --accent: #6ee7b7; --accent-2: #60a5fa;
+      --warn: #fbbf24; --err: #f87171; --radius: 8px;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; background: var(--bg); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "PingFang TC", "Microsoft JhengHei", sans-serif;
+      font-size: 14px; line-height: 1.5;
+    }
+    a { color: var(--accent-2); }
+    .shell { max-width: 1100px; margin: 0 auto; padding: 24px; }
+    header.top {
+      display: flex; justify-content: space-between; align-items: baseline;
+      margin-bottom: 24px; border-bottom: 1px solid var(--border); padding-bottom: 16px;
+    }
+    header.top h1 { margin: 0; font-size: 20px; letter-spacing: 0.5px; }
+    header.top .badge {
+      font-size: 11px; padding: 2px 8px; border-radius: 4px; margin-left: 12px;
+    }
+    .badge.mock { background: var(--warn); color: #1f1500; }
+    .badge.google { background: var(--accent); color: #062c20; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+    .panel {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 18px;
+    }
+    .panel h2 {
+      margin: 0 0 14px; font-size: 14px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 1.2px;
+    }
+    .event-list { list-style: none; margin: 0; padding: 0; }
+    .event {
+      border: 1px solid var(--border); background: var(--panel-2);
+      padding: 12px 14px; border-radius: var(--radius); margin-bottom: 10px;
+      display: grid; grid-template-columns: 1fr auto; gap: 8px;
+    }
+    .event h3 { margin: 0 0 4px; font-size: 14px; }
+    .event .meta { color: var(--muted); font-size: 12px; }
+    .tag {
+      display: inline-block; padding: 1px 7px; border-radius: 4px;
+      font-size: 10px; margin-right: 6px;
+    }
+    .tag.meeting { background: #3b82f6; color: white; }
+    .tag.focus { background: #a855f7; color: white; }
+    .tag.reminder { background: #fbbf24; color: #1f1500; }
+    .tag.personal { background: #ec4899; color: white; }
+    .tag.other { background: #6b7280; color: white; }
+    form label {
+      display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px;
+    }
+    form input, form select, form textarea {
+      width: 100%; background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); padding: 8px 10px; border-radius: 4px;
+      font-family: inherit; font-size: 13px; margin-bottom: 12px;
+    }
+    form textarea { min-height: 60px; resize: vertical; }
+    button {
+      background: var(--accent-2); color: #061a30; border: 0;
+      padding: 8px 14px; border-radius: 4px; font-weight: 600; cursor: pointer;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.danger { background: var(--err); color: #2a0707; }
+    .log {
+      font-family: ui-monospace, SFMono-Regular, "Menlo", monospace;
+      font-size: 12px; background: var(--panel-2); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 10px; max-height: 280px; overflow-y: auto;
+    }
+    .log .row { border-bottom: 1px dashed var(--border); padding: 4px 0; }
+    .log .row:last-child { border-bottom: 0; }
+    .log .row .ts { color: var(--muted); margin-right: 8px; }
+    .log .row .ok { color: var(--accent); }
+    .log .row .err { color: var(--err); }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .actions button {
+      font-size: 12px; padding: 6px 10px;
+      background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+    }
+    .empty { color: var(--muted); font-style: italic; padding: 16px 0; text-align: center; }
+    .status-bar { margin-bottom: 20px; }
+    .status-cells { display: flex; gap: 16px; flex-wrap: wrap; }
+    .status-cell { min-width: 90px; }
+    .status-cell .k { color: var(--muted); font-size: 10px; text-transform: uppercase; }
+    .status-cell .v { font-size: 14px; font-weight: 600; }
+    .toast {
+      position: fixed; bottom: 24px; right: 24px; background: var(--panel);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 12px 16px; max-width: 320px; font-size: 13px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="top">
+      <div>
+        <h1>Calendar Workflow</h1>
+        <span style="color: var(--muted); font-size: 12px;">
+          Next.js + Google Calendar automation (single-file demo)
+        </span>
+      </div>
+      <div>
+        <span class="badge mock">MOCK MODE</span>
+      </div>
+    </header>
+
+    <div class="panel status-bar">
+      <div class="status-cells" id="status-bar"></div>
+    </div>
+
+    <div class="grid">
+      <section class="panel">
+        <h2>📅 Upcoming events</h2>
+        <div id="event-list"></div>
+      </section>
+
+      <section class="panel">
+        <h2>➕ 建立新事件</h2>
+        <form id="event-form">
+          <label>標題 *</label>
+          <input id="f-summary" required placeholder="例如：週會 / Sprint planning">
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div>
+              <label>開始 *</label>
+              <input type="datetime-local" id="f-start" required>
+            </div>
+            <div>
+              <label>結束 *</label>
+              <input type="datetime-local" id="f-end" required>
+            </div>
+          </div>
+
+          <label>類型</label>
+          <select id="f-type">
+            <option value="meeting">meeting</option>
+            <option value="focus">focus</option>
+            <option value="personal">personal</option>
+            <option value="reminder">reminder</option>
+            <option value="other">other</option>
+          </select>
+
+          <label>地點</label>
+          <input id="f-location" placeholder="https://meet.example/room">
+
+          <label>與會者（多個以 , 或空白分隔）</label>
+          <input id="f-attendees" placeholder="alice@x.com, bob@y.com">
+
+          <label>描述</label>
+          <textarea id="f-description"></textarea>
+
+          <button type="submit">建立事件</button>
+          <div id="form-msg" style="margin-top:12px;color:var(--muted);font-size:12px;"></div>
+        </form>
+      </section>
+
+      <section class="panel" style="grid-column: 1 / -1;">
+        <h2>⚙️ Workflow rules</h2>
+        <div id="workflow-panel"></div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+  /* ===========================================================
+   * Calendar Workflow — single-file vanilla JS port
+   * 對應 Next.js app 裡 src/lib/* 與 src/components/* 的核心邏輯。
+   * 沒有後端、沒有 fetch；所有狀態都在瀏覽器記憶體裡。
+   * =========================================================== */
+
+  /* ---------------- types (inline JSDoc) ----------------
+   * CalendarEvent = {
+   *   id, summary, description?, location?,
+   *   startISO, endISO, allDay,
+   *   eventType: 'meeting'|'focus'|'personal'|'reminder'|'other',
+   *   attendees: string[],
+   *   status: 'confirmed'|'tentative'|'cancelled',
+   *   source: 'mock',
+   *   createdAt, updatedAt
+   * }
+   *
+   * WorkflowRule = {
+   *   id, name,
+   *   trigger: {eventType} | {keywordInSummary} | {hasAttendees},
+   *   action: {type:'create_prep_block', minutesBefore} |
+   *          {type:'tag_event', tag} |
+   *          {type:'send_email_reminder', minutesBefore},
+   *   enabled
+   * }
+   */
+
+  const nowISO = () => new Date().toISOString();
+
+  /* ---- seed ---- */
+  let store = [
+    {
+      id: 'mock-seed-1', summary: '週會 / Sprint planning',
+      description: '討論本週 sprint backlog',
+      location: 'https://meet.example/raphael',
+      startISO: new Date(Date.now() + 60*60*1000).toISOString(),
+      endISO:   new Date(Date.now() + 90*60*1000).toISOString(),
+      allDay: false, eventType: 'meeting',
+      attendees: ['team@enki.dev'], status: 'confirmed',
+      source: 'mock', createdAt: nowISO(), updatedAt: nowISO(),
+    },
+    {
+      id: 'mock-seed-2', summary: 'Deep work: Next.js workflow',
+      description: '寫自動化工作流核心模組',
+      startISO: new Date(Date.now() + 24*60*60*1000).toISOString(),
+      endISO:   new Date(Date.now() + 25*60*60*1000 + 30*60*1000).toISOString(),
+      allDay: false, eventType: 'focus',
+      attendees: [], status: 'confirmed',
+      source: 'mock', createdAt: nowISO(), updatedAt: nowISO(),
+    },
+  ];
+  let evtCounter = 100;
+
+  /* ---- rules ---- */
+  const defaultRules = [
+    {
+      id: 'wf-meeting-prep',
+      name: '會議自動預留 15 分鐘前置緩衝',
+      trigger: { eventType: 'meeting' },
+      action: { type: 'create_prep_block', minutesBefore: 15 },
+      enabled: true,
+    },
+    {
+      id: 'wf-focus-tag',
+      name: 'Focus block 自動加 [deep-work] tag',
+      trigger: { eventType: 'focus' },
+      action: { type: 'tag_event', tag: 'deep-work' },
+      enabled: true,
+    },
+  ];
+  let rules = defaultRules;
+  let logs = [];
+  let logCounter = 0;
+
+  /* ---- mockCalendar ---- */
+  const mockCalendar = {
+    list(maxResults = 25) {
+      return [...store]
+        .sort((a, b) => a.startISO.localeCompare(b.startISO))
+        .slice(0, maxResults);
+    },
+    create(input) {
+      if (!input.summary || !input.summary.trim()) throw new Error('summary 必填');
+      if (new Date(input.endISO) <= new Date(input.startISO)) throw new Error('endISO 必須在 startISO 之後');
+      const ts = nowISO();
+      const evt = {
+        id: 'mock-evt-' + (++evtCounter),
+        summary: input.summary.trim(),
+        description: input.description,
+        location: input.location,
+        startISO: input.startISO,
+        endISO: input.endISO,
+        allDay: input.allDay ?? false,
+        eventType: input.eventType ?? 'other',
+        attendees: input.attendees ?? [],
+        status: 'confirmed',
+        source: 'mock',
+        createdAt: ts, updatedAt: ts,
+      };
+      store = [evt, ...store];
+      return evt;
+    },
+    update(id, patch) {
+      const idx = store.findIndex(e => e.id === id);
+      if (idx === -1) throw new Error('event ' + id + ' 不存在');
+      const cur = store[idx];
+      const next = { ...cur, ...patch, attendees: patch.attendees ?? cur.attendees, updatedAt: nowISO() };
+      store[idx] = next;
+      return next;
+    },
+    remove(id) {
+      const before = store.length;
+      store = store.filter(e => e.id !== id);
+      if (store.length === before) throw new Error('event ' + id + ' 不存在');
+      return { id };
+    },
+  };
+
+  /* ---- workflow engine ---- */
+  function triggerMatches(trigger, event) {
+    if ('eventType' in trigger) return trigger.eventType === event.eventType;
+    if ('keywordInSummary' in trigger)
+      return event.summary.toLowerCase().includes(trigger.keywordInSummary.toLowerCase());
+    if ('hasAttendees' in trigger) return event.attendees.length > 0;
+    return false;
+  }
+
+  async function evaluate(event) {
+    const out = [];
+    const ts = nowISO();
+    for (const rule of rules) {
+      if (!rule.enabled) continue;
+      if (!triggerMatches(rule.trigger, event)) continue;
+      const log = {
+        id: 'log-' + (++logCounter),
+        ruleId: rule.id, ruleName: rule.name,
+        triggeredByEventId: event.id,
+        actionType: rule.action.type,
+        timestamp: ts, message: '',
+      };
+      try {
+        if (rule.action.type === 'create_prep_block') {
+          const startMs = new Date(event.startISO).getTime();
+          const blockStart = new Date(startMs - rule.action.minutesBefore * 60 * 1000).toISOString();
+          const blockEnd = new Date(startMs).toISOString();
+          const input = {
+            summary: '⚙️ ' + (rule.action.summary ?? '預備時間') + ' — ' + event.summary,
+            description: '由工作流「' + rule.name + '」自動建立',
+            startISO: blockStart, endISO: blockEnd,
+            eventType: 'reminder',
+          };
+          const created = mockCalendar.create(input);
+          log.createdEventId = created.id;
+          log.message = '已建立 prep block ' + created.id + '（' + rule.action.minutesBefore + ' 分鐘前）';
+        } else if (rule.action.type === 'tag_event') {
+          const tag = '[' + rule.action.tag + ']';
+          const desc = (event.description ?? '') + '\n' + tag;
+          mockCalendar.update(event.id, { description: desc.trim() });
+          log.message = '已加 tag ' + tag;
+        } else if (rule.action.type === 'send_email_reminder') {
+          log.message = '（demo）將在 ' + rule.action.minutesBefore + ' 分鐘前寄 email 提醒';
+        }
+      } catch (err) {
+        log.message = '失敗：' + (err.message ?? String(err));
+      }
+      logs.push(log);
+      out.push(log);
+    }
+    return out;
+  }
+
+  /* ---- render helpers ---- */
+  function fmt(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleString('zh-TW', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' });
+  }
+
+  function renderStatus() {
+    const cells = [
+      ['mode', 'MOCK'],
+      ['events', String(store.length)],
+      ['rules', String(rules.length)],
+      ['executions', String(logs.length)],
+      ['authorized', 'no'],
+      ['oauth', 'n/a'],
+    ];
+    document.getElementById('status-bar').innerHTML =
+      cells.map(([k, v]) =>
+        '<div class="status-cell"><div class="k">' + k + '</div><div class="v">' + v + '</div></div>'
+      ).join('') +
+      '<div style="margin-left:auto;align-self:center;color:var(--muted);font-size:11px;">' +
+      'serverTime: ' + new Date().toLocaleString('zh-TW') + '</div>';
+  }
+
+  function renderEvents() {
+    const evts = mockCalendar.list();
+    const host = document.getElementById('event-list');
+    if (!evts.length) { host.innerHTML = '<div class="empty">尚無事件</div>'; return; }
+    host.innerHTML = '<ul class="event-list">' + evts.map(e =>
+      '<li class="event">' +
+        '<div>' +
+          '<h3><span class="tag ' + e.eventType + '">' + e.eventType + '</span>' + escapeHtml(e.summary) + '</h3>' +
+          '<div class="meta">' + fmt(e.startISO) + ' → ' + fmt(e.endISO) +
+            (e.location ? ' · 📍 ' + escapeHtml(e.location) : '') +
+            (e.attendees.length ? ' · 👥 ' + e.attendees.map(escapeHtml).join(', ') : '') +
+          '</div>' +
+          (e.description ? '<div class="meta" style="margin-top:4px;">' + escapeHtml(e.description) + '</div>' : '') +
+        '</div>' +
+        '<button class="danger" data-id="' + e.id + '">🗑</button>' +
+      '</li>'
+    ).join('') + '</ul>';
+    host.querySelectorAll('button.danger').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (!confirm('確定刪除 ' + btn.dataset.id + '？')) return;
+        try { mockCalendar.remove(btn.dataset.id); } catch (err) { alert(err.message); }
+        renderAll();
+      });
+    });
+  }
+
+  function triggerLabel(t) {
+    if ('eventType' in t) return '當 eventType == "' + t.eventType + '"';
+    if ('keywordInSummary' in t) return '當 summary 含 "' + t.keywordInSummary + '"';
+    if ('hasAttendees' in t) return '當有 attendees';
+    return '?';
+  }
+  function actionLabel(a) {
+    if (a.type === 'create_prep_block') return '建立 ' + a.minutesBefore + ' 分鐘前置 prep block';
+    if (a.type === 'send_email_reminder') return a.minutesBefore + ' 分鐘前寄 email 提醒';
+    if (a.type === 'tag_event') return '加 [' + a.tag + '] tag';
+    return '?';
+  }
+
+  function renderWorkflow() {
+    const host = document.getElementById('workflow-panel');
+    const left = rules.map(r =>
+      '<div style="background:var(--panel-2);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;">' +
+        '<div style="font-weight:600;margin-bottom:4px;">' +
+          (r.enabled ? '🟢' : '⚫') + ' ' + escapeHtml(r.name) +
+        '</div>' +
+        '<div style="font-size:12px;color:var(--muted);">trigger: ' + triggerLabel(r.trigger) + '</div>' +
+        '<div style="font-size:12px;color:var(--muted);">action: ' + actionLabel(r.action) + '</div>' +
+      '</div>'
+    ).join('');
+    const right = logs.length === 0
+      ? '<div style="color:var(--muted);font-style:italic;">尚無執行紀錄 — 建立一條 meeting event 試試</div>'
+      : logs.slice().reverse().slice(0, 50).map(l =>
+          '<div class="row">' +
+            '<span class="ts">' + new Date(l.timestamp).toLocaleTimeString('zh-TW') + '</span>' +
+            '<span class="' + (l.message.startsWith('失敗') ? 'err' : 'ok') + '">[' + l.ruleId + '] ' + escapeHtml(l.ruleName) + '</span>' +
+            '<div style="padding-left:16px;color:var(--muted);">' +
+              '→ ' + escapeHtml(l.message) +
+              (l.createdEventId ? ' · 新事件 ' + l.createdEventId : '') +
+            '</div>' +
+          '</div>'
+        ).join('');
+    host.innerHTML =
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">' +
+        '<div><div style="color:var(--muted);font-size:12px;margin-bottom:8px;">RULES</div>' + left + '</div>' +
+        '<div><div style="color:var(--muted);font-size:12px;margin-bottom:8px;">RECENT EXECUTIONS</div>' +
+          '<div class="log">' + right + '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function renderAll() { renderStatus(); renderEvents(); renderWorkflow(); }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c =>
+      ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])
+    );
+  }
+
+  /* ---- form ---- */
+  function defaultLocalDateTime(offsetMin) {
+    const d = new Date(Date.now() + offsetMin * 60 * 1000);
+    d.setMinutes(0, 0, 0);
+    const pad = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) +
+           'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+
+  document.getElementById('f-start').value = defaultLocalDateTime(60);
+  document.getElementById('f-end').value   = defaultLocalDateTime(90);
+
+  document.getElementById('event-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const body = {
+      summary: document.getElementById('f-summary').value,
+      description: document.getElementById('f-description').value,
+      location: document.getElementById('f-location').value,
+      startISO: new Date(document.getElementById('f-start').value).toISOString(),
+      endISO:   new Date(document.getElementById('f-end').value).toISOString(),
+      eventType: document.getElementById('f-type').value,
+      attendees: document.getElementById('f-attendees').value
+        .split(/[,\s]+/).map(s => s.trim()).filter(Boolean),
+    };
+    try {
+      const evt = mockCalendar.create(body);
+      const execs = await evaluate(evt);
+      document.getElementById('form-msg').textContent =
+        '✅ 已建立 (' + evt.id + ')' + (execs.length ? ' · 觸發 ' + execs.length + ' 條 workflow' : '');
+      ['f-summary','f-description','f-location','f-attendees'].forEach(id =>
+        document.getElementById(id).value = '');
+      renderAll();
+    } catch (err) {
+      document.getElementById('form-msg').textContent = '❌ ' + (err.message ?? String(err));
+    }
+  });
+
+  /* ---- boot ---- */
+  renderAll();
+  </script>
+</body>
+</html>

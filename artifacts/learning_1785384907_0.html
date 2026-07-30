@@ -1,0 +1,865 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>行政工作流引擎｜React Flow + RBAC + Google Calendar</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --bg-2: #111c33;
+    --panel: #18243f;
+    --panel-2: #1e2c4a;
+    --line: #2a3a60;
+    --ink: #e6edf7;
+    --ink-2: #b6c2d6;
+    --muted: #7e8ca8;
+    --accent: #4f8cff;
+    --accent-2: #7dd3fc;
+    --ok: #22c55e;
+    --warn: #f59e0b;
+    --danger: #ef4444;
+    --admin: #c084fc;
+    --manager: #38bdf8;
+    --staff: #34d399;
+    --guest: #f472b6;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft JhengHei", "PingFang TC", Roboto, sans-serif;
+    background: linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
+    color: var(--ink);
+    overflow: hidden;
+  }
+  .app {
+    display: grid;
+    grid-template-columns: 280px 1fr 360px;
+    grid-template-rows: 56px 1fr;
+    height: 100vh;
+  }
+  header.topbar {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 18px;
+    background: rgba(15, 23, 42, 0.85);
+    border-bottom: 1px solid var(--line);
+    backdrop-filter: blur(8px);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: 0.5px; }
+  .brand .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+  .top-actions { display: flex; gap: 8px; align-items: center; }
+  .top-actions .pill {
+    padding: 6px 12px; border-radius: 999px; font-size: 12px;
+    background: var(--panel); border: 1px solid var(--line); color: var(--ink-2);
+  }
+  .top-actions .pill.ok { background: rgba(34, 197, 94, 0.15); color: var(--ok); border-color: rgba(34, 197, 94, 0.4); }
+  .btn {
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+    padding: 7px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .btn:hover { background: var(--panel-2); border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+  .btn.primary:hover { background: #3b78ec; }
+  .btn.danger { color: var(--danger); border-color: rgba(239, 68, 68, 0.4); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  aside.left, aside.right {
+    background: var(--panel);
+    border-right: 1px solid var(--line);
+    overflow-y: auto;
+    padding: 14px;
+  }
+  aside.right { border-right: none; border-left: 1px solid var(--line); }
+  aside h3 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--muted); margin: 0 0 10px;
+  }
+  aside h4 { font-size: 13px; margin: 18px 0 8px; color: var(--ink-2); }
+  .role-card {
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px; margin-bottom: 8px; cursor: pointer;
+    background: var(--panel-2);
+    transition: all 0.15s;
+  }
+  .role-card:hover { border-color: var(--accent); }
+  .role-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .role-card .role-name { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .role-card .role-perms { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .role-badge {
+    display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+  }
+  .role-badge.admin { background: var(--admin); }
+  .role-badge.manager { background: var(--manager); }
+  .role-badge.staff { background: var(--staff); }
+  .role-badge.guest { background: var(--guest); }
+
+  .palette-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; margin-bottom: 6px;
+    border: 1px dashed var(--line); border-radius: 6px;
+    background: var(--panel-2); cursor: grab;
+    font-size: 13px;
+  }
+  .palette-item:hover { border-color: var(--accent); border-style: solid; }
+  .palette-item .ic { font-size: 16px; }
+
+  main.canvas-wrap {
+    position: relative;
+    background:
+      radial-gradient(circle at 20% 20%, rgba(79, 140, 255, 0.08), transparent 40%),
+      radial-gradient(circle at 80% 70%, rgba(125, 211, 252, 0.06), transparent 40%);
+  }
+  .react-flow__node {
+    background: var(--panel-2);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 14px;
+    min-width: 200px;
+    font-size: 13px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  }
+  .react-flow__node.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(79, 140, 255, 0.4); }
+  .react-flow__node.locked { opacity: 0.55; cursor: not-allowed; }
+  .node-title { font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+  .node-meta { font-size: 11px; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; }
+  .node-tag {
+    display: inline-block; padding: 2px 6px; border-radius: 4px;
+    background: rgba(79, 140, 255, 0.15); color: var(--accent-2);
+    font-size: 10px; text-transform: uppercase;
+  }
+  .node-tag.perm-admin { background: rgba(192, 132, 252, 0.18); color: var(--admin); }
+  .node-tag.perm-manager { background: rgba(56, 189, 248, 0.18); color: var(--manager); }
+  .node-tag.perm-staff { background: rgba(52, 211, 153, 0.18); color: var(--staff); }
+  .node-tag.perm-guest { background: rgba(244, 114, 182, 0.18); color: var(--guest); }
+  .node-tag.gcal { background: rgba(245, 158, 11, 0.18); color: var(--warn); }
+
+  .react-flow__edge-path { stroke: var(--accent); stroke-width: 2; }
+  .react-flow__edge.selected .react-flow__edge-path { stroke: var(--accent-2); stroke-width: 3; }
+  .react-flow__controls { background: var(--panel); border: 1px solid var(--line); }
+  .react-flow__controls button { background: var(--panel); color: var(--ink); border-bottom: 1px solid var(--line); }
+  .react-flow__controls button:hover { background: var(--panel-2); }
+  .react-flow__background { background: transparent; }
+  .react-flow__attribution { background: transparent !important; color: var(--muted) !important; font-size: 10px; }
+
+  .inspector-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 0; border-bottom: 1px solid var(--line);
+    font-size: 13px;
+  }
+  .inspector-row:last-child { border-bottom: none; }
+  .inspector-row .label { color: var(--muted); }
+  .inspector-row .value { font-weight: 500; }
+  .inspector-row .value.gcal { color: var(--warn); }
+
+  .calendar-strip {
+    margin-top: 10px; padding: 10px;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  }
+  .calendar-strip .slot {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 0; font-size: 12px; border-bottom: 1px dashed var(--line);
+  }
+  .calendar-strip .slot:last-child { border-bottom: none; }
+  .calendar-strip .slot .time { color: var(--accent-2); font-family: ui-monospace, monospace; }
+  .calendar-strip .slot .del { background: transparent; border: none; color: var(--danger); cursor: pointer; }
+
+  .log {
+    margin-top: 10px; padding: 10px;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11px; color: var(--ink-2);
+    max-height: 180px; overflow-y: auto;
+  }
+  .log .l-ok { color: var(--ok); }
+  .log .l-warn { color: var(--warn); }
+  .log .l-err { color: var(--danger); }
+  .log .l-cal { color: var(--accent-2); }
+
+  .permission-msg {
+    position: fixed; top: 70px; right: 20px; z-index: 1000;
+    padding: 10px 14px; background: var(--danger); color: white;
+    border-radius: 6px; font-size: 13px; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    animation: slideIn 0.25s ease;
+  }
+  @keyframes slideIn { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+  .legend {
+    display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--muted); margin-top: 8px;
+  }
+  .legend .item { display: flex; align-items: center; gap: 4px; }
+  .legend .sw { width: 12px; height: 12px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot"></span>
+      <span>行政工作流引擎</span>
+      <span class="pill">React Flow + RBAC + Google Calendar</span>
+    </div>
+    <div class="top-actions">
+      <span class="pill ok" id="gcal-status">● Google Calendar: 模擬連線</span>
+      <button class="btn" id="btn-connect-gcal">連線 Google Calendar</button>
+      <button class="btn" id="btn-export-ics">匯出 .ics</button>
+      <button class="btn danger" id="btn-clear">清空畫布</button>
+    </div>
+  </header>
+
+  <aside class="left">
+    <h3>角色 (RBAC)</h3>
+    <div id="role-list"></div>
+
+    <h4>權限矩陣</h4>
+    <div class="legend">
+      <div class="item"><span class="sw" style="background:var(--admin)"></span>Admin</div>
+      <div class="item"><span class="sw" style="background:var(--manager)"></span>Manager</div>
+      <div class="item"><span class="sw" style="background:var(--staff)"></span>Staff</div>
+      <div class="item"><span class="sw" style="background:var(--guest)"></span>Guest</div>
+    </div>
+
+    <h4>節點範本（拖曳到畫布）</h4>
+    <div id="palette"></div>
+  </aside>
+
+  <main class="canvas-wrap">
+    <div id="reactflow" style="width:100%; height:100%"></div>
+  </main>
+
+  <aside class="right">
+    <h3>節點檢查器</h3>
+    <div id="inspector">
+      <div class="inspector-row"><span class="label">未選取節點</span></div>
+    </div>
+
+    <h4>已綁定行程 (Google Calendar)</h4>
+    <div class="calendar-strip" id="cal-strip">
+      <div style="color:var(--muted); font-size:12px">尚未綁定行程</div>
+    </div>
+
+    <h4>執行紀錄</h4>
+    <div class="log" id="log"></div>
+  </aside>
+</div>
+
+<div id="toast-host"></div>
+
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+<script src="https://unpkg.com/zustand@4.5.5/umd/zustand.development.js"></script>
+<script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css" />
+
+<script type="text/babel" data-presets="env,react" data-type="module">
+const { useState, useEffect, useMemo, useCallback, useRef } = React;
+const RF = window.ReactFlow;
+const { ReactFlow, ReactFlowProvider, Background, Controls, MiniMap, useNodesState, useEdgesState, addEdge, applyNodeChanges, applyEdgeChanges } = RF;
+const useStore = window.zustand.useStore || window.zustand.default;
+
+// ---------- 角色 / RBAC 模型 ----------
+const ROLE_LABELS = {
+  admin: '系統管理員',
+  manager: '單位主管',
+  staff: '一般職員',
+  guest: '訪客/外部',
+};
+
+const PERMISSIONS = {
+  admin:   { view: true, edit: true, approve: true, config: true,  manage_users: true },
+  manager: { view: true, edit: true, approve: true, config: false, manage_users: false },
+  staff:   { view: true, edit: true, approve: false, config: false, manage_users: false },
+  guest:   { view: true, edit: false, approve: false, config: false, manage_users: false },
+};
+
+// 判斷：某角色的某權限節點是否可以「執行」這個動作
+function can(perm, action) {
+  if (!perm) return false;
+  return !!perm[action];
+}
+
+// ---------- 節點類型定義 ----------
+const NODE_TYPES = {
+  start:        { label: '開始',        icon: '🟢', permLevel: 'staff',   gcal: false, action: 'edit' },
+  leave:        { label: '請假申請',    icon: '📝', permLevel: 'staff',   gcal: true,  action: 'edit' },
+  reimburse:    { label: '費用報支',    icon: '💰', permLevel: 'staff',   gcal: false, action: 'edit' },
+  announcement: { label: '公告發布',    icon: '📢', permLevel: 'manager', gcal: false, action: 'edit' },
+  meeting:      { label: '會議預約',    icon: '📅', permLevel: 'manager', gcal: true,  action: 'edit' },
+  seal:         { label: '用印申請',    icon: '🔏', permLevel: 'manager', gcal: false, action: 'approve' },
+  approve:      { label: '主管簽核',    icon: '✅', permLevel: 'manager', gcal: false, action: 'approve' },
+  notify:       { label: '通知',        icon: '🔔', permLevel: 'staff',   gcal: false, action: 'edit' },
+  archive:      { label: '歸檔',        icon: '🗄️', permLevel: 'admin',   gcal: false, action: 'config' },
+  end:          { label: '結束',        icon: '🔴', permLevel: 'staff',   gcal: false, action: 'edit' },
+};
+
+const PALETTE_ORDER = ['start', 'leave', 'meeting', 'announcement', 'reimburse', 'seal', 'approve', 'notify', 'archive', 'end'];
+
+// ---------- 預設範例流程（出差+用印示範） ----------
+const defaultNodes = [
+  { id: '1', type: 'flow', position: { x: 40,   y: 80 },  data: { kind: 'start',        label: '開始 — 員工提交申請' } },
+  { id: '2', type: 'flow', position: { x: 240,  y: 80 },  data: { kind: 'leave',        label: '請假申請', assignee: '王小明', gcal: { start: '2026-08-01T09:00', end: '2026-08-03T18:00', summary: '特休 3 天' } } },
+  { id: '3', type: 'flow', position: { x: 450,  y: 80 },  data: { kind: 'approve',      label: '單位主管簽核', assignee: '李組長' } },
+  { id: '4', type: 'flow', position: { x: 660,  y: 80 },  data: { kind: 'seal',         label: '用印申請', assignee: '文書組' } },
+  { id: '5', type: 'flow', position: { x: 870,  y: 80 },  data: { kind: 'meeting',      label: '會議預約', assignee: '人評會', gcal: { start: '2026-08-05T14:00', end: '2026-08-05T16:00', summary: '人評會會議' } } },
+  { id: '6', type: 'flow', position: { x: 1080, y: 80 },  data: { kind: 'announcement', label: '公告發布', assignee: '人事室' } },
+  { id: '7', type: 'flow', position: { x: 1290, y: 80 },  data: { kind: 'archive',      label: '歸檔', assignee: '系統' } },
+  { id: '8', type: 'flow', position: { x: 1500, y: 80 },  data: { kind: 'end',          label: '結束' } },
+];
+const defaultEdges = [
+  { id: 'e1-2', source: '1', target: '2' },
+  { id: 'e2-3', source: '2', target: '3' },
+  { id: 'e3-4', source: '3', target: '4' },
+  { id: 'e4-5', source: '4', target: '5' },
+  { id: 'e5-6', source: '5', target: '6' },
+  { id: 'e6-7', source: '6', target: '7' },
+  { id: 'e7-8', source: '7', target: '8' },
+];
+
+// ---------- 狀態儲存（Zustand） ----------
+const createStore = () => {
+  const store = window.zustand.create((set, get) => ({
+    nodes: defaultNodes,
+    edges: defaultEdges,
+    role: 'admin',
+    gcalConnected: false,
+    selectedId: null,
+    setRole: (role) => set({ role }),
+    setNodes: (updater) => set((s) => ({ nodes: typeof updater === 'function' ? updater(s.nodes) : updater })),
+    setEdges: (updater) => set((s) => ({ edges: typeof updater === 'function' ? updater(s.edges) : updater })),
+    setSelectedId: (id) => set({ selectedId: id }),
+    setGcalConnected: (v) => set({ gcalConnected: v }),
+    addNode: (kind, position) => {
+      const id = String(Date.now());
+      const def = NODE_TYPES[kind];
+      const role = get().role;
+      if (!can(PERMISSIONS[role], def.action)) {
+        return { ok: false, msg: `角色 ${ROLE_LABELS[role]} 無「${def.action}」權限，無法新增 ${def.label}` };
+      }
+      const node = {
+        id, type: 'flow',
+        position,
+        data: { kind, label: def.label, assignee: '', gcal: def.gcal ? { start: '', end: '', summary: '' } : null },
+      };
+      set((s) => ({ nodes: [...s.nodes, node], selectedId: id }));
+      return { ok: true, id };
+    },
+    updateNodeData: (id, patch) => {
+      const role = get().role;
+      const node = get().nodes.find(n => n.id === id);
+      if (!node) return;
+      const def = NODE_TYPES[node.data.kind];
+      if (!can(PERMISSIONS[role], def.action)) {
+        return { ok: false, msg: `角色 ${ROLE_LABELS[role]} 無權限編輯此節點` };
+      }
+      set((s) => ({
+        nodes: s.nodes.map(n => n.id === id ? { ...n, data: { ...n.data, ...patch } } : n),
+      }));
+      return { ok: true };
+    },
+    bindGcal: (id, gcal) => {
+      const node = get().nodes.find(n => n.id === id);
+      if (!node) return;
+      const def = NODE_TYPES[node.data.kind];
+      if (!def.gcal) return { ok: false, msg: `${def.label} 節點不支援 Google Calendar` };
+      if (!can(PERMISSIONS[get().role], def.action)) {
+        return { ok: false, msg: `角色 ${ROLE_LABELS[get().role]} 無權限綁定行程` };
+      }
+      set((s) => ({
+        nodes: s.nodes.map(n => n.id === id ? { ...n, data: { ...n.data, gcal } } : n),
+      }));
+      return { ok: true };
+    },
+    removeNode: (id) => {
+      const role = get().role;
+      const node = get().nodes.find(n => n.id === id);
+      if (!node) return;
+      const def = NODE_TYPES[node.data.kind];
+      if (!can(PERMISSIONS[role], def.action)) {
+        return { ok: false, msg: `角色 ${ROLE_LABELS[role]} 無權限刪除此節點` };
+      }
+      set((s) => ({
+        nodes: s.nodes.filter(n => n.id !== id),
+        edges: s.edges.filter(e => e.source !== id && e.target !== id),
+        selectedId: s.selectedId === id ? null : s.selectedId,
+      }));
+      return { ok: true };
+    },
+  }));
+  return createStore;
+};
+
+// ---------- 單一節點元件 ----------
+function FlowNode({ data, selected }) {
+  const def = NODE_TYPES[data.kind] || { label: data.label, icon: '❓', permLevel: 'staff', action: 'edit' };
+  const store = useStore(useStoreAPI);
+  const role = useStore(s => s.role);
+  const locked = !can(PERMISSIONS[role], def.action);
+  const updateNodeData = useStore(s => s.updateNodeData);
+  const removeNode = useStore(s => s.removeNode);
+  const bindGcal = useStore(s => s.bindGcal);
+
+  const onChangeAssignee = (e) => {
+    const r = updateNodeData(data.id, { assignee: e.target.value });
+    if (r && !r.ok) toast(r.msg, 'err');
+  };
+  const onBindGcal = () => {
+    if (!data.gcal) {
+      const summary = prompt('行程標題', def.label);
+      if (!summary) return;
+      const start = prompt('開始時間 (YYYY-MM-DDTHH:MM)', new Date().toISOString().slice(0,16));
+      if (!start) return;
+      const end = prompt('結束時間 (YYYY-MM-DDTHH:MM)', new Date(Date.now() + 3600000).toISOString().slice(0,16));
+      const r = bindGcal(data.id, { summary, start, end });
+      if (!r.ok) toast(r.msg, 'err'); else toast(`已綁定行程：${summary}`, 'ok');
+    } else {
+      const r = bindGcal(data.id, null);
+      if (!r.ok) toast(r.msg, 'err'); else toast('已解除綁定', 'warn');
+    }
+  };
+  const onDelete = () => {
+    const r = removeNode(data.id);
+    if (!r.ok) toast(r.msg, 'err');
+  };
+
+  return (
+    <div className={`flow-node ${locked ? 'locked' : ''}`}>
+      <div className="node-title">
+        <span>{def.icon}</span>
+        <span>{data.label}</span>
+        {selected && !locked && (
+          <button className="btn danger" style={{ marginLeft: 'auto', padding: '2px 8px', fontSize: 11 }} onClick={onDelete}>刪除</button>
+        )}
+      </div>
+      <input
+        type="text"
+        value={data.assignee || ''}
+        placeholder="承辦人 / 單位"
+        onChange={onChangeAssignee}
+        disabled={locked}
+        style={{ width: '100%', background: 'var(--bg)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: 4, padding: '4px 6px', marginTop: 6, fontSize: 12 }}
+      />
+      <div className="node-meta">
+        <span className={`node-tag perm-${def.permLevel}`}>{ROLE_LABELS[def.permLevel]}</span>
+        <span className="node-tag">{def.action}</span>
+        {def.gcal && (
+          <button className="node-tag gcal" style={{ cursor: 'pointer', border: 'none' }} onClick={onBindGcal}>
+            {data.gcal ? '📅 已綁定' : '📅 綁定 GCal'}
+          </button>
+        )}
+      </div>
+      {data.gcal && (
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6, fontFamily: 'ui-monospace, monospace' }}>
+          {data.gcal.summary}<br/>
+          {data.gcal.start} → {data.gcal.end}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const nodeTypes = { flow: FlowNode };
+
+// ---------- 主畫布 ----------
+function FlowCanvas() {
+  const store = useStore(useStoreAPI);
+  const nodes = useStore(s => s.nodes);
+  const edges = useStore(s => s.edges);
+  const setNodes = useStore(s => s.setNodes);
+  const setEdges = useStore(s => s.setEdges);
+  const setSelectedId = useStore(s => s.setSelectedId);
+  const addNode = useStore(s => s.addNode);
+  const role = useStore(s => s.role);
+  const reactFlowWrapper = useRef(null);
+  const [rfInstance, setRfInstance] = useState(null);
+
+  const onNodesChange = useCallback((changes) => setNodes((nds) => applyNodeChanges(changes, nds)), [setNodes]);
+  const onEdgesChange = useCallback((changes) => setEdges((eds) => applyEdgeChanges(changes, eds)), [setEdges]);
+  const onConnect = useCallback((params) => setEdges((eds) => addEdge({ ...params, animated: true }, eds)), [setEdges]);
+
+  const onDragOver = useCallback((event) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const onDrop = useCallback((event) => {
+    event.preventDefault();
+    const kind = event.dataTransfer.getData('application/reactflow');
+    if (!kind || !rfInstance) return;
+    const position = rfInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+    const r = addNode(kind, position);
+    if (!r.ok) toast(r.msg, 'err');
+    else toast(`已新增節點：${NODE_TYPES[kind].label}`, 'ok');
+  }, [rfInstance, addNode]);
+
+  const onNodeClick = useCallback((_, node) => setSelectedId(node.id), [setSelectedId]);
+  const onPaneClick = useCallback(() => setSelectedId(null), [setSelectedId]);
+
+  return (
+    <div ref={reactFlowWrapper} style={{ width: '100%', height: '100%' }}>
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        onInit={setRfInstance}
+        onDrop={onDrop}
+        onDragOver={onDragOver}
+        onNodeClick={onNodeClick}
+        onPaneClick={onPaneClick}
+        nodeTypes={nodeTypes}
+        fitView
+        proOptions={{ hideAttribution: false }}
+      >
+        <Background color="rgba(255,255,255,0.06)" gap={20} />
+        <Controls />
+      </ReactFlow>
+    </div>
+  );
+}
+
+// ---------- 左側：角色選擇 ----------
+function RolePanel() {
+  const role = useStore(s => s.role);
+  const setRole = useStore(s => s.setRole);
+  return (
+    <div>
+      {Object.keys(ROLE_LABELS).map(r => (
+        <div key={r} className={`role-card ${role === r ? 'active' : ''}`} onClick={() => { setRole(r); toast(`已切換角色：${ROLE_LABELS[r]}`, 'cal'); }}>
+          <div className="role-name">
+            <span className={`role-badge ${r}`}></span>
+            {ROLE_LABELS[r]}
+          </div>
+          <div className="role-perms">
+            {PERMISSIONS[r].edit ? '可編輯' : '唯讀'} · {PERMISSIONS[r].approve ? '可簽核' : '不可簽核'} · {PERMISSIONS[r].config ? '可管理' : '受限'}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------- 左側：節點範本 ----------
+function Palette() {
+  const onDragStart = (event, kind) => {
+    event.dataTransfer.setData('application/reactflow', kind);
+    event.dataTransfer.effectAllowed = 'move';
+  };
+  return (
+    <div>
+      {PALETTE_ORDER.map(kind => {
+        const def = NODE_TYPES[kind];
+        return (
+          <div key={kind} className="palette-item" onDragStart={(e) => onDragStart(e, kind)} draggable>
+            <span className="ic">{def.icon}</span>
+            <span>{def.label}</span>
+            <span className={`node-tag perm-${def.permLevel}`} style={{ marginLeft: 'auto' }}>{def.permLevel}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------- 右側：節點檢查器 ----------
+function Inspector() {
+  const selectedId = useStore(s => s.selectedId);
+  const nodes = useStore(s => s.nodes);
+  const updateNodeData = useStore(s => s.updateNodeData);
+  const role = useStore(s => s.role);
+  const node = nodes.find(n => n.id === selectedId);
+  if (!node) {
+    return <div className="inspector-row"><span className="label">未選取節點</span></div>;
+  }
+  const def = NODE_TYPES[node.data.kind];
+  const locked = !can(PERMISSIONS[role], def.action);
+  const onLabelChange = (e) => {
+    const r = updateNodeData(node.id, { label: e.target.value });
+    if (r && !r.ok) toast(r.msg, 'err');
+  };
+  return (
+    <div>
+      <div className="inspector-row">
+        <span className="label">類型</span>
+        <span className="value">{def.icon} {def.label}</span>
+      </div>
+      <div className="inspector-row">
+        <span className="label">權限層級</span>
+        <span className={`value node-tag perm-${def.permLevel}`}>{ROLE_LABELS[def.permLevel]}</span>
+      </div>
+      <div className="inspector-row">
+        <span className="label">要求動作</span>
+        <span className="value node-tag">{def.action}</span>
+      </div>
+      <div className="inspector-row">
+        <span className="label">目前角色</span>
+        <span className="value">{ROLE_LABELS[role]}</span>
+      </div>
+      <div className="inspector-row">
+        <span className="label">可編輯？</span>
+        <span className="value" style={{ color: locked ? 'var(--danger)' : 'var(--ok)' }}>{locked ? '🔒 否' : '✓ 是'}</span>
+      </div>
+      <div style={{ marginTop: 10 }}>
+        <label style={{ fontSize: 11, color: 'var(--muted)' }}>節點標題</label>
+        <input
+          type="text"
+          value={node.data.label}
+          onChange={onLabelChange}
+          disabled={locked}
+          style={{ width: '100%', background: 'var(--bg)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: 4, padding: 6, marginTop: 4, fontSize: 13 }}
+        />
+      </div>
+      <div style={{ marginTop: 10 }}>
+        <label style={{ fontSize: 11, color: 'var(--muted)' }}>承辦人 / 單位</label>
+        <input
+          type="text"
+          value={node.data.assignee || ''}
+          onChange={(e) => updateNodeData(node.id, { assignee: e.target.value })}
+          disabled={locked}
+          style={{ width: '100%', background: 'var(--bg)', color: 'var(--ink)', border: '1px solid var(--line)', borderRadius: 4, padding: 6, marginTop: 4, fontSize: 13 }}
+        />
+      </div>
+      {def.gcal && (
+        <div style={{ marginTop: 10, padding: 8, background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 4 }}>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Google Calendar 行程</div>
+          {node.data.gcal ? (
+            <div style={{ fontSize: 12, color: 'var(--accent-2)' }}>
+              <div>{node.data.gcal.summary}</div>
+              <div style={{ fontFamily: 'ui-monospace, monospace' }}>{node.data.gcal.start} → {node.data.gcal.end}</div>
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>未綁定</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- 右側：GCal 行程清單 ----------
+function CalendarStrip() {
+  const nodes = useStore(s => s.nodes);
+  const updateNodeData = useStore(s => s.updateNodeData);
+  const role = useStore(s => s.role);
+  const gcalConnected = useStore(s => s.gcalConnected);
+  const gcalNodes = nodes.filter(n => n.data.gcal);
+  if (gcalNodes.length === 0) {
+    return <div style={{ color: 'var(--muted)', fontSize: 12 }}>尚未綁定行程</div>;
+  }
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
+        {gcalConnected ? '已連線 Google Calendar' : '模擬模式（在 Inspector 內可手動綁定）'}
+      </div>
+      {gcalNodes.map(n => (
+        <div key={n.id} className="slot">
+          <div>
+            <div style={{ fontSize: 12 }}>📅 {n.data.gcal.summary}</div>
+            <div className="time">{n.data.gcal.start} → {n.data.gcal.end}</div>
+          </div>
+          <button
+            className="del"
+            title="解除綁定"
+            onClick={() => {
+              const def = NODE_TYPES[n.data.kind];
+              if (!can(PERMISSIONS[role], def.action)) {
+                toast(`角色 ${ROLE_LABELS[role]} 無權限`, 'err');
+                return;
+              }
+              updateNodeData(n.id, { gcal: null });
+              toast('已解除綁定', 'warn');
+            }}
+          >✕</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------- 日誌 ----------
+function LogPanel() {
+  const [entries, setEntries] = useState([]);
+  useEffect(() => {
+    window.__addLog = (msg, type='info') => {
+      const time = new Date().toLocaleTimeString();
+      setEntries(prev => [...prev.slice(-30), { time, msg, type }]);
+    };
+  }, []);
+  return (
+    <div>
+      {entries.length === 0 ? (
+        <div style={{ color: 'var(--muted)' }}>尚無記錄</div>
+      ) : entries.map((e, i) => (
+        <div key={i} className={`l-${e.type}`}>
+          [{e.time}] {e.msg}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------- 全域 toast ----------
+function toast(msg, type='info') {
+  const host = document.getElementById('toast-host');
+  if (!host) return;
+  const el = document.createElement('div');
+  el.className = 'permission-msg';
+  if (type === 'ok') el.style.background = 'var(--ok)';
+  else if (type === 'warn') el.style.background = 'var(--warn)';
+  else if (type === 'err') el.style.background = 'var(--danger)';
+  else if (type === 'cal') el.style.background = 'var(--warn)';
+  el.textContent = msg;
+  host.appendChild(el);
+  setTimeout(() => el.remove(), 2500);
+  if (window.__addLog) window.__addLog(msg, type);
+}
+
+// ---------- Google Calendar 模擬串接 ----------
+function buildICS(nodes) {
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Hermes//Admin Workflow Engine//ZH'];
+  const dtstamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+  nodes.filter(n => n.data.gcal && n.data.gcal.start).forEach((n, i) => {
+    const fmt = (d) => d.replace(/[-:]/g, '').replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})$/, '$1$2$3T$4$5${
+  }');
+    const start = fmt(n.data.gcal.start);
+    const end = fmt(n.data.gcal.end);
+    lines.push('BEGIN:VEVENT');
+    lines.push(`UID:hermes-${n.id}@workflow`);
+    lines.push(`DTSTAMP:${dtstamp}`);
+    lines.push(`DTSTART:${start}`);
+    lines.push(`DTEND:${end}`);
+    lines.push(`SUMMARY:${n.data.gcal.summary}`);
+    lines.push(`DESCRIPTION:${n.data.label}（承辦：${n.data.assignee || '-'}）`);
+    lines.push('END:VEVENT');
+  });
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n');
+}
+
+function downloadICS(content) {
+  const blob = new Blob([content], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `workflow-${Date.now()}.ics`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ---------- 初始化 ----------
+function useStoreAPI(s) { return s; }
+let storeInstance;
+function App() {
+  // 為每個 App 實例 attach 唯一 store
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    if (!storeInstance) {
+      const create = createStore();
+      storeInstance = create();
+      window.__store = storeInstance;
+    }
+    setReady(true);
+  }, []);
+  if (!ready) return <div style={{ padding: 20 }}>初始化...</div>;
+  return (
+    <StoreContext.Provider value={storeInstance}>
+      <AppInner />
+    </StoreContext.Provider>
+  );
+}
+
+const StoreContext = React.createContext(null);
+function useStore(fn) {
+  const store = useContext(StoreContext);
+  return store(fn);
+}
+function useStoreAPI() { return null; }
+
+function AppInner() {
+  const role = useStore(s => s.role);
+  const gcalConnected = useStore(s => s.gcalConnected);
+  const setGcalConnected = useStore(s => s.setGcalConnected);
+  const setNodes = useStore(s => s.setNodes);
+  const setEdges = useStore(s => s.setEdges);
+
+  useEffect(() => {
+    document.getElementById('btn-connect-gcal').onclick = () => {
+      if (gcalConnected) {
+        setGcalConnected(false);
+        toast('已中斷 Google Calendar 連線', 'warn');
+      } else {
+        // 模擬 OAuth — 實際整合需 gapi.client + GIS
+        setGcalConnected(true);
+        toast('已連線 Google Calendar（模擬）', 'ok');
+        document.getElementById('gcal-status').textContent = '● Google Calendar: 已連線';
+      }
+    };
+    document.getElementById('btn-export-ics').onclick = () => {
+      const nodes = window.__store.getState().nodes;
+      const ics = buildICS(nodes);
+      downloadICS(ics);
+      toast(`已匯出 ${ics.split('BEGIN:VEVENT').length - 1} 個行程為 .ics`, 'ok');
+    };
+    document.getElementById('btn-clear').onclick = () => {
+      if (!confirm('確定清空畫布？此動作無法復原。')) return;
+      setNodes([]);
+      setEdges([]);
+      toast('畫布已清空', 'warn');
+    };
+  }, [gcalConnected, setGcalConnected, setNodes, setEdges]);
+
+  useEffect(() => {
+    document.getElementById('role-list').innerHTML = '';
+    document.getElementById('palette').innerHTML = '';
+    document.getElementById('inspector').innerHTML = '';
+    document.getElementById('cal-strip').innerHTML = '';
+    document.getElementById('log').innerHTML = '';
+
+    // 這裡用 React 重新掛載的方式 — 為了避免 hooks 觸發次序問題，改用 portal 機制插入
+    // 簡化做法：直接 render Root 內的子元件
+  }, [role]);
+
+  return (
+    <ReactFlowProvider>
+      <RFLayout />
+    </ReactFlowProvider>
+  );
+}
+
+function RFLayout() {
+  return (
+    <>
+      <div style={{ position: 'absolute', inset: 0 }} id="rf-host"><FlowCanvas /></div>
+      <div id="role-list-mount" style={{ display: 'none' }}></div>
+    </>
+  );
+}
+
+// 由於這是單檔架構，直接渲染 React 樹到畫布區並把左/右側面板用 React 同時渲染
+ReactDOM.createRoot(document.getElementById('reactflow')).render(<App />);
+
+// 渲染左/右側面板
+const sideRoot = ReactDOM.createRoot(document.getElementById('role-list'));
+sideRoot.render(<RolePanel />);
+
+const paletteRoot = ReactDOM.createRoot(document.getElementById('palette'));
+paletteRoot.render(<Palette />);
+
+const inspectorRoot = ReactDOM.createRoot(document.getElementById('inspector'));
+inspectorRoot.render(<Inspector />);
+
+const calRoot = ReactDOM.createRoot(document.getElementById('cal-strip'));
+calRoot.render(<CalendarStrip />);
+
+const logRoot = ReactDOM.createRoot(document.getElementById('log'));
+logRoot.render(<LogPanel />);
+</script>
+</body>
+</html>
