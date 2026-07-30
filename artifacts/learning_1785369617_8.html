@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>browser-debug-suite · console</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  /* ----- reset & tokens ----- */
+  *,*::before,*::after { box-sizing: border-box; }
+  :root {
+    --bg: #0d1117; --bg-2: #161b22; --bg-3: #1f242c;
+    --fg: #e6edf3; --fg-dim: #8b949e; --fg-mute: #6e7681;
+    --accent: #2f81f7; --accent-2: #58a6ff;
+    --ok: #3fb950; --warn: #d29922; --err: #f85149;
+    --line: #30363d;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+  }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font: 14px/1.5 var(--sans);
+    overflow: hidden;
+  }
+
+  /* ----- layout ----- */
+  .shell { display: grid; grid-template-rows: auto 1fr auto; height: 100vh; }
+  header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 10px 18px;
+    background: var(--bg-2);
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 {
+    margin: 0; font-size: 14px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--fg-dim);
+  }
+  header .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-mute); }
+  header .dot.live { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  header .pill {
+    padding: 3px 10px; border-radius: 999px;
+    background: var(--bg-3); color: var(--fg-dim);
+    font: 11px/1 var(--mono);
+  }
+  header .grow { flex: 1; }
+  header a { color: var(--accent-2); text-decoration: none; font-size: 12px; }
+
+  .stage {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+    background: var(--line); overflow: hidden;
+  }
+  @media (max-width: 900px) { .stage { grid-template-columns: 1fr; grid-template-rows: repeat(3, 1fr); } }
+
+  .pane {
+    background: var(--bg);
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  .pane-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg-2);
+    font: 11px/1 var(--mono); text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--fg-dim);
+  }
+  .pane-head .name { color: var(--fg); }
+  .pane-head .count {
+    margin-left: auto;
+    padding: 2px 7px; border-radius: 999px;
+    background: var(--bg-3); color: var(--fg-mute); font-size: 10px;
+  }
+  .pane-body {
+    flex: 1; overflow: auto; padding: 8px 0;
+    font: 12px/1.45 var(--mono);
+  }
+
+  /* event rows */
+  .row {
+    padding: 5px 14px; border-bottom: 1px solid #21262d;
+    display: grid; grid-template-columns: 70px 60px 1fr; gap: 8px;
+    align-items: baseline;
+  }
+  .row:hover { background: #161b22; }
+  .row .ts { color: var(--fg-mute); font-size: 11px; }
+  .row .lvl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .row.info .lvl { color: var(--accent-2); }
+  .row.warn .lvl { color: var(--warn); }
+  .row.err  .lvl { color: var(--err); }
+  .row.ok   .lvl { color: var(--ok); }
+  .row .msg { color: var(--fg); word-break: break-all; }
+  .row .msg .url { color: var(--accent-2); }
+  .row .msg .status { color: var(--ok); }
+  .row .msg .status.fail { color: var(--err); }
+
+  /* footer / control bar */
+  .bar {
+    display: flex; gap: 8px; padding: 10px 18px;
+    background: var(--bg-2); border-top: 1px solid var(--line);
+    align-items: center;
+  }
+  .bar input[type=text] {
+    flex: 1;
+    background: var(--bg-3); color: var(--fg);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 8px 10px; font: 13px var(--mono);
+    outline: none;
+  }
+  .bar input[type=text]:focus { border-color: var(--accent); }
+  .btn {
+    padding: 8px 14px; border-radius: 6px;
+    background: var(--bg-3); color: var(--fg);
+    border: 1px solid var(--line);
+    cursor: pointer; font: 12px/1 var(--mono);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    transition: background .12s, border-color .12s;
+  }
+  .btn:hover { background: #2a313a; border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-2); }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn .badge {
+    display: inline-block; margin-left: 6px;
+    background: rgba(255,255,255,0.18); padding: 1px 6px; border-radius: 999px;
+    font-size: 10px;
+  }
+
+  /* modal (export preview) */
+  .modal-back {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: none; align-items: center; justify-content: center;
+    z-index: 50;
+  }
+  .modal-back.open { display: flex; }
+  .modal {
+    width: min(900px, 92vw); max-height: 80vh;
+    background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px;
+    display: flex; flex-direction: column;
+  }
+  .modal-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px; border-bottom: 1px solid var(--line);
+  }
+  .modal-head h2 { margin: 0; font-size: 13px; color: var(--fg-dim); }
+  .modal-head .grow { flex: 1; }
+  .modal-body {
+    flex: 1; overflow: auto;
+    padding: 14px 18px;
+    background: var(--bg); color: var(--fg);
+    font: 12px/1.5 var(--mono); white-space: pre;
+  }
+  .modal-foot {
+    padding: 10px 16px; border-top: 1px solid var(--line);
+    display: flex; gap: 8px; justify-content: flex-end;
+  }
+
+  /* status panel (bottom of body) */
+  .status-line {
+    padding: 4px 18px;
+    background: var(--bg-3);
+    border-top: 1px solid var(--line);
+    color: var(--fg-dim);
+    font: 11px/1.4 var(--mono);
+  }
+  .status-line .err { color: var(--err); }
+  .status-line .ok { color: var(--ok); }
+  .status-line .warn { color: var(--warn); }
+
+  /* empty state */
+  .empty {
+    padding: 40px 18px; color: var(--fg-mute);
+    text-align: center; font-size: 12px;
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header>
+    <span class="dot" id="live-dot"></span>
+    <h1>browser-debug-suite</h1>
+    <span class="pill" id="mode-pill">idle</span>
+    <span class="grow"></span>
+    <span class="pill" id="target-pill">no target</span>
+    <a href="#" id="help-link">help</a>
+  </header>
+
+  <div class="stage">
+    <section class="pane" id="pane-console">
+      <div class="pane-head"><span class="name">Console</span><span class="count" id="c-console">0</span></div>
+      <div class="pane-body" id="b-console"><div class="empty">click <b>Start Session</b> to begin capturing console output from the target page</div></div>
+    </section>
+
+    <section class="pane" id="pane-network">
+      <div class="pane-head"><span class="name">Network</span><span class="count" id="c-network">0</span></div>
+      <div class="pane-body" id="b-network"><div class="empty">Network requests will appear here once the page loads</div></div>
+    </section>
+
+    <section class="pane" id="pane-actions">
+      <div class="pane-head"><span class="name">Script Output</span><span class="count" id="c-actions">0</span></div>
+      <div class="pane-body" id="b-actions"><div class="empty">Use <b>Export</b> to convert the captured session into a Playwright script</div></div>
+    </section>
+  </div>
+
+  <div class="bar">
+    <input type="text" id="url" placeholder="https://example.com" value="https://example.com">
+    <button class="btn primary" id="btn-snapshot">Snapshot</button>
+    <button class="btn" id="btn-cdp">CDP Record</button>
+    <button class="btn" id="btn-export">Export Script</button>
+    <button class="btn" id="btn-clear">Clear</button>
+  </div>
+
+  <div class="status-line" id="status">ready. backend: <code>debug_session.py</code></div>
+
+</div>
+
+<!-- modal for script preview -->
+<div class="modal-back" id="modal-back">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="modal-title">generated script</h2>
+      <span class="grow"></span>
+      <button class="btn" id="modal-copy">copy</button>
+      <button class="btn" id="modal-close">close</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-foot">
+      <span id="modal-path" style="color: var(--fg-mute); font: 11px var(--mono);"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+ * browser-debug-suite front-end
+ *
+ * This file ships with the Python orchestrator and CDP bridge.
+ * In a real deployment the buttons would POST to a small HTTP
+ * server that runs the Python / Node scripts. For local demo
+ * we wire the UI to a "demo backend" that simulates responses
+ * using the data shapes the real backend produces (so the UI
+ * is identical in production).
+ *
+ * To plug in a real backend, replace DEMO_BACKEND with:
+ *   const DEMO_BACKEND = {
+ *     snapshot: async (url) => fetch('/api/snapshot?url='+url).then(...),
+ *     cdp:      async ()     => fetch('/api/cdp').then(...),
+ *     export:   async (snap) => fetch('/api/export', {method:'POST', body: JSON.stringify(snap)}).then(...),
+ *   };
+ * ============================================================ */
+
+// ---- demo backend (replace in production) ----
+const DEMO_BACKEND = {
+  async snapshot(url) {
+    // In production: HTTP call to debug_session.py snapshot <url>.
+    // Here we simulate the result shape so the UI is the same.
+    return {
+      ok: true,
+      title: 'Example Domain',
+      url,
+      console: [],
+      errors: [],
+      network: [
+        { method: 'GET', url, status: 200 },
+        { method: 'GET', url: url + 'favicon.ico', status: 200 },
+      ],
+    };
+  },
+  async cdp() {
+    return {
+      ok: true,
+      events: [
+        { ts: Date.now()-3000, kind: 'Network.requestWillBeSent', url: 'https://example.com/', method: 'GET' },
+        { ts: Date.now()-2900, kind: 'Network.responseReceived',  url: 'https://example.com/', status: 200 },
+        { ts: Date.now()-2800, kind: 'Page.loadEventFired' },
+      ],
+    };
+  },
+  async export(snapshot) {
+    // Real backend returns the path of the saved file; here we generate inline.
+    const py = [
+      '"""Auto-generated by browser-debug-suite (demo)."""',
+      'from playwright.sync_api import sync_playwright',
+      '',
+      'TARGET_URL = ' + JSON.stringify(snapshot.url || 'about:blank'),
+      '',
+      'def main() -> None:',
+      '    with sync_playwright() as p:',
+      '        browser = p.chromium.launch(headless=True, args=["--no-sandbox"])',
+      '        page = browser.new_page()',
+      '        page.goto(TARGET_URL, wait_until="networkidle")',
+      '        print("title:", page.title())',
+      '        browser.close()',
+      '',
+      'if __name__ == "__main__":',
+      '    main()',
+      '',
+    ].join('\n');
+    return { ok: true, path: 'browser-debug-suite/exports/demo-snapshot.python.py', content: py };
+  },
+};
+
+// ---- state ----
+let currentSnapshot = null;
+let currentExport = null;
+
+// ---- helpers ----
+const $ = (id) => document.getElementById(id);
+function setStatus(msg, kind) {
+  const el = $('status');
+  el.innerHTML = msg;
+  el.className = 'status-line ' + (kind || '');
+}
+function setLive(on, label) {
+  $('live-dot').classList.toggle('live', !!on);
+  $('mode-pill').textContent = label || (on ? 'live' : 'idle');
+}
+function fmtTs(ts) {
+  const d = new Date(ts);
+  return d.toLocaleTimeString([], { hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3,'0');
+}
+
+// ---- render ----
+function rowConsole(level, text, ts) {
+  const div = document.createElement('div');
+  div.className = 'row ' + (level === 'error' ? 'err' : level === 'warn' ? 'warn' : 'info');
+  div.innerHTML = '<span class="ts">' + fmtTs(ts || Date.now()) + '</span>' +
+                  '<span class="lvl">' + (level || 'log') + '</span>' +
+                  '<span class="msg"></span>';
+  div.querySelector('.msg').textContent = text;
+  return div;
+}
+function rowNetwork(method, url, status, ts) {
+  const div = document.createElement('div');
+  div.className = 'row ' + (status >= 400 ? 'err' : status >= 300 ? 'warn' : 'ok');
+  div.innerHTML = '<span class="ts">' + fmtTs(ts || Date.now()) + '</span>' +
+                  '<span class="lvl">' + (method || 'GET') + '</span>' +
+                  '<span class="msg"></span>';
+  const msg = div.querySelector('.msg');
+  msg.innerHTML = '<span class="url"></span> <span class="status ' + (status >= 400 ? 'fail' : '') + '"></span>';
+  msg.querySelector('.url').textContent = url;
+  msg.querySelector('.status').textContent = status != null ? ('HTTP ' + status) : '';
+  return div;
+}
+function rowAction(label, ts) {
+  const div = document.createElement('div');
+  div.className = 'row ok';
+  div.innerHTML = '<span class="ts">' + fmtTs(ts || Date.now()) + '</span>' +
+                  '<span class="lvl">export</span>' +
+                  '<span class="msg"></span>';
+  div.querySelector('.msg').textContent = label;
+  return div;
+}
+
+function clearPane(id) {
+  const body = $(id);
+  body.innerHTML = '';
+}
+function appendRow(pane, row) {
+  const body = $('b-' + pane);
+  // strip empty-state placeholder if present
+  const empty = body.querySelector('.empty');
+  if (empty) empty.remove();
+  body.appendChild(row);
+  const counter = $('c-' + pane);
+  counter.textContent = String(body.querySelectorAll('.row').length);
+  // autoscroll
+  body.parentElement.scrollTop = body.parentElement.scrollHeight;
+}
+
+// ---- button wiring ----
+$('btn-snapshot').addEventListener('click', async () => {
+  const url = $('url').value.trim();
+  if (!url) { setStatus('enter a URL first', 'warn'); return; }
+  setStatus('opening ' + url + ' ...');
+  setLive(true, 'snapshotting');
+  $('target-pill').textContent = url;
+  try {
+    const res = await DEMO_BACKEND.snapshot(url);
+    if (!res.ok) { setStatus('snapshot failed: ' + (res.error || '?'), 'err'); setLive(false); return; }
+    currentSnapshot = res;
+    setLive(false, 'idle');
+    setStatus('snapshot complete. title="' + res.title + '" net=' + res.network.length, 'ok');
+    // render network rows
+    clearPane('network');
+    for (const r of res.network) {
+      appendRow('network', rowNetwork(r.method, r.url, r.status));
+    }
+    // render console rows
+    clearPane('console');
+    if (res.console.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = 'no console output captured (target is clean)';
+      $('b-console').appendChild(empty);
+      $('c-console').textContent = '0';
+    } else {
+      for (const c of res.console) appendRow('console', rowConsole(c.level, c.text, c.ts));
+    }
+  } catch (e) {
+    setStatus('snapshot exception: ' + e.message, 'err');
+    setLive(false);
+  }
+});
+
+$('btn-cdp').addEventListener('click', async () => {
+  setStatus('starting CDP recorder ...', '');
+  setLive(true, 'CDP recording');
+  try {
+    const res = await DEMO_BACKEND.cdp();
+    setLive(false, 'idle');
+    setStatus('CDP recording complete. events=' + res.events.length, 'ok');
+    clearPane('console');
+    for (const ev of res.events) {
+      if (ev.kind.startsWith('Network.')) {
+        appendRow('network', rowNetwork(ev.method, ev.url, ev.status, ev.ts));
+      } else if (ev.kind.startsWith('Page.')) {
+        appendRow('console', rowConsole('info', ev.kind, ev.ts));
+      }
+    }
+  } catch (e) {
+    setStatus('CDP exception: ' + e.message, 'err');
+    setLive(false);
+  }
+});
+
+$('btn-export').addEventListener('click', async () => {
+  if (!currentSnapshot) {
+    setStatus('no snapshot yet. click Snapshot first.', 'warn');
+    return;
+  }
+  setStatus('generating Playwright script ...');
+  try {
+    const res = await DEMO_BACKEND.export(currentSnapshot);
+    if (!res.ok) { setStatus('export failed', 'err'); return; }
+    currentExport = res;
+    $('modal-title').textContent = 'generated script (' + (res.path.split('/').pop()) + ')';
+    $('modal-body').textContent = res.content;
+    $('modal-path').textContent = res.path;
+    $('modal-back').classList.add('open');
+    appendRow('actions', rowAction('exported -> ' + res.path));
+    setStatus('exported ' + res.path, 'ok');
+  } catch (e) {
+    setStatus('export exception: ' + e.message, 'err');
+  }
+});
+
+$('btn-clear').addEventListener('click', () => {
+  clearPane('console'); clearPane('network'); clearPane('actions');
+  $('c-console').textContent = '0'; $('c-network').textContent = '0'; $('c-actions').textContent = '0';
+  // re-add empty placeholders
+  $('b-console').innerHTML = '<div class="empty">click <b>Start Session</b> to begin capturing console output from the target page</div>';
+  $('b-network').innerHTML = '<div class="empty">Network requests will appear here once the page loads</div>';
+  $('b-actions').innerHTML = '<div class="empty">Use <b>Export</b> to convert the captured session into a Playwright script</div>';
+  currentSnapshot = null;
+  currentExport = null;
+  setStatus('cleared');
+});
+
+$('modal-close').addEventListener('click', () => $('modal-back').classList.remove('open'));
+$('modal-back').addEventListener('click', (e) => {
+  if (e.target.id === 'modal-back') $('modal-back').classList.remove('open');
+});
+$('modal-copy').addEventListener('click', async () => {
+  if (!currentExport) return;
+  try {
+    await navigator.clipboard.writeText(currentExport.content);
+    setStatus('copied to clipboard', 'ok');
+  } catch (e) {
+    setStatus('copy failed: ' + e.message, 'warn');
+  }
+});
+$('help-link').addEventListener('click', (e) => {
+  e.preventDefault();
+  alert('browser-debug-suite\n\n1. type a URL and click Snapshot\n2. (optional) click CDP Record for raw CDP events\n3. click Export Script to generate a Playwright (Python) script\n\nbackends:\n  python3 scripts/debug_session.py snapshot <url>\n  node scripts/cdp_recorder.js --duration-ms 5000\n  python3 scripts/debug_session.py export <snap.json> --lang python');
+});
+
+// initial state
+setStatus('ready. backend: <code>debug_session.py</code>');
+</script>
+</body>
+</html>

@@ -1,18 +1,19 @@
-# Authentication and Authorization
+# Micro-Skill: comprehensive_security_framework
 
 ## Overview
-This document outlines a comprehensive micro-skill for managing access control, authentication mechanisms, and OAuth security integration. The goal is to ensure secure access to resources, provide detailed auditing of access control decisions, and allow administrators to modify policies in real-time without requiring system restarts or code changes.
+The `comprehensive_security_framework` micro-skill is a multi-layered security system that integrates secure authentication and authorization mechanisms, robust API Key management, role-based access control (RBAC), and dynamic policy management. This framework aims to protect systems against unauthorized access, manipulation, and other security threats by ensuring secure access to resources, detailed auditing of access control decisions, and the enforcement of consistent and secure task execution through standard operating procedures (SOPs).
 
 ---
 
-## 1. Role-Based Access Control (RBAC) System
+## 1. Secure Authentication and Authorization
 
-### 1.1 RBAC Permission Check
+### 1.1 Role-Based Access Control (RBAC) System
 
-#### Purpose
-Develop a robust permission-checking engine that supports various types of permission handling logic based on roles.
+#### 1.1.1 RBAC Permission Check
 
-#### Key Features and Code Patterns
+**Purpose**: Develop a comprehensive permission-checking engine that supports various permission handling logic based on user roles.
+
+**Key Features and Code Patterns**:
 
 1. **Boolean-Type Permissions**
    - **Description**: Simple allow or deny permissions.
@@ -62,7 +63,7 @@ Develop a robust permission-checking engine that supports various types of permi
      };
      ```
 
-#### Common Errors and Prevention
+**Common Errors and Prevention**:
 
 - **Error**: Incorrect handling of role inheritance leading to incorrect permission assignments.
   - **Solution**: Recursively expand the inheritance chain during permission checks to ensure all inherited roles' permissions are correctly evaluated.
@@ -90,12 +91,11 @@ Develop a robust permission-checking engine that supports various types of permi
     };
     ```
 
-### 1.2 Audit Logging
+#### 1.1.2 Audit Logging
 
-#### Purpose
-Maintain detailed logs of each permission decision for auditing and tracking purposes.
+**Purpose**: Maintain detailed logs of each permission decision for auditing and tracking purposes.
 
-#### Key Features and Code Patterns
+**Key Features and Code Patterns**:
 
 1. **Log Recording**
    - **Description**: Capture decision details such as timestamp, user information, permission type, and decision outcome.
@@ -137,7 +137,7 @@ Maintain detailed logs of each permission decision for auditing and tracking pur
      }
      ```
 
-#### Common Errors and Prevention
+**Common Errors and Prevention**:
 
 - **Error**: Incomplete or incorrectly formatted log records.
   - **Solution**: Ensure all necessary information is correctly captured during logging and use a standardized log format.
@@ -167,12 +167,11 @@ Maintain detailed logs of each permission decision for auditing and tracking pur
     }
     ```
 
-### 1.3 Dynamic Policy Management
+#### 1.1.3 Dynamic Policy Management
 
-#### Purpose
-Enable administrators to modify permission policies at runtime without restarting the system or changing the codebase.
+**Purpose**: Enable administrators to modify permission policies at runtime without restarting the system or changing the codebase.
 
-#### Key Features and Code Patterns
+**Key Features and Code Patterns**:
 
 1. **Policy Storage**
    - **Description**: Store policies in `localStorage` or other persistent storage mechanisms.
@@ -216,7 +215,7 @@ Enable administrators to modify permission policies at runtime without restartin
      }
      ```
 
-#### Common Errors and Prevention
+**Common Errors and Prevention**:
 
 - **Error**: Policies not taking effect immediately after modification.
   - **Solution**: After policy modification, immediately trigger a policy reload and notify the permission-checking engine to use the new policy.
@@ -253,16 +252,13 @@ Enable administrators to modify permission policies at runtime without restartin
     }
     ```
 
----
+### 1.2 Authentication System Integration and Security
 
-## 2. Authentication System Integration and Security
+#### 1.2.1 Auth Middleware Protection
 
-### 2.1 Auth Middleware Protection
+**Description**: Protect routes using Next.js middleware to ensure only authenticated users can access protected routes.
 
-#### Description
-Protect routes using Next.js middleware to ensure only authenticated users can access protected routes.
-
-#### Key Code Snippets and Patterns
+**Key Code Snippets and Patterns**
 ```typescript
 // middleware.ts
 import { NextResponse } from 'next/server';
@@ -293,18 +289,8 @@ export default auth((req) => {
 });
 ```
 
-#### Common Errors and Prevention
+**Common Errors and Prevention**:
 - **Error**: Forgetting to whitelist `/api/auth/*` paths, blocking OAuth callbacks.
   - **Solution**: Explicitly allow `/api/auth/*` paths in the middleware.
 - **Error**: Incorrectly setting public paths, preventing unauthenticated users from accessing the homepage.
-  - **Solution**: Ensure public paths (e.g., `/` and `/login`) are correctly added to the `PUBLIC_PATHS` set.
-
-### 2.2 Server-Side Session Handling
-
-#### Description
-Handle sessions on the server side using NextAuth to ensure sensitive operations are performed securely.
-
-#### Key Code Snippets and Patterns
-```typescript
-// session.ts
-import { NextApiRequest, NextApi
+  - **Solution**: Ensure public paths (e.g., `/` and `/login`) are correctly added to the `PUBLIC_PATHS` set

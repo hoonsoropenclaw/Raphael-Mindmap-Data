@@ -1,9 +1,9 @@
-# Tailwind CSS Integration
+# Design System and CSS Integration
 
-## Target Skill Name: tailwind_css_integration
+## Target Skill Name: design_system_and_css_integration
 
 ## Target Summary
-Integrate the Tailwind CSS framework into your frontend development workflow to design visually consistent, responsive, and maintainable interfaces. This skill covers both CDN-based integration and advanced usage for efficient styling and seamless application.
+Integrate the Tailwind CSS framework into your React Flow project to design visually consistent, responsive, and maintainable interfaces. This skill covers both CDN-based and npm-based integration methods, advanced styling techniques, and best practices for seamless application and efficient styling.
 
 ---
 
@@ -54,7 +54,7 @@ Integrate the Tailwind CSS framework into your frontend development workflow to 
   Configure `tailwind.config.js`:
   ```javascript
   module.exports = {
-    content: ["./src/**/*.{html,js}"],
+    content: ["./src/**/*.{html,js,jsx,ts,tsx}"],
     theme: {
       extend: {
         colors: {
@@ -77,62 +77,99 @@ Integrate the Tailwind CSS framework into your frontend development workflow to 
   @tailwind components;
   @tailwind utilities;
   ```
+  Import the CSS file into your main JavaScript or TypeScript file:
+  ```javascript
+  import './src/input.css';
+  ```
 
 ---
 
-## 2. Applying Tailwind Classes
+## 2. Applying Tailwind Classes to React Flow
 
 ### 2.1. Styling with Utility Classes
-- **Objective**: Utilize pre-defined classes to set colors, spacing, typography, and other stylistic elements.
+- **Objective**: Utilize pre-defined classes to set colors, spacing, typography, and other stylistic elements for React Flow components.
 - **Example**:
-  ```html
-  <button class="bg-blue-500 text-white px-4 py-2 rounded">Click Me</button>
-  <div class="max-w-md mx-auto bg-white rounded-xl shadow-md overflow-hidden md:max-w-2xl">
-    <div class="md:flex">
-      <div class="p-8">
-        <h2 class="text-2xl font-semibold">Title</h2>
-        <p class="mt-2 text-gray-600">Content</p>
+  ```javascript
+  // Define a node with Tailwind classes
+  function StatusNode({ data }) {
+    return (
+      <div className="rf-node bg-white border p-2 rounded shadow-md">
+        <h2 className="text-xl font-semibold">{data.title}</h2>
+        <p className="mt-2 text-gray-600">{data.description}</p>
       </div>
-    </div>
-  </div>
+    );
+  }
+
+  // Apply the node to React Flow
+  const reactFlowInstance = useReactFlow();
+  return (
+    <ReactFlow
+      nodeTypes={{ status: StatusNode }}
+      nodes={nodes}
+      edges={edges}
+      onNodesChange={onNodesChange}
+      onEdgesChange={onEdgesChange}
+      onConnect={onConnect}
+      fitView
+    />
+  );
   ```
 
 ### 2.2. Customizing Styles
 - **Objective**: Tailor styles to align with project-specific requirements.
 - **Example**:
-  ```html
-  <button class="bg-custom-blue text-white px-4 py-2 rounded">Custom Button</button>
+  ```javascript
+  // Custom class using @apply
+  const customClass = 'custom-node bg-custom-blue text-white p-4 rounded-lg';
+
+  function CustomStatusNode({ data }) {
+    return (
+      <div className={customClass}>
+        <h2 className="text-2xl font-bold">{data.title}</h2>
+        <p className="mt-2">{data.description}</p>
+      </div>
+    );
+  }
   ```
   ```css
+  /* src/input.css */
   @tailwind base;
   @tailwind components;
   @tailwind utilities;
 
-  .custom-class {
-    @apply bg-custom-blue text-white px-4 py-2 rounded;
+  .custom-node {
+    @apply bg-custom-blue text-white p-4 rounded-lg;
   }
   ```
 
 ---
 
-## 3. Advanced Tailwind Techniques
+## 3. Advanced Tailwind Techniques for React Flow
 
 ### 3.1. Responsive Design
 - **Objective**: Create responsive layouts that adapt to different screen sizes.
 - **Example**:
-  ```html
-  <div class="bg-red-500 sm:bg-green-500 md:bg-blue-500 lg:bg-yellow-500 xl:bg-pink-500">
-    Responsive Background
-  </div>
+  ```javascript
+  function ResponsiveNode({ data }) {
+    return (
+      <div className="bg-red-500 sm:bg-green-500 md:bg-blue-500 lg:bg-yellow-500 xl:bg-pink-500 p-4">
+        <h2 className="text-white">{data.title}</h2>
+      </div>
+    );
+  }
   ```
 
 ### 3.2. Dark Mode
 - **Objective**: Implement dark mode support for better user experience.
 - **Example**:
-  ```html
-  <div class="bg-white dark:bg-gray-800">
-    <h1 class="text-black dark:text-white">Hello World</h1>
-  </div>
+  ```javascript
+  function DarkModeNode({ data }) {
+    return (
+      <div className="bg-white dark:bg-gray-800 p-4">
+        <h1 className="text-black dark:text-white">{data.title}</h1>
+      </div>
+    );
+  }
   ```
   Configure `tailwind.config.js` for dark mode:
   ```javascript
@@ -145,10 +182,17 @@ Integrate the Tailwind CSS framework into your frontend development workflow to 
 ### 3.3. Animations and Transitions
 - **Objective**: Add animations and transitions to enhance interactivity.
 - **Example**:
-  ```html
-  <button class="transition duration-300 ease-in-out bg-blue-500 hover:bg-blue-700">
-    Hover Me
-  </button>
+  ```javascript
+  function AnimatedButton({ onClick }) {
+    return (
+      <button
+        className="transition duration-300 ease-in-out bg-blue-500 hover:bg-blue-700 text-white px-4 py-2 rounded"
+        onClick={onClick}
+      >
+        Click Me
+      </button>
+    );
+  }
   ```
 
 ---
@@ -192,4 +236,4 @@ Integrate the Tailwind CSS framework into your frontend development workflow to 
 
 ---
 
-By mastering Tailwind CSS integration, you can create frontend designs that are not only visually appealing but also functional, consistent, and adaptable to the needs of your users. This comprehensive approach ensures that your applications are both user-friendly and efficient, with a strong emphasis on seamless styling and system application.
+By mastering the integration of Tailwind CSS with React Flow, you can create frontend designs that are not only visually appealing but also functional, consistent, and adaptable to the needs of your users. This comprehensive approach ensures that your applications are both user-friendly and efficient, with a strong emphasis on seamless styling and system application.

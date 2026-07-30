@@ -1,14 +1,14 @@
-# Task and Skill Management
+# Workflow and Task Management
 
 ## Overview
-The **Task and Skill Management** skill is designed to enhance task execution and team collaboration by integrating task decomposition, information handling, decision-making, and collaboration. This skill leverages Standard Operating Procedures (SOPs), collaborative tools, and structured methodologies to streamline workflows, ensure consistency, and facilitate informed decision-making. It also incorporates automated problem-solving techniques and skill selection to improve efficiency and productivity.
+The **Workflow and Task Management** skill is crucial for optimizing efficiency and stability within a project or system. This skill involves the effective organization, evaluation, prioritization, and management of tasks and workflows, utilizing structured methodologies, collaborative tools, and automated techniques to enhance productivity and consistency.
 
 ## Key Components
 
 ### 1. Comprehensive Task and Information Management
 
 #### 1.1 Handling Missing Information
-- **Explanation**: This component ensures that critical information gaps are promptly identified and addressed. It involves requesting clarifications from users or making informed assumptions based on available data.
+- **Explanation**: Identify and address critical information gaps promptly by requesting clarifications or making informed assumptions based on available data.
 - **Key Code Snippets or Patterns**:
     ```python
     def handle_missing_information(missing_fields):
@@ -25,7 +25,7 @@ The **Task and Skill Management** skill is designed to enhance task execution an
         - **Prevention**: List all necessary information fields and check them one by one.
 
 #### 1.2 Task Decomposition
-- **Explanation**: Task Decomposition involves breaking down complex tasks into smaller, manageable sub-tasks. This approach facilitates gradual problem-solving and the reuse of existing skill modules.
+- **Explanation**: Break down complex tasks into smaller, manageable sub-tasks to facilitate gradual problem-solving and the reuse of existing skill modules.
 - **Key Features**:
     - **Task Tree Construction**: Decompose the main task into multiple sub-tasks and build a task tree structure.
     - **Priority Sorting**: Sort sub-tasks based on their priority and dependencies.
@@ -47,7 +47,7 @@ The **Task and Skill Management** skill is designed to enhance task execution an
         - **Prevention**: Carefully analyze task relationships and use tools that support dependency mapping.
 
 #### 1.3 Integration of Components
-- **Explanation**: The integration of missing information handling and task decomposition ensures that tasks are not only broken down into manageable steps but also that any missing information required for each step is promptly identified and addressed. This comprehensive approach enhances the efficiency and reliability of task management.
+- **Explanation**: Combine missing information handling with task decomposition to ensure tasks are broken down into manageable steps and that any missing information is promptly identified and addressed.
 - **Key Code Snippets or Patterns**:
     ```python
     def manage_task(task_description):
@@ -189,4 +189,10 @@ The **Task and Skill Management** skill is designed to enhance task execution an
             - **Problem**: Conducting random, unstructured attempts without a clear plan or hypothesis.
             - **Prevention**:
                 - Conduct preliminary analysis to understand the problem and potential solution space.
-                - Establish a systematic approach, defining trial parameters such as the number of attempts and acceptable failure thresholds
+                - Establish a systematic approach, defining trial parameters such as the number of attempts and acceptable failure thresholds.
+
+### 3. Task Evaluation and Prioritization
+#### 3.1 Purpose
+- **Explanation**: Before executing tasks, evaluate their scope, risk, and feasibility to determine their priority.
+
+#### 3.2 Key
