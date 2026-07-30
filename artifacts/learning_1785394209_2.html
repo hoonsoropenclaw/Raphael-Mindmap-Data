@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OCR × Whisper 心智圖自動化</title>
+  <script src="https://cdn.jsdelivr.net/npm/markmap-autoloader@0.16"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a1f29;
+      --border: #2a3340;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --accent2: #f0883e;
+      --ok: #3fb950;
+      --warn: #d29922;
+      --err: #f85149;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif;
+      background: var(--bg); color: var(--text);
+      min-height: 100vh;
+    }
+    header {
+      padding: 1.5rem 2rem; border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, #1a1f29 0%, #0f1419 100%);
+    }
+    header h1 { margin: 0 0 0.3rem; font-size: 1.4rem; }
+    header .sub { color: var(--muted); font-size: 0.85rem; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; margin-left: 0.5rem; vertical-align: middle; }
+    .badge.ok { background: rgba(63,185,80,0.15); color: var(--ok); border: 1px solid rgba(63,185,80,0.3); }
+    .badge.warn { background: rgba(210,153,34,0.15); color: var(--warn); border: 1px solid rgba(210,153,34,0.3); }
+    main { display: grid; grid-template-columns: 380px 1fr; min-height: calc(100vh - 78px); }
+    .sidebar { padding: 1.2rem; border-right: 1px solid var(--border); overflow-y: auto; }
+    .canvas { padding: 1.2rem; overflow: auto; }
+    .upload-zone {
+      border: 2px dashed var(--border); border-radius: 8px;
+      padding: 1.5rem; text-align: center; cursor: pointer;
+      transition: all 0.2s; background: var(--panel);
+    }
+    .upload-zone:hover, .upload-zone.dragover { border-color: var(--accent); background: rgba(88,166,255,0.05); }
+    .upload-zone input { display: none; }
+    .form-group { margin-top: 1rem; }
+    .form-group label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.4rem; }
+    .form-group input[type="text"] {
+      width: 100%; padding: 0.6rem 0.8rem; background: var(--bg);
+      border: 1px solid var(--border); color: var(--text); border-radius: 6px;
+      font-family: inherit; font-size: 0.9rem;
+    }
+    .btn {
+      width: 100%; padding: 0.7rem; margin-top: 1rem;
+      background: var(--accent); color: #0d1117; border: none;
+      border-radius: 6px; font-weight: 600; cursor: pointer;
+      font-size: 0.9rem; transition: opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn.secondary { background: var(--panel); color: var(--text); border: 1px solid var(--border); }
+    .status { margin-top: 1rem; padding: 0.8rem; border-radius: 6px; font-size: 0.85rem; min-height: 1.5rem; }
+    .status.info { background: rgba(88,166,255,0.1); color: var(--accent); border: 1px solid rgba(88,166,255,0.2); }
+    .status.ok { background: rgba(63,185,80,0.1); color: var(--ok); border: 1px solid rgba(63,185,80,0.2); }
+    .status.warn { background: rgba(210,153,34,0.1); color: var(--warn); border: 1px solid rgba(210,153,34,0.2); }
+    .status.err { background: rgba(248,81,73,0.1); color: var(--err); border: 1px solid rgba(248,81,73,0.2); }
+    .meta { font-size: 0.75rem; color: var(--muted); margin-top: 0.5rem; font-family: ui-monospace, monospace; }
+    .tabs { display: flex; gap: 0.4rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border); }
+    .tab { padding: 0.5rem 0.9rem; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; font-size: 0.85rem; }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    #mindmap-svg-host { width: 100%; height: 600px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+    pre.markdown {
+      background: var(--panel); padding: 1rem; border-radius: 6px;
+      border: 1px solid var(--border); overflow: auto; max-height: 600px;
+      font-size: 0.8rem; line-height: 1.5; white-space: pre-wrap; color: var(--text);
+    }
+    .quick-actions { display: flex; gap: 0.5rem; margin-top: 0.8rem; }
+    .quick-actions .btn { flex: 1; margin-top: 0; padding: 0.5rem; font-size: 0.8rem; }
+    .file-types { font-size: 0.7rem; color: var(--muted); margin-top: 0.5rem; line-height: 1.5; }
+    .mode-row { display: flex; gap: 0.4rem; margin-top: 0.8rem; }
+    .mode-row .btn { flex: 1; margin-top: 0; padding: 0.5rem; font-size: 0.8rem; }
+    .mode-row .btn.active { background: var(--accent); color: #0d1117; }
+    .mode-row .btn:not(.active) { background: var(--panel); color: var(--text); border: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>OCR × Whisper 心智圖自動化<span id="openai-badge"></span></h1>
+    <div class="sub">PDF / 圖片 (tesseract) ＋ 音訊 (Whisper API) → 文字 → markmap 心智圖</div>
+  </header>
+
+  <main>
+    <aside class="sidebar">
+      <div class="upload-zone" id="upload-zone">
+        <input type="file" id="file-input" accept=".pdf,.png,.jpg,.jpeg,.bmp,.tiff,.webp,.mp3,.mp4,.m4a,.wav,.ogg,.flac,.webm" />
+        <div>📁 拖放檔案或點擊選擇</div>
+        <div class="file-types">PDF · PNG/JPG/WEBP · MP3/M4A/WAV/OGG</div>
+      </div>
+
+      <div class="form-group">
+        <label>或直接輸入純文字 → 心智圖</label>
+        <input type="text" id="text-input" placeholder="貼一段文字，按下方按鈕…" />
+      </div>
+
+      <div class="mode-row">
+        <button class="btn active" id="mode-file">檔案</button>
+        <button class="btn" id="mode-text">純文字</button>
+      </div>
+
+      <button class="btn" id="process-btn">🚀 產生心智圖</button>
+      <button class="btn secondary" id="demo-btn">🧪 載入 Demo 範例</button>
+
+      <div class="status info" id="status">就緒。</div>
+      <div class="meta" id="meta"></div>
+    </aside>
+
+    <section class="canvas">
+      <div class="tabs">
+        <div class="tab active" data-tab="mindmap">心智圖</div>
+        <div class="tab" data-tab="markdown">Markdown</div>
+        <div class="tab" data-tab="text">原文</div>
+      </div>
+
+      <div class="panel active" id="panel-mindmap">
+        <svg id="mindmap-svg-host"></svg>
+        <div class="quick-actions">
+          <button class="btn secondary" id="download-md">下載 .mm.md</button>
+          <button class="btn secondary" id="copy-md">複製 Markdown</button>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-markdown">
+        <pre class="markdown" id="md-out">(尚無輸出)</pre>
+      </div>
+
+      <div class="panel" id="panel-text">
+        <pre class="markdown" id="text-out">(尚無輸出)</pre>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // markmap lazy transform
+    window.mm || document.write('<script src="https://cdn.jsdelivr.net/npm/markmap-view@0.16"><\/script>');
+    window.mm || document.write('<script src="https://cdn.jsdelivr.net/npm/markmap-lib@0.16"><\/script>');
+
+    const $ = (s) => document.querySelector(s);
+    const $$ = (s) => document.querySelectorAll(s);
+
+    const state = { mode: "file", file: null, lastMd: "", lastText: "" };
+
+    // ── OpenAI badge ───────────────────────────────
+    fetch("/health").then(r => r.json()).then(h => {
+      const b = $("#openai-badge");
+      if (h.openai_configured) {
+        b.innerHTML = '<span class="badge ok">Whisper API ready</span>';
+      } else {
+        b.innerHTML = '<span class="badge warn">Whisper mock fallback</span>';
+      }
+    });
+
+    // ── Tabs ───────────────────────────────────────
+    $$(".tab").forEach(t => t.addEventListener("click", () => {
+      $$(".tab").forEach(x => x.classList.remove("active"));
+      $$(".panel").forEach(x => x.classList.remove("active"));
+      t.classList.add("active");
+      $("#panel-" + t.dataset.tab).classList.add("active");
+    }));
+
+    // ── Mode toggle ────────────────────────────────
+    function setMode(m) {
+      state.mode = m;
+      $("#mode-file").classList.toggle("active", m === "file");
+      $("#mode-text").classList.toggle("active", m === "text");
+      $("#upload-zone").style.opacity = m === "file" ? "1" : "0.4";
+      $("#upload-zone").style.pointerEvents = m === "file" ? "auto" : "none";
+    }
+    $("#mode-file").onclick = () => setMode("file");
+    $("#mode-text").onclick = () => setMode("text");
+
+    // ── Upload zone ────────────────────────────────
+    const zone = $("#upload-zone");
+    const input = $("#file-input");
+    zone.addEventListener("click", () => input.click());
+    zone.addEventListener("dragover", e => { e.preventDefault(); zone.classList.add("dragover"); });
+    zone.addEventListener("dragleave", () => zone.classList.remove("dragover"));
+    zone.addEventListener("drop", e => {
+      e.preventDefault(); zone.classList.remove("dragover");
+      if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+    });
+    input.addEventListener("change", e => { if (e.target.files[0]) setFile(e.target.files[0]); });
+
+    function setFile(f) {
+      state.file = f;
+      $("#status").className = "status info";
+      $("#status").textContent = `已選: ${f.name} (${(f.size/1024).toFixed(1)} KB)`;
+      $("#meta").textContent = "";
+    }
+
+    function setStatus(msg, cls = "info") {
+      const el = $("#status");
+      el.className = "status " + cls;
+      el.textContent = msg;
+    }
+
+    // ── Process ────────────────────────────────────
+    async function processFile() {
+      const fd = new FormData();
+      fd.append("file", state.file);
+      setStatus("處理中…", "info");
+      $("#process-btn").disabled = true;
+      try {
+        const r = await fetch("/api/process", { method: "POST", body: fd });
+        const j = await r.json();
+        if (!r.ok || !j.ok) throw new Error(j.error || "unknown");
+        renderResult(j);
+      } catch (e) {
+        setStatus("失敗: " + e.message, "err");
+      } finally {
+        $("#process-btn").disabled = false;
+      }
+    }
+
+    async function processText() {
+      const text = $("#text-input").value.trim();
+      if (!text) { setStatus("請先輸入文字", "warn"); return; }
+      setStatus("處理中…", "info");
+      $("#process-btn").disabled = true;
+      try {
+        const r = await fetch("/api/render", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text, title: "輸入文字心智圖" }),
+        });
+        const j = await r.json();
+        if (!r.ok || !j.ok) throw new Error(j.error || "unknown");
+        renderResult({
+          ok: true,
+          filename: "(text)",
+          extraction: { source: "text", char_count: text.length },
+          mindmap_markdown: j.mindmap_markdown,
+          elapsed_sec: 0,
+        });
+        state.lastText = text;
+      } catch (e) {
+        setStatus("失敗: " + e.message, "err");
+      } finally {
+        $("#process-btn").disabled = false;
+      }
+    }
+
+    function renderResult(j) {
+      state.lastMd = j.mindmap_markdown;
+      $("#md-out").textContent = j.mindmap_md ?? j.mindmap_markdown;
+      $("#text-out").textContent = state.lastText || "(請見 Markdown 頁)";
+
+      // 渲染 markmap
+      try {
+        const { Transformer, Markmap } = window.mm;
+        const transformer = new Transformer();
+        const { root } = transformer.transform(j.mindmap_markdown);
+        const svg = d3.select("#mindmap-svg-host").attr("viewBox", null);
+        svg.selectAll("*").remove();
+        const mm = Markmap(svg.node(), {
+          color: (n) => {
+            const depth = (n.depth || 0) % 6;
+            return ["#58a6ff", "#f0883e", "#3fb950", "#d29922", "#bc8cff", "#ff7b72"][depth];
+          },
+        });
+        mm.setData(root);
+        mm.fit();
+      } catch (err) {
+        setStatus("markmap 渲染失敗（檢視 Markdown 頁）: " + err.message, "warn");
+      }
+
+      const meta = j.extraction || {};
+      setStatus(`✓ 完成 — ${meta.source || "?"} → ${j.mindmap_markdown.length} chars`, "ok");
+      $("#meta").textContent = JSON.stringify({
+        source: meta.source,
+        engine: meta.engine,
+        chars: meta.char_count,
+        pages: meta.page_count,
+        mocked: meta.mocked,
+        elapsed_s: j.elapsed_sec,
+      }, null, 2);
+      // 切到心智圖
+      $$(".tab")[0].click();
+    }
+
+    $("#process-btn").onclick = () => state.mode === "file" ? processFile() : processText();
+
+    // ── Demo ───────────────────────────────────────
+    const DEMO_TEXT = `人工智慧的發展可以分為三個階段：感知、認知、決策。感知階段讓機器能夠看見與聽見；認知階段讓機器能夠理解與推理；決策階段讓機器能夠行動與創造。深度學習是這一進程的核心驅動力，尤其是 Transformer 架構徹底改變了自然語言處理。語音辨識方面 Whisper 提供了多語言的轉寫能力，圖片辨識方面 OCR 引擎能把掃描文件轉成可編輯文字。當這些基礎技術串接起來，我們就能把任意形式的多媒體文件轉成結構化的知識圖譜，並用 markmap 渲染成視覺化心智圖。`;
+    $("#demo-btn").onclick = () => {
+      $("#text-input").value = DEMO_TEXT;
+      setMode("text");
+      setStatus("已載入 Demo 範例，按「產生心智圖」", "info");
+    };
+
+    // ── Quick actions ──────────────────────────────
+    $("#download-md").onclick = () => {
+      const blob = new Blob([state.lastMd], { type: "text/markdown" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${Date.now()}.mm.md`;
+      a.click();
+    };
+    $("#copy-md").onclick = async () => {
+      try { await navigator.clipboard.writeText(state.lastMd); setStatus("Markdown 已複製", "ok"); }
+      catch (e) { setStatus("複製失敗: " + e.message, "err"); }
+    };
+  </script>
+</body>
+</html>

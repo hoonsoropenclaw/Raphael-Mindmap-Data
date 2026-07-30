@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>fsw — file system watcher</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg: #0d1117; --fg: #c9d1d9; --muted: #8b949e; --line: #30363d;
+      --kind-created: #2ea043; --kind-modified: #d29922;
+      --kind-deleted: #f85149; --kind-moved: #58a6ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: -apple-system, "Segoe UI", "Noto Sans TC", sans-serif;
+      background: var(--bg); color: var(--fg); font-size: 14px; line-height: 1.5;
+    }
+    header {
+      padding: 16px 24px; border-bottom: 1px solid var(--line);
+      display: flex; justify-content: space-between; align-items: center; gap: 16px;
+      flex-wrap: wrap;
+    }
+    h1 { margin: 0; font-size: 18px; font-weight: 600; }
+    h1 .badge {
+      display: inline-block; margin-left: 8px; padding: 2px 8px;
+      border-radius: 12px; background: var(--kind-created); color: #fff;
+      font-size: 11px; font-weight: 700;
+    }
+    h1 .badge.offline { background: var(--kind-deleted); }
+    .stats { display: flex; gap: 16px; color: var(--muted); font-size: 12px; }
+    .stats b { color: var(--fg); }
+    .controls { display: flex; gap: 8px; align-items: center; }
+    .controls input {
+      background: var(--bg); color: var(--fg); border: 1px solid var(--line);
+      padding: 4px 8px; border-radius: 4px; font: inherit; width: 280px;
+    }
+    .controls button {
+      background: var(--kind-created); color: #fff; border: none;
+      padding: 4px 12px; border-radius: 4px; cursor: pointer; font: inherit;
+    }
+    .controls button:hover { opacity: 0.85; }
+    main { padding: 16px 24px; }
+    .summary {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px; margin-bottom: 16px;
+    }
+    .card {
+      background: rgba(255,255,255,0.04); border: 1px solid var(--line);
+      border-radius: 8px; padding: 12px 16px;
+    }
+    .card .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .card .value { font-size: 20px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td {
+      text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line);
+      font-variant-numeric: tabular-nums;
+    }
+    th { color: var(--muted); font-weight: 500; font-size: 12px; }
+    tr:hover td { background: rgba(255,255,255,0.03); }
+    .kind { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+    .kind-created { background: rgba(46,160,67,0.18); color: var(--kind-created); }
+    .kind-modified { background: rgba(210,153,34,0.18); color: var(--kind-modified); }
+    .kind-deleted { background: rgba(248,81,73,0.18); color: var(--kind-deleted); }
+    .kind-moved { background: rgba(88,166,255,0.18); color: var(--kind-moved); }
+    .action-ok { color: var(--kind-created); }
+    .action-fail { color: var(--kind-deleted); }
+    .path { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
+    .muted { color: var(--muted); }
+    footer {
+      padding: 12px 24px; border-top: 1px solid var(--line);
+      color: var(--muted); font-size: 11px; display: flex; justify-content: space-between;
+    }
+    .live::before {
+      content: "●"; color: var(--kind-created); margin-right: 6px;
+      animation: pulse 1.6s ease-in-out infinite;
+    }
+    .demo-banner {
+      background: rgba(46,160,67,0.12); color: var(--kind-created);
+      padding: 8px 24px; font-size: 12px; border-bottom: 1px solid var(--line);
+    }
+    @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.3 } }
+  </style>
+</head>
+<body>
+  <div class="demo-banner" id="banner">
+    Demo mode — sample data shown. Start <code>python -m fsw watch &lt;path&gt; --port 8765</code> and click <b>Connect</b> to see live events.
+  </div>
+  <header>
+    <h1>fsw <span class="badge offline" id="conn">demo</span></h1>
+    <div class="stats">
+      <div>backend: <b id="backend">—</b></div>
+      <div>root: <b id="root">/srv/inbox</b></div>
+      <div>rules: <b id="rules">3</b></div>
+    </div>
+    <div class="controls">
+      <input id="endpoint" type="text" value="http://127.0.0.1:8765" placeholder="http://host:port">
+      <button onclick="connect()">Connect</button>
+    </div>
+  </header>
+  <main>
+    <div class="summary">
+      <div class="card"><div class="label">Total events</div><div class="value" id="total">0</div></div>
+      <div class="card"><div class="label">Created</div><div class="value" id="c-created" style="color:var(--kind-created)">0</div></div>
+      <div class="card"><div class="label">Modified</div><div class="value" id="c-modified" style="color:var(--kind-modified)">0</div></div>
+      <div class="card"><div class="label">Deleted</div><div class="value" id="c-deleted" style="color:var(--kind-deleted)">0</div></div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>time</th><th>kind</th><th>path</th><th>size</th><th>rule</th><th>action</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </main>
+  <footer>
+    <span class="live">Server-Sent Events stream</span>
+    <span class="muted">fsw stdlib-only · inotify + SQLite WAL · 39 unit tests · 100% pure stdlib</span>
+  </footer>
+  <script>
+    // ----------------------------------------------------------------
+    // Sample data — what you would see after running fsw against a real
+    // /srv/inbox directory for a few minutes.
+    // ----------------------------------------------------------------
+    const SAMPLE_EVENTS = [
+      { id: 1001, kind: "created",   path: "/srv/inbox/2026-07-30-report.pdf",   is_dir: false, size: 142038, source: "inotify", rule_name: "ingest",      action_ok: 1,    action_error: null, action_ms: 12.3, received_at: Date.now()/1000 - 60 },
+      { id: 1002, kind: "modified",  path: "/srv/inbox/2026-07-30-report.pdf",   is_dir: false, size: 142090, source: "inotify", rule_name: "ingest",      action_ok: 1,    action_error: null, action_ms: 9.7,  received_at: Date.now()/1000 - 55 },
+      { id: 1003, kind: "created",   path: "/srv/inbox/upload-3c91.bin",         is_dir: false, size:  84200, source: "inotify", rule_name: "ingest",      action_ok: 1,    action_error: null, action_ms: 8.1,  received_at: Date.now()/1000 - 40 },
+      { id: 1004, kind: "created",   path: "/srv/inbox/2026-07-30",              is_dir: true,  size:   null, source: "inotify", rule_name: "log-dir",     action_ok: 1,    action_error: null, action_ms: 4.5,  received_at: Date.now()/1000 - 30 },
+      { id: 1005, kind: "modified",  path: "/srv/inbox/2026-07-30/note.md",      is_dir: false, size:    312, source: "inotify", rule_name: "ingest",      action_ok: 0,    action_error: "command timed out after 5s", action_ms: 5000, received_at: Date.now()/1000 - 25 },
+      { id: 1006, kind: "created",   path: "/srv/inbox/photo.jpg",               is_dir: false, size: 524288, source: "inotify", rule_name: null,         action_ok: null, action_error: null, action_ms: 0,    received_at: Date.now()/1000 - 15 },
+      { id: 1007, kind: "modified",  path: "/srv/inbox/photo.jpg",               is_dir: false, size: 524289, source: "inotify", rule_name: null,         action_ok: null, action_error: null, action_ms: 0,    received_at: Date.now()/1000 - 14 },
+      { id: 1008, kind: "deleted",   path: "/srv/inbox/upload-3c91.bin",         is_dir: false, size:   null, source: "inotify", rule_name: "cleanup",     action_ok: 1,    action_error: null, action_ms: 7.2,  received_at: Date.now()/1000 - 5  },
+    ];
+    const SAMPLE_STATS = {
+      total: 1248,
+      by_kind: { created: 612, modified: 487, deleted: 149 },
+      last_event_at: Date.now()/1000 - 5,
+      service: { backend: "InotifyBackend", rules: ["ingest", "log-dir", "cleanup"] },
+    };
+
+    // ----------------------------------------------------------------
+    // Renderer
+    // ----------------------------------------------------------------
+    const rows = document.getElementById("rows");
+    const totalEl = document.getElementById("total");
+    const counters = {
+      created: document.getElementById("c-created"),
+      modified: document.getElementById("c-modified"),
+      deleted: document.getElementById("c-deleted"),
+    };
+    const seen = new Set();
+
+    function fmtTime(ts) {
+      const d = new Date(ts * 1000);
+      return d.toLocaleTimeString();
+    }
+    function fmtSize(n) {
+      if (n == null) return "—";
+      if (n < 1024) return n + " B";
+      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+      return (n / 1024 / 1024).toFixed(2) + " MB";
+    }
+    function append(ev) {
+      if (seen.has(ev.id)) return;
+      seen.add(ev.id);
+      const tr = document.createElement("tr");
+      const status = ev.action_ok === null
+        ? '<span class="muted">—</span>'
+        : (ev.action_ok
+            ? '<span class="action-ok">ok ' + (ev.action_ms || 0).toFixed(1) + 'ms</span>'
+            : '<span class="action-fail">fail: ' + (ev.action_error || "") + '</span>');
+      tr.innerHTML = `
+        <td>${fmtTime(ev.received_at)}</td>
+        <td><span class="kind kind-${ev.kind}">${ev.kind}</span></td>
+        <td class="path" title="${ev.path}">${ev.path}</td>
+        <td>${fmtSize(ev.size)}</td>
+        <td>${ev.rule_name || '<span class="muted">—</span>'}</td>
+        <td>${status}</td>`;
+      rows.prepend(tr);
+      while (rows.children.length > 200) rows.removeChild(rows.lastChild);
+    }
+    function setSummary(stats) {
+      totalEl.textContent = stats.total;
+      counters.created.textContent = stats.by_kind.created || 0;
+      counters.modified.textContent = stats.by_kind.modified || 0;
+      counters.deleted.textContent = stats.by_kind.deleted || 0;
+      if (stats.service) {
+        document.getElementById("backend").textContent = stats.service.backend;
+        document.getElementById("rules").textContent = (stats.service.rules || []).length;
+      }
+    }
+
+    // ----------------------------------------------------------------
+    // Load sample data first so the page is never empty.
+    // ----------------------------------------------------------------
+    SAMPLE_EVENTS.slice().reverse().forEach(append);
+    setSummary(SAMPLE_STATS);
+    document.getElementById("root").textContent = "/srv/inbox";
+
+    // ----------------------------------------------------------------
+    // Live mode — connect to a running fsw backend.
+    // ----------------------------------------------------------------
+    let es = null;
+    function connect() {
+      const endpoint = document.getElementById("endpoint").value.replace(/\/$/, "");
+      if (es) { es.close(); es = null; }
+      // Re-fetch stats
+      fetch(endpoint + "/api/stats").then(r => r.json()).then(stats => {
+        setSummary(stats);
+        if (stats.service) {
+          document.getElementById("root").textContent = stats.service.root || "—";
+        }
+      }).catch(() => {});
+      // Open SSE
+      es = new EventSource(endpoint + "/events");
+      es.onopen = () => {
+        const badge = document.getElementById("conn");
+        badge.textContent = "live";
+        badge.classList.remove("offline");
+        document.getElementById("banner").style.display = "none";
+      };
+      es.onerror = () => {
+        const badge = document.getElementById("conn");
+        badge.textContent = "offline";
+        badge.classList.add("offline");
+      };
+      es.onmessage = (m) => {
+        try { append(JSON.parse(m.data)); } catch (e) {}
+      };
+    }
+    // Auto-connect if the URL points to a local server
+    setTimeout(() => {
+      fetch(document.getElementById("endpoint").value + "/api/stats", { mode: "cors" })
+        .then(r => r.ok ? r.json() : Promise.reject())
+        .then(() => connect())
+        .catch(() => {});
+    }, 200);
+  </script>
+</body>
+</html>

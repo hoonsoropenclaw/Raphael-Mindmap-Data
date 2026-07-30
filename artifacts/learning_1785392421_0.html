@@ -1,0 +1,1113 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="React Flow 動態工作流引擎，整合 deny-by-default RBAC、流程驗證、執行模擬與稽核軌跡。">
+<title>FlowOps 工作流引擎 - React Flow RBAC</title>
+<link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css">
+<style>
+:root {
+  --bg: #0e1412;
+  --surface: #151d1a;
+  --surface-2: #1b2521;
+  --surface-3: #22302a;
+  --line: #2e3c36;
+  --line-strong: #42554c;
+  --text: #edf3ef;
+  --text-2: #bdc9c1;
+  --muted: #839188;
+  --accent: #58b68a;
+  --accent-2: #91d1b0;
+  --accent-soft: rgba(88,182,138,.14);
+  --warning: #d8aa5f;
+  --warning-soft: rgba(216,170,95,.14);
+  --danger: #dc7474;
+  --danger-soft: rgba(220,116,116,.14);
+  --info: #79a8c7;
+  --info-soft: rgba(121,168,199,.14);
+  --radius: 8px;
+  --shadow: 0 14px 32px rgba(0,0,0,.24);
+  --font: Geist, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+* { box-sizing: border-box; }
+html, body, #root { width: 100%; height: 100%; margin: 0; }
+body { overflow: hidden; color: var(--text); background: var(--bg); font-family: var(--font); -webkit-font-smoothing: antialiased; }
+button, input, select, textarea { font: inherit; }
+button { color: inherit; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--accent-2); outline-offset: 2px;
+}
+button:active:not(:disabled) { transform: scale(.98); }
+button:disabled, input:disabled, select:disabled, textarea:disabled { opacity: .44; cursor: not-allowed; }
+.hidden { display: none !important; }
+
+.boot-state {
+  position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center; padding: 24px;
+  background: var(--bg);
+}
+.boot-card { width: min(520px,100%); padding: 26px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+.boot-kicker { color: var(--accent); font: 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+.boot-title { margin: 10px 0 6px; font-size: 22px; }
+.boot-copy { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+.boot-bar { height: 3px; margin-top: 20px; overflow: hidden; border-radius: 2px; background: var(--surface-3); }
+.boot-bar::after { content: ""; display: block; width: 42%; height: 100%; background: var(--accent); animation: bootMove 1s ease-in-out infinite alternate; }
+@keyframes bootMove { from { transform: translateX(-15%); } to { transform: translateX(155%); } }
+
+.app { height: 100dvh; display: grid; grid-template-rows: 64px minmax(0,1fr) 224px; background: var(--bg); }
+.topbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 18px; min-width: 0;
+  padding: 0 16px; border-bottom: 1px solid var(--line); background: rgba(14,20,18,.94); backdrop-filter: blur(14px); z-index: 20;
+}
+.brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.brand-mark { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid var(--accent); border-radius: var(--radius); color: var(--accent-2); background: var(--accent-soft); font: 700 11px var(--mono); }
+.brand-name { font-size: 14px; font-weight: 750; letter-spacing: .01em; white-space: nowrap; }
+.brand-sub { margin-top: 2px; color: var(--muted); font: 10px var(--mono); white-space: nowrap; }
+.top-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; min-width: 0; flex-wrap: wrap; }
+.status-chip, .role-chip { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; padding: 6px 9px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); font-size: 11px; white-space: nowrap; }
+.status-chip.draft { color: var(--warning); background: var(--warning-soft); border-color: rgba(216,170,95,.35); }
+.status-chip.published { color: var(--accent-2); background: var(--accent-soft); border-color: rgba(88,182,138,.38); }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.role-select { min-height: 32px; padding: 5px 28px 5px 9px; border: 1px solid var(--line); border-radius: var(--radius); color: var(--text); background: var(--surface); font-size: 11px; cursor: pointer; }
+.role-select option { background: var(--surface); }
+.btn {
+  min-height: 32px; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius);
+  color: var(--text-2); background: var(--surface); font-size: 11px; font-weight: 650; cursor: pointer;
+  transition: color .16s, background .16s, border-color .16s, transform .08s;
+}
+.btn:hover:not(:disabled) { color: var(--text); border-color: var(--line-strong); background: var(--surface-2); }
+.btn.primary { color: #08130e; border-color: var(--accent); background: var(--accent); }
+.btn.primary:hover:not(:disabled) { color: #08130e; border-color: var(--accent-2); background: var(--accent-2); }
+.btn.danger { color: #efaaaa; border-color: rgba(220,116,116,.35); background: var(--danger-soft); }
+.btn.warning { color: #efd19f; border-color: rgba(216,170,95,.35); background: var(--warning-soft); }
+.btn.ghost { background: transparent; }
+.btn.small { min-height: 28px; padding: 4px 8px; font-size: 10px; }
+
+.workspace { min-height: 0; display: grid; grid-template-columns: 248px minmax(460px,1fr) 320px; }
+.sidebar, .inspector { min-height: 0; overflow-y: auto; background: var(--surface); }
+.sidebar { border-right: 1px solid var(--line); }
+.inspector { border-left: 1px solid var(--line); }
+.panel-section { padding: 14px; border-bottom: 1px solid var(--line); }
+.panel-section:last-child { border-bottom: 0; }
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.section-title { margin: 0; color: var(--text-2); font: 700 10px var(--mono); letter-spacing: .09em; text-transform: uppercase; }
+.section-meta { color: var(--muted); font: 9px var(--mono); }
+.security-note { padding: 10px; border: 1px solid var(--line); border-left: 3px solid var(--info); border-radius: var(--radius); color: var(--muted); background: var(--info-soft); font-size: 10px; line-height: 1.55; }
+.security-note strong { color: var(--text-2); }
+
+.template-list { display: grid; gap: 6px; }
+.template-btn { width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); color: var(--text-2); background: var(--surface-2); text-align: left; cursor: pointer; }
+.template-btn:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
+.template-name { font-size: 12px; font-weight: 700; }
+.template-desc { margin-top: 3px; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.palette { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.palette-item {
+  min-height: 62px; display: flex; flex-direction: column; justify-content: space-between; gap: 8px; padding: 9px;
+  border: 1px dashed var(--line-strong); border-radius: var(--radius); color: var(--text-2); background: var(--surface-2); cursor: grab; text-align: left;
+}
+.palette-item:hover:not(:disabled) { border-style: solid; border-color: var(--accent); background: var(--accent-soft); }
+.palette-code { width: 24px; height: 20px; display: grid; place-items: center; border-radius: 5px; color: var(--accent-2); background: var(--accent-soft); font: 700 9px var(--mono); }
+.palette-label { font-size: 10px; font-weight: 650; }
+.palette-denied { color: var(--danger); font: 9px var(--mono); }
+.validation-list { display: grid; gap: 5px; }
+.validation-item { display: grid; grid-template-columns: 18px 1fr; gap: 6px; padding: 7px; border-radius: var(--radius); font-size: 10px; line-height: 1.45; }
+.validation-item.error { color: #f2b4b4; background: var(--danger-soft); }
+.validation-item.warning { color: #edd09e; background: var(--warning-soft); }
+.validation-item.ok { color: var(--accent-2); background: var(--accent-soft); }
+
+.canvas-panel { min-width: 0; min-height: 0; position: relative; background: #101714; }
+.canvas-toolbar {
+  position: absolute; top: 12px; left: 12px; z-index: 7; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; max-width: calc(100% - 24px);
+}
+.canvas-label { padding: 6px 9px; border: 1px solid var(--line); border-radius: var(--radius); color: var(--muted); background: rgba(21,29,26,.9); font: 9px var(--mono); backdrop-filter: blur(8px); }
+.canvas-label strong { color: var(--text-2); }
+.permission-banner { padding: 6px 9px; border: 1px solid rgba(220,116,116,.35); border-radius: var(--radius); color: #eda6a6; background: rgba(36,24,24,.9); font-size: 10px; }
+.react-flow__renderer { background: #101714; }
+.react-flow__background { background: #101714; }
+.react-flow__controls { border: 1px solid var(--line) !important; border-radius: var(--radius) !important; overflow: hidden; box-shadow: var(--shadow) !important; }
+.react-flow__controls-button { background: var(--surface-2) !important; border-bottom: 1px solid var(--line) !important; color: var(--text) !important; fill: var(--text) !important; }
+.react-flow__controls-button:hover { background: var(--surface-3) !important; }
+.react-flow__minimap { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface) !important; }
+.react-flow__edge-path { stroke: #607168; stroke-width: 1.8; }
+.react-flow__edge.selected .react-flow__edge-path { stroke: var(--accent); stroke-width: 2.5; }
+.react-flow__edge-text { fill: var(--text-2); font-size: 9px; }
+.react-flow__edge-textbg { fill: var(--surface); }
+.react-flow__handle { width: 9px; height: 9px; border: 2px solid var(--bg); background: var(--accent); }
+.react-flow__attribution { color: var(--muted) !important; background: rgba(21,29,26,.72) !important; font-size: 8px !important; }
+.react-flow__attribution a { color: var(--accent-2) !important; }
+
+.wf-node { width: 196px; padding: 11px; border: 1px solid var(--line-strong); border-left: 3px solid var(--node-color,var(--info)); border-radius: var(--radius); color: var(--text); background: rgba(27,37,33,.96); box-shadow: 0 10px 24px rgba(0,0,0,.22); }
+.wf-node.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(88,182,138,.2),0 10px 24px rgba(0,0,0,.22); }
+.wf-node.current { box-shadow: 0 0 0 3px rgba(88,182,138,.28),0 12px 28px rgba(0,0,0,.28); }
+.wf-node.completed { opacity: .62; }
+.wf-node.locked { cursor: not-allowed; }
+.node-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.node-code { display: inline-flex; align-items: center; gap: 7px; color: var(--text-2); font: 700 9px var(--mono); text-transform: uppercase; }
+.node-type-mark { width: 22px; height: 20px; display: grid; place-items: center; border-radius: 5px; color: var(--node-color); background: color-mix(in srgb,var(--node-color) 16%,transparent); }
+.node-state { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+.node-state.active { background: var(--accent); box-shadow: 0 0 0 4px rgba(88,182,138,.12); }
+.node-state.done { background: var(--accent-2); }
+.node-title { margin-top: 9px; font-size: 12px; font-weight: 750; line-height: 1.35; }
+.node-desc { min-height: 28px; margin-top: 4px; color: var(--muted); font-size: 9px; line-height: 1.45; }
+.node-meta { display: flex; align-items: center; justify-content: space-between; gap: 7px; margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--muted); font: 9px var(--mono); }
+.node-role { max-width: 108px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--info); }
+
+.empty-state { padding: 18px 8px; color: var(--muted); text-align: center; font-size: 11px; line-height: 1.65; }
+.form-stack { display: grid; gap: 10px; }
+.field { display: grid; gap: 5px; }
+.field label { color: var(--muted); font: 9px var(--mono); letter-spacing: .04em; text-transform: uppercase; }
+.field input, .field select, .field textarea {
+  width: 100%; min-height: 34px; padding: 7px 9px; border: 1px solid var(--line); border-radius: var(--radius);
+  color: var(--text); background: var(--bg); font-size: 11px;
+}
+.field textarea { min-height: 70px; resize: vertical; line-height: 1.5; }
+.field select option { background: var(--surface); }
+.field-help { color: var(--muted); font-size: 9px; line-height: 1.45; }
+.inspector-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+.element-badge { display: inline-flex; padding: 4px 7px; border-radius: var(--radius); color: var(--accent-2); background: var(--accent-soft); font: 9px var(--mono); }
+.denied-card { padding: 9px; border: 1px solid rgba(220,116,116,.32); border-radius: var(--radius); color: #eeb0b0; background: var(--danger-soft); font-size: 10px; line-height: 1.55; }
+
+.bottom-drawer { min-height: 0; display: grid; grid-template-rows: 39px minmax(0,1fr); border-top: 1px solid var(--line); background: var(--surface); }
+.drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 14px; border-bottom: 1px solid var(--line); }
+.drawer-tabs { display: flex; align-items: stretch; height: 100%; }
+.tab-btn { padding: 0 13px; border: 0; border-right: 1px solid var(--line); color: var(--muted); background: transparent; font: 700 10px var(--mono); cursor: pointer; }
+.tab-btn:first-child { border-left: 1px solid var(--line); }
+.tab-btn.active { color: var(--accent-2); background: var(--accent-soft); box-shadow: inset 0 -2px 0 var(--accent); }
+.drawer-summary { color: var(--muted); font: 9px var(--mono); }
+.drawer-body { min-height: 0; overflow: auto; padding: 12px 14px; }
+.run-layout { display: grid; grid-template-columns: 300px minmax(0,1fr); gap: 14px; }
+.run-card { padding: 11px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2); }
+.run-title { display: flex; align-items: center; justify-content: space-between; gap: 9px; margin-bottom: 9px; font-size: 11px; font-weight: 700; }
+.run-status { padding: 3px 6px; border-radius: 5px; color: var(--muted); background: var(--bg); font: 9px var(--mono); }
+.run-status.active { color: var(--accent-2); background: var(--accent-soft); }
+.run-status.completed { color: var(--info); background: var(--info-soft); }
+.run-controls { display: flex; gap: 6px; flex-wrap: wrap; }
+.branch-grid { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.trace-list, .audit-list { display: grid; gap: 5px; }
+.trace-row { display: grid; grid-template-columns: 76px 92px minmax(0,1fr); gap: 8px; padding: 7px 9px; border-left: 2px solid var(--accent); color: var(--text-2); background: var(--surface-2); font-size: 10px; }
+.trace-row time, .audit-row time { color: var(--muted); font: 9px var(--mono); }
+.audit-toolbar { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.audit-row { display: grid; grid-template-columns: 72px 105px 128px minmax(160px,1fr) 58px; gap: 8px; align-items: center; padding: 6px 9px; border: 1px solid transparent; border-radius: var(--radius); color: var(--text-2); background: var(--surface-2); font-size: 10px; }
+.audit-row.denied { border-color: rgba(220,116,116,.22); background: var(--danger-soft); }
+.audit-decision { justify-self: end; padding: 3px 6px; border-radius: 5px; font: 8px var(--mono); }
+.audit-decision.allowed { color: var(--accent-2); background: var(--accent-soft); }
+.audit-decision.denied { color: #efaaaa; background: var(--danger-soft); }
+.matrix { width: 100%; border-collapse: collapse; font-size: 10px; }
+.matrix th, .matrix td { padding: 8px 9px; border-bottom: 1px solid var(--line); text-align: left; }
+.matrix th { color: var(--muted); font: 9px var(--mono); text-transform: uppercase; }
+.matrix td:first-child { color: var(--text-2); font-family: var(--mono); }
+.perm-yes { color: var(--accent-2); }
+.perm-no { color: var(--danger); }
+.perm-cond { color: var(--warning); }
+
+.toast-region { position: fixed; top: 75px; right: 16px; z-index: 100; width: min(360px,calc(100vw - 32px)); display: grid; gap: 7px; pointer-events: none; }
+.toast { padding: 11px 12px; border: 1px solid var(--line); border-left: 3px solid var(--info); border-radius: var(--radius); color: var(--text-2); background: var(--surface-2); box-shadow: var(--shadow); font-size: 11px; line-height: 1.45; animation: toastIn .2s ease-out; }
+.toast.success { border-left-color: var(--accent); }
+.toast.warning { border-left-color: var(--warning); }
+.toast.danger { border-left-color: var(--danger); }
+@keyframes toastIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+
+.file-input { display: none; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--line-strong); }
+
+@media (max-width: 1120px) {
+  .workspace { grid-template-columns: 220px minmax(420px,1fr) 284px; }
+  .topbar { padding-inline: 11px; }
+  .btn { padding-inline: 8px; }
+  .brand-sub { display: none; }
+}
+@media (max-width: 880px) {
+  body { overflow: auto; }
+  html, body, #root { height: auto; min-height: 100%; }
+  .app { height: auto; min-height: 100dvh; display: block; }
+  .topbar { position: sticky; top: 0; min-height: 64px; padding-block: 8px; align-items: flex-start; }
+  .top-actions { gap: 5px; }
+  .brand-name { white-space: normal; }
+  .workspace { display: grid; grid-template-columns: 1fr; }
+  .sidebar, .inspector { overflow: visible; border: 0; border-bottom: 1px solid var(--line); }
+  .canvas-panel { min-height: 600px; order: 2; }
+  .sidebar { order: 1; }
+  .inspector { order: 3; }
+  .palette { grid-template-columns: repeat(3,1fr); }
+  .bottom-drawer { min-height: 300px; }
+  .run-layout { grid-template-columns: 1fr; }
+  .audit-row { grid-template-columns: 62px 86px minmax(120px,1fr) 54px; }
+  .audit-row .audit-target { display: none; }
+}
+@media (max-width: 560px) {
+  .topbar { display: block; }
+  .top-actions { margin-top: 8px; justify-content: flex-start; }
+  .palette { grid-template-columns: 1fr 1fr; }
+  .drawer-summary { display: none; }
+  .tab-btn { padding-inline: 9px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+</style>
+</head>
+<body>
+<div id="root"><div class="boot-state" id="boot-loading"><div class="boot-card"><div class="boot-kicker">FlowOps runtime</div><h1 class="boot-title">正在載入工作流引擎</h1><p class="boot-copy">正在驗證 React、React Flow 與執行環境。</p><div class="boot-bar"></div></div></div></div>
+<div class="boot-state hidden" id="boot-error" role="alert"><div class="boot-card"><div class="boot-kicker">Dependency error</div><h1 class="boot-title">無法載入前端依賴</h1><p class="boot-copy" id="boot-error-message">請確認網路連線後重試。</p><button class="btn primary" style="margin-top:18px" onclick="location.reload()">重新載入</button></div></div>
+<div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
+
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+<script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+<script>
+window.__bootFailure = function(message) {
+  var loading = document.getElementById('boot-loading');
+  var error = document.getElementById('boot-error');
+  var copy = document.getElementById('boot-error-message');
+  if (loading) loading.classList.add('hidden');
+  if (copy) copy.textContent = message;
+  if (error) error.classList.remove('hidden');
+};
+window.addEventListener('error', function(event) {
+  if (!window.__APP_READY__) window.__bootFailure('啟動失敗：' + (event.message || '未知錯誤'));
+});
+setTimeout(function() {
+  var missing = [];
+  if (!window.React) missing.push('React');
+  if (!window.ReactDOM) missing.push('ReactDOM');
+  if (!window.Babel) missing.push('Babel');
+  if (!window.ReactFlow) missing.push('React Flow');
+  if (missing.length) window.__bootFailure('缺少依賴：' + missing.join(', ') + '。請確認 CDN 可連線後重試。');
+}, 5000);
+</script>
+
+<script type="text/babel" data-presets="env,react">
+if (!window.React || !window.ReactDOM || !window.ReactFlow) {
+  window.__bootFailure('必要依賴尚未就緒，請重新載入。');
+} else {
+const { useState, useEffect, useMemo, useCallback, useRef } = React;
+const RF = window.ReactFlow;
+const {
+  ReactFlow: ReactFlowCanvas,
+  ReactFlowProvider,
+  Background,
+  Controls,
+  MiniMap,
+  Handle,
+  Position,
+  MarkerType,
+  addEdge,
+  applyNodeChanges,
+  applyEdgeChanges
+} = RF;
+
+const STORAGE_KEY = 'flowops.workflow.v1';
+const MAX_IMPORT_BYTES = 1024 * 1024;
+const MAX_HISTORY = 30;
+
+const ROLE_DEFS = {
+  admin: { label: '系統管理員', short: 'ADMIN', description: '發布、設計、執行與稽核' },
+  architect: { label: '流程架構師', short: 'ARCH', description: '設計草稿與驗證流程' },
+  operator: { label: '案件承辦人', short: 'OPS', description: '執行已發布流程' },
+  auditor: { label: '稽核人員', short: 'AUDIT', description: '唯讀與匯出稽核' }
+};
+
+const ACTION_LABELS = {
+  'workflow:read': '檢視工作流',
+  'workflow:validate': '驗證工作流',
+  'workflow:publish': '發布工作流',
+  'workflow:unpublish': '解除發布',
+  'workflow:import': '匯入工作流',
+  'workflow:export': '匯出工作流',
+  'workflow:reset': '重設工作流',
+  'workflow:undo': '復原變更',
+  'workflow:redo': '重做變更',
+  'node:create': '新增節點',
+  'node:update': '更新節點',
+  'node:delete': '刪除節點',
+  'edge:create': '新增連線',
+  'edge:update': '更新連線',
+  'edge:delete': '刪除連線',
+  'run:start': '啟動執行',
+  'run:advance': '推進執行',
+  'run:stop': '停止執行',
+  'audit:read': '檢視稽核',
+  'audit:export': '匯出稽核'
+};
+
+const DRAFT_ONLY = function(ctx) {
+  return ctx.workflowStatus === 'draft'
+    ? { allowed: true, reason: '草稿可編輯' }
+    : { allowed: false, reason: '已發布版本已鎖定，請由管理員先解除發布' };
+};
+const PUBLISHED_ONLY = function(ctx) {
+  return ctx.workflowStatus === 'published'
+    ? { allowed: true, reason: '已發布流程可執行' }
+    : { allowed: false, reason: '流程尚未發布' };
+};
+
+const POLICIES = {
+  'workflow:read':       { admin: 'allow', architect: 'allow', operator: 'allow', auditor: 'allow' },
+  'workflow:validate':   { admin: 'allow', architect: 'allow', operator: 'deny', auditor: 'allow' },
+  'workflow:publish':    { admin: DRAFT_ONLY, architect: 'deny', operator: 'deny', auditor: 'deny' },
+  'workflow:unpublish':  { admin: 'allow', architect: 'deny', operator: 'deny', auditor: 'deny' },
+  'workflow:import':     { admin: DRAFT_ONLY, architect: DRAFT_ONLY, operator: 'deny', auditor: 'deny' },
+  'workflow:export':     { admin: 'allow', architect: 'allow', operator: 'allow', auditor: 'allow' },
+  'workflow:reset':      { admin: DRAFT_ONLY, architect: DRAFT_ONLY, operator: 'deny', auditor: 'deny' },
+  'workflow:undo':       { admin: DRAFT_ONLY, architect: DRAFT_ONLY, operator: 'deny', auditor: 'deny' },
+  'workflow:redo':       { admin: DRAFT_ONLY, architect: DRAFT_ONLY, operator: 'deny', auditor: 'deny' },
+  'node:create':         { admin: DRAFT_ONLY, architect: DRAFT_ONLY, operator: 'deny', auditor: 'deny' },
+  'node:update':         { admin: DRAFT_ONLY, architect: DRAFT_ONLY, operator: 'deny', auditor: 'deny' },
+  'node:delete':         { admin: DRAFT_ONLY, architect: DRAFT_ONLY, operator: 'deny', auditor: 'deny' },
+  'edge:create':         { admin: DRAFT_ONLY, architect: DRAFT_ONLY, operator: 'deny', auditor: 'deny' },
+  'edge:update':         { admin: DRAFT_ONLY, architect: DRAFT_ONLY, operator: 'deny', auditor: 'deny' },
+  'edge:delete':         { admin: DRAFT_ONLY, architect: DRAFT_ONLY, operator: 'deny', auditor: 'deny' },
+  'run:start':           { admin: PUBLISHED_ONLY, architect: 'deny', operator: PUBLISHED_ONLY, auditor: 'deny' },
+  'run:advance':         { admin: PUBLISHED_ONLY, architect: 'deny', operator: PUBLISHED_ONLY, auditor: 'deny' },
+  'run:stop':            { admin: 'allow', architect: 'deny', operator: 'allow', auditor: 'deny' },
+  'audit:read':          { admin: 'allow', architect: 'allow', operator: 'allow', auditor: 'allow' },
+  'audit:export':        { admin: 'allow', architect: 'deny', operator: 'deny', auditor: 'allow' }
+};
+
+function authorize(subject, action, resource, context = {}) {
+  const role = subject && subject.role;
+  if (!role || !ROLE_DEFS[role]) return { allowed: false, reason: '未知角色，deny-by-default', rule: 'deny' };
+  if (!ACTION_LABELS[action] || !POLICIES[action]) return { allowed: false, reason: '未知操作，deny-by-default', rule: 'deny' };
+  if (!['workflow', 'node', 'edge', 'run', 'audit'].includes(resource)) return { allowed: false, reason: '未知資源，deny-by-default', rule: 'deny' };
+  if (action.split(':')[0] !== resource) return { allowed: false, reason: '操作與資源不匹配，deny-by-default', rule: 'deny' };
+  const rule = POLICIES[action][role];
+  if (rule === 'allow') return { allowed: true, reason: '角色策略允許', rule: 'allow' };
+  if (rule === 'deny' || rule == null) return { allowed: false, reason: '角色策略拒絕', rule: 'deny' };
+  if (typeof rule === 'function') {
+    const result = rule(context);
+    return { ...result, rule: result.allowed ? 'conditional-allow' : 'conditional-deny' };
+  }
+  return { allowed: false, reason: '策略無法判讀，deny-by-default', rule: 'deny' };
+}
+
+const NODE_DEFS = {
+  trigger:  { label: '觸發器', code: 'TR', color: '#58b68a', description: '案件或事件進入流程', defaultRole: 'operator' },
+  task:     { label: '作業節點', code: 'TK', color: '#79a8c7', description: '執行指定行政作業', defaultRole: 'operator' },
+  review:   { label: '審查節點', code: 'RV', color: '#d8aa5f', description: '人工檢核與補件判定', defaultRole: 'operator' },
+  decision: { label: '條件閘門', code: 'IF', color: '#c68e6e', description: '依條件選擇後續分支', defaultRole: 'operator' },
+  notify:   { label: '通知節點', code: 'NT', color: '#8baf9a', description: '發送通知與回寫狀態', defaultRole: 'operator' },
+  end:      { label: '結束節點', code: 'END', color: '#a78a8a', description: '流程終止與結果封存', defaultRole: 'operator' }
+};
+
+const INITIAL_NODES = [
+  { id: 'start', type: 'workflow', position: { x: 40, y: 180 }, data: { nodeType: 'trigger', label: '案件受理', description: '接收人事異動申請並建立案件', assigneeRole: 'operator', slaHours: 1 } },
+  { id: 'intake', type: 'workflow', position: { x: 290, y: 180 }, data: { nodeType: 'task', label: '資料完整性檢查', description: '檢查必填欄位與附件', assigneeRole: 'operator', slaHours: 4 } },
+  { id: 'review', type: 'workflow', position: { x: 540, y: 180 }, data: { nodeType: 'review', label: '人事資格審查', description: '核對資格、法規與任職資料', assigneeRole: 'operator', slaHours: 24 } },
+  { id: 'decision', type: 'workflow', position: { x: 790, y: 180 }, data: { nodeType: 'decision', label: '資料是否合格', description: '選擇通過或補件分支', assigneeRole: 'operator', slaHours: 2 } },
+  { id: 'supplement', type: 'workflow', position: { x: 1040, y: 40 }, data: { nodeType: 'notify', label: '發送補件通知', description: '通知申請人補齊缺漏資料', assigneeRole: 'operator', slaHours: 8 } },
+  { id: 'approve', type: 'workflow', position: { x: 1040, y: 320 }, data: { nodeType: 'task', label: '核定與建檔', description: '寫入核定結果並建立人事紀錄', assigneeRole: 'operator', slaHours: 12 } },
+  { id: 'end-rework', type: 'workflow', position: { x: 1290, y: 40 }, data: { nodeType: 'end', label: '待補件結束', description: '案件暫停並等待重新送件', assigneeRole: 'operator', slaHours: 0 } },
+  { id: 'end-approved', type: 'workflow', position: { x: 1290, y: 320 }, data: { nodeType: 'end', label: '核定完成', description: '封存流程執行結果', assigneeRole: 'operator', slaHours: 0 } }
+];
+
+const INITIAL_EDGES = [
+  { id: 'e-start-intake', source: 'start', target: 'intake', label: '受理', type: 'smoothstep' },
+  { id: 'e-intake-review', source: 'intake', target: 'review', label: '送審', type: 'smoothstep' },
+  { id: 'e-review-decision', source: 'review', target: 'decision', label: '完成檢核', type: 'smoothstep' },
+  { id: 'e-decision-supplement', source: 'decision', target: 'supplement', label: '需補件', type: 'smoothstep' },
+  { id: 'e-decision-approve', source: 'decision', target: 'approve', label: '通過', type: 'smoothstep' },
+  { id: 'e-supplement-end', source: 'supplement', target: 'end-rework', label: '通知完成', type: 'smoothstep' },
+  { id: 'e-approve-end', source: 'approve', target: 'end-approved', label: '建檔完成', type: 'smoothstep' }
+];
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function makeInitialWorkflow() {
+  return {
+    schemaVersion: 1,
+    meta: {
+      id: 'hr-change-v1',
+      name: '人事異動申請流程',
+      description: '從案件受理到核定或補件的可追蹤流程',
+      status: 'draft',
+      version: 1,
+      ownerId: 'user-architect',
+      updatedAt: new Date().toISOString()
+    },
+    nodes: clone(INITIAL_NODES),
+    edges: clone(INITIAL_EDGES)
+  };
+}
+
+function sanitizeText(value, max = 160) {
+  return String(value == null ? '' : value)
+    .replace(/[<>\u0000-\u001f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
+
+function safeId(value, fallback) {
+  const text = String(value || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80);
+  return text || fallback;
+}
+
+function normalizeWorkflow(input) {
+  if (!input || typeof input !== 'object') throw new Error('匯入內容必須是物件');
+  const rawNodes = Array.isArray(input.nodes) ? input.nodes : [];
+  const rawEdges = Array.isArray(input.edges) ? input.edges : [];
+  if (rawNodes.length > 120 || rawEdges.length > 240) throw new Error('節點或連線數量超過安全上限');
+  const usedNodeIds = new Set();
+  const nodes = rawNodes.map((node, index) => {
+    const nodeType = NODE_DEFS[node && node.data && node.data.nodeType] ? node.data.nodeType : 'task';
+    const id = safeId(node && node.id, 'node-' + index);
+    if (usedNodeIds.has(id)) throw new Error('節點 ID 重複：' + id);
+    usedNodeIds.add(id);
+    const x = Number(node && node.position && node.position.x);
+    const y = Number(node && node.position && node.position.y);
+    return {
+      id,
+      type: 'workflow',
+      position: { x: Number.isFinite(x) ? Math.max(-5000, Math.min(5000, x)) : index * 220, y: Number.isFinite(y) ? Math.max(-5000, Math.min(5000, y)) : 160 },
+      data: {
+        nodeType,
+        label: sanitizeText(node && node.data && node.data.label || NODE_DEFS[nodeType].label, 80),
+        description: sanitizeText(node && node.data && node.data.description || '', 180),
+        assigneeRole: ROLE_DEFS[node && node.data && node.data.assigneeRole] ? node.data.assigneeRole : NODE_DEFS[nodeType].defaultRole,
+        slaHours: Math.max(0, Math.min(8760, Number(node && node.data && node.data.slaHours) || 0))
+      }
+    };
+  });
+  const usedEdgeIds = new Set();
+  const edges = rawEdges.map((edge, index) => {
+    const id = safeId(edge && edge.id, 'edge-' + index);
+    if (usedEdgeIds.has(id)) throw new Error('連線 ID 重複：' + id);
+    usedEdgeIds.add(id);
+    return {
+      id,
+      source: safeId(edge && edge.source, ''),
+      target: safeId(edge && edge.target, ''),
+      label: sanitizeText(edge && edge.label || '', 48),
+      type: 'smoothstep'
+    };
+  });
+  const meta = input.meta && typeof input.meta === 'object' ? input.meta : {};
+  return {
+    schemaVersion: 1,
+    meta: {
+      id: safeId(meta.id, 'workflow-imported'),
+      name: sanitizeText(meta.name || '匯入工作流', 80),
+      description: sanitizeText(meta.description || '', 180),
+      status: meta.status === 'published' ? 'published' : 'draft',
+      version: Math.max(1, Math.min(9999, Number(meta.version) || 1)),
+      ownerId: safeId(meta.ownerId, 'user-architect'),
+      updatedAt: new Date().toISOString()
+    },
+    nodes,
+    edges
+  };
+}
+
+function reachableFromStart(startId, nodes, edges) {
+  if (!startId) return new Set();
+  const nodeIds = new Set(nodes.map(n => n.id));
+  const graph = new Map(nodes.map(n => [n.id, []]));
+  edges.forEach(edge => {
+    if (nodeIds.has(edge.source) && nodeIds.has(edge.target)) graph.get(edge.source).push(edge.target);
+  });
+  const visited = new Set();
+  const queue = [startId];
+  while (queue.length) {
+    const id = queue.shift();
+    if (visited.has(id)) continue;
+    visited.add(id);
+    (graph.get(id) || []).forEach(next => { if (!visited.has(next)) queue.push(next); });
+  }
+  return visited;
+}
+
+function detectCycle(nodes, edges) {
+  const graph = new Map(nodes.map(n => [n.id, []]));
+  edges.forEach(edge => { if (graph.has(edge.source) && graph.has(edge.target)) graph.get(edge.source).push(edge.target); });
+  const visiting = new Set();
+  const visited = new Set();
+  function walk(id) {
+    if (visiting.has(id)) return true;
+    if (visited.has(id)) return false;
+    visiting.add(id);
+    for (const next of graph.get(id) || []) if (walk(next)) return true;
+    visiting.delete(id);
+    visited.add(id);
+    return false;
+  }
+  return nodes.some(node => walk(node.id));
+}
+
+function nodesThatReachEnd(nodes, edges, endIds) {
+  const reverse = new Map(nodes.map(n => [n.id, []]));
+  edges.forEach(edge => { if (reverse.has(edge.target) && reverse.has(edge.source)) reverse.get(edge.target).push(edge.source); });
+  const reached = new Set();
+  const queue = [...endIds];
+  while (queue.length) {
+    const id = queue.shift();
+    if (reached.has(id)) continue;
+    reached.add(id);
+    (reverse.get(id) || []).forEach(prev => { if (!reached.has(prev)) queue.push(prev); });
+  }
+  return reached;
+}
+
+function validateGraph(workflow) {
+  const errors = [];
+  const warnings = [];
+  const nodes = workflow.nodes || [];
+  const edges = workflow.edges || [];
+  const ids = nodes.map(n => n.id);
+  const idSet = new Set(ids);
+  const starts = nodes.filter(n => n.data.nodeType === 'trigger');
+  const ends = nodes.filter(n => n.data.nodeType === 'end');
+  if (!nodes.length) errors.push('流程沒有節點');
+  if (new Set(ids).size !== ids.length) errors.push('節點 ID 不可重複');
+  if (starts.length !== 1) errors.push('流程必須剛好有一個觸發器，目前為 ' + starts.length + ' 個');
+  if (ends.length < 1) errors.push('流程至少需要一個結束節點');
+  const pairSet = new Set();
+  edges.forEach(edge => {
+    if (!idSet.has(edge.source) || !idSet.has(edge.target)) errors.push('連線 ' + edge.id + ' 指向不存在的節點');
+    if (edge.source === edge.target) errors.push('節點 ' + edge.source + ' 不可連回自己');
+    const pair = edge.source + '>' + edge.target;
+    if (pairSet.has(pair)) errors.push('重複連線：' + pair);
+    pairSet.add(pair);
+  });
+  if (starts[0] && edges.some(e => e.target === starts[0].id)) errors.push('觸發器不可有輸入連線');
+  ends.forEach(end => { if (edges.some(e => e.source === end.id)) errors.push('結束節點 ' + end.data.label + ' 不可有輸出連線'); });
+  nodes.filter(n => n.data.nodeType === 'decision').forEach(node => {
+    const outgoing = edges.filter(e => e.source === node.id);
+    if (outgoing.length < 2) errors.push('條件閘門 ' + node.data.label + ' 至少需要兩個分支');
+    if (outgoing.some(e => !e.label)) warnings.push('條件閘門 ' + node.data.label + ' 的分支應設定標籤');
+  });
+  nodes.filter(n => n.data.nodeType !== 'decision' && n.data.nodeType !== 'end').forEach(node => {
+    const outgoing = edges.filter(e => e.source === node.id);
+    if (outgoing.length > 1) warnings.push('非條件節點 ' + node.data.label + ' 有多個輸出，執行時只會自動選第一個');
+  });
+  if (starts[0]) {
+    const reachable = reachableFromStart(starts[0].id, nodes, edges);
+    nodes.filter(n => !reachable.has(n.id)).forEach(n => errors.push('節點不可由觸發器抵達：' + n.data.label));
+    const canReachEnd = nodesThatReachEnd(nodes, edges, ends.map(n => n.id));
+    nodes.filter(n => reachable.has(n.id) && !canReachEnd.has(n.id)).forEach(n => errors.push('節點沒有通往結束節點的路徑：' + n.data.label));
+  }
+  if (detectCycle(nodes, edges)) errors.push('流程含有循環，發布前必須移除');
+  nodes.forEach(node => {
+    if (!sanitizeText(node.data.label, 80)) errors.push('節點 ' + node.id + ' 缺少標題');
+    if (node.data.slaHours > 168) warnings.push('節點 ' + node.data.label + ' 的 SLA 超過 7 天');
+  });
+  return { errors: [...new Set(errors)], warnings: [...new Set(warnings)], valid: errors.length === 0 };
+}
+
+function formatTime(value) {
+  const date = new Date(value);
+  return new Intl.DateTimeFormat('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(date);
+}
+
+function downloadJson(filename, data) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+function resourceForAction(action) {
+  return action.split(':')[0];
+}
+
+function WorkflowNode({ data, selected }) {
+  const def = NODE_DEFS[data.nodeType] || NODE_DEFS.task;
+  const runState = data.__runState || {};
+  const stateClass = runState.current === data.__nodeId ? 'current' : (runState.completed || []).includes(data.__nodeId) ? 'completed' : '';
+  const dotClass = runState.current === data.__nodeId ? 'active' : (runState.completed || []).includes(data.__nodeId) ? 'done' : '';
+  return (
+    <div className={`wf-node ${selected ? 'selected' : ''} ${stateClass} ${data.__locked ? 'locked' : ''}`} style={{ '--node-color': def.color }} data-testid={`flow-node-${data.__nodeId}`}>
+      {data.nodeType !== 'trigger' && <Handle type="target" position={Position.Left} />}
+      <div className="node-head">
+        <span className="node-code"><span className="node-type-mark">{def.code}</span>{def.label}</span>
+        <span className={`node-state ${dotClass}`}></span>
+      </div>
+      <div className="node-title">{data.label || def.label}</div>
+      <div className="node-desc">{data.description || def.description}</div>
+      <div className="node-meta">
+        <span className="node-role">{ROLE_DEFS[data.assigneeRole]?.label || '未指派'}</span>
+        <span>{Number(data.slaHours) || 0}h</span>
+      </div>
+      {data.nodeType !== 'end' && <Handle type="source" position={Position.Right} />}
+    </div>
+  );
+}
+const nodeTypes = { workflow: WorkflowNode };
+
+function App() {
+  const [subject, setSubject] = useState({ id: 'user-architect', role: 'architect' });
+  const [workflow, setWorkflow] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      return saved ? normalizeWorkflow(JSON.parse(saved)) : makeInitialWorkflow();
+    } catch (error) {
+      return makeInitialWorkflow();
+    }
+  });
+  const [selected, setSelected] = useState({ kind: null, id: null });
+  const [auditLog, setAuditLog] = useState([]);
+  const [historyPast, setHistoryPast] = useState([]);
+  const [historyFuture, setHistoryFuture] = useState([]);
+  const [drawerTab, setDrawerTab] = useState('run');
+  const [runState, setRunState] = useState({ status: 'idle', id: null, current: null, completed: [], trace: [], startedBy: null });
+  const [lastCheck, setLastCheck] = useState(null);
+  const importRef = useRef(null);
+  const flowRef = useRef(null);
+
+  const currentContext = useMemo(() => ({ workflowStatus: workflow.meta.status, workflowId: workflow.meta.id, ownerId: workflow.meta.ownerId, subjectId: subject.id }), [workflow.meta.status, workflow.meta.id, workflow.meta.ownerId, subject.id]);
+  const validation = useMemo(() => validateGraph(workflow), [workflow]);
+  const can = useCallback((action) => authorize(subject, action, resourceForAction(action), currentContext), [subject, currentContext]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(workflow));
+  }, [workflow]);
+
+  const toast = useCallback((message, kind = 'info') => {
+    const host = document.getElementById('toast-region');
+    if (!host) return;
+    const el = document.createElement('div');
+    el.className = 'toast ' + kind;
+    el.textContent = message;
+    host.appendChild(el);
+    setTimeout(() => el.remove(), 3200);
+  }, []);
+
+  const addAudit = useCallback((action, target, decision, reason, details = '') => {
+    setAuditLog(prev => [{
+      id: 'audit-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,6),
+      at: new Date().toISOString(),
+      actorId: subject.id,
+      role: subject.role,
+      action,
+      target: sanitizeText(target || workflow.meta.id, 100),
+      decision,
+      reason: sanitizeText(reason, 180),
+      details: sanitizeText(details, 220)
+    }, ...prev].slice(0, 250));
+  }, [subject, workflow.meta.id]);
+
+  function guardedAction({ action, target, mutate, details = '', snapshot = false, successMessage = '', silent = false }) {
+    const decision = authorize(subject, action, resourceForAction(action), currentContext);
+    addAudit(action, target, decision.allowed ? 'allowed' : 'denied', decision.reason, details);
+    if (!decision.allowed) {
+      if (!silent) toast('權限拒絕：' + decision.reason, 'danger');
+      return { ok: false, ...decision };
+    }
+    if (snapshot) {
+      setHistoryPast(prev => [...prev, clone(workflow)].slice(-MAX_HISTORY));
+      setHistoryFuture([]);
+    }
+    if (typeof mutate === 'function') mutate();
+    if (successMessage && !silent) toast(successMessage, 'success');
+    return { ok: true, ...decision };
+  }
+
+  const updateWorkflow = useCallback((producer, action, target, message, details = '') => {
+    return guardedAction({
+      action,
+      target,
+      snapshot: true,
+      details,
+      successMessage: message,
+      mutate: () => setWorkflow(prev => {
+        const next = producer(clone(prev));
+        next.meta.updatedAt = new Date().toISOString();
+        return next;
+      })
+    });
+  }, [subject, currentContext, workflow]);
+
+  function setRole(role) {
+    if (!ROLE_DEFS[role]) return;
+    const oldRole = subject.role;
+    setSubject(prev => ({ id: 'user-' + role, role }));
+    setSelected({ kind: null, id: null });
+    setAuditLog(prev => [{ id: 'audit-' + Date.now().toString(36), at: new Date().toISOString(), actorId: 'user-' + role, role, action: 'identity:switch', target: role, decision: 'allowed', reason: '角色模擬器切換', details: '由 ' + oldRole + ' 切換' }, ...prev].slice(0,250));
+    toast('目前角色：' + ROLE_DEFS[role].label, 'info');
+  }
+
+  function applyTemplate() {
+    updateWorkflow(() => makeInitialWorkflow(), 'workflow:reset', workflow.meta.id, '已載入人事異動範例');
+    setRunState({ status: 'idle', id: null, current: null, completed: [], trace: [], startedBy: null });
+    setSelected({ kind: null, id: null });
+  }
+
+  function addNodeOfType(nodeType, position) {
+    const def = NODE_DEFS[nodeType];
+    if (!def) return { ok: false };
+    const id = 'node-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,5);
+    return updateWorkflow(next => {
+      next.nodes.push({ id, type: 'workflow', position: position || { x: 460 + Math.random() * 120, y: 140 + Math.random() * 180 }, data: { nodeType, label: def.label, description: def.description, assigneeRole: def.defaultRole, slaHours: nodeType === 'end' ? 0 : 24 } });
+      return next;
+    }, 'node:create', id, '已新增節點：' + def.label, nodeType);
+  }
+
+  function onConnect(connection) {
+    if (!connection.source || !connection.target) return;
+    const edgeId = 'edge-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,5);
+    updateWorkflow(next => {
+      next.edges = addEdge({ ...connection, id: edgeId, label: '', type: 'smoothstep' }, next.edges);
+      return next;
+    }, 'edge:create', edgeId, '連線已建立', connection.source + ' > ' + connection.target);
+  }
+
+  function onNodesChange(changes) {
+    const structural = changes.filter(change => ['position', 'remove', 'dimensions'].includes(change.type));
+    const selectionOnly = changes.filter(change => change.type === 'select');
+    if (selectionOnly.length) setWorkflow(prev => ({ ...prev, nodes: applyNodeChanges(selectionOnly, prev.nodes) }));
+    if (!structural.length) return;
+    const decision = authorize(subject, structural.some(c => c.type === 'remove') ? 'node:delete' : 'node:update', 'node', currentContext);
+    if (!decision.allowed) return;
+    setWorkflow(prev => ({ ...prev, nodes: applyNodeChanges(structural, prev.nodes), meta: { ...prev.meta, updatedAt: new Date().toISOString() } }));
+  }
+
+  function onNodeDragStop(event, node) {
+    const decision = authorize(subject, 'node:update', 'node', currentContext);
+    addAudit('node:update', node.id, decision.allowed ? 'allowed' : 'denied', decision.reason, '調整節點位置');
+    if (decision.allowed) toast('節點位置已保存', 'success');
+  }
+
+  function onEdgesChange(changes) {
+    const remove = changes.some(change => change.type === 'remove');
+    const action = remove ? 'edge:delete' : 'edge:update';
+    const decision = authorize(subject, action, 'edge', currentContext);
+    if (!decision.allowed) return;
+    setWorkflow(prev => ({ ...prev, edges: applyEdgeChanges(changes, prev.edges), meta: { ...prev.meta, updatedAt: new Date().toISOString() } }));
+    if (remove) addAudit(action, selected.id || 'edge', 'allowed', decision.reason, 'React Flow 邊變更');
+  }
+
+  function updateNode(id, patch) {
+    return updateWorkflow(next => {
+      next.nodes = next.nodes.map(node => node.id === id ? { ...node, data: { ...node.data, ...patch } } : node);
+      return next;
+    }, 'node:update', id, '節點資料已更新', Object.keys(patch).join(','));
+  }
+
+  function deleteNode(id) {
+    return updateWorkflow(next => {
+      next.nodes = next.nodes.filter(node => node.id !== id);
+      next.edges = next.edges.filter(edge => edge.source !== id && edge.target !== id);
+      return next;
+    }, 'node:delete', id, '節點與關聯連線已刪除');
+  }
+
+  function updateEdge(id, patch) {
+    return updateWorkflow(next => {
+      next.edges = next.edges.map(edge => edge.id === id ? { ...edge, ...patch } : edge);
+      return next;
+    }, 'edge:update', id, '連線資料已更新');
+  }
+
+  function deleteEdge(id) {
+    return updateWorkflow(next => {
+      next.edges = next.edges.filter(edge => edge.id !== id);
+      return next;
+    }, 'edge:delete', id, '連線已刪除');
+  }
+
+  function validateNow() {
+    return guardedAction({
+      action: 'workflow:validate',
+      target: workflow.meta.id,
+      details: validation.errors.length + ' errors, ' + validation.warnings.length + ' warnings',
+      mutate: () => setLastCheck(new Date().toISOString()),
+      successMessage: validation.valid ? '流程驗證通過' : '流程驗證完成，請修正錯誤'
+    });
+  }
+
+  function publishWorkflow() {
+    if (!validation.valid) {
+      addAudit('workflow:publish', workflow.meta.id, 'denied', '流程驗證未通過', validation.errors.join('; '));
+      toast('發布失敗：請先修正 ' + validation.errors.length + ' 個錯誤', 'danger');
+      return { ok: false, reason: 'validation' };
+    }
+    return guardedAction({
+      action: 'workflow:publish', target: workflow.meta.id, snapshot: true, successMessage: '流程已發布並鎖定定義',
+      mutate: () => setWorkflow(prev => ({ ...prev, meta: { ...prev.meta, status: 'published', version: prev.meta.version + 1, publishedAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }))
+    });
+  }
+
+  function unpublishWorkflow() {
+    return guardedAction({
+      action: 'workflow:unpublish', target: workflow.meta.id, snapshot: true, successMessage: '已解除發布，可重新編輯',
+      mutate: () => setWorkflow(prev => ({ ...prev, meta: { ...prev.meta, status: 'draft', updatedAt: new Date().toISOString() } }))
+    });
+  }
+
+  function undo() {
+    return guardedAction({ action: 'workflow:undo', target: workflow.meta.id, mutate: () => {
+      if (!historyPast.length) { toast('沒有可復原的變更', 'warning'); return; }
+      const previous = historyPast[historyPast.length - 1];
+      setHistoryPast(prev => prev.slice(0,-1));
+      setHistoryFuture(prev => [clone(workflow), ...prev].slice(0,MAX_HISTORY));
+      setWorkflow(previous);
+      setSelected({ kind: null, id: null });
+    }, successMessage: historyPast.length ? '已復原上一個變更' : '' });
+  }
+
+  function redo() {
+    return guardedAction({ action: 'workflow:redo', target: workflow.meta.id, mutate: () => {
+      if (!historyFuture.length) { toast('沒有可重做的變更', 'warning'); return; }
+      const next = historyFuture[0];
+      setHistoryFuture(prev => prev.slice(1));
+      setHistoryPast(prev => [...prev, clone(workflow)].slice(-MAX_HISTORY));
+      setWorkflow(next);
+      setSelected({ kind: null, id: null });
+    }, successMessage: historyFuture.length ? '已重做變更' : '' });
+  }
+
+  function exportWorkflow() {
+    return guardedAction({ action: 'workflow:export', target: workflow.meta.id, mutate: () => downloadJson('flowops-' + workflow.meta.id + '.json', workflow), successMessage: '工作流 JSON 已匯出' });
+  }
+
+  function exportAudit() {
+    return guardedAction({ action: 'audit:export', target: workflow.meta.id, mutate: () => downloadJson('flowops-audit-' + Date.now() + '.json', { exportedAt: new Date().toISOString(), events: auditLog }), successMessage: '稽核紀錄已匯出' });
+  }
+
+  async function importWorkflowFile(event) {
+    const file = event.target.files && event.target.files[0];
+    event.target.value = '';
+    if (!file) return;
+    if (file.size > MAX_IMPORT_BYTES) { toast('匯入失敗：檔案超過 1MB', 'danger'); return; }
+    try {
+      const parsed = JSON.parse(await file.text());
+      const normalized = normalizeWorkflow(parsed);
+      const check = validateGraph(normalized);
+      if (check.errors.length) throw new Error('匯入流程有 ' + check.errors.length + ' 個結構錯誤');
+      guardedAction({ action: 'workflow:import', target: normalized.meta.id, snapshot: true, successMessage: '工作流已安全匯入', mutate: () => {
+        normalized.meta.status = 'draft';
+        normalized.meta.updatedAt = new Date().toISOString();
+        setWorkflow(normalized);
+        setSelected({ kind: null, id: null });
+        setRunState({ status: 'idle', id: null, current: null, completed: [], trace: [], startedBy: null });
+      }});
+    } catch (error) {
+      addAudit('workflow:import', file.name, 'denied', '匯入驗證失敗', error.message);
+      toast('匯入失敗：' + sanitizeText(error.message, 140), 'danger');
+    }
+  }
+
+  function appendTrace(type, nodeId, message) {
+    return { id: 'trace-' + Date.now().toString(36) + Math.random().toString(36).slice(2,4), at: new Date().toISOString(), type, nodeId, message };
+  }
+
+  function startRun() {
+    const start = workflow.nodes.find(node => node.data.nodeType === 'trigger');
+    if (!validation.valid || !start) {
+      toast('執行失敗：流程驗證未通過', 'danger');
+      return { ok: false, reason: 'validation' };
+    }
+    return guardedAction({ action: 'run:start', target: workflow.meta.id, successMessage: '流程執行已啟動', mutate: () => {
+      setRunState({ status: 'active', id: 'run-' + Date.now().toString(36), current: start.id, completed: [], trace: [appendTrace('start', start.id, '從 ' + start.data.label + ' 啟動')], startedBy: subject.id });
+      setDrawerTab('run');
+    }});
+  }
+
+  function advanceRun(edgeId = null) {
+    if (runState.status !== 'active' || !runState.current) { toast('目前沒有執行中的流程', 'warning'); return { ok: false }; }
+    const currentNode = workflow.nodes.find(node => node.id === runState.current);
+    if (!currentNode) return { ok: false };
+    const outgoing = workflow.edges.filter(edge => edge.source === currentNode.id);
+    if (currentNode.data.nodeType === 'decision' && outgoing.length > 1 && !edgeId) {
+      toast('請選擇條件分支', 'warning');
+      return { ok: false, reason: 'branch-required' };
+    }
+    const selectedEdge = edgeId ? outgoing.find(edge => edge.id === edgeId) : outgoing[0];
+    return guardedAction({ action: 'run:advance', target: currentNode.id, successMessage: selectedEdge ? '執行已推進' : '流程執行完成', details: selectedEdge ? selectedEdge.id : 'terminal', mutate: () => {
+      if (!selectedEdge || currentNode.data.nodeType === 'end') {
+        setRunState(prev => ({ ...prev, status: 'completed', current: null, completed: [...new Set([...prev.completed, currentNode.id])], trace: [...prev.trace, appendTrace('complete', currentNode.id, '流程到達終點')] }));
+      } else {
+        const nextNode = workflow.nodes.find(node => node.id === selectedEdge.target);
+        setRunState(prev => ({ ...prev, current: selectedEdge.target, completed: [...new Set([...prev.completed, currentNode.id])], trace: [...prev.trace, appendTrace('advance', selectedEdge.target, currentNode.data.label + ' > ' + (nextNode ? nextNode.data.label : selectedEdge.target) + (selectedEdge.label ? ' [' + selectedEdge.label + ']' : ''))] }));
+      }
+    }});
+  }
+
+  function stopRun() {
+    return guardedAction({ action: 'run:stop', target: runState.id || workflow.meta.id, successMessage: '執行已停止', mutate: () => setRunState(prev => ({ ...prev, status: 'stopped', current: null, trace: [...prev.trace, appendTrace('stop', prev.current, '由使用者停止執行')] })) });
+  }
+
+  const selectedNode = selected.kind === 'node' ? workflow.nodes.find(n => n.id === selected.id) : null;
+  const selectedEdge = selected.kind === 'edge' ? workflow.edges.find(e => e.id === selected.id) : null;
+  const canEditNode = can('node:update').allowed;
+  const canCreateNode = can('node:create').allowed;
+  const outgoingForRun = runState.current ? workflow.edges.filter(edge => edge.source === runState.current) : [];
+  const runNode = runState.current ? workflow.nodes.find(node => node.id === runState.current) : null;
+
+  const renderNodes = useMemo(() => workflow.nodes.map(node => ({
+    ...node,
+    data: { ...node.data, __nodeId: node.id, __runState: runState, __locked: !canEditNode }
+  })), [workflow.nodes, runState, canEditNode]);
+  const renderEdges = useMemo(() => workflow.edges.map(edge => ({
+    ...edge,
+    markerEnd: { type: MarkerType.ArrowClosed, color: '#607168' },
+    animated: runState.status === 'active' && runState.current === edge.source,
+    style: runState.status === 'active' && runState.current === edge.source ? { stroke: '#58b68a', strokeWidth: 2.5 } : undefined,
+    labelBgPadding: [5,3], labelBgBorderRadius: 4, labelBgStyle: { fill: '#151d1a' }, labelStyle: { fill: '#bdc9c1', fontSize: 9 }
+  })), [workflow.edges, runState]);
+
+  useEffect(() => {
+    window.__APP_TEST_API__ = {
+      getState: () => ({ subject: clone(subject), workflow: clone(workflow), runState: clone(runState), auditLog: clone(auditLog), validation: clone(validation), history: { past: historyPast.length, future: historyFuture.length } }),
+      authorize: (role, action, status = workflow.meta.status) => authorize({ id: 'test-' + role, role }, action, resourceForAction(action), { ...currentContext, workflowStatus: status }),
+      setRole,
+      attempt: (action) => guardedAction({ action, target: 'test-target', mutate: () => {}, silent: true }),
+      publish: publishWorkflow,
+      unpublish: unpublishWorkflow,
+      startRun,
+      advanceRun,
+      stopRun,
+      reset: applyTemplate,
+      validate: () => validateGraph(workflow),
+      validateWorkflow: input => validateGraph(normalizeWorkflow(input)),
+      normalizeWorkflow
+    };
+  });
+
+  const permissionRows = ['node:create','node:update','node:delete','edge:create','workflow:publish','workflow:import','run:start','run:advance','audit:export'];
+
+  return (
+    <div className="app">
+      <header className="topbar">
+        <div className="brand">
+          <div className="brand-mark">FO</div>
+          <div><div className="brand-name">FlowOps 工作流引擎</div><div className="brand-sub">React Flow 11 / RBAC / Validation / Audit</div></div>
+        </div>
+        <div className="top-actions">
+          <span className={`status-chip ${workflow.meta.status}`} data-testid="workflow-status"><span className="status-dot"></span>{workflow.meta.status === 'published' ? '已發布' : '草稿'} v{workflow.meta.version}</span>
+          <span className="role-chip">{ROLE_DEFS[subject.role].short}</span>
+          <select className="role-select" data-testid="role-select" aria-label="切換測試角色" value={subject.role} onChange={e => setRole(e.target.value)}>
+            {Object.entries(ROLE_DEFS).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}
+          </select>
+          <button className="btn ghost" data-testid="undo-btn" disabled={!historyPast.length || !can('workflow:undo').allowed} onClick={undo}>復原</button>
+          <button className="btn ghost" data-testid="redo-btn" disabled={!historyFuture.length || !can('workflow:redo').allowed} onClick={redo}>重做</button>
+          <button className="btn" data-testid="validate-btn" disabled={!can('workflow:validate').allowed} onClick={validateNow}>驗證</button>
+          {workflow.meta.status === 'draft' ? <button className="btn primary" data-testid="publish-btn" disabled={!can('workflow:publish').allowed || !validation.valid} onClick={publishWorkflow}>發布</button> : <button className="btn warning" data-testid="unpublish-btn" disabled={!can('workflow:unpublish').allowed} onClick={unpublishWorkflow}>解除發布</button>}
+        </div>
+      </header>
+
+      <main className="workspace">
+        <aside className="sidebar" aria-label="節點與範本">
+          <section className="panel-section">
+            <div className="section-head"><h2 className="section-title">流程範本</h2><span className="section-meta">1 available</span></div>
+            <div className="template-list"><button className="template-btn" data-testid="template-hr" disabled={!can('workflow:reset').allowed} onClick={applyTemplate}><div className="template-name">人事異動申請</div><div className="template-desc">受理、審查、條件分流、核定與補件</div></button></div>
+          </section>
+          <section className="panel-section">
+            <div className="section-head"><h2 className="section-title">節點工具箱</h2><span className="section-meta">拖曳或點擊</span></div>
+            <div className="palette">
+              {Object.entries(NODE_DEFS).map(([key, def]) => <button key={key} className="palette-item" data-testid={`palette-${key}`} draggable={canCreateNode} disabled={!canCreateNode} onDragStart={e => { e.dataTransfer.setData('application/reactflow', key); e.dataTransfer.effectAllowed = 'move'; }} onClick={() => addNodeOfType(key)}><span className="palette-code">{def.code}</span><span className="palette-label">{def.label}</span>{!canCreateNode && <span className="palette-denied">LOCKED</span>}</button>)}
+            </div>
+          </section>
+          <section className="panel-section">
+            <div className="section-head"><h2 className="section-title">結構檢查</h2><span className="section-meta">{validation.errors.length} errors</span></div>
+            <div className="validation-list" data-testid="validation-list">
+              {validation.valid && !validation.warnings.length && <div className="validation-item ok"><span>OK</span><span>流程結構可發布</span></div>}
+              {validation.errors.slice(0,5).map((item,index) => <div className="validation-item error" key={'e'+index}><span>E{index+1}</span><span>{item}</span></div>)}
+              {validation.warnings.slice(0,3).map((item,index) => <div className="validation-item warning" key={'w'+index}><span>W{index+1}</span><span>{item}</span></div>)}
+            </div>
+          </section>
+          <section className="panel-section"><div className="security-note"><strong>安全邊界</strong><br/>前端角色切換只做策略模擬。正式系統必須在後端重新授權。localStorage 只存流程定義，不存 token 或個資。</div></section>
+        </aside>
+
+        <section className="canvas-panel" ref={flowRef} aria-label="React Flow 工作流畫布">
+          <div className="canvas-toolbar"><span className="canvas-label"><strong>{workflow.meta.name}</strong> / {workflow.nodes.length} nodes / {workflow.edges.length} edges</span>{!canEditNode && <span className="permission-banner" data-testid="canvas-locked">目前角色或版本為唯讀</span>}</div>
+          <ReactFlowCanvas
+            nodes={renderNodes}
+            edges={renderEdges}
+            nodeTypes={nodeTypes}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onNodeDragStop={onNodeDragStop}
+            onConnect={onConnect}
+            onNodeClick={(event,node) => setSelected({ kind: 'node', id: node.id })}
+            onEdgeClick={(event,edge) => setSelected({ kind: 'edge', id: edge.id })}
+            onPaneClick={() => setSelected({ kind: null, id: null })}
+            onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; }}
+            onDrop={event => { event.preventDefault(); const nodeType = event.dataTransfer.getData('application/reactflow'); if (!nodeType) return; const rect = flowRef.current.getBoundingClientRect(); addNodeOfType(nodeType, { x: event.clientX - rect.left - 90, y: event.clientY - rect.top - 45 }); }}
+            nodesDraggable={canEditNode}
+            nodesConnectable={can('edge:create').allowed}
+            elementsSelectable
+            fitView
+            minZoom={.35}
+            maxZoom={1.8}
+            deleteKeyCode={null}
+            proOptions={{ hideAttribution: false }}
+          >
+            <Background color="#314139" gap={22} size={1} />
+            <Controls position="bottom-right" />
+            <MiniMap position="bottom-left" pannable zoomable style={{ width: 128, height: 76, margin: 10 }} nodeColor={node => NODE_DEFS[node.data?.nodeType]?.color || '#607168'} maskColor="rgba(14,20,18,.72)" />
+          </ReactFlowCanvas>
+        </section>
+
+        <aside className="inspector" aria-label="屬性檢查器">
+          <section className="panel-section">
+            <div className="section-head"><h2 className="section-title">屬性檢查器</h2><span className="section-meta">{selected.kind || 'none'}</span></div>
+            {!selectedNode && !selectedEdge && <div className="empty-state">選取節點或連線後，可檢視設定與權限狀態。</div>}
+            {selectedNode && <NodeInspector node={selectedNode} editable={canEditNode} onUpdate={updateNode} onDelete={deleteNode} />}
+            {selectedEdge && <EdgeInspector edge={selectedEdge} editable={can('edge:update').allowed} onUpdate={updateEdge} onDelete={deleteEdge} />}
+          </section>
+          <section className="panel-section">
+            <div className="section-head"><h2 className="section-title">目前身份</h2><span className="section-meta">{ROLE_DEFS[subject.role].short}</span></div>
+            <div className="form-stack"><div className="field"><label>角色</label><input disabled value={ROLE_DEFS[subject.role].label} /></div><div className="field"><label>能力摘要</label><textarea disabled value={ROLE_DEFS[subject.role].description} /></div></div>
+            {!canEditNode && <div className="denied-card" style={{marginTop:10}}>所有狀態變更仍會進入 `guardedAction`。即使繞過 disabled UI，策略層仍採 deny-by-default 拒絕並留下稽核紀錄。</div>}
+          </section>
+          <section className="panel-section">
+            <div className="section-head"><h2 className="section-title">檔案操作</h2><span className="section-meta">JSON only</span></div>
+            <div className="inspector-actions"><button className="btn small" data-testid="export-workflow" disabled={!can('workflow:export').allowed} onClick={exportWorkflow}>匯出流程</button><button className="btn small" data-testid="import-workflow" disabled={!can('workflow:import').allowed} onClick={() => importRef.current.click()}>匯入流程</button><input className="file-input" ref={importRef} type="file" accept="application/json,.json" onChange={importWorkflowFile}/></div>
+            <p className="field-help">匯入上限 1MB。節點、連線、文字與 ID 皆經白名單正規化。</p>
+          </section>
+        </aside>
+      </main>
+
+      <section className="bottom-drawer" aria-label="執行與稽核">
+        <div className="drawer-head"><div className="drawer-tabs"><button className={`tab-btn ${drawerTab==='run'?'active':''}`} data-testid="tab-run" onClick={() => setDrawerTab('run')}>執行模擬</button><button className={`tab-btn ${drawerTab==='audit'?'active':''}`} data-testid="tab-audit" onClick={() => setDrawerTab('audit')}>稽核軌跡</button><button className={`tab-btn ${drawerTab==='permissions'?'active':''}`} data-testid="tab-permissions" onClick={() => setDrawerTab('permissions')}>權限矩陣</button></div><span className="drawer-summary">autosave: on / check: {lastCheck ? formatTime(lastCheck) : 'not run'}</span></div>
+        <div className="drawer-body">
+          {drawerTab === 'run' && <div className="run-layout"><div className="run-card"><div className="run-title"><span>流程實例</span><span className={`run-status ${runState.status}`}>{runState.status.toUpperCase()}</span></div><div className="field-help" style={{marginBottom:9}}>Definition 與 Run state 分離。執行只寫入實例軌跡，不修改流程定義。</div><div className="run-controls"><button className="btn primary small" data-testid="start-run" disabled={!can('run:start').allowed || runState.status === 'active'} onClick={startRun}>啟動</button><button className="btn small" data-testid="advance-run" disabled={!can('run:advance').allowed || runState.status !== 'active'} onClick={() => advanceRun()}>推進</button><button className="btn danger small" data-testid="stop-run" disabled={!can('run:stop').allowed || runState.status !== 'active'} onClick={stopRun}>停止</button></div>{runNode && <div style={{marginTop:10}}><span className="element-badge">CURRENT</span><div style={{marginTop:6,fontSize:11,fontWeight:700}}>{runNode.data.label}</div>{runNode.data.nodeType === 'decision' && outgoingForRun.length > 1 && <div className="branch-grid">{outgoingForRun.map(edge => <button className="btn warning small" data-testid={`branch-${edge.id}`} key={edge.id} onClick={() => advanceRun(edge.id)}>{edge.label || edge.target}</button>)}</div>}</div>}</div><div><div className="section-head"><h2 className="section-title">執行軌跡</h2><span className="section-meta">{runState.trace.length} events</span></div><div className="trace-list" data-testid="trace-list">{!runState.trace.length && <div className="empty-state">尚未啟動流程。請先由管理員發布，再以管理員或案件承辦人執行。</div>}{runState.trace.slice().reverse().map(item => <div className="trace-row" key={item.id}><time>{formatTime(item.at)}</time><span>{item.type.toUpperCase()}</span><span>{item.message}</span></div>)}</div></div></div>}
+          {drawerTab === 'audit' && <div><div className="audit-toolbar"><span className="section-meta">所有允許與拒絕事件皆留痕，最近 {auditLog.length} 筆</span><button className="btn small" data-testid="export-audit" disabled={!can('audit:export').allowed} onClick={exportAudit}>匯出稽核</button></div><div className="audit-list" data-testid="audit-list">{!auditLog.length && <div className="empty-state">尚無稽核事件。切換角色或執行操作後會出現在此。</div>}{auditLog.map(entry => <div className={`audit-row ${entry.decision}`} key={entry.id}><time>{formatTime(entry.at)}</time><span>{ROLE_DEFS[entry.role]?.label || entry.role}</span><span>{ACTION_LABELS[entry.action] || entry.action}</span><span className="audit-target">{entry.target} / {entry.reason}</span><span className={`audit-decision ${entry.decision}`}>{entry.decision === 'allowed' ? 'ALLOW' : 'DENY'}</span></div>)}</div></div>}
+          {drawerTab === 'permissions' && <div><table className="matrix"><thead><tr><th>Action</th>{Object.entries(ROLE_DEFS).map(([key,value]) => <th key={key}>{value.short}</th>)}</tr></thead><tbody>{permissionRows.map(action => <tr key={action}><td>{action}</td>{Object.keys(ROLE_DEFS).map(role => { const result = authorize({id:'matrix',role},action,resourceForAction(action),currentContext); const policy = POLICIES[action][role]; const cls = typeof policy === 'function' ? 'perm-cond' : result.allowed ? 'perm-yes' : 'perm-no'; return <td className={cls} key={role}>{typeof policy === 'function' ? 'CONDITIONAL' : result.allowed ? 'ALLOW' : 'DENY'}</td>; })}</tr>)}</tbody></table></div>}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function NodeInspector({ node, editable, onUpdate, onDelete }) {
+  const [draft, setDraft] = useState(() => clone(node.data));
+  useEffect(() => setDraft(clone(node.data)), [node.id, node.data]);
+  function save() {
+    onUpdate(node.id, {
+      nodeType: NODE_DEFS[draft.nodeType] ? draft.nodeType : 'task',
+      label: sanitizeText(draft.label, 80),
+      description: sanitizeText(draft.description, 180),
+      assigneeRole: ROLE_DEFS[draft.assigneeRole] ? draft.assigneeRole : 'operator',
+      slaHours: Math.max(0, Math.min(8760, Number(draft.slaHours) || 0))
+    });
+  }
+  return <div className="form-stack" data-testid="node-inspector"><span className="element-badge">NODE / {node.id}</span><div className="field"><label>節點類型</label><select disabled={!editable} value={draft.nodeType} onChange={e => setDraft(prev => ({...prev,nodeType:e.target.value}))}>{Object.entries(NODE_DEFS).map(([key,value]) => <option value={key} key={key}>{value.label}</option>)}</select></div><div className="field"><label>標題</label><input data-testid="node-title" disabled={!editable} value={draft.label || ''} onChange={e => setDraft(prev => ({...prev,label:e.target.value}))}/><span className="field-help">最多 80 字，不接受 HTML。</span></div><div className="field"><label>說明</label><textarea disabled={!editable} value={draft.description || ''} onChange={e => setDraft(prev => ({...prev,description:e.target.value}))}/></div><div className="field"><label>負責角色</label><select disabled={!editable} value={draft.assigneeRole || 'operator'} onChange={e => setDraft(prev => ({...prev,assigneeRole:e.target.value}))}>{Object.entries(ROLE_DEFS).map(([key,value]) => <option value={key} key={key}>{value.label}</option>)}</select></div><div className="field"><label>SLA 小時</label><input type="number" min="0" max="8760" disabled={!editable} value={draft.slaHours} onChange={e => setDraft(prev => ({...prev,slaHours:e.target.value}))}/></div><div className="inspector-actions"><button className="btn primary small" data-testid="save-node" disabled={!editable} onClick={save}>保存</button><button className="btn danger small" data-testid="delete-node" disabled={!editable} onClick={() => onDelete(node.id)}>刪除</button></div>{!editable && <div className="denied-card">目前身份無權編輯節點，欄位已切換為唯讀。</div>}</div>;
+}
+
+function EdgeInspector({ edge, editable, onUpdate, onDelete }) {
+  const [label, setLabel] = useState(edge.label || '');
+  useEffect(() => setLabel(edge.label || ''), [edge.id, edge.label]);
+  return <div className="form-stack" data-testid="edge-inspector"><span className="element-badge">EDGE / {edge.id}</span><div className="field"><label>來源</label><input disabled value={edge.source}/></div><div className="field"><label>目標</label><input disabled value={edge.target}/></div><div className="field"><label>分支標籤</label><input data-testid="edge-label" disabled={!editable} value={label} onChange={e => setLabel(e.target.value)}/><span className="field-help">Decision 的每個分支應有清楚標籤。</span></div><div className="inspector-actions"><button className="btn primary small" data-testid="save-edge" disabled={!editable} onClick={() => onUpdate(edge.id,{label:sanitizeText(label,48)})}>保存</button><button className="btn danger small" data-testid="delete-edge" disabled={!editable} onClick={() => onDelete(edge.id)}>刪除</button></div>{!editable && <div className="denied-card">目前身份無權修改連線。</div>}</div>;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<ReactFlowProvider><App /></ReactFlowProvider>);
+window.__APP_READY__ = true;
+const loading = document.getElementById('boot-loading');
+if (loading) loading.classList.add('hidden');
+}
+</script>
+</body>
+</html>

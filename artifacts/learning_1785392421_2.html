@@ -1,0 +1,1612 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PDF OCR → 結構化數據｜掃描文件自動化處理工具</title>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.min.mjs" type="module"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+  :root {
+    --bg: #0b1220;
+    --bg-2: #0f1a2e;
+    --panel: #15233f;
+    --panel-2: #1a2a4a;
+    --panel-3: #20335a;
+    --line: #2a3d68;
+    --line-2: #38538a;
+    --ink: #eaf0fb;
+    --ink-2: #c1cee5;
+    --muted: #7c8caa;
+    --accent: #5b9cff;
+    --accent-2: #7dd3fc;
+    --ok: #22c55e;
+    --warn: #f59e0b;
+    --danger: #ef4444;
+    --purple: #c084fc;
+    --cyan: #38bdf8;
+    --pink: #f472b6;
+    --amber: #fbbf24;
+    --teal: #2dd4bf;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft JhengHei", "PingFang TC", Roboto, sans-serif;
+    background: linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
+    color: var(--ink);
+    overflow-x: hidden;
+  }
+  /* ============ Layout ============ */
+  .app {
+    display: grid;
+    grid-template-columns: 280px 1fr 360px;
+    grid-template-rows: 60px 1fr 30px;
+    min-height: 100vh;
+    height: 100vh;
+  }
+  .topbar {
+    grid-column: 1 / -1;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px;
+    background: rgba(11, 18, 32, 0.92);
+    border-bottom: 1px solid var(--line);
+    backdrop-filter: blur(8px);
+    z-index: 10;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: 0.5px; font-size: 14px; }
+  .brand .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 14px var(--accent); }
+  .brand .sub { color: var(--muted); font-weight: 500; font-size: 12px; margin-left: 6px; }
+  .top-actions { display: flex; gap: 8px; align-items: center; }
+  .footer {
+    grid-column: 1 / -1;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 16px;
+    background: rgba(11, 18, 32, 0.85);
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 11px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  .footer .status .ok { color: var(--ok); }
+  .footer .status .warn { color: var(--warn); }
+  .footer .status .danger { color: var(--danger); }
+  /* ============ Reusable atoms ============ */
+  .btn {
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+    padding: 8px 14px; border-radius: 6px; font-size: 12px; cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, transform 0.05s;
+    font-family: inherit;
+  }
+  .btn:hover:not(:disabled) { background: var(--panel-2); border-color: var(--accent); }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: white; font-weight: 600; }
+  .btn.primary:hover:not(:disabled) { background: #4a8aef; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn.tiny { padding: 4px 9px; font-size: 11px; }
+  .btn.ghost { background: transparent; }
+
+  .pill {
+    padding: 4px 10px; border-radius: 999px; font-size: 11px;
+    background: var(--panel); border: 1px solid var(--line); color: var(--ink-2);
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .pill.ok { background: rgba(34, 197, 94, 0.15); color: var(--ok); border-color: rgba(34, 197, 94, 0.4); }
+  .pill.warn { background: rgba(245, 158, 11, 0.15); color: var(--warn); border-color: rgba(245, 158, 11, 0.4); }
+  .pill.info { background: rgba(91, 156, 255, 0.15); color: var(--accent); border-color: rgba(91, 156, 255, 0.4); }
+  .pill.danger { background: rgba(239, 68, 68, 0.15); color: var(--danger); border-color: rgba(239, 68, 68, 0.4); }
+
+  /* ============ Sidebars ============ */
+  .side {
+    background: var(--panel);
+    overflow-y: auto;
+    padding: 14px;
+    border-right: 1px solid var(--line);
+  }
+  .side.right { border-right: none; border-left: 1px solid var(--line); }
+  .side h3 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px;
+    color: var(--muted); margin: 0 0 10px;
+  }
+  .side h4 { font-size: 13px; margin: 18px 0 8px; color: var(--ink-2); font-weight: 600; }
+
+  /* ============ Main ============ */
+  .main {
+    overflow: auto;
+    padding: 20px 24px;
+    background:
+      radial-gradient(circle at 20% 0%, rgba(91, 156, 255, 0.08), transparent 50%),
+      radial-gradient(circle at 100% 100%, rgba(125, 211, 252, 0.06), transparent 50%),
+      var(--bg);
+  }
+
+  /* Upload zone */
+  .upload-zone {
+    border: 2px dashed var(--line-2);
+    border-radius: 12px;
+    padding: 36px;
+    text-align: center;
+    background: rgba(21, 35, 63, 0.5);
+    transition: border-color 0.2s, background 0.2s;
+    cursor: pointer;
+    margin-bottom: 18px;
+  }
+  .upload-zone:hover, .upload-zone.drag {
+    border-color: var(--accent);
+    background: rgba(91, 156, 255, 0.06);
+  }
+  .upload-zone .icon {
+    font-size: 42px; line-height: 1; margin-bottom: 10px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .upload-zone .title { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+  .upload-zone .hint { font-size: 12px; color: var(--muted); }
+  .upload-zone input { display: none; }
+
+  /* Pipeline visualization */
+  .pipeline {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 16px; margin-bottom: 18px;
+    overflow-x: auto;
+  }
+  .step {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 12px; border-radius: 6px;
+    background: var(--panel-2); border: 1px solid var(--line);
+    font-size: 12px; color: var(--ink-2);
+    flex-shrink: 0;
+    min-width: 0;
+  }
+  .step.active { border-color: var(--accent); background: rgba(91, 156, 255, 0.1); color: var(--ink); }
+  .step.done { border-color: var(--ok); background: rgba(34, 197, 94, 0.1); color: var(--ink); }
+  .step .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted);
+  }
+  .step.active .dot { background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+  .step.done .dot { background: var(--ok); }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  .arrow { color: var(--muted); font-size: 14px; }
+
+  /* Tabs */
+  .tabs {
+    display: flex; gap: 4px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 16px;
+  }
+  .tab {
+    padding: 8px 14px; font-size: 13px; cursor: pointer;
+    border: none; background: transparent; color: var(--muted);
+    border-bottom: 2px solid transparent;
+    font-family: inherit;
+  }
+  .tab:hover { color: var(--ink-2); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* PDF preview */
+  .pdf-stage {
+    background: rgba(0,0,0,0.3); border: 1px solid var(--line); border-radius: 8px;
+    padding: 20px; min-height: 400px;
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+  }
+  .pdf-page {
+    position: relative;
+    background: white;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .pdf-page canvas { display: block; }
+  .pdf-page .page-tag {
+    position: absolute; top: 8px; left: 8px;
+    background: rgba(0,0,0,0.7); color: white;
+    padding: 3px 8px; border-radius: 4px; font-size: 11px;
+    font-family: ui-monospace, monospace;
+    z-index: 2;
+  }
+  .pdf-page .src-tag {
+    position: absolute; top: 8px; right: 8px;
+    padding: 3px 8px; border-radius: 4px; font-size: 11px;
+    font-family: ui-monospace, monospace;
+    z-index: 2;
+  }
+  .pdf-page .src-tag.text { background: rgba(34, 197, 94, 0.9); color: white; }
+  .pdf-page .src-tag.ocr { background: rgba(245, 158, 11, 0.9); color: white; }
+  .pdf-page .src-tag.empty { background: rgba(239, 68, 68, 0.9); color: white; }
+  .pdf-text-overlay {
+    position: absolute; top: 0; left: 0;
+    pointer-events: none;
+    color: transparent;
+    user-select: none;
+  }
+
+  /* Fields table */
+  .fields-card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    overflow: hidden;
+  }
+  .fields-card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; border-bottom: 1px solid var(--line);
+    background: var(--panel-2);
+  }
+  .fields-card-body { padding: 14px 16px; }
+  .field-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px;
+  }
+  .field-row {
+    display: grid; grid-template-columns: 110px 1fr;
+    gap: 10px; align-items: center;
+    padding: 6px 0;
+    border-bottom: 1px dashed var(--line);
+  }
+  .field-row:last-child { border-bottom: none; }
+  .field-row .label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--muted); display: flex; align-items: center; gap: 6px;
+  }
+  .field-row .label .key { color: var(--accent-2); font-family: ui-monospace, monospace; }
+  .field-row .value {
+    font-size: 13px;
+    color: var(--ink); word-break: break-all;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    background: rgba(0,0,0,0.25); padding: 4px 8px; border-radius: 4px;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  .field-row .value.redacted {
+    color: var(--ink-2);
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px dashed rgba(245, 158, 11, 0.4);
+  }
+  .field-row .value .copy {
+    cursor: pointer; color: var(--muted); font-size: 11px;
+    border: none; background: transparent; padding: 2px 4px;
+  }
+  .field-row .value .copy:hover { color: var(--accent); }
+  .field-row .value.placeholder { color: var(--muted); font-style: italic; }
+
+  /* Confidence bars */
+  .conf-list { display: flex; flex-direction: column; gap: 6px; }
+  .conf-item {
+    display: grid; grid-template-columns: 1fr auto;
+    gap: 8px; align-items: center;
+    font-size: 12px;
+  }
+  .conf-item .bar {
+    height: 6px; background: var(--panel-3); border-radius: 999px; overflow: hidden;
+    position: relative;
+  }
+  .conf-item .fill {
+    height: 100%; border-radius: 999px;
+    transition: width 0.4s ease;
+  }
+  .conf-item.high .fill { background: linear-gradient(90deg, var(--ok), #4ade80); }
+  .conf-item.mid .fill { background: linear-gradient(90deg, var(--warn), #fbbf24); }
+  .conf-item.low .fill { background: linear-gradient(90deg, var(--danger), #f87171); }
+  .conf-item .num { font-family: ui-monospace, monospace; color: var(--ink-2); font-size: 11px; }
+
+  /* Raw text */
+  .raw-text {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12px; line-height: 1.6;
+    white-space: pre-wrap; word-break: break-word;
+    color: var(--ink-2);
+    max-height: 600px; overflow: auto;
+  }
+  .raw-text mark {
+    background: rgba(245, 158, 11, 0.4); color: white;
+    padding: 1px 3px; border-radius: 3px;
+  }
+  .raw-text mark.email { background: rgba(91, 156, 255, 0.4); }
+  .raw-text mark.phone { background: rgba(125, 211, 252, 0.4); color: var(--bg); }
+  .raw-text mark.id { background: rgba(192, 132, 252, 0.4); }
+  .raw-text mark.money { background: rgba(34, 197, 94, 0.4); }
+  .raw-text mark.date { background: rgba(45, 212, 191, 0.4); }
+
+  /* Stats grid */
+  .stats {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 12px; margin-bottom: 18px;
+  }
+  .stat {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .stat .num { font-size: 24px; font-weight: 700; font-family: ui-monospace, monospace; color: var(--accent); }
+  .stat .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+
+  /* Page chips */
+  .pages-bar {
+    display: flex; gap: 6px; align-items: center;
+    flex-wrap: wrap;
+    padding: 8px 0;
+  }
+  .page-chip {
+    border: 1px solid var(--line); background: var(--panel-2);
+    padding: 4px 10px; border-radius: 6px; font-size: 11px;
+    cursor: pointer; font-family: ui-monospace, monospace;
+    color: var(--ink-2);
+  }
+  .page-chip.active { border-color: var(--accent); color: var(--accent); background: rgba(91, 156, 255, 0.1); }
+  .page-chip.text { color: var(--ok); border-color: rgba(34, 197, 94, 0.3); }
+  .page-chip.ocr { color: var(--warn); border-color: rgba(245, 158, 11, 0.3); }
+  .page-chip.empty { color: var(--danger); border-color: rgba(239, 68, 68, 0.3); }
+
+  /* Sample buttons */
+  .sample-list {
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .sample-btn {
+    text-align: left; padding: 10px;
+    border: 1px solid var(--line); background: var(--panel-2);
+    border-radius: 6px; cursor: pointer;
+    font-family: inherit; font-size: 12px; color: var(--ink-2);
+    transition: all 0.15s;
+  }
+  .sample-btn:hover { border-color: var(--accent); background: rgba(91, 156, 255, 0.06); }
+  .sample-btn .ttl { color: var(--ink); font-weight: 600; margin-bottom: 2px; font-size: 13px; }
+  .sample-btn .desc { color: var(--muted); font-size: 11px; }
+
+  /* Logs */
+  .log-line {
+    font-family: ui-monospace, monospace; font-size: 11px;
+    padding: 4px 0;
+    border-bottom: 1px dashed var(--line);
+    color: var(--ink-2);
+    word-break: break-word;
+  }
+  .log-line .time { color: var(--muted); margin-right: 8px; }
+  .log-line.info .lvl { color: var(--accent); }
+  .log-line.ok .lvl { color: var(--ok); }
+  .log-line.warn .lvl { color: var(--warn); }
+  .log-line.err .lvl { color: var(--danger); }
+  .log-line .lvl {
+    display: inline-block; width: 50px; font-weight: 700;
+    text-transform: uppercase; font-size: 10px;
+  }
+
+  /* Regex list */
+  .regex-row {
+    display: grid; grid-template-columns: 90px 1fr 70px;
+    gap: 8px; padding: 8px 0; font-size: 12px;
+    border-bottom: 1px solid var(--line);
+    align-items: center;
+  }
+  .regex-row:last-child { border-bottom: none; }
+  .regex-row .name { color: var(--accent-2); font-family: ui-monospace, monospace; font-weight: 600; }
+  .regex-row .pattern { font-family: ui-monospace, monospace; color: var(--ink-2); font-size: 11px; word-break: break-all; }
+  .regex-row .hits {
+    text-align: right; font-family: ui-monospace, monospace;
+    color: var(--ok); font-weight: 700;
+  }
+  .regex-row .hits.zero { color: var(--muted); }
+
+  /* Progress bar */
+  .progress {
+    height: 6px; background: var(--panel-3); border-radius: 999px;
+    overflow: hidden; position: relative;
+  }
+  .progress .fill {
+    height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    transition: width 0.3s ease;
+    border-radius: 999px;
+  }
+
+  /* Modal-like overlay */
+  .overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100;
+  }
+  .overlay .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 20px 24px;
+    min-width: 360px; max-width: 80vw;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  }
+
+  /* Utility */
+  .row { display: flex; align-items: center; gap: 8px; }
+  .between { justify-content: space-between; }
+  .wrap { flex-wrap: wrap; }
+  .grow { flex: 1 1 auto; }
+  .muted { color: var(--muted); }
+  .mono { font-family: ui-monospace, monospace; }
+  .small { font-size: 11px; }
+
+  /* Scrollbars */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 5px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+  /* Animations */
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .fade-in { animation: fadeIn 0.3s ease-out; }
+
+  /* Responsive */
+  @media (max-width: 1100px) {
+    .app { grid-template-columns: 240px 1fr 300px; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 880px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: 60px auto auto auto 30px; }
+    .side { max-height: 280px; border-right: none; border-bottom: 1px solid var(--line); }
+    .field-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ============ Top bar ============ -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot"></span>
+      OCR Pipeline
+      <span class="sub">PDF.js + Tesseract.js + 結構化提取 + PII 遮罩</span>
+    </div>
+    <div class="top-actions">
+      <span class="pill" id="pill-engine">PDF.js: 載入中</span>
+      <span class="pill" id="pill-ocr">Tesseract: 載入中</span>
+      <button class="btn tiny" id="btn-help" type="button">使用說明</button>
+      <button class="btn tiny" id="btn-reset" type="button">重置</button>
+    </div>
+  </header>
+
+  <!-- ============ Left sidebar ============ -->
+  <aside class="side">
+    <h3>① 上傳文件</h3>
+    <label class="upload-zone" id="drop-zone" for="file-input">
+      <div class="icon">📄</div>
+      <div class="title">拖曳 PDF 到這裡</div>
+      <div class="hint">或點擊選擇檔案（最多 50 MB）</div>
+      <input type="file" id="file-input" accept="application/pdf,.pdf" />
+    </label>
+
+    <h4>② 範例文件</h4>
+    <div class="sample-list">
+      <button class="sample-btn" data-sample="invoice" type="button">
+        <div class="ttl">📑 統一發票</div>
+        <div class="desc">含統編 / 金額 / 日期 / 品項</div>
+      </button>
+      <button class="sample-btn" data-sample="receipt" type="button">
+        <div class="ttl">🧾 收據</div>
+        <div class="desc">金額 / 時間戳 / 統編 / 地址</div>
+      </button>
+      <button class="sample-btn" data-sample="contract" type="button">
+        <div class="ttl">📋 合約條款</div>
+        <div class="desc">當事人 / 日期 / 簽章 / Email</div>
+      </button>
+      <button class="sample-btn" data-sample="id" type="button">
+        <div class="ttl">🪪 身分證字號（遮罩示範）</div>
+        <div class="desc">A123456789、B987654321 等</div>
+      </button>
+    </div>
+
+    <h4>③ 處理選項</h4>
+    <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;">
+      <label class="row"><input type="checkbox" id="opt-redact" checked /> 自動遮罩 PII（建議）</label>
+      <label class="row"><input type="checkbox" id="opt-ocr-fallback" checked /> 文字層空時自動 OCR</label>
+      <label class="row">DPI
+        <select id="opt-dpi" class="btn tiny ghost" style="flex:1;">
+          <option value="150">150（快）</option>
+          <option value="220" selected>220（平衡）</option>
+          <option value="300">300（精）</option>
+        </select>
+      </label>
+      <label class="row">語言
+        <select id="opt-lang" class="btn tiny ghost" style="flex:1;">
+          <option value="chi_tra+eng" selected>繁中 + 英文</option>
+          <option value="chi_tra">繁中</option>
+          <option value="eng">英文</option>
+          <option value="chi_sim+eng">簡中 + 英文</option>
+        </select>
+      </label>
+    </div>
+  </aside>
+
+  <!-- ============ Main ============ -->
+  <main class="main">
+    <!-- Pipeline state -->
+    <div class="pipeline" id="pipeline">
+      <div class="step" data-step="upload"><span class="dot"></span>① 上傳</div>
+      <span class="arrow">→</span>
+      <div class="step" data-step="parse"><span class="dot"></span>② PDF 解析</div>
+      <span class="arrow">→</span>
+      <div class="step" data-step="ocr"><span class="dot"></span>③ OCR（掃描頁）</div>
+      <span class="arrow">→</span>
+      <div class="step" data-step="extract"><span class="dot"></span>④ 結構化</div>
+      <span class="arrow">→</span>
+      <div class="step" data-step="redact"><span class="dot"></span>⑤ 遮罩</div>
+      <span class="arrow">→</span>
+      <div class="step" data-step="export"><span class="dot"></span>⑥ 匯出</div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats" id="stats" style="display:none;">
+      <div class="stat"><div class="num" id="stat-pages">0</div><div class="lbl">頁數</div></div>
+      <div class="stat"><div class="num" id="stat-text">0</div><div class="lbl">文字層頁</div></div>
+      <div class="stat"><div class="num" id="stat-ocr">0</div><div class="lbl">OCR 頁</div></div>
+      <div class="stat"><div class="num" id="stat-fields">0</div><div class="lbl">結構化欄位</div></div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="preview" type="button">📄 預覽</button>
+      <button class="tab" data-tab="fields" type="button">🧩 結構化欄位</button>
+      <button class="tab" data-tab="raw" type="button">📝 原始文字</button>
+      <button class="tab" data-tab="export" type="button">💾 匯出</button>
+    </div>
+
+    <!-- Tab: Preview -->
+    <div class="tab-panel active" data-tab="preview">
+      <div class="row between" style="margin-bottom:12px;">
+        <div class="pages-bar" id="pages-bar"></div>
+        <div class="row">
+          <span class="pill" id="current-page-tag">— / —</span>
+          <button class="btn tiny" id="btn-prev" type="button">◀</button>
+          <button class="btn tiny" id="btn-next" type="button">▶</button>
+        </div>
+      </div>
+      <div class="pdf-stage" id="pdf-stage">
+        <div class="muted" style="margin:auto;text-align:center;">
+          <div style="font-size:48px;opacity:0.4;">📄</div>
+          <div>請上傳 PDF 或點擊左側範例開始處理</div>
+          <div class="small" style="margin-top:10px;">所有處理在瀏覽器本地進行，PDF 不會上傳到任何伺服器</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Fields -->
+    <div class="tab-panel" data-tab="fields">
+      <div class="fields-card">
+        <div class="fields-card-header">
+          <div>
+            <strong>結構化欄位</strong>
+            <span class="muted small" style="margin-left:8px;">共 <span id="field-count">0</span> 個欄位、<span id="redact-count">0</span> 個已遮罩</span>
+          </div>
+          <div class="row">
+            <button class="btn tiny" id="btn-toggle-redact" type="button">遮罩: ON</button>
+            <button class="btn tiny" id="btn-copy-json" type="button">複製 JSON</button>
+          </div>
+        </div>
+        <div class="fields-card-body" id="fields-body">
+          <div class="muted" style="text-align:center;padding:30px;">尚無資料</div>
+        </div>
+      </div>
+
+      <!-- Confidence -->
+      <div class="fields-card" style="margin-top:16px;">
+        <div class="fields-card-header">
+          <div><strong>欄位信心度</strong><span class="muted small" style="margin-left:8px;">（基於 regex 匹配優先順序 + OCR confidence）</span></div>
+        </div>
+        <div class="fields-card-body">
+          <div class="conf-list" id="conf-list"></div>
+        </div>
+      </div>
+
+      <!-- Regex dictionary -->
+      <div class="fields-card" style="margin-top:16px;">
+        <div class="fields-card-header">
+          <div><strong>Regex 字典</strong><span class="muted small" style="margin-left:8px;">共 <span id="regex-count">0</span> 條規則</span></div>
+        </div>
+        <div class="fields-card-body" id="regex-body"></div>
+      </div>
+    </div>
+
+    <!-- Tab: Raw -->
+    <div class="tab-panel" data-tab="raw">
+      <div class="row between" style="margin-bottom:10px;">
+        <div>
+          <span class="pill" id="raw-page-tag">全文件</span>
+          <span class="pill" id="raw-page-info">—</span>
+        </div>
+        <div class="row">
+          <button class="btn tiny" id="btn-prev-raw" type="button">◀ 上一頁</button>
+          <button class="btn tiny" id="btn-next-raw" type="button">下一頁 ▶</button>
+        </div>
+      </div>
+      <div class="raw-text" id="raw-text">尚未載入 PDF</div>
+    </div>
+
+    <!-- Tab: Export -->
+    <div class="tab-panel" data-tab="export">
+      <div class="fields-card">
+        <div class="fields-card-header">
+          <div><strong>匯出格式</strong></div>
+        </div>
+        <div class="fields-card-body">
+          <div class="field-grid">
+            <div>
+              <h4 style="margin-top:0;">📦 JSON</h4>
+              <p class="muted small">完整結構化欄位，可被後端 API 直接消費</p>
+              <button class="btn primary" id="btn-export-json" type="button">下載 JSON</button>
+              <button class="btn tiny" id="btn-preview-json" type="button" style="margin-left:6px;">預覽</button>
+            </div>
+            <div>
+              <h4 style="margin-top:0;">📊 CSV</h4>
+              <p class="muted small">純表格，可匯入 Excel / Google Sheets</p>
+              <button class="btn primary" id="btn-export-csv" type="button">下載 CSV</button>
+              <button class="btn tiny" id="btn-preview-csv" type="button" style="margin-left:6px;">預覽</button>
+            </div>
+            <div>
+              <h4 style="margin-top:0;">📝 遮罩文字</h4>
+              <p class="muted small">已套用 PII 遮罩的純文字檔，可分享 / 存證</p>
+              <button class="btn primary" id="btn-export-txt" type="button">下載 .txt</button>
+              <button class="btn tiny" id="btn-preview-txt" type="button" style="margin-left:6px;">預覽</button>
+            </div>
+            <div>
+              <h4 style="margin-top:0;">📋 Markdown 報告</h4>
+              <p class="muted small">含信心度、遮罩說明、頁面統計</p>
+              <button class="btn primary" id="btn-export-md" type="button">下載 .md</button>
+              <button class="btn tiny" id="btn-preview-md" type="button" style="margin-left:6px;">預覽</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="fields-card" style="margin-top:16px;">
+        <div class="fields-card-header"><div><strong>匯出預覽</strong></div></div>
+        <div class="fields-card-body">
+          <pre class="raw-text" id="export-preview" style="max-height:400px;">點擊上方「預覽」按鈕查看</pre>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ============ Right sidebar ============ -->
+  <aside class="side right">
+    <h3>處理日誌</h3>
+    <div id="logs" style="font-size:11px;max-height:340px;overflow:auto;">
+      <div class="log-line info"><span class="time">[--:--:--]</span><span class="lvl">INFO</span>引擎啟動中…</div>
+    </div>
+
+    <h3>Pipeline 進度</h3>
+    <div class="progress" style="margin-bottom:10px;"><div class="fill" id="prog-fill" style="width:0%;"></div></div>
+    <div class="muted small" id="prog-label">— / 6 階段</div>
+
+    <h3>頁面狀態一覽</h3>
+    <div id="page-status">
+      <div class="muted small" style="padding:14px 0;text-align:center;">尚未載入</div>
+    </div>
+
+    <h3>PII 遮罩規則</h3>
+    <div class="muted small" style="line-height:1.7;">
+      已套用 7 種內建模式（標示為 <span style="color:var(--warn);">[遮罩]</span>）：
+      <ul style="padding-left:18px;margin:6px 0;">
+        <li>身分證字號</li>
+        <li>統一編號（8 碼）</li>
+        <li>信用卡 / 金融卡號</li>
+        <li>Email</li>
+        <li>手機號碼（+886 / 09xx）</li>
+        <li>市話</li>
+        <li>API Key / Token</li>
+      </ul>
+    </div>
+  </aside>
+
+  <!-- ============ Footer ============ -->
+  <footer class="footer">
+    <div class="status" id="status-footer">● 引擎初始化中…</div>
+    <div>v4.6 · PDF.js 4.0.379 + Tesseract.js 5 · <span id="perf-stat">— ms</span></div>
+  </footer>
+</div>
+
+<!-- ============ Script ============ -->
+<script type="module">
+/* ============================================================
+   State
+   ============================================================ */
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const state = {
+  fileName: null,
+  pdfDoc: null,
+  pages: [],            // { pageNum, src: 'text'|'ocr'|'empty', text, confidence, ocrConfidence }
+  rawFull: "",          // 拼接的全文
+  fields: {},           // 結構化欄位
+  redactionMap: {},     // 原值→遮罩值
+  redactions: [],       // [{start, end, original, masked, kind}]
+  redactMode: true,
+  activePage: 1,
+  pipeline: { step: null, progress: 0 },
+  perfStart: 0,
+};
+
+/* ============================================================
+   Redaction dictionary
+   ============================================================ */
+const REDACTION_PATTERNS = [
+  { kind: 'id_number',     name: '身分證字號', regex: /[A-Z][12]\d{8}/g, mask: (m) => m[0] + '*******' + m.slice(-3) },
+  { kind: 'unified_business_no', name: '統一編號', regex: /\b\d{8}\b/g, mask: (m) => m.slice(0, 4) + '****' },
+  { kind: 'credit_card',   name: '信用卡號',   regex: /\b\d[\d -]{12,22}\b/g, mask: (m) => { const d = m.replace(/\D/g, ''); return d.slice(0,4)+' **** **** '+d.slice(-4); }, validate: (s) => { const d = s.replace(/\D/g,''); return /^\d{13,19}$/.test(d) && luhn(d); } },
+  { kind: 'email',         name: 'Email',      regex: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, mask: (m) => { const [u, d] = m.split('@'); return u.slice(0,2) + '***@' + d; } },
+  { kind: 'mobile_tw',     name: '手機號碼',   regex: /(?:(?:\+|00)886[-\s]?)?(?:0?9\d{2})[-\s]?\d{3}[-\s]?\d{3}/g, mask: (m) => { const d = m.replace(/\D/g,''); if (d.length === 10 && d.startsWith('09')) return '09' + '***' + d.slice(-3); return '****'; } },
+  { kind: 'tel_tw',        name: '市話',       regex: /\b0[2-8][-\s]?\d{3,4}[-\s]?\d{3,4}\b/g, mask: (m) => m.replace(/\d/g, (d, i) => i < 2 || i > 4 ? d : '*') },
+  { kind: 'api_key',       name: 'API Key',    regex: /\b(?:sk|pk|api|token|key)[-_][A-Za-z0-9]{16,}\b/gi, mask: (m) => m.slice(0, 6) + '…' + m.slice(-4) },
+];
+
+function luhn(num) {
+  let sum = 0, alt = false;
+  for (let i = num.length - 1; i >= 0; i--) {
+    let n = +num[i];
+    if (alt) { n *= 2; if (n > 9) n -= 9; }
+    sum += n; alt = !alt;
+  }
+  return sum % 10 === 0;
+}
+
+function redactText(text, opts = {}) {
+  const doRedact = opts.redact !== false;
+  const out = { text: text, redactions: [] };
+  if (!doRedact) return out;
+
+  for (const p of REDACTION_PATTERNS) {
+    const re = new RegExp(p.regex.source, p.regex.flags);
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const original = m[0];
+      if (p.validate && !p.validate(original)) continue;
+      // 統一編號跳過身分證已匹配的（避免重複）
+      if (p.kind === 'unified_business_no' && out.redactions.some(r => r.kind === 'id_number' && m.index >= r.start - 10 && m.index <= r.start + 12)) continue;
+      const masked = p.mask(original);
+      out.redactions.push({
+        start: m.index,
+        end: m.index + original.length,
+        original,
+        masked,
+        kind: p.kind,
+      });
+    }
+  }
+
+  // 套用遮罩（從後往前避免 index 漂移）
+  out.redactions.sort((a, b) => b.start - a.start);
+  let result = text;
+  for (const r of out.redactions) {
+    result = result.slice(0, r.start) + r.masked + result.slice(r.end);
+  }
+  out.text = result;
+  return out;
+}
+
+/* ============================================================
+   Structured field extraction (regex with priority order)
+   ============================================================ */
+const FIELD_PATTERNS = [
+  // 發票 / 統一發票
+  { key: 'invoice_no',   name: '發票號碼',  re: /統.?一.?發票[\s\S]{0,40}?([A-Z]{2}\d{8})|發票號碼[：:\s]*([A-Z]{2}\d{8})|INV[-\s]?NO[：:\s]*([A-Z0-9-]+)/, priority: 1 },
+  { key: 'invoice_date', name: '發票日期',  re: /(?:發票)?日期[：:\s]*(\d{2,3}[-\/.]\d{1,2}[-\/.]\d{1,3})|(\d{3}[-\/.]\d{1,2}[-\/.]\d{1,2})/, priority: 1, group: [1,2] },
+  { key: 'unified_no',   name: '統一編號',  re: /統.?一.?編號[：:\s]*(\d{8})|賣方統編[：:\s]*(\d{8})/, priority: 1, group: [1,2] },
+
+  // 金額（最後一個最大數視為 total）
+  { key: 'total_amount', name: '總金額',    re: /(?:合計|總計|TOTAL|應付|實付|總金額)[：:\s]*\$?\s*([\d,]+(?:\.\d{1,2})?)/i, priority: 2 },
+  { key: 'tax_amount',   name: '稅額',      re: /(?:稅額|營業稅)[：:\s]*\$?\s*([\d,]+(?:\.\d{1,2})?)/, priority: 2 },
+  { key: 'subtotal',     name: '小計',      re: /(?:小計|SUBTOTAL)[：:\s]*\$?\s*([\d,]+(?:\.\d{1,2})?)/i, priority: 2 },
+
+  // 個人
+  { key: 'email',        name: 'Email',     re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/, priority: 1 },
+  { key: 'mobile',       name: '手機',      re: /(?:手機|行動|cell)[：:\s]*((?:\+?886[-\s]?)?0?9\d{2}[-\s]?\d{3}[-\s]?\d{3})/i, priority: 1 },
+  { key: 'phone',        name: '電話',      re: /(?:電話|TEL)[：:\s]*(\d{2,4}[-\s]?\d{3,4}[-\s]?\d{3,4})/i, priority: 1 },
+  { key: 'id_number',    name: '身分證',    re: /[A-Z][12]\d{8}/, priority: 1 },
+
+  // 日期時間
+  { key: 'date',         name: '日期',      re: /\b(\d{3,4})[-\/.](\d{1,2})[-\/.](\d{1,2})\b/, priority: 3 },
+  { key: 'time',         name: '時間',      re: /\b([01]?\d|2[0-3])[：:]([0-5]\d)(?::([0-5]\d))?\b/, priority: 3, group: [1,2,3] },
+
+  // 地址（啟發式：含「路/街/段/號/樓」）
+  { key: 'address',      name: '地址',      re: /(?:地址|住址)[：:\s]*([^\n]{5,40}(?:路|街|段|大道|巷|弄|號|樓|F)[^\n]{0,30})/, priority: 2 },
+
+  // 銀行 / 帳號
+  { key: 'bank_account', name: '銀行帳號',  re: /(?:帳號|ACCOUNT)[：:\s]*(\d{10,16})/i, priority: 2 },
+
+  // 合約專用
+  { key: 'party_a',      name: '甲方',      re: /(?:甲方|立合約人\(甲\))[：:\s]*([^\n]{2,20})/, priority: 2 },
+  { key: 'party_b',      name: '乙方',      re: /(?:乙方|立合約人\(乙\))[：:\s]*([^\n]{2,20})/, priority: 2 },
+  { key: 'signing_date', name: '簽約日期',  re: /簽(?:約|署)日期[：:\s]*(\d{2,3}[-\/.]\d{1,2}[-\/.]\d{1,3})/, priority: 2 },
+];
+
+function extractFields(text) {
+  const result = {};
+  const hits = [];
+  for (const fp of FIELD_PATTERNS) {
+    const re = new RegExp(fp.re.source, fp.re.flags.includes('g') ? fp.re.flags : fp.re.flags + 'g');
+    const m = re.exec(text);
+    if (!m) continue;
+    let value = null;
+    if (fp.group) {
+      for (const idx of fp.group) {
+        if (m[idx] !== undefined) { value = m[idx]; break; }
+      }
+    } else {
+      value = m[1] || m[0];
+    }
+    if (!value) continue;
+    result[fp.key] = { value: value.trim(), name: fp.name, priority: fp.priority, start: m.index };
+    hits.push({ key: fp.key, ...result[fp.key] });
+  }
+  // 排序後保留 priority 高的（多筆時取最早命中）
+  return { fields: result, hits };
+}
+
+/* ============================================================
+   Pipeline steps
+   ============================================================ */
+const PIPELINE_STEPS = ['upload', 'parse', 'ocr', 'extract', 'redact', 'export'];
+function setStep(step, state='active') {
+  $$('.step').forEach(s => {
+    s.classList.remove('active', 'done');
+    if (s.dataset.step === step) s.classList.add(state);
+    const order = PIPELINE_STEPS.indexOf(s.dataset.step);
+    const target = PIPELINE_STEPS.indexOf(step);
+    if (order < target) s.classList.add('done');
+    if (state === 'done' && order === target) s.classList.add('done');
+  });
+  state.pipeline.step = step;
+  const idx = PIPELINE_STEPS.indexOf(step);
+  const pct = ((idx + 1) / PIPELINE_STEPS.length) * 100;
+  $('#prog-fill').style.width = pct + '%';
+  $('#prog-label').textContent = `階段 ${idx + 1} / ${PIPELINE_STEPS.length} · ${stepName(step)}`;
+}
+
+function stepName(s) {
+  return ({ upload: '上傳', parse: 'PDF 解析', ocr: 'OCR 處理', extract: '結構化提取', redact: 'PII 遮罩', export: '匯出準備' })[s] || s;
+}
+
+/* ============================================================
+   Logging
+   ============================================================ */
+function log(level, msg) {
+  const t = new Date().toLocaleTimeString('zh-TW', { hour12: false });
+  const div = document.createElement('div');
+  div.className = `log-line ${level}`;
+  div.innerHTML = `<span class="time">[${t}]</span><span class="lvl">${level.toUpperCase()}</span>${escapeHtml(msg)}`;
+  const box = $('#logs');
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+/* ============================================================
+   PDF processing
+   ============================================================ */
+async function processPDF(arrayBuffer, fileName) {
+  state.perfStart = performance.now();
+  state.fileName = fileName;
+  state.pages = [];
+  state.fields = {};
+  state.redactions = [];
+  state.rawFull = '';
+  setStep('upload', 'done');
+  setStep('parse', 'active');
+  log('info', `開始處理 ${fileName} (${formatBytes(arrayBuffer.byteLength)})`);
+
+  try {
+    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+    const pdf = await loadingTask.promise;
+    state.pdfDoc = pdf;
+    log('ok', `PDF 載入完成，共 ${pdf.numPages} 頁`);
+    setStep('parse', 'done');
+    setStep('ocr', 'active');
+
+    const total = pdf.numPages;
+    let ocrCount = 0, textCount = 0, emptyCount = 0;
+
+    for (let i = 1; i <= total; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      let text = textContent.items.map(it => it.str).join(' ').trim();
+
+      let src = 'text';
+      let confidence = textContent.items.length > 0 ? 95 : 0;
+
+      if (!text || text.length < 8) {
+        const fallback = $('#opt-ocr-fallback').checked;
+        if (fallback) {
+          log('warn', `第 ${i} 頁文字層空（${text.length} 字元），啟動 OCR…`);
+          text = await ocrPage(page);
+          src = 'ocr';
+          confidence = estimateOCRConfidence(text);
+          ocrCount++;
+        } else {
+          log('warn', `第 ${i} 頁為空且未啟用 OCR fallback`);
+          src = 'empty';
+          confidence = 0;
+          emptyCount++;
+        }
+      } else {
+        textCount++;
+      }
+
+      state.pages.push({ pageNum: i, src, text, confidence });
+      state.rawFull += (state.rawFull ? '\n\n' : '') + `--- Page ${i} ---\n${text}`;
+      renderPageStatus();
+      $('#prog-fill').style.width = (((PIPELINE_STEPS.indexOf('ocr') + 1) / PIPELINE_STEPS.length) * 100 + (i/total) * (1/PIPELINE_STEPS.length) * 100) + '%';
+    }
+
+    log('ok', `解析完成：${textCount} 文字層 / ${ocrCount} OCR / ${emptyCount} 空`);
+    setStep('ocr', 'done');
+    setStep('extract', 'active');
+
+    // 結構化提取
+    const { fields } = extractFields(state.rawFull);
+    state.fields = fields;
+    const hitCount = Object.keys(fields).length;
+    log('ok', `結構化提取到 ${hitCount} 個欄位`);
+
+    setStep('extract', 'done');
+    setStep('redact', 'active');
+
+    // PII 遮罩
+    const redactOn = $('#opt-redact').checked;
+    const r = redactText(state.rawFull, { redact: redactOn });
+    state.redactions = r.redactions;
+    state.redactedText = r.text;
+    log(redactOn ? 'warn' : 'info', `遮罩處理：套用 ${r.redactions.length} 處`);
+
+    setStep('redact', 'done');
+    setStep('export', 'active');
+
+    renderAll();
+    setStep('export', 'done');
+    const dur = (performance.now() - state.perfStart) | 0;
+    $('#perf-stat').textContent = `${dur} ms · ${fileName}`;
+    $('#status-footer').innerHTML = `<span class="ok">● 完成</span> · ${fileName} · ${dur} ms · ${hitCount} 個欄位 / ${r.redactions.length} 處遮罩`;
+    log('ok', `處理完成，耗時 ${dur} ms`);
+
+  } catch (err) {
+    log('err', '處理失敗：' + (err.message || err));
+    $('#status-footer').innerHTML = `<span class="danger">● 失敗</span> · ${err.message || err}`;
+  }
+}
+
+async function ocrPage(page) {
+  const dpi = +$('#opt-dpi').value;
+  const scale = dpi / 72;  // PDF 預設 72 DPI
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement('canvas');
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  const ctx = canvas.getContext('2d');
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  const dataUrl = canvas.toDataURL('image/png');
+
+  const lang = $('#opt-lang').value;
+  log('info', `OCR 開始 (lang=${lang}, dpi=${dpi})…`);
+  const { data } = await Tesseract.recognize(dataUrl, lang, {
+    logger: (m) => {
+      if (m.status === 'recognizing text' && m.progress) {
+        log('info', `OCR 進度: ${(m.progress * 100) | 0}%`);
+      }
+    }
+  });
+  return (data.text || '').trim();
+}
+
+function estimateOCRConfidence(text) {
+  // 啟發式：可列印字元比例
+  if (!text) return 0;
+  const printable = (text.match(/[\u4e00-\u9fffA-Za-z0-9]/g) || []).length;
+  return Math.min(95, Math.round((printable / text.length) * 100));
+}
+
+function formatBytes(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024*1024) return (n/1024).toFixed(1) + ' KB';
+  return (n/1024/1024).toFixed(2) + ' MB';
+}
+
+/* ============================================================
+   Rendering
+   ============================================================ */
+function renderAll() {
+  renderStats();
+  renderPageChips();
+  renderFields();
+  renderRaw();
+  renderPageStatus();
+  renderRegexList();
+}
+
+function renderStats() {
+  $('#stats').style.display = 'grid';
+  $('#stat-pages').textContent = state.pages.length;
+  $('#stat-text').textContent = state.pages.filter(p => p.src === 'text').length;
+  $('#stat-ocr').textContent = state.pages.filter(p => p.src === 'ocr').length;
+  $('#stat-fields').textContent = Object.keys(state.fields).length;
+}
+
+function renderPageChips() {
+  const bar = $('#pages-bar');
+  bar.innerHTML = '';
+  state.pages.forEach((p, idx) => {
+    const chip = document.createElement('button');
+    chip.className = `page-chip ${p.src}`;
+    chip.textContent = `P${p.pageNum}`;
+    if (idx + 1 === state.activePage) chip.classList.add('active');
+    chip.onclick = () => { state.activePage = p.pageNum; renderPDFPage(); renderRaw(); };
+    bar.appendChild(chip);
+  });
+}
+
+function renderPDFPage() {
+  const page = state.pages.find(p => p.pageNum === state.activePage);
+  if (!page) return;
+  $('#current-page-tag').textContent = `P${page.pageNum} / ${state.pages.length}`;
+
+  const stage = $('#pdf-stage');
+  stage.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.className = 'pdf-page fade-in';
+
+  const tag = document.createElement('div');
+  tag.className = `page-tag src-tag ${page.src}`;
+  tag.textContent = { text: '文字層', ocr: 'OCR', empty: '空' }[page.src];
+  wrap.appendChild(tag);
+
+  const pageNumTag = document.createElement('div');
+  pageNumTag.className = 'page-tag';
+  pageNumTag.textContent = `Page ${page.pageNum}`;
+  pageNumTag.style.background = 'rgba(91, 156, 255, 0.85)';
+  wrap.appendChild(pageNumTag);
+
+  if (page.confidence) {
+    const conf = document.createElement('div');
+    conf.className = 'page-tag';
+    conf.style.bottom = '8px'; conf.style.top = 'auto';
+    conf.style.right = '8px';
+    conf.textContent = `${page.confidence}% conf`;
+    conf.style.background = page.src === 'ocr' ? 'rgba(245, 158, 11, 0.85)' : 'rgba(34, 197, 94, 0.85)';
+    wrap.appendChild(conf);
+  }
+
+  // canvas
+  const canvas = document.createElement('canvas');
+  wrap.appendChild(canvas);
+  stage.appendChild(wrap);
+
+  state.pdfDoc.getPage(page.pageNum).then(pdfPage => {
+    const scale = 1.4;
+    const viewport = pdfPage.getViewport({ scale });
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    wrap.style.width = viewport.width + 'px';
+    wrap.style.height = viewport.height + 'px';
+    pdfPage.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+  });
+}
+
+function renderFields() {
+  const body = $('#fields-body');
+  const keys = Object.keys(state.fields);
+  $('#field-count').textContent = keys.length;
+  $('#redact-count').textContent = state.redactions.length;
+
+  if (keys.length === 0) {
+    body.innerHTML = '<div class="muted" style="text-align:center;padding:30px;">未抽取到結構化欄位（可調整 regex 字典或 OCR 語言）</div>';
+    $('#conf-list').innerHTML = '';
+    return;
+  }
+
+  body.innerHTML = '';
+  const grid = document.createElement('div');
+  grid.className = 'field-grid';
+  keys.forEach(k => {
+    const f = state.fields[k];
+    const row = document.createElement('div');
+    row.className = 'field-row';
+
+    const isSensitive = state.redactions.some(r => r.original === f.value);
+    const displayValue = state.redactMode && isSensitive
+      ? state.redactions.find(r => r.original === f.value).masked
+      : f.value;
+
+    row.innerHTML = `
+      <div class="label">
+        <span class="key">${k}</span>
+        ${isSensitive ? '<span class="pill warn" style="padding:1px 6px;font-size:10px;">遮罩</span>' : ''}
+      </div>
+      <div class="value ${isSensitive && state.redactMode ? 'redacted' : ''} ${isSensitive ? '' : ''}">
+        <span style="flex:1;">${escapeHtml(displayValue)}</span>
+        <button class="copy" title="複製原值" data-copy="${escapeHtml(f.value)}">📋</button>
+      </div>
+    `;
+    grid.appendChild(row);
+  });
+  body.appendChild(grid);
+
+  // confidence 列表
+  const conf = $('#conf-list');
+  conf.innerHTML = '';
+  keys.sort((a, b) => state.fields[a].priority - state.fields[b].priority).forEach(k => {
+    const f = state.fields[k];
+    const score = Math.max(40, 100 - f.priority * 18);
+    const cls = score >= 80 ? 'high' : score >= 60 ? 'mid' : 'low';
+    const item = document.createElement('div');
+    item.className = `conf-item ${cls}`;
+    item.innerHTML = `
+      <div>
+        <span class="mono" style="color:var(--ink-2);">${k}</span>
+        <span class="muted small" style="margin-left:6px;">${f.name}</span>
+        <div class="bar"><div class="fill" style="width:${score}%"></div></div>
+      </div>
+      <div class="num">${score}%</div>
+    `;
+    conf.appendChild(item);
+  });
+
+  // 複製按鈕事件
+  $$('.copy').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const v = btn.dataset.copy;
+      navigator.clipboard?.writeText(v).then(() => {
+        btn.textContent = '✓';
+        setTimeout(() => btn.textContent = '📋', 1200);
+      });
+    };
+  });
+}
+
+function renderRaw() {
+  const page = state.pages.find(p => p.pageNum === state.activePage);
+  if (!page) return;
+  const txt = state.redactMode && state.redactMode !== false ? state.redactedText?.split('--- Page')[state.activePage] || page.text : page.text;
+  const text = txt || page.text;
+
+  // 高亮 PII
+  let html = escapeHtml(text);
+  for (const p of REDACTION_PATTERNS) {
+    try {
+      const re = new RegExp(p.regex.source, p.regex.flags);
+      html = html.replace(re, (m) => `<mark class="${p.kind}">${escapeHtml(m)}</mark>`);
+    } catch (e) {}
+  }
+  $('#raw-text').innerHTML = html;
+  $('#raw-page-tag').textContent = `Page ${page.pageNum}`;
+  $('#raw-page-info').textContent = `來源: ${ {text:'文字層',ocr:'OCR',empty:'空'}[page.src] } · ${page.text.length} 字元`;
+}
+
+function renderPageStatus() {
+  const box = $('#page-status');
+  if (state.pages.length === 0) {
+    box.innerHTML = '<div class="muted small" style="padding:14px 0;text-align:center;">尚未載入</div>';
+    return;
+  }
+  box.innerHTML = '';
+  state.pages.forEach(p => {
+    const row = document.createElement('div');
+    row.className = 'row between';
+    row.style.cssText = 'padding:5px 0;font-size:12px;border-bottom:1px dashed var(--line);';
+    row.innerHTML = `
+      <div>P${p.pageNum}</div>
+      <span class="pill ${p.src === 'text' ? 'ok' : p.src === 'ocr' ? 'warn' : 'danger'}" style="font-size:10px;padding:2px 8px;">
+        ${ {text:'文字層',ocr:'OCR',empty:'空'}[p.src] }
+      </span>
+    `;
+    box.appendChild(row);
+  });
+}
+
+function renderRegexList() {
+  const body = $('#regex-body');
+  body.innerHTML = '';
+  $('#regex-count').textContent = FIELD_PATTERNS.length;
+  FIELD_PATTERNS.forEach(fp => {
+    const hit = !!state.fields[fp.key];
+    const row = document.createElement('div');
+    row.className = 'regex-row';
+    row.innerHTML = `
+      <span class="name">${fp.key}</span>
+      <span class="pattern">${escapeHtml(fp.re.source.slice(0, 80))}${fp.re.source.length > 80 ? '…' : ''}</span>
+      <span class="hits ${hit ? '' : 'zero'}">${hit ? '✓ 命中' : '—'}</span>
+    `;
+    body.appendChild(row);
+  });
+}
+
+/* ============================================================
+   Export
+   ============================================================ */
+function getExportJSON() {
+  const fields = {};
+  Object.entries(state.fields).forEach(([k, f]) => {
+    const isSensitive = state.redactions.some(r => r.original === f.value);
+    fields[k] = {
+      label: f.name,
+      value: f.value,
+      masked: isSensitive ? state.redactions.find(r => r.original === f.value).masked : null,
+      sensitive: isSensitive,
+      priority: f.priority,
+    };
+  });
+  return {
+    fileName: state.fileName,
+    processedAt: new Date().toISOString(),
+    perfMs: (performance.now() - state.perfStart) | 0,
+    pages: state.pages.map(p => ({ pageNum: p.pageNum, src: p.src, confidence: p.confidence, length: p.text.length })),
+    fields,
+    redactionCount: state.redactions.length,
+    redactions: state.redactions.map(r => ({ kind: r.kind, original: r.original, masked: r.masked })),
+  };
+}
+
+function getExportCSV() {
+  const lines = ['key,label,value,is_sensitive,masked'];
+  Object.entries(state.fields).forEach(([k, f]) => {
+    const isSensitive = state.redactions.some(r => r.original === f.value);
+    const masked = isSensitive ? state.redactions.find(r => r.original === f.value).masked : '';
+    const csvEscape = (s) => `"${String(s || '').replace(/"/g, '""')}"`;
+    lines.push([csvEscape(k), csvEscape(f.name), csvEscape(f.value), csvEscape(String(isSensitive)), csvEscape(masked)].join(','));
+  });
+  return lines.join('\n');
+}
+
+function getExportMarkdown() {
+  const lines = [];
+  lines.push(`# OCR 處理報告：${state.fileName}`);
+  lines.push('');
+  lines.push(`- **處理時間**: ${new Date().toLocaleString('zh-TW')}`);
+  lines.push(`- **頁數**: ${state.pages.length}（文字層 ${state.pages.filter(p=>p.src==='text').length} / OCR ${state.pages.filter(p=>p.src==='ocr').length} / 空 ${state.pages.filter(p=>p.src==='empty').length}）`);
+  lines.push(`- **結構化欄位**: ${Object.keys(state.fields).length}`);
+  lines.push(`- **遮罩處數**: ${state.redactions.length}`);
+  lines.push('');
+  lines.push('## 結構化欄位');
+  lines.push('');
+  lines.push('| Key | 欄位 | 原值 | 遮罩 |');
+  lines.push('|---|---|---|---|');
+  Object.entries(state.fields).forEach(([k, f]) => {
+    const isSensitive = state.redactions.some(r => r.original === f.value);
+    const masked = isSensitive ? `\`${state.redactions.find(r => r.original === f.value).masked}\`` : '—';
+    lines.push(`| ${k} | ${f.name} | \`${f.value}\` | ${masked} |`);
+  });
+  lines.push('');
+  lines.push('## 遮罩記錄');
+  lines.push('');
+  lines.push('| 類型 | 原值 | 遮罩值 |');
+  lines.push('|---|---|---|');
+  state.redactions.forEach(r => {
+    lines.push(`| ${r.kind} | \`${r.original}\` | \`${r.masked}\` |`);
+  });
+  return lines.join('\n');
+}
+
+function downloadFile(filename, content, mime = 'text/plain') {
+  const blob = new Blob([content], { type: mime + ';charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+  log('ok', `已匯出 ${filename}（${formatBytes(blob.size)}）`);
+}
+
+/* ============================================================
+   Demo data (generates a PDF blob using jsPDF-like minimal approach via canvas + text)
+   For samples we generate text-to-PDF via pdf-lib-equivalent — but to keep zero deps,
+   we serve a small Base64 demo PDF, OR we provide sample text-based mock with labelled PDFs.
+   ============================================================ */
+const DEMO_PDFS = {
+  invoice: () => buildDemoPDF('invoice', [
+    ['統一發票', 28, true],
+    ['發票號碼: AB12345678', 14],
+    ['統一編號: 12345678', 14],
+    ['日期: 113/05/15', 14],
+    ['買受人: 台灣科技股份有限公司', 12],
+    ['統一編號: 87654321', 12],
+    ['地址: 台北市信義區松仁路100號15樓', 12],
+    ['Email: contact@example.com.tw', 12],
+    ['手機: 0912-345-678', 12],
+    ['', 20],
+    ['品項             數量   單價     小計', 14, true],
+    ['系統整合服務        1   80000   80000', 12],
+    ['維護費             12   5000    60000', 12],
+    ['', 8],
+    ['小計:                     140,000', 14],
+    ['稅額:                      7,000', 14],
+    ['合計:                    147,000', 16, true],
+  ]),
+  receipt: () => buildDemoPDF('receipt', [
+    ['感謝您的消費', 22, true],
+    ['', 12],
+    ['日期: 113/07/30 14:25', 14],
+    ['統一編號: 53002012', 14],
+    ['門市: 台北信義門市', 12],
+    ['地址: 台北市信義區松壽路12號', 12],
+    ['電話: 02-2722-1234', 12],
+    ['Email: service@brand.com.tw', 12],
+    ['', 16],
+    ['美式咖啡              120', 14],
+    ['可頌麵包               80', 14],
+    ['', 8],
+    ['小計: 200', 14],
+    ['稅額: 10', 14],
+    ['總計: 210', 18, true],
+    ['', 12],
+    ['客服電話: 0800-123-456', 12],
+  ]),
+  contract: () => buildDemoPDF('contract', [
+    ['服務合約書', 28, true],
+    ['', 10],
+    ['甲方: 拉斐爾系統整合有限公司', 14],
+    ['統一編號: 83456701', 12],
+    ['代表人: 王小明', 12],
+    ['Email: ceo@raphael.com.tw', 12],
+    ['手機: 0933-222-111', 12],
+    ['', 10],
+    ['乙方: 明遠科技股份有限公司', 14],
+    ['統一編號: 54120987', 12],
+    ['代表人: 李大華', 12],
+    ['Email: pm@mingyuan.com.tw', 12],
+    ['', 14],
+    ['簽約日期: 113/06/01', 14],
+    ['生效日期: 113/07/01', 14],
+    ['合約期限: 113/07/01 ~ 114/06/30', 14],
+    ['', 20],
+    ['第一條  服務內容', 16, true],
+    ['   甲方同意提供乙方雲端系統整合服務，', 12],
+    ['   包含 API 整合、OCR 自動化、RBAC 等模組。', 12],
+    ['', 10],
+    ['第二條  付款方式', 16, true],
+    ['   合約總金額: NT$ 1,200,000', 12],
+    ['   銀行帳號: 1234567890123', 12],
+    ['   付款方式: 月結 30 日', 12],
+    ['', 30],
+    ['甲方簽章: ___________     乙方簽章: ___________', 14],
+  ]),
+  id: () => buildDemoPDF('id-test', [
+    ['PII 遮罩測試文件', 24, true],
+    ['', 10],
+    ['以下為測試資料，預期全部應被遮罩：', 14],
+    ['', 8],
+    ['員工: 王小明     身分證: A123456789', 14],
+    ['員工: 林大華     身分證: B987654321', 14],
+    ['', 6],
+    ['客戶統編: 12345678', 14],
+    ['客戶統編: 87654321', 14],
+    ['', 6],
+    ['聯絡人電話: 0912-345-678', 14],
+    ['聯絡人電話: 0933-888-999', 14],
+    ['', 6],
+    ['Email: hr@example.com.tw', 14],
+    ['Email: ceo@company.com', 14],
+    ['', 6],
+    ['信用卡: 4111 1111 1111 1111', 14],
+    ['信用卡: 5500 0000 0000 0004', 14],
+    ['', 6],
+    ['API Key: sk-abcdef1234567890abcdef1234', 14],
+    ['Token: pk_test_abcdefghij1234567890', 14],
+  ]),
+};
+
+function buildDemoPDF(title, blocks) {
+  // 將 blocks 寫入 canvas，再用 jsPDF-like 簡化輸出 PDF（單頁 A4）
+  // 為了零相依，這裡用一個最簡的 PDF 結構：直寫 PDF bytes
+  const canvas = document.createElement('canvas');
+  const W = 1240, H = 1754; // A4 150dpi
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, W, H);
+
+  let y = 120;
+  for (const b of blocks) {
+    const [text, size, bold] = b;
+    ctx.font = `${bold ? 'bold ' : ''}${size}px sans-serif`;
+    ctx.fillStyle = '#000';
+    ctx.fillText(text, 100, y);
+    y += size + 14;
+    if (y > H - 100) break;
+  }
+  // 改用 PDF-lib 等價簡化：直接透過 PDF.js 接受 Uint8Array — 把 canvas 圖檔嵌入到一個 PDF wrapper
+  // 為求零相依，這裡用 base64 demo PDF 不易；改策略：把 canvas 截圖當 jpg → 用 jsPDF 沒裝；
+  // 折衷：從 raw text 跳過 PDF，直接寫入 text state.demoText，再用時觸發 processRawText
+  // 但任務要 PDF input，所以改為：return 一個真正的 PDF 經由下方 createSinglePagePDF
+  return createSinglePagePDF(blocks);
+}
+
+function createSinglePagePDF(blocks) {
+  // 用純字串組裝一個最小可用的 single-page PDF（含 5 種內建字型即可）
+  const A4_W = 595, A4_H = 842;
+  let yPos = 800;
+  const streamLines = [];
+  streamLines.push('BT');
+  streamLines.push('/F1 12 Tf');
+
+  for (const b of blocks) {
+    const [text, size, bold] = b;
+    if (text === '') { yPos -= (size + 6); continue; }
+    if (yPos < 60) break;
+    const escaped = text.replace(/[\\()]/g, (m) => '\\' + m);
+    const font = bold ? '/F2' : '/F1';
+    streamLines.push(`${font} ${size} Tf`);
+    streamLines.push(`1 0 0 1 50 ${yPos} Tm`);
+    streamLines.push(`(${escaped}) Tj`);
+    yPos -= (size + 8);
+  }
+  streamLines.push('ET');
+  const stream = streamLines.join('\n');
+
+  const objects = [];
+  function addObject(content) {
+    objects.push(content);
+    return objects.length;
+  }
+
+  const fontF1 = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+  const fontF2 = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
+  const contentObj = addObject(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+  const pageObj = addObject(`<< /Type /Page /Parent 4 0 R /MediaBox [0 0 ${A4_W} ${A4_H}] /Resources << /Font << /F1 ${fontF1} 0 R /F2 ${fontF2} 0 R >> >> /Contents ${contentObj} 0 R >>`);
+  const pagesObj = addObject(`<< /Type /Pages /Kids [${pageObj} 0 R] /Count 1 >>`);
+  const catalogObj = addObject(`<< /Type /Catalog /Pages ${pagesObj} 0 R >>`);
+
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+  for (let i = 0; i < objects.length; i++) {
+    offsets.push(pdf.length);
+    pdf += `${i + 1} 0 obj\n${objects[i]}\nendobj\n`;
+  }
+  const xrefStart = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (let i = 1; i <= objects.length; i++) {
+    pdf += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
+  }
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogObj} 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+
+  // 轉成 ArrayBuffer → Uint8Array
+  const bytes = new Uint8Array(pdf.length);
+  for (let i = 0; i < pdf.length; i++) bytes[i] = pdf.charCodeAt(i) & 0xFF;
+  return bytes.buffer;
+}
+
+/* ============================================================
+   Wiring
+   ============================================================ */
+async function init() {
+  try {
+    // 設定 pdf.js worker
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs';
+    $('#pill-engine').textContent = 'PDF.js: ✓';
+    $('#pill-engine').classList.add('ok');
+    log('ok', 'PDF.js 引擎就緒 (v4.0.379)');
+  } catch (e) {
+    $('#pill-engine').textContent = 'PDF.js: ✗';
+    $('#pill-engine').classList.add('danger');
+    log('err', 'PDF.js 載入失敗：' + e.message);
+  }
+  try {
+    // 確認 Tesseract 載入
+    if (typeof Tesseract !== 'undefined') {
+      $('#pill-ocr').textContent = 'Tesseract: ✓';
+      $('#pill-ocr').classList.add('ok');
+      log('ok', 'Tesseract.js 引擎就緒 (v5)');
+    } else {
+      throw new Error('Tesseract is undefined');
+    }
+  } catch (e) {
+    $('#pill-ocr').textContent = 'Tesseract: ✗';
+    $('#pill-ocr').classList.add('danger');
+    log('err', 'Tesseract.js 載入失敗：' + e.message);
+  }
+
+  // 上傳
+  $('#file-input').addEventListener('change', async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const buf = await f.arrayBuffer();
+    processPDF(buf, f.name);
+  });
+  // 拖放
+  const dz = $('#drop-zone');
+  dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('drag'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+  dz.addEventListener('drop', async (e) => {
+    e.preventDefault(); dz.classList.remove('drag');
+    const f = e.dataTransfer.files[0];
+    if (!f || !f.name.toLowerCase().endsWith('.pdf')) {
+      log('warn', '僅支援 .pdf 檔案');
+      return;
+    }
+    const buf = await f.arrayBuffer();
+    processPDF(buf, f.name);
+  });
+
+  // 範例按鈕
+  $$('.sample-btn').forEach(btn => {
+    btn.onclick = async () => {
+      const key = btn.dataset.sample;
+      log('info', `載入範例：${key}`);
+      const buf = DEMO_PDFS[key]();
+      processPDF(buf, `${key}-demo.pdf`);
+    };
+  });
+
+  // Tab 切換
+  $$('.tab').forEach(t => {
+    t.onclick = () => {
+      $$('.tab').forEach(x => x.classList.remove('active'));
+      $$('.tab-panel').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      $(`.tab-panel[data-tab="${t.dataset.tab}"]`).classList.add('active');
+      if (t.dataset.tab === 'raw') renderRaw();
+    };
+  });
+
+  // 翻頁
+  $('#btn-prev').onclick = () => { if (state.activePage > 1) { state.activePage--; renderPDFPage(); renderRaw(); } };
+  $('#btn-next').onclick = () => { if (state.activePage < state.pages.length) { state.activePage++; renderPDFPage(); renderRaw(); } };
+  $('#btn-prev-raw').onclick = () => { if (state.activePage > 1) { state.activePage--; renderPDFPage(); renderRaw(); } };
+  $('#btn-next-raw').onclick = () => { if (state.activePage < state.pages.length) { state.activePage++; renderPDFPage(); renderRaw(); } };
+
+  // Redaction toggle
+  $('#btn-toggle-redact').onclick = () => {
+    state.redactMode = !state.redactMode;
+    $('#btn-toggle-redact').textContent = `遮罩: ${state.redactMode ? 'ON' : 'OFF'}`;
+    renderFields();
+    renderRaw();
+  };
+
+  // 選項變更
+  ['opt-redact', 'opt-ocr-fallback'].forEach(id => {
+    $('#' + id).addEventListener('change', () => {
+      log('info', `${id} 變更`);
+    });
+  });
+
+  // JSON / CSV / TXT / MD 匯出
+  $('#btn-export-json').onclick = () => downloadFile((state.fileName || 'ocr') + '.json', JSON.stringify(getExportJSON(), null, 2), 'application/json');
+  $('#btn-export-csv').onclick  = () => downloadFile((state.fileName || 'ocr') + '.csv', getExportCSV(), 'text/csv');
+  $('#btn-export-txt').onclick  = () => downloadFile((state.fileName || 'ocr').replace(/\.pdf$/i, '') + '_redacted.txt', state.redactedText || state.rawFull, 'text/plain');
+  $('#btn-export-md').onclick   = () => downloadFile((state.fileName || 'ocr').replace(/\.pdf$/i, '') + '_report.md', getExportMarkdown(), 'text/markdown');
+
+  $('#btn-preview-json').onclick = () => { $('#export-preview').textContent = JSON.stringify(getExportJSON(), null, 2); };
+  $('#btn-preview-csv').onclick  = () => { $('#export-preview').textContent = getExportCSV(); };
+  $('#btn-preview-txt').onclick  = () => { $('#export-preview').textContent = state.redactedText || state.rawFull; };
+  $('#btn-preview-md').onclick   = () => { $('#export-preview').textContent = getExportMarkdown(); };
+
+  $('#btn-copy-json').onclick = () => {
+    navigator.clipboard?.writeText(JSON.stringify(getExportJSON(), null, 2)).then(() => {
+      log('ok', '已複製 JSON 到剪貼簿');
+    });
+  };
+
+  // 幫助 / 重置
+  $('#btn-help').onclick = () => {
+    alert([
+      'PDF OCR → 結構化數據 使用說明',
+      '',
+      '1. 點擊「上傳」拖入 PDF 或選擇左側範例',
+      '2. 引擎會自動：解析文字層 → 必要時 OCR → 結構化提取 → PII 遮罩',
+      '3. 切換分頁查看「預覽 / 結構化欄位 / 原始文字 / 匯出」',
+      '',
+      '可下載格式：JSON / CSV / .txt（已遮罩）/ Markdown 報告',
+      '隱私：所有處理在瀏覽器本地進行，PDF 不會上傳',
+    ].join('\n'));
+  };
+  $('#btn-reset').onclick = () => {
+    if (confirm('重置將清空所有狀態，確定？')) location.reload();
+  };
+
+  $('#status-footer').innerHTML = '<span class="ok">● 就緒</span> · 等待上傳 PDF';
+}
+
+init();
+</script>
+</body>
+</html>

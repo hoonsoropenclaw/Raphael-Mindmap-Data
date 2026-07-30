@@ -1,0 +1,1519 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>API Recon Lab — 從公開接口到自定義數據提取工具</title>
+<style>
+  :root {
+    --bg-0: #0b1020;
+    --bg-1: #0f1530;
+    --bg-2: #151c3d;
+    --bg-3: #1b2349;
+    --line: #2a3568;
+    --ink-0: #e8ecff;
+    --ink-1: #b9c2ea;
+    --ink-2: #8794c2;
+    --accent: #6ed3bd;
+    --accent-2: #8b7df0;
+    --warn: #ffb86b;
+    --err: #ff6b8a;
+    --ok: #58e3a3;
+    --code: #1a2247;
+    --code-ink: #c9d4ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    background:
+      radial-gradient(1200px 600px at 20% -10%, rgba(110,211,189,0.10), transparent 60%),
+      radial-gradient(1000px 500px at 100% 0%, rgba(139,125,240,0.10), transparent 55%),
+      var(--bg-0);
+    color: var(--ink-0);
+    font-family: "JetBrains Mono", "Fira Code", "Source Code Pro", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+    overflow-x: hidden;
+  }
+  header.top {
+    position: sticky; top: 0; z-index: 50;
+    backdrop-filter: blur(12px) saturate(140%);
+    -webkit-backdrop-filter: blur(12px) saturate(140%);
+    background: linear-gradient(180deg, rgba(11,16,32,0.92), rgba(11,16,32,0.62));
+    border-bottom: 1px solid var(--line);
+    padding: 12px 18px;
+    display: flex; align-items: center; gap: 14px;
+  }
+  header.top .logo {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    background: conic-gradient(from 180deg, var(--accent), var(--accent-2), var(--accent));
+    display: grid; place-items: center;
+    color: #06112a; font-weight: 800; font-size: 14px;
+    box-shadow: 0 0 16px rgba(110,211,189,0.45);
+  }
+  header.top h1 {
+    margin: 0; font-size: 15px; letter-spacing: 0.4px;
+    font-weight: 700;
+  }
+  header.top .sub {
+    color: var(--ink-2); font-size: 12px;
+    margin-left: 4px;
+  }
+  header.top .spacer { flex: 1; }
+  header.top .pill {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    color: var(--ink-1);
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+  }
+  header.top .pill.ok { color: var(--ok); border-color: rgba(88,227,163,0.4); }
+  header.top .pill.err { color: var(--err); border-color: rgba(255,107,138,0.4); }
+  header.top .pill.warn { color: var(--warn); border-color: rgba(255,184,107,0.4); }
+
+  main.layout {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 0;
+    height: calc(100vh - 57px);
+  }
+  aside.sidebar {
+    border-right: 1px solid var(--line);
+    background: rgba(15,21,48,0.55);
+    overflow-y: auto;
+    padding: 14px;
+  }
+  aside.sidebar h3 {
+    font-size: 11px; color: var(--ink-2);
+    text-transform: uppercase; letter-spacing: 1.2px;
+    margin: 14px 6px 6px;
+  }
+  aside.sidebar .preset {
+    display: block; width: 100%;
+    text-align: left;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    color: var(--ink-1);
+    padding: 9px 11px;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-bottom: 6px;
+    font: inherit;
+    font-size: 12px;
+    transition: all .15s ease;
+  }
+  aside.sidebar .preset:hover { border-color: var(--accent); color: var(--ink-0); }
+  aside.sidebar .preset .tag {
+    display: inline-block;
+    background: var(--bg-3);
+    color: var(--accent);
+    padding: 1px 6px; border-radius: 4px;
+    font-size: 10px;
+    margin-left: 6px;
+  }
+  aside.sidebar .preset .desc {
+    display: block;
+    color: var(--ink-2);
+    font-size: 11px;
+    margin-top: 2px;
+  }
+  aside.sidebar .legend {
+    margin-top: 10px;
+    color: var(--ink-2);
+    font-size: 11px;
+    line-height: 1.6;
+  }
+  aside.sidebar .legend kbd {
+    background: var(--bg-3); padding: 1px 5px; border-radius: 4px;
+    color: var(--ink-1); font-size: 10.5px;
+    border: 1px solid var(--line);
+  }
+
+  section.workspace {
+    overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+
+  /* tabs */
+  .tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--line);
+    background: rgba(15,21,48,0.4);
+    padding: 0 14px;
+  }
+  .tabs button {
+    background: transparent;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    color: var(--ink-2);
+    padding: 12px 16px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 12.5px;
+    transition: all .15s ease;
+  }
+  .tabs button.active {
+    color: var(--ink-0);
+    border-bottom-color: var(--accent);
+  }
+  .tabs button:hover { color: var(--ink-1); }
+  .tabs .count {
+    background: var(--bg-3);
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-size: 10.5px;
+    color: var(--ink-2);
+    margin-left: 4px;
+  }
+  .panels { flex: 1; overflow: hidden; }
+  .panel {
+    display: none;
+    height: 100%;
+    overflow-y: auto;
+    padding: 14px 18px;
+  }
+  .panel.active { display: block; }
+
+  /* common form */
+  label.field {
+    display: block;
+    margin: 8px 0 4px;
+    color: var(--ink-2);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+  input[type="text"], textarea, select {
+    background: var(--bg-1);
+    color: var(--ink-0);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font: inherit;
+    font-size: 12.5px;
+    width: 100%;
+    transition: border-color .15s;
+  }
+  input[type="text"]:focus, textarea:focus, select:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(110,211,189,0.15);
+  }
+  textarea {
+    font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+    min-height: 90px;
+    resize: vertical;
+  }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+  button.btn {
+    background: linear-gradient(180deg, var(--accent), #4ec0a6);
+    color: #06112a;
+    border: 0;
+    padding: 9px 14px;
+    border-radius: 8px;
+    font: inherit;
+    font-weight: 700;
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: transform .08s ease, box-shadow .15s ease;
+    box-shadow: 0 4px 12px rgba(110,211,189,0.25);
+  }
+  button.btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(110,211,189,0.35); }
+  button.btn:active { transform: translateY(0); }
+  button.btn.ghost {
+    background: transparent;
+    color: var(--ink-1);
+    border: 1px solid var(--line);
+    box-shadow: none;
+  }
+  button.btn.ghost:hover { border-color: var(--accent); color: var(--ink-0); }
+  button.btn.danger {
+    background: linear-gradient(180deg, var(--err), #d14865);
+    color: #fff;
+  }
+  button.btn:disabled {
+    opacity: 0.5; cursor: not-allowed; transform: none;
+  }
+
+  /* request panel */
+  .req-grid {
+    display: grid;
+    grid-template-columns: 110px 1fr;
+    gap: 8px 10px;
+    align-items: start;
+    margin-bottom: 10px;
+  }
+  .req-grid label.lbl {
+    align-self: center;
+    color: var(--ink-2); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.8px;
+  }
+  .headers-box {
+    background: var(--bg-1);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px;
+  }
+  .headers-box .hdr-row {
+    display: grid;
+    grid-template-columns: 28px 1fr 1fr 28px;
+    gap: 4px; margin-bottom: 4px;
+  }
+  .headers-box input {
+    padding: 5px 8px; font-size: 12px;
+  }
+  .headers-box button.icon {
+    background: transparent; border: 1px solid var(--line);
+    color: var(--ink-2); cursor: pointer; border-radius: 6px;
+    font-size: 14px; line-height: 1;
+  }
+  .headers-box button.icon:hover { color: var(--err); border-color: var(--err); }
+
+  /* response */
+  .resp-meta {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    margin: 8px 0;
+    font-size: 11.5px;
+  }
+  .resp-meta .chip {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 3px 8px;
+    color: var(--ink-1);
+  }
+  .resp-meta .chip strong { color: var(--accent); }
+  .resp-meta .chip.status-2 { color: var(--ok); border-color: rgba(88,227,163,0.4); }
+  .resp-meta .chip.status-3 { color: var(--accent); border-color: rgba(110,211,189,0.4); }
+  .resp-meta .chip.status-4 { color: var(--warn); border-color: rgba(255,184,107,0.4); }
+  .resp-meta .chip.status-5 { color: var(--err); border-color: rgba(255,107,138,0.4); }
+
+  pre.code {
+    background: var(--code);
+    color: var(--code-ink);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px;
+    line-height: 1.55;
+    overflow-x: auto;
+    white-space: pre;
+    margin: 6px 0 14px;
+  }
+  pre.code .k { color: #ffb86b; }
+  pre.code .s { color: #58e3a3; }
+  pre.code .n { color: #8b7df0; }
+  pre.code .b { color: #ff6b8a; }
+  pre.code .c { color: #5d6b9c; font-style: italic; }
+
+  /* table */
+  .table-wrap {
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    max-height: 60vh;
+  }
+  table.data {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  table.data thead th {
+    position: sticky; top: 0;
+    background: var(--bg-3);
+    color: var(--accent);
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line);
+    font-weight: 600;
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }
+  table.data tbody td {
+    padding: 7px 10px;
+    border-bottom: 1px solid rgba(42,53,104,0.5);
+    color: var(--ink-1);
+    vertical-align: top;
+    word-break: break-word;
+    max-width: 320px;
+  }
+  table.data tbody tr:hover { background: rgba(110,211,189,0.06); }
+  table.data .num { color: var(--accent-2); }
+  table.data .nul { color: var(--ink-2); font-style: italic; }
+  table.data .str { color: var(--code-ink); }
+
+  /* log */
+  .log {
+    background: var(--code);
+    color: var(--code-ink);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 11.5px;
+    line-height: 1.6;
+    max-height: 280px;
+    overflow-y: auto;
+    margin: 10px 0;
+  }
+  .log .l-ts { color: #5d6b9c; }
+  .log .l-ok { color: var(--ok); }
+  .log .l-err { color: var(--err); }
+  .log .l-info { color: var(--accent); }
+  .log .l-warn { color: var(--warn); }
+
+  /* helper text */
+  .helper {
+    color: var(--ink-2); font-size: 11.5px;
+    margin: 4px 0 10px;
+  }
+  .helper code {
+    background: var(--bg-3); padding: 1px 5px; border-radius: 4px;
+    color: var(--ink-1);
+  }
+
+  /* path engine docs */
+  .docs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+  .docs .card {
+    background: var(--bg-1);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .docs .card h4 {
+    margin: 0 0 6px;
+    color: var(--accent);
+    font-size: 12.5px;
+  }
+  .docs .card ul {
+    margin: 0; padding-left: 18px;
+    color: var(--ink-1);
+    font-size: 12px;
+  }
+  .docs .card li { margin: 3px 0; }
+  .docs .card code {
+    background: var(--bg-3); padding: 1px 5px; border-radius: 4px;
+    color: var(--code-ink);
+    font-size: 11.5px;
+  }
+
+  /* export area */
+  .export-tabs {
+    display: flex; gap: 6px; margin-bottom: 8px;
+  }
+  .export-tabs button {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    color: var(--ink-2);
+    padding: 5px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font: inherit;
+    font-size: 11.5px;
+  }
+  .export-tabs button.active {
+    background: var(--bg-3);
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  /* empty state */
+  .empty {
+    color: var(--ink-2);
+    text-align: center;
+    padding: 40px 20px;
+    font-size: 13px;
+  }
+  .empty .ic {
+    font-size: 36px; margin-bottom: 8px; display: block;
+  }
+
+  /* scrollbars */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: var(--bg-1); }
+  ::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 5px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--line); }
+
+  /* small spinner */
+  .spin {
+    display: inline-block;
+    width: 12px; height: 12px;
+    border: 2px solid var(--bg-3);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: s .8s linear infinite;
+    vertical-align: -2px;
+    margin-right: 6px;
+  }
+  @keyframes s { to { transform: rotate(360deg); } }
+
+  .footer-tip {
+    color: var(--ink-2);
+    font-size: 11px;
+    margin-top: 8px;
+    border-top: 1px dashed var(--line);
+    padding-top: 8px;
+  }
+
+  /* selection */
+  ::selection { background: rgba(110,211,189,0.35); color: var(--ink-0); }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="logo">⌘</div>
+  <div>
+    <h1>API Recon Lab</h1>
+    <div class="sub">從公開接口到自定義數據提取工具 — Reverse → Reuse → Customize</div>
+  </div>
+  <div class="spacer"></div>
+  <div id="net-status" class="pill">Idle</div>
+  <div class="pill" id="capture-count">Captured: 0</div>
+</header>
+
+<main class="layout">
+  <aside class="sidebar">
+    <h3>📦 預設端點 (Quick Targets)</h3>
+    <button class="preset" data-preset="jsonplaceholder-posts">
+      JSONPlaceholder /posts
+      <span class="tag">GET</span>
+      <span class="desc">無認證 100 筆假資料,適合練習</span>
+    </button>
+    <button class="preset" data-preset="jsonplaceholder-users">
+      JSONPlaceholder /users
+      <span class="tag">GET</span>
+      <span class="desc">巢狀結構 (address.geo / company)</span>
+    </button>
+    <button class="preset" data-preset="jsonplaceholder-comments">
+      JSONPlaceholder /comments
+      <span class="tag">GET</span>
+      <span class="desc">500 筆,可練習 limit + filter</span>
+    </button>
+    <button class="preset" data-preset="github-issues">
+      GitHub /repos/{owner}/{repo}/issues
+      <span class="tag">REST v3</span>
+      <span class="desc">未認證 60/hr,含 nested user</span>
+    </button>
+    <button class="preset" data-preset="github-repo">
+      GitHub /repos/python/cpython
+      <span class="tag">REST v3</span>
+      <span class="desc">單一物件,30+ 欄位</span>
+    </button>
+
+    <h3>🧪 工作流 (Workflow)</h3>
+    <div class="legend">
+      <div>1️⃣ <kbd>Requester</kbd> 送出 HTTP 請求</div>
+      <div>2️⃣ <kbd>Interceptor</kbd> 攔截封包/解析 HAR</div>
+      <div>3️⃣ <kbd>Schema</kbd> 推斷資料結構</div>
+      <div>4️⃣ <kbd>Path Engine</kbd> jq-like 選取</div>
+      <div>5️⃣ <kbd>Transformer</kbd> 過濾/排序/投影</div>
+      <div>6️⃣ <kbd>Exporter</kbd> JSON/CSV/MD/Curl</div>
+    </div>
+
+    <h3>⌨️ Path Engine 速查</h3>
+    <div class="legend">
+      <div><code>$.users</code> 根陣列</div>
+      <div><code>$.users[0].name</code> 取欄位</div>
+      <div><code>$.users[*].name</code> 全展開</div>
+      <div><code>$.users[?(@.id&gt;5)]</code> 過濾</div>
+      <div><code>$.users[?(@.name~/^A/)]</code> regex</div>
+      <div><code>$..email</code> 遞迴找</div>
+    </div>
+
+    <h3>📚 工具</h3>
+    <button class="preset" data-preset="paste-har">
+      貼上 HAR / cURL 匯入
+      <span class="tag">IMPORT</span>
+      <span class="desc">從 DevTools / Charles / 終端匯入</span>
+    </button>
+    <button class="preset" id="clear-all">
+      清空所有狀態
+      <span class="tag">RESET</span>
+      <span class="desc">清掉 log + capture + extracted</span>
+    </button>
+  </aside>
+
+  <section class="workspace">
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="request">① Requester</button>
+      <button class="tab-btn" data-tab="response">② Response <span class="count" id="resp-count">0</span></button>
+      <button class="tab-btn" data-tab="schema">③ Schema <span class="count" id="schema-count">—</span></button>
+      <button class="tab-btn" data-tab="extract">④ Extractor</button>
+      <button class="tab-btn" data-tab="export">⑤ Export</button>
+      <button class="tab-btn" data-tab="log">📋 Log</button>
+    </div>
+
+    <div class="panels">
+
+      <!-- =============== REQUEST =============== -->
+      <div class="panel active" id="panel-request">
+        <div class="req-grid">
+          <label class="lbl">Method</label>
+          <select id="method">
+            <option>GET</option>
+            <option>POST</option>
+            <option>PUT</option>
+            <option>PATCH</option>
+            <option>DELETE</option>
+            <option>HEAD</option>
+          </select>
+
+          <label class="lbl">URL</label>
+          <div class="row">
+            <input type="text" id="url" placeholder="https://api.example.com/v1/things?limit=10" />
+            <button class="btn" id="btn-send" style="flex: 0 0 auto;">▶ Send</button>
+          </div>
+
+          <label class="lbl">Auth</label>
+          <div class="row">
+            <select id="auth-type" style="flex: 0 0 110px;">
+              <option value="">None</option>
+              <option value="bearer">Bearer Token</option>
+              <option value="basic">Basic</option>
+              <option value="apikey">X-API-Key header</option>
+            </select>
+            <input type="text" id="auth-value" placeholder="(never hardcode — paste at runtime)" />
+          </div>
+        </div>
+
+        <label class="field">Headers</label>
+        <div class="headers-box" id="headers-box">
+          <!-- rows injected -->
+        </div>
+        <button class="btn ghost" id="add-header" style="margin-top: 6px; font-size: 11px; padding: 5px 10px;">+ Add Header</button>
+
+        <label class="field">Body (raw, optional)</label>
+        <textarea id="body" placeholder='{"key":"value"}'></textarea>
+
+        <div class="footer-tip">
+          💡 預設會自動加 <code>User-Agent: APIReconLab/1.0</code> + <code>Accept: application/json</code>。
+          Bearer token 不要 commit,從環境變數或密碼管理員貼上。
+        </div>
+      </div>
+
+      <!-- =============== RESPONSE =============== -->
+      <div class="panel" id="panel-response">
+        <div class="resp-meta" id="resp-meta">
+          <span class="chip">尚未送出請求</span>
+        </div>
+        <label class="field">Response Body</label>
+        <pre class="code" id="resp-body">—</pre>
+
+        <label class="field">Response Headers</label>
+        <pre class="code" id="resp-headers">—</pre>
+      </div>
+
+      <!-- =============== SCHEMA =============== -->
+      <div class="panel" id="panel-schema">
+        <p class="helper">
+          Schema Inference 從回傳的 JSON 自動推斷每個欄位的 <code>type</code> 與 <code>sample</code>。
+          巢狀物件會遞迴展開為 <code>a.b.c</code> 形式,陣列則取首筆推斷內部結構。
+        </p>
+        <div id="schema-out"></div>
+      </div>
+
+      <!-- =============== EXTRACTOR =============== -->
+      <div class="panel" id="panel-extract">
+        <div class="docs">
+          <div class="card">
+            <h4>🧭 Path Expression</h4>
+            <ul>
+              <li><code>$.root</code> — 根鍵</li>
+              <li><code>[0]</code> / <code>[*]</code> — 索引 / 全展開</li>
+              <li><code>.field</code> / <code>.a.b</code> — 屬性存取</li>
+              <li><code>$..name</code> — 遞迴 descent</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h4>🔍 Filter Expressions</h4>
+            <ul>
+              <li><code>[?(@.price &gt; 100)]</code></li>
+              <li><code>[?(@.title == 'foo')]</code></li>
+              <li><code>[?(@.email =~ /gmail/)]</code></li>
+              <li><code>[?(@.name &amp;&amp; @.id)]</code></li>
+            </ul>
+          </div>
+        </div>
+
+        <label class="field">Path (jq-lite syntax)</label>
+        <input type="text" id="ext-path" value="$[*]" placeholder="$[*].title  |  $.users[?(@.id>2)]  |  $..email" />
+
+        <div class="row" style="margin-top: 10px;">
+          <div>
+            <label class="field">Filter (JS 條件式)</label>
+            <input type="text" id="ext-filter" placeholder="row => row.id < 50" value="row => true" />
+          </div>
+          <div>
+            <label class="field">Sort By</label>
+            <input type="text" id="ext-sort" placeholder="-id (desc) | id (asc)" />
+          </div>
+          <div>
+            <label class="field">Limit</label>
+            <input type="text" id="ext-limit" placeholder="20" value="20" />
+          </div>
+        </div>
+
+        <div style="margin-top: 10px; display: flex; gap: 8px;">
+          <button class="btn" id="btn-extract">▶ Run Extract</button>
+          <button class="btn ghost" id="btn-load-extract-to-export">⤴ To Export →</button>
+        </div>
+
+        <label class="field" style="margin-top: 16px;">Extracted Rows (<span id="ext-count">0</span>)</label>
+        <div class="table-wrap">
+          <table class="data" id="ext-table">
+            <thead><tr><th style="padding:18px;color:var(--ink-2)">尚無資料 — 送出請求後點 Run Extract</th></tr></thead>
+          </table>
+        </div>
+
+        <label class="field" style="margin-top: 14px;">Raw JSON Output</label>
+        <pre class="code" id="ext-raw">—</pre>
+      </div>
+
+      <!-- =============== EXPORT =============== -->
+      <div class="panel" id="panel-export">
+        <div class="export-tabs">
+          <button class="active" data-fmt="json">JSON</button>
+          <button data-fmt="csv">CSV</button>
+          <button data-fmt="md">Markdown</button>
+          <button data-fmt="curl">cURL</button>
+          <button data-fmt="js">JS Code</button>
+        </div>
+        <p class="helper">
+          從 Extractor 結果匯出。
+          <button class="btn ghost" id="btn-copy-export" style="padding: 3px 10px; font-size: 11px; float: right;">📋 Copy</button>
+          <button class="btn ghost" id="btn-download" style="padding: 3px 10px; font-size: 11px; float: right; margin-right: 6px;">⬇ Download</button>
+        </p>
+        <pre class="code" id="export-out">—</pre>
+        <div class="footer-tip">
+          🛡️ <strong>資安提醒</strong>:CSV/Markdown 內若含敏感欄位 (token、email、身份證字號),
+          請先用 Sensitive Data Handling skill 的 <code>redact_text()</code> 過濾再貼外部。
+        </div>
+      </div>
+
+      <!-- =============== LOG =============== -->
+      <div class="panel" id="panel-log">
+        <p class="helper">執行紀錄 (in-memory)。最近 200 筆,refresh 不會清掉 (除非按 sidebar 的 Clear)。</p>
+        <div class="log" id="log-box"></div>
+      </div>
+
+    </div>
+  </section>
+</main>
+
+<script>
+/* ============================================================
+   API Recon Lab — single-file SPA
+   ============================================================ */
+
+/* -------------------- state -------------------- */
+const State = {
+  headers: [
+    { k: 'Accept', v: 'application/json' },
+    { k: 'User-Agent', v: 'APIRecconLab/1.0' },
+  ],
+  lastResponse: null,         // { status, headers, body, ms, size }
+  lastJson: null,             // parsed body or null
+  schema: null,               // [{path, type, sample}]
+  extracted: [],              // array of rows
+  captureCount: 0,
+};
+
+/* -------------------- tiny dom helpers -------------------- */
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => Array.from(document.querySelectorAll(s));
+
+/* -------------------- logging -------------------- */
+function log(level, msg) {
+  const box = $('#log-box');
+  if (!box) return;
+  const ts = new Date().toISOString().split('T')[1].replace('Z','');
+  const line = document.createElement('div');
+  line.innerHTML = `<span class="l-ts">[${ts}]</span> <span class="l-${level}">${escapeHtml(msg)}</span>`;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+  // cap
+  while (box.children.length > 200) box.removeChild(box.firstChild);
+}
+
+/* -------------------- safe html -------------------- */
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* -------------------- syntax highlight -------------------- */
+function highlight(jsonStr) {
+  if (jsonStr == null) return '';
+  return escapeHtml(jsonStr)
+    .replace(/("(?:\\.|[^"\\])*")(\s*:)/g, '<span class="k">$1</span>$2')
+    .replace(/:\s*("(?:\\.|[^"\\])*")/g, ': <span class="s">$1</span>')
+    .replace(/:\s*(-?\d+\.?\d*(?:e[+-]?\d+)?)/gi, ': <span class="n">$1</span>')
+    .replace(/:\s*(true|false)/g, ': <span class="b">$1</span>')
+    .replace(/:\s*(null)/g, ': <span class="b">$1</span>');
+}
+
+/* ============================================================
+   Tabs
+   ============================================================ */
+$$('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    $$('.tab-btn').forEach(b => b.classList.remove('active'));
+    $$('.panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    $('#panel-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+/* ============================================================
+   Headers editor
+   ============================================================ */
+function renderHeaders() {
+  const box = $('#headers-box');
+  box.innerHTML = '';
+  State.headers.forEach((h, i) => {
+    const row = document.createElement('div');
+    row.className = 'hdr-row';
+    row.innerHTML = `
+      <button class="icon" data-act="rm" title="remove">×</button>
+      <input data-f="k" placeholder="Header" value="${escapeHtml(h.k)}" />
+      <input data-f="v" placeholder="Value" value="${escapeHtml(h.v)}" />
+      <button class="icon" data-act="mv" title="move">⋮</button>
+    `;
+    row.querySelectorAll('input').forEach(inp => {
+      inp.addEventListener('input', e => {
+        State.headers[i][inp.dataset.f] = e.target.value;
+      });
+    });
+    row.querySelector('[data-act="rm"]').addEventListener('click', () => {
+      State.headers.splice(i, 1);
+      renderHeaders();
+    });
+    box.appendChild(row);
+  });
+}
+$('#add-header').addEventListener('click', () => {
+  State.headers.push({ k: '', v: '' });
+  renderHeaders();
+});
+renderHeaders();
+
+/* ============================================================
+   Tabs sidebar presets
+   ============================================================ */
+const PRESETS = {
+  'jsonplaceholder-posts': {
+    method: 'GET',
+    url: 'https://jsonplaceholder.typicode.com/posts',
+    path: '$[*]',
+    sort: 'userId,id',
+    limit: 20,
+  },
+  'jsonplaceholder-users': {
+    method: 'GET',
+    url: 'https://jsonplaceholder.typicode.com/users',
+    path: '$[*]',
+    sort: 'id',
+    limit: 20,
+  },
+  'jsonplaceholder-comments': {
+    method: 'GET',
+    url: 'https://jsonplaceholder.typicode.com/comments',
+    path: '$[*]',
+    sort: 'id',
+    limit: 20,
+  },
+  'github-issues': {
+    method: 'GET',
+    url: 'https://api.github.com/repos/python/cpython/issues?per_page=30&state=open',
+    path: '$[*]',
+    sort: '-number',
+    limit: 15,
+  },
+  'github-repo': {
+    method: 'GET',
+    url: 'https://api.github.com/repos/python/cpython',
+    path: '$',
+    sort: '',
+    limit: 1,
+  },
+  'paste-har': () => {
+    const raw = prompt('貼上 cURL 命令或 HAR JSON (單一 entry):');
+    if (!raw) return;
+    if (raw.trim().startsWith('{')) {
+      try {
+        const har = JSON.parse(raw);
+        const e = har.request || har;
+        $('#method').value = (e.method || 'GET').toUpperCase();
+        $('#url').value = e.url;
+        State.headers = (e.headers || [])
+          .filter(h => !['host','content-length'].includes(h.name.toLowerCase()))
+          .map(h => ({ k: h.name, v: h.value }));
+        renderHeaders();
+        log('info', '已從 HAR 匯入');
+      } catch (err) { log('err', 'HAR parse 失敗: ' + err.message); }
+    } else if (raw.trim().startsWith('curl')) {
+      const m = raw.match(/curl\s+(?:-X\s+(\w+)\s+)?(?:-H\s+['"]([^'"]+)['"]\s+)*['"]([^'"]+)['"]/);
+      if (m) {
+        $('#method').value = (m[1] || 'GET').toUpperCase();
+        $('#url').value = m[3];
+        log('info', '已從 cURL 匯入 URL + Method (headers 需手動)');
+      } else {
+        log('warn', '無法解析 cURL,請貼完整 -H 標頭');
+      }
+    } else {
+      log('warn', '未識別的格式,預期 HAR JSON 或 cURL 命令');
+    }
+  },
+};
+
+$$('.preset').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const p = PRESETS[btn.dataset.preset];
+    if (typeof p === 'function') return p();
+    if (!p) return;
+    $('#method').value = p.method;
+    $('#url').value = p.url;
+    if (p.path) $('#ext-path').value = p.path;
+    if (p.sort !== undefined) $('#ext-sort').value = p.sort;
+    if (p.limit !== undefined) $('#ext-limit').value = p.limit;
+    log('info', `Preset 已套用: ${btn.textContent.trim().split('\n')[0]}`);
+  });
+});
+
+$('#clear-all').addEventListener('click', () => {
+  State.lastResponse = null;
+  State.lastJson = null;
+  State.schema = null;
+  State.extracted = [];
+  State.captureCount = 0;
+  $('#capture-count').textContent = 'Captured: 0';
+  $('#resp-count').textContent = '0';
+  $('#schema-count').textContent = '—';
+  $('#ext-count').textContent = '0';
+  $('#resp-meta').innerHTML = '<span class="chip">尚未送出請求</span>';
+  $('#resp-body').textContent = '—';
+  $('#resp-headers').textContent = '—';
+  $('#schema-out').innerHTML = '<div class="empty"><span class="ic">🗂️</span>送一次請求讓我推斷 schema</div>';
+  $('#ext-table').innerHTML = '<thead><tr><th style="padding:18px;color:var(--ink-2)">已清空</th></tr></thead>';
+  $('#ext-raw').textContent = '—';
+  $('#export-out').textContent = '—';
+  $('#log-box').innerHTML = '';
+  log('info', '全部狀態已清空');
+});
+
+/* ============================================================
+   Auth helper
+   ============================================================ */
+function applyAuth(headers) {
+  const t = $('#auth-type').value;
+  const v = $('#auth-value').value.trim();
+  if (!t || !v) return headers;
+  switch (t) {
+    case 'bearer': headers.push({ k: 'Authorization', v: 'Bearer ' + v }); break;
+    case 'basic':  headers.push({ k: 'Authorization', v: 'Basic ' + btoa(v) }); break;
+    case 'apikey': headers.push({ k: 'X-API-Key', v: v }); break;
+  }
+  return headers;
+}
+
+/* ============================================================
+   Send request
+   ============================================================ */
+$('#btn-send').addEventListener('click', sendRequest);
+$('#url').addEventListener('keydown', e => { if (e.key === 'Enter') sendRequest(); });
+
+async function sendRequest() {
+  const url = $('#url').value.trim();
+  if (!url) { log('err', 'URL 必填'); return; }
+  const method = $('#method').value;
+  const body = $('#body').value.trim();
+
+  let headers = State.headers
+    .filter(h => h.k.trim())
+    .map(h => ({ k: h.k.trim(), v: h.v.trim() }));
+  headers = applyAuth(headers);
+
+  // safety net: never accidentally send common secrets without notice
+  const sensitive = headers.find(h =>
+    /authorization|cookie|x-api-key|token/i.test(h.k) && h.v && !h.v.includes('*')
+  );
+  if (sensitive) {
+    log('warn', `送出含有 ${sensitive.k} 的請求 (注意:不要 commit 到 repo 或貼到公共 log)`);
+  }
+
+  $('#net-status').textContent = 'Sending…';
+  $('#net-status').className = 'pill warn';
+  $('#btn-send').disabled = true;
+
+  const t0 = performance.now();
+  try {
+    const opts = { method, headers: Object.fromEntries(headers.map(h => [h.k, h.v])) };
+    if (body && !['GET','HEAD'].includes(method)) opts.body = body;
+    const r = await fetch(url, opts);
+    const text = await r.text();
+    const ms = Math.round(performance.now() - t0);
+    const respHeaders = {};
+    r.headers.forEach((v, k) => respHeaders[k] = v);
+
+    let parsed = null;
+    try { parsed = JSON.parse(text); }
+    catch (_) { parsed = null; }
+
+    State.lastResponse = {
+      status: r.status,
+      ok: r.ok,
+      headers: respHeaders,
+      body: text,
+      parsed,
+      ms, size: text.length, url, method, ct: r.headers.get('content-type') || '',
+    };
+    State.lastJson = parsed;
+    State.captureCount += 1;
+    $('#capture-count').textContent = `Captured: ${State.captureCount}`;
+    $('#resp-count').textContent = String(State.captureCount);
+
+    log('ok', `${method} ${url} → ${r.status} (${ms}ms, ${text.length}B)`);
+    renderResponse();
+    inferSchema(parsed);
+    renderSchema();
+  } catch (err) {
+    log('err', `Network error: ${err.message}`);
+    $('#net-status').textContent = 'Error';
+    $('#net-status').className = 'pill err';
+  } finally {
+    $('#btn-send').disabled = false;
+    setTimeout(() => {
+      $('#net-status').textContent = 'Idle';
+      $('#net-status').className = 'pill ok';
+    }, 1200);
+  }
+}
+
+/* ============================================================
+   Render response
+   ============================================================ */
+function renderResponse() {
+  const r = State.lastResponse;
+  if (!r) return;
+  const sCls = 'status-' + Math.floor(r.status / 100);
+  $('#resp-meta').innerHTML = `
+    <span class="chip ${sCls}"><strong>${r.status}</strong> ${r.statusText || ''}</span>
+    <span class="chip">⏱ ${r.ms} ms</span>
+    <span class="chip">📦 ${r.size} bytes</span>
+    <span class="chip">${r.method} ${escapeHtml(r.url.slice(0, 80))}${r.url.length > 80 ? '…' : ''}</span>
+    <span class="chip">${escapeHtml(r.ct)}</span>
+  `;
+  $('#resp-body').innerHTML = highlight(r.body.slice(0, 50_000));
+  $('#resp-headers').textContent = Object.entries(r.headers)
+    .map(([k, v]) => `${k}: ${v}`).join('\n');
+}
+
+/* ============================================================
+   Schema inference
+   ============================================================ */
+function inferSchema(data) {
+  State.schema = [];
+  if (data == null) {
+    $('#schema-count').textContent = '—';
+    $('#schema-out').innerHTML = '<div class="empty"><span class="ic">⚠️</span>非 JSON,無法推斷 schema</div>';
+    return;
+  }
+  walkSchema('$', data, '', 0);
+  $('#schema-count').textContent = `${State.schema.length} fields`;
+}
+
+function walkSchema(path, value, parentPath, depth) {
+  if (depth > 6) return;
+  if (Array.isArray(value)) {
+    State.schema.push({ path: path || '$', type: 'array', sample: `len=${value.length}` });
+    if (value[0] !== undefined) walkSchema(path + '[0]', value[0], path, depth + 1);
+    return;
+  }
+  if (value !== null && typeof value === 'object') {
+    State.schema.push({ path: path || '$', type: 'object', sample: `keys=${Object.keys(value).length}` });
+    for (const k of Object.keys(value)) {
+      walkSchema(path + '.' + k, value[k], path, depth + 1);
+    }
+    return;
+  }
+  let t = typeof value;
+  if (value === null) t = 'null';
+  let sample = value;
+  if (typeof value === 'string' && value.length > 60) sample = value.slice(0, 57) + '...';
+  State.schema.push({ path: path, type: t, sample });
+}
+
+function renderSchema() {
+  const out = $('#schema-out');
+  if (!State.schema || !State.schema.length) {
+    out.innerHTML = '<div class="empty">—</div>';
+    return;
+  }
+  const rows = State.schema.map(s =>
+    `<tr>
+      <td><code>${escapeHtml(s.path)}</code></td>
+      <td><span class="num">${escapeHtml(s.type)}</span></td>
+      <td class="str">${escapeHtml(String(s.sample))}</td>
+    </tr>`
+  ).join('');
+  out.innerHTML = `
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Path</th><th>Type</th><th>Sample</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+/* ============================================================
+   PATH ENGINE — jq-lite subset
+   Supports:
+   - $.root / $
+   - .field, .a.b.c
+   - [0], [-1], [*]
+   - [?(@.price > 100)]
+   - [?(@.title == 'foo')]
+   - [?(@.email =~ /gmail/)]
+   - $..name (recursive descent)
+   ============================================================ */
+const PathEngine = {
+  parse(expr) {
+    expr = expr.trim();
+    if (!expr) return { type: 'root' };
+    return { type: 'path', expr, raw: expr };
+  },
+  run(expr, data) {
+    const p = this.parse(expr);
+    if (p.type === 'root') return [data];
+    let cur = [data];
+    // Split by tokens that may be glued: field access .x, index [n], filter [?(...)], descent ..
+    const tokens = this.tokenize(p.expr);
+    for (const tk of tokens) {
+      cur = this.apply(tk, cur);
+      if (cur.length === 0) break;
+    }
+    return cur;
+  },
+  tokenize(expr) {
+    const tokens = [];
+    let i = 0;
+    while (i < expr.length) {
+      const c = expr[i];
+      if (c === '$') { i++; continue; }
+      if (c === '.') {
+        // could be "..x" (recursive) or ".x"
+        if (expr[i+1] === '.') {
+          // find next identifier
+          let j = i + 2;
+          while (j < expr.length && /[\w$]/.test(expr[j])) j++;
+          const name = expr.slice(i + 2, j);
+          tokens.push({ op: 'recurse', name });
+          i = j;
+        } else {
+          let j = i + 1;
+          // identifier or quoted string
+          if (expr[j] === '"' || expr[j] === "'") {
+            const q = expr[j]; j++;
+            let s = '';
+            while (j < expr.length && expr[j] !== q) s += expr[j++];
+            j++; // skip closing quote
+            tokens.push({ op: 'field', name: s });
+          } else {
+            while (j < expr.length && /[\w$]/.test(expr[j])) j++;
+            tokens.push({ op: 'field', name: expr.slice(i + 1, j) });
+          }
+          i = j;
+        }
+      } else if (c === '[') {
+        // [n] | [*] | [?(...)]
+        if (expr[i+1] === '*' && expr[i+2] === ']') {
+          tokens.push({ op: 'all' });
+          i += 3;
+        } else if (expr[i+1] === '?') {
+          // find matching ]
+          let depth = 1, j = i + 3; // skip "[?("
+          if (expr[i+2] !== '(') throw new Error('Expected ( after [?');
+          let start = i + 3;
+          while (j < expr.length && depth > 0) {
+            if (expr[j] === '(') depth++;
+            else if (expr[j] === ')') depth--;
+            if (depth === 0) break;
+            j++;
+          }
+          const cond = expr.slice(start, j);
+          j++; // skip )
+          if (expr[j] !== ']') throw new Error('Expected ]');
+          j++;
+          tokens.push({ op: 'filter', cond: this.compileFilter(cond) });
+          i = j;
+        } else {
+          // numeric or range
+          let j = i + 1;
+          let s = '';
+          while (j < expr.length && expr[j] !== ']') s += expr[j++];
+          j++; // skip ]
+          if (s.includes(':')) {
+            const [a, b] = s.split(':').map(x => x.trim() === '' ? null : parseInt(x, 10));
+            tokens.push({ op: 'slice', a, b });
+          } else {
+            const n = parseInt(s, 10);
+            tokens.push({ op: 'idx', n });
+          }
+          i = j;
+        }
+      } else {
+        i++; // skip unknown
+      }
+    }
+    return tokens;
+  },
+  compileFilter(cond) {
+    // cond: @.field op value, etc. Compile to JS predicate.
+    // Supports: @.k == 'v', @.k != 'v', @.k > n, @.k < n, @.k >= n, @.k <= n,
+    //           @.k =~ /regex/, @.k !~ /regex/, @.k, !@.k, @.k && @.j, @.k || @.j
+    cond = cond.trim();
+    // equality / inequality / compare
+    let m = cond.match(/^@\.([\w$]+)\s*(==|!=|>=|<=|>|<|=\~|!\~)\s*(.+)$/);
+    if (m) {
+      const field = m[1], op = m[2], rhsStr = m[3].trim();
+      // detect regex literal /.../ (no flags for simplicity)
+      let rhs, isRegex = false;
+      const rxMatch = rhsStr.match(/^\/(.+)\/([gimsuy]*)$/);
+      if ((op === '=~' || op === '!~') && rxMatch) {
+        rhs = new RegExp(rxMatch[1], rxMatch[2]);
+        isRegex = true;
+      } else {
+        rhs = this.literalize(rhsStr);
+      }
+      return (row) => {
+        const lhs = row[field];
+        switch (op) {
+          case '==': return lhs == rhs;
+          case '!=': return lhs != rhs;
+          case '>':  return lhs >  rhs;
+          case '<':  return lhs <  rhs;
+          case '>=': return lhs >= rhs;
+          case '<=': return lhs <= rhs;
+          case '=~': return isRegex ? (typeof lhs === 'string' && rhs.test(lhs)) : (typeof lhs === 'string' && new RegExp(rhs).test(lhs));
+          case '!~': return isRegex ? (typeof lhs === 'string' && !rhs.test(lhs)) : (typeof lhs === 'string' && !new RegExp(rhs).test(lhs));
+        }
+      };
+    }
+    // bare boolean: @.k, !@.k
+    m = cond.match(/^!?@\.([\w$]+)$/);
+    if (m) {
+      const field = m[1], neg = cond.startsWith('!');
+      return (row) => {
+        const v = row[field];
+        return neg ? !v : !!v;
+      };
+    }
+    // logical
+    if (cond.includes('&&')) {
+      const parts = cond.split('&&').map(s => this.compileFilter(s.trim()));
+      return (row) => parts.every(fn => fn(row));
+    }
+    if (cond.includes('||')) {
+      const parts = cond.split('||').map(s => this.compileFilter(s.trim()));
+      return (row) => parts.some(fn => fn(row));
+    }
+    throw new Error('Cannot compile filter: ' + cond);
+  },
+  literalize(s) {
+    s = s.trim();
+    if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+      return s.slice(1, -1);
+    }
+    if (s === 'true') return true;
+    if (s === 'false') return false;
+    if (s === 'null') return null;
+    if (!isNaN(Number(s))) return Number(s);
+    return s;
+  },
+  apply(tk, cur) {
+    switch (tk.op) {
+      case 'field':
+        return cur.flatMap(v => v != null && typeof v === 'object' ? [v[tk.name]] : []);
+      case 'idx':
+        return cur.map(v => Array.isArray(v) ? v[tk.n] : (v != null && typeof v === 'object' ? v[tk.n] : undefined))
+                 .filter(v => v !== undefined);
+      case 'all':
+        return cur.flatMap(v => Array.isArray(v) ? v : []);
+      case 'slice':
+        return cur.flatMap(v => Array.isArray(v) ? v.slice(tk.a ?? 0, tk.b ?? v.length) : []);
+      case 'filter':
+        return cur.flatMap(v => Array.isArray(v) ? v.filter(tk.cond) : []);
+      case 'recurse': {
+        const out = [];
+        const walk = (node) => {
+          if (node == null) return;
+          if (Array.isArray(node)) node.forEach(walk);
+          else if (typeof node === 'object') {
+            if (tk.name && tk.name in node) out.push(node[tk.name]);
+            Object.values(node).forEach(walk);
+          }
+        };
+        cur.forEach(walk);
+        return out;
+      }
+    }
+    return cur;
+  },
+};
+
+/* ============================================================
+   Extract pipeline
+   ============================================================ */
+$('#btn-extract').addEventListener('click', () => {
+  if (!State.lastJson && State.lastResponse?.body) {
+    State.lastJson = safeParse(State.lastResponse.body);
+  }
+  if (State.lastJson == null) { log('err', '請先送請求拿到 JSON'); return; }
+  const expr = $('#ext-path').value || '$[*]';
+  const filterSrc = $('#ext-filter').value || 'row => true';
+  const sortKey = $('#ext-sort').value.trim();
+  const limit = parseInt($('#ext-limit').value, 10) || 0;
+
+  let rows;
+  try {
+    rows = PathEngine.run(expr, State.lastJson);
+  } catch (err) {
+    log('err', 'Path 解析失敗: ' + err.message);
+    return;
+  }
+
+  // filter
+  let filterFn;
+  try { filterFn = new Function('row', 'return (' + filterSrc + ')(row);'); }
+  catch (err) { log('err', 'Filter 編譯失敗: ' + err.message); return; }
+  rows = rows.filter(r => {
+    if (r == null || typeof r !== 'object') return true;
+    try { return !!filterFn(r); }
+    catch { return false; }
+  });
+
+  // sort
+  if (sortKey) {
+    const desc = sortKey.startsWith('-');
+    const k = desc ? sortKey.slice(1) : sortKey;
+    rows = [...rows].sort((a, b) => {
+      const av = a?.[k], bv = b?.[k];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (typeof av === 'number' && typeof bv === 'number') return desc ? bv - av : av - bv;
+      return desc ? String(bv).localeCompare(String(av)) : String(av).localeCompare(String(bv));
+    });
+  }
+
+  // limit
+  if (limit > 0) rows = rows.slice(0, limit);
+
+  State.extracted = rows;
+  log('ok', `Extracted ${rows.length} rows (path=${expr}, sort=${sortKey || 'none'}, limit=${limit || '∞'})`);
+  renderExtracted();
+  switchTab('extract');
+});
+
+$('#btn-load-extract-to-export').addEventListener('click', () => {
+  switchTab('export');
+});
+
+function switchTab(name) {
+  const btn = $$('.tab-btn').find(b => b.dataset.tab === name);
+  if (btn) btn.click();
+}
+
+function safeParse(s) { try { return JSON.parse(s); } catch { return null; } }
+
+function renderExtracted() {
+  const rows = State.extracted;
+  $('#ext-count').textContent = rows.length;
+  $('#ext-raw').innerHTML = highlight(JSON.stringify(rows.slice(0, 1000), null, 2));
+  const tbl = $('#ext-table');
+  if (!rows.length) {
+    tbl.innerHTML = '<thead><tr><th style="padding:18px;color:var(--ink-2)">0 列 — 檢查 path / filter</th></tr></thead>';
+    return;
+  }
+  // collect columns (union of keys, preserve first-seen order)
+  const cols = [];
+  const seen = new Set();
+  for (const r of rows.slice(0, 200)) {
+    if (r && typeof r === 'object' && !Array.isArray(r)) {
+      for (const k of Object.keys(r)) {
+        if (!seen.has(k)) { seen.add(k); cols.push(k); }
+      }
+    }
+  }
+  if (!cols.length) cols.push('value');
+
+  const thead = '<thead><tr>' + cols.map(c => `<th>${escapeHtml(c)}</th>`).join('') + '</tr></thead>';
+  const tbody = '<tbody>' + rows.slice(0, 200).map(r => {
+    return '<tr>' + cols.map(c => {
+      let v = r?.[c];
+      if (v == null) return `<td class="nul">${v === null ? 'null' : '—'}</td>`;
+      if (typeof v === 'object') v = JSON.stringify(v);
+      v = String(v);
+      if (v.length > 200) v = v.slice(0, 197) + '…';
+      const cls = typeof r?.[c] === 'number' ? 'num' : 'str';
+      return `<td class="${cls}">${escapeHtml(v)}</td>`;
+    }).join('') + '</tr>';
+  }).join('') + '</tbody>';
+  tbl.innerHTML = thead + tbody;
+}
+
+/* Wrap extracted results so CSV/MD always have object rows.
+   If rows are primitives, wrap each as {value: ...}. */
+function exportableRows() {
+  const rows = State.extracted;
+  if (!rows.length) return [];
+  if (typeof rows[0] === 'object' && rows[0] !== null && !Array.isArray(rows[0])) {
+    return rows;
+  }
+  return rows.map(v => ({ value: v }));
+}
+
+/* ============================================================
+   Export
+   ============================================================ */
+let exportFmt = 'json';
+$$('.export-tabs button').forEach(b => {
+  b.addEventListener('click', () => {
+    $$('.export-tabs button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    exportFmt = b.dataset.fmt;
+    renderExport();
+  });
+});
+
+function csvEscape(v) {
+  if (v == null) return '';
+  const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+  if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+
+function renderExport() {
+  const out = $('#export-out');
+  const rows = State.extracted;
+  if (!rows.length) { out.textContent = '— 請先在 Extractor 跑一次 —'; return; }
+
+  if (exportFmt === 'json') {
+    out.innerHTML = highlight(JSON.stringify(rows, null, 2));
+    return;
+  }
+
+  if (exportFmt === 'csv') {
+    const exp = exportableRows();
+    const cols = Object.keys(exp[0] || {});
+    const header = cols.join(',');
+    const body = exp.map(r => cols.map(c => csvEscape(r[c])).join(',')).join('\n');
+    out.textContent = header + '\n' + body;
+    return;
+  }
+
+  if (exportFmt === 'md') {
+    const exp = exportableRows();
+    const cols = Object.keys(exp[0] || {});
+    const header = '| ' + cols.join(' | ') + ' |';
+    const sep = '|' + cols.map(() => '---').join('|') + '|';
+    const body = exp.map(r => '| ' + cols.map(c => {
+      let v = r[c];
+      if (v == null) return '';
+      if (typeof v === 'object') v = JSON.stringify(v);
+      return String(v).replace(/\|/g, '\\|').replace(/\n/g, ' ');
+    }).join(' | ') + ' |').join('\n');
+    out.textContent = header + '\n' + sep + '\n' + body;
+    return;
+  }
+
+  if (exportFmt === 'curl') {
+    const url = $('#url').value.trim();
+    const method = $('#method').value;
+    const headers = State.headers.filter(h => h.k.trim()).map(h => `-H '${h.k}: ${h.v.replace(/'/g, "'\\''")}'`).join(' ');
+    const body = $('#body').value.trim();
+    let cmd = `curl -X ${method} ${headers} '${url}'`;
+    if (body && !['GET','HEAD'].includes(method)) cmd += ` \\\n  -d '${body.replace(/'/g, "'\\''")}'`;
+    out.textContent = cmd;
+    return;
+  }
+
+  if (exportFmt === 'js') {
+    const code = `// Auto-generated from API Recon Lab
+async function fetchData() {
+  const url = ${JSON.stringify($('#url').value)};
+  const res = await fetch(url, {
+    method: ${JSON.stringify($('#method').value)},
+    headers: ${JSON.stringify(Object.fromEntries(State.headers.filter(h=>h.k.trim()).map(h=>[h.k,h.v])))}${State.headers.some(h=>/authorization/i.test(h.k)) ? ',\n    // ⚠️ remember to inject Authorization from process.env at runtime' : ''}
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+
+  // Path expression: ${$('#ext-path').value}
+  const rows = data; // TODO: apply jq-lite path engine if non-trivial
+
+  // Filter: ${$('#ext-filter').value}
+  const filtered = rows.filter(${$('#ext-filter').value});
+
+  return filtered;
+}
+`;
+    out.textContent = code;
+    return;
+  }
+}
+
+$('#btn-copy-export').addEventListener('click', async () => {
+  const text = $('#export-out').innerText;
+  try {
+    await navigator.clipboard.writeText(text);
+    log('ok', `已複製 ${text.length} 字元到剪貼簿`);
+  } catch (e) {
+    log('warn', 'Clipboard API 不可用,請手動選取');
+  }
+});
+
+$('#btn-download').addEventListener('click', () => {
+  const text = $('#export-out').innerText;
+  const ext = { json: 'json', csv: 'csv', md: 'md', curl: 'sh', js: 'js' }[exportFmt];
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `apirecon-${Date.now()}.${ext}`;
+  a.click();
+  URL.revokeObjectURL(url);
+  log('ok', `下載 apirecon-${Date.now()}.${ext}`);
+});
+
+/* ============================================================
+   Initial state
+   ============================================================ */
+log('info', 'API Recon Lab 已就緒 — 點 sidebar 任一 preset 開始');
+log('info', '5 步工作流: Requester → Response → Schema → Extractor → Export');
+$('#schema-out').innerHTML = '<div class="empty"><span class="ic">🗂️</span>送一次請求讓我推斷 schema</div>';
+$('#ext-raw').textContent = '—';
+
+/* Apply default preset to populate UI */
+(function init() {
+  $('#method').value = 'GET';
+  $('#url').value = 'https://jsonplaceholder.typicode.com/posts?_limit=10';
+  $('#ext-path').value = '$[*]';
+  $('#ext-filter').value = 'row => true';
+  $('#ext-sort').value = '';
+  $('#ext-limit').value = '20';
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>人事案件管理系統 — Framer Motion 微動畫範例</title>
+
+  <!-- Tailwind CSS (Play CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- React 18 + ReactDOM UMD -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+  <!-- Framer Motion UMD (exposes window.Motion) -->
+  <script src="https://unpkg.com/framer-motion@10.18.0/dist/framer-motion.js"></script>
+
+  <!-- htm: tagged-template JSX alternative — no Babel needed -->
+  <script src="https://unpkg.com/htm@3.1.1/dist/htm.umd.js"></script>
+
+  <!-- Tailwind 客製化 -->
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ink:    '#1f2937',
+            lagoon: '#6ed3bd',
+            mint:   '#10b981',
+            coral:  '#ff8c78',
+            ice:    '#eff6ff',
+            slate2: '#475569',
+          },
+          boxShadow: {
+            'glass': '0 8px 32px 0 rgba(31, 38, 135, 0.18)',
+            'glow':  '0 0 24px rgba(110, 211, 189, 0.55)',
+            'soft':  '0 4px 24px rgba(15, 23, 42, 0.06)',
+          },
+          fontFamily: {
+            sans: ['"Noto Sans TC"', '"PingFang TC"', 'system-ui', 'sans-serif'],
+          },
+        }
+      }
+    };
+  </script>
+
+  <style>
+    html, body { font-family: 'Noto Sans TC', 'PingFang TC', system-ui, sans-serif; }
+    body {
+      background:
+        radial-gradient(1200px 600px at 0% 0%,   #e0f2fe 0%,  transparent 60%),
+        radial-gradient(1000px 500px at 100% 0%, #fef3c7 0%,  transparent 60%),
+        radial-gradient(900px  700px at 50% 100%,#dcfce7 0%,  transparent 60%),
+        #f8fafc;
+      min-height: 100vh;
+    }
+    .glass-card {
+      background: rgba(255,255,255,0.65);
+      backdrop-filter: blur(14px) saturate(160%);
+      -webkit-backdrop-filter: blur(14px) saturate(160%);
+      border: 1px solid rgba(255,255,255,0.5);
+      box-shadow: 0 8px 32px rgba(31,38,135,0.10);
+    }
+    @keyframes pulseGlow {
+      0%,100% { box-shadow: 0 0 0 0 rgba(110,211,189,0.45); }
+      50%     { box-shadow: 0 0 0 12px rgba(110,211,189,0); }
+    }
+    .pulse-dot { animation: pulseGlow 2s infinite; }
+  </style>
+</head>
+
+<body class="text-ink antialiased">
+  <div id="root"></div>
+
+  <script>
+  /* ============================================================
+   * §0 Bootstrap
+   * ============================================================ */
+  const { useState, useEffect, useMemo, useCallback, Fragment } = React;
+  const M = window.Motion || {};
+  const {
+    motion, AnimatePresence, LayoutGroup,
+  } = M;
+
+  // htm binding — use Fragment for component roots if needed
+  const html = window.htm.bind(React.createElement);
+
+  // Pre-bind common motion components for htm
+  const md = motion.div, ms = motion.span, mb = motion.button, mi = motion.input,
+        ml = motion.li, mh = motion.h1, mh2 = motion.h2, mh3 = motion.h3,
+        mh4 = motion.h4, mp = motion.p;
+
+  /* ============================================================
+   * §1 假資料 (Mock data) — 人事案件
+   * ============================================================ */
+  const STAGES = ['待審', '簽核中', '已核准', '已歸檔'];
+  const STAGE_COLORS = {
+    '待審':   { bg: 'bg-amber-100',  text: 'text-amber-800',  dot: 'bg-amber-400'  },
+    '簽核中': { bg: 'bg-sky-100',    text: 'text-sky-800',    dot: 'bg-sky-400'    },
+    '已核准': { bg: 'bg-emerald-100',text: 'text-emerald-800',dot: 'bg-emerald-500'},
+    '已歸檔': { bg: 'bg-slate-200',  text: 'text-slate-700',  dot: 'bg-slate-400'  },
+  };
+
+  const INITIAL_CASES = [
+    { id: 'HR-2026-0001', name: '王小明', dept: '教務處',  type: '新進人員報到', stage: '已核准', priority: 'high',   createdAt: '2026-07-21', summary: '國文代理教師,7/29 起報到。' },
+    { id: 'HR-2026-0002', name: '李怡君', dept: '學務處',  type: '留職停薪',     stage: '簽核中', priority: 'medium', createdAt: '2026-07-25', summary: '育嬰留停申請,期間 8/1-7/31。' },
+    { id: 'HR-2026-0003', name: '張大為', dept: '總務處',  type: '加班補休申請', stage: '待審',   priority: 'low',    createdAt: '2026-07-28', summary: '7 月加班 12 小時申請補休。' },
+    { id: 'HR-2026-0004', name: '林淑芬', dept: '輔導室',  type: '離職',         stage: '已歸檔', priority: 'medium', createdAt: '2026-07-15', summary: '7/31 辭職,已完成移交。' },
+    { id: 'HR-2026-0005', name: '陳冠宇', dept: '人事室',  type: '新進人員報到', stage: '待審',   priority: 'high',   createdAt: '2026-07-29', summary: '資訊組長,需安排資安教育訓練。' },
+    { id: 'HR-2026-0006', name: '黃雅婷', dept: '教務處',  type: '獎懲',         stage: '簽核中', priority: 'low',    createdAt: '2026-07-27', summary: '嘉獎 1 次,招生績優。' },
+    { id: 'HR-2026-0007', name: '趙家豪', dept: '資訊組',  type: '加班費核發',   stage: '已核准', priority: 'medium', createdAt: '2026-07-22', summary: '6 月加班費共 4,800 元。' },
+    { id: 'HR-2026-0008', name: '周美玲', dept: '會計室',  type: '留職停薪',     stage: '待審',   priority: 'high',   createdAt: '2026-07-30', summary: '侍親留停,需委員會審議。' },
+  ];
+
+  const APPROVAL_TIMELINE = [
+    { step: '送出申請',   who: '申請人', at: '2026-07-29 09:12', done: true  },
+    { step: '單位主管',   who: '王主任', at: '2026-07-29 14:30', done: true  },
+    { step: '人事室初核', who: '林組長', at: '2026-07-30 08:05', done: true  },
+    { step: '校長核定',   who: '陳校長', at: '2026-07-30 10:40', done: false },
+    { step: '製發派令',   who: '人事室', at: '—',               done: false },
+  ];
+
+  const NAV = [
+    { key: 'dashboard', label: '總覽',     icon: '📊' },
+    { key: 'cases',     label: '案件管理', icon: '📁' },
+    { key: 'kanban',    label: '簽核看板', icon: '🗂️' },
+    { key: 'calendar',  label: '時程提醒', icon: '📅' },
+    { key: 'reports',   label: '統計報表', icon: '📈' },
+  ];
+
+  /* ============================================================
+   * §2 共用 UI 元件
+   * ============================================================ */
+
+  function StageBadge({ stage, size = 'sm' }) {
+    const c = STAGE_COLORS[stage] || STAGE_COLORS['待審'];
+    const pad = size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-3 py-1 text-sm';
+    return html`
+      <${ms}
+        initial=${{ scale: 0.85, opacity: 0 }}
+        animate=${{ scale: 1, opacity: 1 }}
+        transition=${{ type: 'spring', stiffness: 300, damping: 18 }}
+        class=${`inline-flex items-center gap-1.5 rounded-full font-medium ${c.bg} ${c.text} ${pad}`}
+      >
+        <${ms}
+          class=${`inline-block w-1.5 h-1.5 rounded-full ${c.dot}`}
+          animate=${stage === '簽核中' ? { scale: [1, 1.4, 1] } : {}}
+          transition=${{ repeat: Infinity, duration: 1.6 }}
+        />
+        ${stage}
+      </${ms}>
+    `;
+  }
+
+  function CaseCard({ data, onOpen, index }) {
+    return html`
+      <${md}
+        layout
+        layoutId=${`case-${data.id}`}
+        initial=${{ opacity: 0, y: 18, scale: 0.96 }}
+        animate=${{ opacity: 1, y: 0, scale: 1 }}
+        exit=${{ opacity: 0, y: -8, scale: 0.96 }}
+        whileHover=${{ y: -4, boxShadow: '0 12px 32px rgba(15,23,42,0.10)' }}
+        whileTap=${{ scale: 0.98 }}
+        transition=${{ type: 'spring', stiffness: 220, damping: 22, delay: index * 0.05 }}
+        onClick=${() => onOpen(data)}
+        class="glass-card rounded-2xl p-4 cursor-pointer select-none"
+      >
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-mono text-slate-400">${data.id}</span>
+              ${data.priority === 'high' && html`
+                <${ms}
+                  initial=${{ scale: 0 }}
+                  animate=${{ scale: 1 }}
+                  transition=${{ delay: 0.2 + index * 0.05, type: 'spring' }}
+                  class="text-[10px] font-bold text-coral bg-coral/10 px-1.5 py-0.5 rounded"
+                >⚡ 急件</${ms}>
+              `}
+            </div>
+            <h3 class="mt-1 text-lg font-semibold text-ink truncate">${data.type}</h3>
+            <p class="mt-1 text-sm text-slate-500 truncate">${data.summary}</p>
+          </div>
+          <${StageBadge} stage=${data.stage} />
+        </div>
+        <div class="mt-3 flex items-center justify-between text-xs text-slate-500">
+          <span>👤 ${data.name} · ${data.dept}</span>
+          <span>📅 ${data.createdAt}</span>
+        </div>
+      </${md}>
+    `;
+  }
+
+  function CaseModal({ data, onClose, onApprove }) {
+    if (!data) return null;
+    return html`
+      <${AnimatePresence}>
+        ${data && html`
+          <${Fragment} key=${'modal-' + data.id}>
+            <${md}
+              key=${'overlay'}
+              initial=${{ opacity: 0 }}
+              animate=${{ opacity: 1 }}
+              exit=${{ opacity: 0 }}
+              transition=${{ duration: 0.2 }}
+              onClick=${onClose}
+              class="fixed inset-0 bg-ink/40 backdrop-blur-sm z-40"
+            />
+            <${md}
+              key=${'dialog'}
+              layoutId=${`case-${data.id}`}
+              initial=${{ opacity: 0, y: 30, scale: 0.96 }}
+              animate=${{ opacity: 1, y: 0, scale: 1 }}
+              exit=${{ opacity: 0, y: 20, scale: 0.96 }}
+              transition=${{ type: 'spring', stiffness: 260, damping: 26 }}
+              class="fixed inset-x-4 top-[8vh] md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:w-[640px] md:max-h-[80vh] glass-card rounded-3xl overflow-hidden z-50"
+            >
+              <div class="px-6 py-5 border-b border-white/40 flex items-start justify-between">
+                <div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs font-mono text-slate-400">${data.id}</span>
+                    <${StageBadge} stage=${data.stage} />
+                  </div>
+                  <h2 class="mt-1 text-2xl font-bold">${data.type}</h2>
+                  <p class="mt-1 text-sm text-slate-500">${data.summary}</p>
+                </div>
+                <${mb}
+                  whileHover=${{ rotate: 90, scale: 1.1 }}
+                  whileTap=${{ scale: 0.9 }}
+                  transition=${{ type: 'spring', stiffness: 300 }}
+                  onClick=${onClose}
+                  class="text-slate-400 hover:text-ink text-2xl leading-none"
+                >×</${mb}>
+              </div>
+
+              <div class="px-6 py-5 overflow-y-auto md:max-h-[50vh]">
+                <h3 class="text-sm font-semibold text-slate-500 mb-4">📋 簽核流程</h3>
+                <ol class="relative border-l-2 border-slate-200 ml-2 space-y-5">
+                  ${APPROVAL_TIMELINE.map((s, i) => html`
+                    <${ml}
+                      key=${i}
+                      initial=${{ opacity: 0, x: -12 }}
+                      animate=${{ opacity: 1, x: 0 }}
+                      transition=${{ delay: 0.1 + i * 0.08, duration: 0.3 }}
+                      class="ml-6"
+                    >
+                      <span class=${`absolute -left-[7px] flex items-center justify-center w-3.5 h-3.5 rounded-full ring-4 ring-white ${s.done ? 'bg-emerald-500 pulse-dot' : 'bg-slate-300'}`} />
+                      <div class="flex items-baseline justify-between">
+                        <h4 class=${`font-medium ${s.done ? 'text-ink' : 'text-slate-400'}`}>${s.step}</h4>
+                        <span class="text-xs text-slate-400">${s.at}</span>
+                      </div>
+                      <p class="text-xs text-slate-500 mt-0.5">簽核人:${s.who}</p>
+                    </${ml}>
+                  `)}
+                </ol>
+
+                <h3 class="text-sm font-semibold text-slate-500 mt-6 mb-3">✍️ 簽核意見</h3>
+                <${AnimatedTextArea} />
+              </div>
+
+              <div class="px-6 py-4 border-t border-white/40 bg-white/30 flex justify-end gap-2">
+                <${mb}
+                  whileHover=${{ scale: 1.03 }}
+                  whileTap=${{ scale: 0.97 }}
+                  onClick=${onClose}
+                  class="px-4 py-2 rounded-xl text-sm text-slate-600 hover:bg-slate-100"
+                >退回</${mb}>
+                <${mb}
+                  whileHover=${{ scale: 1.04, boxShadow: '0 8px 24px rgba(16,185,129,0.35)' }}
+                  whileTap=${{ scale: 0.96 }}
+                  onClick=${() => onApprove(data.id)}
+                  class="px-5 py-2 rounded-xl text-sm font-semibold text-white bg-emerald-500 hover:bg-emerald-600"
+                >✓ 核准</${mb}>
+              </div>
+            </${md}>
+          </>
+        `}
+      </>
+    `;
+  }
+
+  function AnimatedTextArea() {
+    const [focused, setFocused] = useState(false);
+    const [val, setVal] = useState('');
+    return html`
+      <div class="relative">
+        <${md}
+          animate=${{
+            boxShadow: focused ? '0 0 0 3px rgba(110,211,189,0.35)' : '0 0 0 0px rgba(110,211,189,0)',
+            borderColor: focused ? '#6ed3bd' : '#e2e8f0',
+          }}
+          transition=${{ duration: 0.18 }}
+          class="rounded-xl border bg-white/60 overflow-hidden"
+        >
+          <textarea
+            rows=${3}
+            value=${val}
+            onChange=${(e) => setVal(e.target.value)}
+            onFocus=${() => setFocused(true)}
+            onBlur=${() => setFocused(false)}
+            placeholder="請輸入簽核意見(選填)…"
+            class="w-full px-3 py-2.5 text-sm bg-transparent outline-none resize-none"
+          />
+        </${md}>
+        <${md}
+          class="absolute right-2 bottom-2 text-[10px] text-slate-400"
+          animate=${{ opacity: val.length > 0 ? 1 : 0 }}
+        >${val.length} 字</${md}>
+      </div>
+    `;
+  }
+
+  function Toast({ items }) {
+    return html`
+      <div class="fixed top-4 right-4 z-[60] flex flex-col gap-2 pointer-events-none">
+        <${AnimatePresence}>
+          ${items.map((t) => html`
+            <${md}
+              key=${t.id}
+              layout
+              initial=${{ opacity: 0, x: 80, scale: 0.9 }}
+              animate=${{ opacity: 1, x: 0, scale: 1 }}
+              exit=${{ opacity: 0, x: 80, scale: 0.9 }}
+              transition=${{ type: 'spring', stiffness: 260, damping: 22 }}
+              class="glass-card rounded-xl px-4 py-3 min-w-[260px] pointer-events-auto"
+            >
+              <div class="flex items-start gap-3">
+                <${ms}
+                  initial=${{ scale: 0 }}
+                  animate=${{ scale: 1 }}
+                  transition=${{ type: 'spring', stiffness: 400 }}
+                  class="text-xl"
+                >${t.icon}</${ms}>
+                <div class="min-w-0">
+                  <div class="text-sm font-semibold text-ink">${t.title}</div>
+                  <div class="text-xs text-slate-500">${t.msg}</div>
+                </div>
+              </div>
+            </${md}>
+          `)}
+        </>
+      </div>
+    `;
+  }
+
+  function BellIcon({ count, onClick }) {
+    return html`
+      <${mb}
+        whileHover=${{ rotate: [0, -15, 12, -8, 0] }}
+        transition=${{ duration: 0.6 }}
+        whileTap=${{ scale: 0.9 }}
+        onClick=${onClick}
+        class="relative w-10 h-10 rounded-full bg-white/60 hover:bg-white/80 flex items-center justify-center text-xl shadow-soft"
+      >
+        🔔
+        <${AnimatePresence}>
+          ${count > 0 && html`
+            <${ms}
+              key=${count}
+              initial=${{ scale: 0 }}
+              animate=${{ scale: 1 }}
+              exit=${{ scale: 0 }}
+              transition=${{ type: 'spring', stiffness: 400, damping: 16 }}
+              class="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 rounded-full text-[11px] font-bold text-white bg-coral flex items-center justify-center"
+            >
+              <${ms}
+                animate=${{ scale: [1, 1.18, 1] }}
+                transition=${{ repeat: Infinity, duration: 1.4 }}
+                class="inline-block"
+              >${count}</${ms}>
+            </${ms}>
+          `}
+        </>
+      </${mb}>
+    `;
+  }
+
+  /* ============================================================
+   * §3 簽核 Kanban
+   * ============================================================ */
+  function KanbanBoard({ cases, onMove }) {
+    const grouped = useMemo(() => {
+      const m = {};
+      STAGES.forEach((s) => { m[s] = []; });
+      cases.forEach((c) => { m[c.stage].push(c); });
+      return m;
+    }, [cases]);
+
+    return html`
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        ${STAGES.map((stage, colIdx) => html`
+          <${md}
+            key=${stage}
+            initial=${{ opacity: 0, y: 20 }}
+            animate=${{ opacity: 1, y: 0 }}
+            transition=${{ delay: colIdx * 0.08, duration: 0.4 }}
+            class="glass-card rounded-2xl p-3 min-h-[400px]"
+          >
+            <div class="flex items-center justify-between px-1 mb-3">
+              <div class="flex items-center gap-2">
+                <span class=${`w-2 h-2 rounded-full ${STAGE_COLORS[stage].dot}`} />
+                <h3 class="font-semibold text-ink">${stage}</h3>
+              </div>
+              <${ms}
+                key=${grouped[stage].length}
+                initial=${{ scale: 0.5, opacity: 0 }}
+                animate=${{ scale: 1, opacity: 1 }}
+                class="text-xs text-slate-500 bg-white/60 rounded-full px-2"
+              >${grouped[stage].length}</${ms}>
+            </div>
+            <${LayoutGroup}>
+              <div
+                class="space-y-2"
+                onDragOver=${(e) => e.preventDefault()}
+                onDrop=${(e) => {
+                  const id = e.dataTransfer.getData('text/plain');
+                  if (id) onMove(id, stage);
+                }}
+              >
+                <${AnimatePresence}>
+                  ${grouped[stage].map((c, i) => html`
+                    <${md}
+                      key=${c.id}
+                      layout
+                      initial=${{ opacity: 0, scale: 0.9, y: 10 }}
+                      animate=${{ opacity: 1, scale: 1, y: 0 }}
+                      exit=${{ opacity: 0, scale: 0.85 }}
+                      transition=${{ type: 'spring', stiffness: 280, damping: 24, delay: i * 0.04 }}
+                      whileHover=${{ y: -2 }}
+                      draggable=${true}
+                      onDragStart=${(e) => e.dataTransfer.setData('text/plain', c.id)}
+                      class="bg-white/80 rounded-xl p-3 shadow-soft cursor-grab active:cursor-grabbing select-none border border-white/60"
+                    >
+                      <div class="flex items-center justify-between">
+                        <span class="text-[10px] font-mono text-slate-400">${c.id}</span>
+                        ${c.priority === 'high' && html`<span class="text-[10px] font-bold text-coral">⚡</span>`}
+                      </div>
+                      <div class="mt-1 text-sm font-medium text-ink">${c.type}</div>
+                      <div class="mt-1 text-xs text-slate-500">👤 ${c.name} · ${c.dept}</div>
+                    </${md}>
+                  `)}
+                </>
+              </div>
+            </>
+          </${md}>
+        `)}
+      </div>
+    `;
+  }
+
+  /* ============================================================
+   * §4 Sidebar
+   * ============================================================ */
+  function Sidebar({ active, onChange }) {
+    return html`
+      <aside class="hidden md:flex md:w-60 lg:w-64 flex-col glass-card rounded-r-3xl m-3 mr-0 p-4">
+        <div class="flex items-center gap-3 px-2 mb-6">
+          <${md}
+            initial=${{ rotate: -10, scale: 0.9 }}
+            animate=${{ rotate: 0, scale: 1 }}
+            transition=${{ type: 'spring', stiffness: 200 }}
+            class="w-10 h-10 rounded-2xl bg-gradient-to-br from-lagoon to-mint flex items-center justify-center text-white text-xl shadow-glow"
+          >🏛️</${md}>
+          <div>
+            <div class="font-bold text-ink">人事管理</div>
+            <div class="text-[10px] text-slate-400">v1.0 · 內部系統</div>
+          </div>
+        </div>
+        <nav class="flex-1 space-y-1">
+          ${NAV.map((n, i) => html`
+            <${mb}
+              key=${n.key}
+              initial=${{ opacity: 0, x: -10 }}
+              animate=${{ opacity: 1, x: 0 }}
+              transition=${{ delay: 0.05 + i * 0.05 }}
+              whileHover=${{ x: 4 }}
+              whileTap=${{ scale: 0.98 }}
+              onClick=${() => onChange(n.key)}
+              class=${`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-colors ${
+                active === n.key
+                  ? 'bg-lagoon/20 text-ink font-semibold shadow-soft'
+                  : 'text-slate-500 hover:bg-white/50 hover:text-ink'
+              }`}
+            >
+              <span class="text-lg">${n.icon}</span>
+              <span>${n.label}</span>
+              ${active === n.key && html`
+                <${ms}
+                  layoutId="nav-active"
+                  class="ml-auto w-1.5 h-1.5 rounded-full bg-mint"
+                  transition=${{ type: 'spring', stiffness: 300, damping: 30 }}
+                />
+              `}
+            </${mb}>
+          `)}
+        </nav>
+        <div class="mt-4 p-3 rounded-xl bg-gradient-to-br from-lagoon/30 to-mint/20 text-xs text-ink">
+          <div class="font-semibold mb-1">💡 今日提示</div>
+          <div class="text-slate2/80 leading-relaxed">點擊案件可開啟詳情;拖曳卡片可變更簽核階段。</div>
+        </div>
+      </aside>
+    `;
+  }
+
+  /* ============================================================
+   * §5 CountUp + KPI Card
+   * ============================================================ */
+  function CountUp({ to, duration = 1.4 }) {
+    const [val, setVal] = useState(0);
+    useEffect(() => {
+      let raf, start;
+      const from = 0;
+      const tick = (ts) => {
+        if (!start) start = ts;
+        const t = Math.min(1, (ts - start) / (duration * 1000));
+        const eased = 1 - Math.pow(1 - t, 3);
+        setVal(Math.round(from + (to - from) * eased));
+        if (t < 1) raf = requestAnimationFrame(tick);
+      };
+      raf = requestAnimationFrame(tick);
+      return () => raf && cancelAnimationFrame(raf);
+    }, [to, duration]);
+    return html`<span>${val}</span>`;
+  }
+
+  function KpiCard({ icon, label, value, color, delay = 0 }) {
+    return html`
+      <${md}
+        initial=${{ opacity: 0, y: 20 }}
+        animate=${{ opacity: 1, y: 0 }}
+        transition=${{ delay, type: 'spring', stiffness: 200 }}
+        whileHover=${{ y: -4, boxShadow: '0 12px 32px rgba(15,23,42,0.10)' }}
+        class="glass-card rounded-2xl p-5"
+      >
+        <div class="flex items-center justify-between">
+          <div class=${`w-10 h-10 rounded-xl flex items-center justify-center text-xl ${color}`}>${icon}</div>
+          <${ms}
+            animate=${{ opacity: [0.4, 1, 0.4] }}
+            transition=${{ repeat: Infinity, duration: 2.4 }}
+            class="text-[10px] text-slate-400"
+          >● live</${ms}>
+        </div>
+        <div class="mt-3 text-3xl font-bold text-ink"><${CountUp} to=${value} /></div>
+        <div class="text-xs text-slate-500 mt-1">${label}</div>
+      </${md}>
+    `;
+  }
+
+  /* ============================================================
+   * §6 SearchBar (debounce)
+   * ============================================================ */
+  function SearchBar({ value, onChange }) {
+    const [internal, setInternal] = useState(value);
+    useEffect(() => {
+      const id = setTimeout(() => onChange(internal), 200);
+      return () => clearTimeout(id);
+    }, [internal, onChange]);
+    useEffect(() => { setInternal(value); }, [value]);
+    return html`
+      <${md}
+        whileHover=${{ boxShadow: '0 4px 16px rgba(15,23,42,0.06)' }}
+        class="relative"
+      >
+        <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
+        <input
+          type="text"
+          value=${internal}
+          onChange=${(e) => setInternal(e.target.value)}
+          placeholder="搜尋案件編號 / 姓名 / 類型…"
+          class="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white/70 border border-white/60 outline-none text-sm focus:border-lagoon focus:bg-white"
+        />
+      </${md}>
+    `;
+  }
+
+  /* ============================================================
+   * §7 ProgressBar
+   * ============================================================ */
+  function ProgressBar({ pct, color = 'bg-mint' }) {
+    return html`
+      <div class="h-2 rounded-full bg-slate-100 overflow-hidden">
+        <${md}
+          class=${`h-full ${color}`}
+          initial=${{ width: 0 }}
+          animate=${{ width: `${pct}%` }}
+          transition=${{ duration: 1.2, ease: 'easeOut' }}
+        />
+      </div>
+    `;
+  }
+
+  /* ============================================================
+   * §8 主應用 App
+   * ============================================================ */
+  function App() {
+    const [view,   setView]   = useState('dashboard');
+    const [cases,  setCases]  = useState(INITIAL_CASES);
+    const [active, setActive] = useState(null);
+    const [query,  setQuery]  = useState('');
+    const [filter, setFilter] = useState('全部');
+    const [toasts, setToasts] = useState([]);
+    const [dark,   setDark]   = useState(false);
+
+    const pushToast = useCallback((t) => {
+      const id = Date.now() + Math.random();
+      setToasts((prev) => [...prev, { ...t, id }]);
+      setTimeout(() => {
+        setToasts((prev) => prev.filter((x) => x.id !== id));
+      }, 3200);
+    }, []);
+
+    const filteredCases = useMemo(() => {
+      const q = query.trim().toLowerCase();
+      return cases.filter((c) => {
+        const matchQ = !q ||
+          c.id.toLowerCase().includes(q) ||
+          c.name.toLowerCase().includes(q) ||
+          c.type.toLowerCase().includes(q);
+        const matchF = filter === '全部' || c.stage === filter;
+        return matchQ && matchF;
+      });
+    }, [cases, query, filter]);
+
+    const kpis = useMemo(() => ({
+      total:     cases.length,
+      pending:   cases.filter((c) => c.stage === '待審').length,
+      reviewing: cases.filter((c) => c.stage === '簽核中').length,
+      urgent:    cases.filter((c) => c.priority === 'high').length,
+    }), [cases]);
+
+    const openCase  = (c) => setActive(c);
+    const closeCase = () => setActive(null);
+
+    const approve = (id) => {
+      setCases((prev) => prev.map((c) => c.id === id ? { ...c, stage: '已核准' } : c));
+      const c = cases.find((x) => x.id === id);
+      pushToast({ icon: '✅', title: '已核准', msg: `${c?.type || id} 案件已送出` });
+      closeCase();
+    };
+
+    const moveStage = (id, stage) => {
+      setCases((prev) => prev.map((c) => c.id === id ? { ...c, stage } : c));
+      pushToast({ icon: '➡️', title: '狀態更新', msg: `${id} → ${stage}` });
+    };
+
+    return html`
+      <div class=${`min-h-screen flex ${dark ? 'invert hue-rotate-180' : ''}`}>
+        <${Sidebar} active=${view} onChange=${setView} />
+
+        <main class="flex-1 p-3 md:p-6 overflow-x-hidden">
+          <header class="flex items-center gap-3 mb-6">
+            <div class="md:hidden w-10 h-10 rounded-xl bg-gradient-to-br from-lagoon to-mint flex items-center justify-center text-white text-xl">🏛️</div>
+            <div class="flex-1 max-w-md">
+              <${SearchBar} value=${query} onChange=${setQuery} />
+            </div>
+            <${mb}
+              whileHover=${{ scale: 1.06 }}
+              whileTap=${{ scale: 0.94 }}
+              onClick=${() => { setDark((d) => !d); pushToast({ icon: '🌓', title: '主題切換', msg: dark ? '淺色模式' : '深色模式' }); }}
+              class="w-10 h-10 rounded-full bg-white/60 hover:bg-white/80 flex items-center justify-center text-lg shadow-soft"
+              title="切換主題"
+            >${dark ? '☀️' : '🌙'}</${mb}>
+            <${BellIcon} count=${kpis.urgent} onClick=${() => pushToast({ icon: '🔔', title: `有 ${kpis.urgent} 件急件`, msg: '請優先處理!' })} />
+            <${md}
+              whileHover=${{ scale: 1.06 }}
+              class="w-10 h-10 rounded-full bg-gradient-to-br from-coral to-amber-400 flex items-center justify-center text-white font-bold shadow-soft"
+              title="王小明 · 人事室"
+            >王</${md}>
+          </header>
+
+          <${AnimatePresence} mode="wait">
+            <${md}
+              key=${view}
+              initial=${{ opacity: 0, y: 12 }}
+              animate=${{ opacity: 1, y: 0 }}
+              exit=${{ opacity: 0, y: -8 }}
+              transition=${{ duration: 0.25 }}
+            >
+              ${view === 'dashboard' && html`
+                <${DashboardView}
+                  kpis=${kpis}
+                  cases=${filteredCases}
+                  onOpen=${openCase}
+                  query=${query}
+                  filter=${filter}
+                  setFilter=${setFilter}
+                />
+              `}
+              ${view === 'cases' && html`
+                <${CasesView}
+                  cases=${filteredCases}
+                  onOpen=${openCase}
+                  query=${query}
+                  filter=${filter}
+                  setFilter=${setFilter}
+                />
+              `}
+              ${view === 'kanban' && html`<${KanbanView} cases=${cases} onMove=${moveStage} />`}
+              ${view === 'calendar' && html`<${CalendarView} cases=${cases} />`}
+              ${view === 'reports'  && html`<${ReportsView}  cases=${cases} />`}
+            </${md}>
+          </>
+        </main>
+
+        <${CaseModal} data=${active} onClose=${closeCase} onApprove=${approve} />
+        <${Toast} items=${toasts} />
+      </div>
+    `;
+  }
+
+  /* ============================================================
+   * §9 各 view 內容
+   * ============================================================ */
+  function DashboardView({ kpis, cases, onOpen }) {
+    return html`
+      <div>
+        <h1 class="text-2xl font-bold mb-1">總覽</h1>
+        <p class="text-sm text-slate-500 mb-6">歡迎回來,以下是今日待辦的案件總覽。</p>
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <${KpiCard} icon="📁" label="案件總數" value=${kpis.total}     color="bg-sky-100"    delay=${0.00} />
+          <${KpiCard} icon="⏳" label="待審"      value=${kpis.pending}   color="bg-amber-100"  delay=${0.08} />
+          <${KpiCard} icon="🔄" label="簽核中"    value=${kpis.reviewing} color="bg-violet-100" delay=${0.16} />
+          <${KpiCard} icon="⚡" label="急件"      value=${kpis.urgent}    color="bg-rose-100"   delay=${0.24} />
+        </div>
+
+        <div class="glass-card rounded-2xl p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="font-semibold">最近更新的案件</h2>
+            <span class="text-xs text-slate-400">顯示前 6 件</span>
+          </div>
+          <${LayoutGroup}>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              <${AnimatePresence}>
+                ${cases.slice(0, 6).map((c, i) => html`
+                  <${CaseCard} key=${c.id} data=${c} onOpen=${onOpen} index=${i} />
+                `)}
+              </>
+            </div>
+          </>
+        </div>
+      </div>
+    `;
+  }
+
+  function CasesView({ cases, onOpen, filter, setFilter }) {
+    return html`
+      <div>
+        <div class="flex items-center justify-between mb-4">
+          <h1 class="text-2xl font-bold">案件管理</h1>
+          <${mb}
+            whileHover=${{ scale: 1.04 }}
+            whileTap=${{ scale: 0.96 }}
+            class="px-4 py-2 rounded-xl bg-ink text-white text-sm font-medium shadow-soft"
+          >+ 新增案件</${mb}>
+        </div>
+
+        <div class="flex flex-wrap gap-2 mb-5">
+          ${['全部', ...STAGES].map((s) => html`
+            <${mb}
+              key=${s}
+              whileHover=${{ y: -1 }}
+              whileTap=${{ scale: 0.96 }}
+              onClick=${() => setFilter(s)}
+              class=${`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                filter === s
+                  ? 'bg-ink text-white border-ink'
+                  : 'bg-white/60 text-slate-500 border-white/60 hover:border-ink/30'
+              }`}
+            >${s}</${mb}>
+          `)}
+        </div>
+
+        <${LayoutGroup}>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            <${AnimatePresence} mode="popLayout">
+              ${cases.map((c, i) => html`
+                <${CaseCard} key=${c.id} data=${c} onOpen=${onOpen} index=${i} />
+              `)}
+              ${cases.length === 0 && html`
+                <${md}
+                  initial=${{ opacity: 0 }}
+                  animate=${{ opacity: 1 }}
+                  class="col-span-full text-center py-16 text-slate-400"
+                >沒有符合條件的案件。</${md}>
+              `}
+            </>
+          </div>
+        </>
+      </div>
+    `;
+  }
+
+  function KanbanView({ cases, onMove }) {
+    return html`
+      <div>
+        <h1 class="text-2xl font-bold mb-1">簽核看板</h1>
+        <p class="text-sm text-slate-500 mb-6">拖曳卡片到不同欄位以變更案件狀態。</p>
+        <${KanbanBoard} cases=${cases} onMove=${onMove} />
+      </div>
+    `;
+  }
+
+  function CalendarView({ cases }) {
+    const today = new Date(2026, 6, 30);
+    const year = today.getFullYear();
+    const month = today.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const cells = [];
+    for (let i = 0; i < firstDay; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+    const dateStr = (d) =>
+      `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+    return html`
+      <div>
+        <h1 class="text-2xl font-bold mb-1">時程提醒</h1>
+        <p class="text-sm text-slate-500 mb-6">2026 年 7 月 — 每日案件提醒</p>
+        <div class="glass-card rounded-2xl p-5">
+          <div class="grid grid-cols-7 gap-1 mb-2">
+            ${['日', '一', '二', '三', '四', '五', '六'].map((d) => html`
+              <div key=${d} class="text-center text-xs font-semibold text-slate-400 py-2">${d}</div>
+            `)}
+          </div>
+          <div class="grid grid-cols-7 gap-1">
+            ${cells.map((d, i) => {
+              const dayCases = d ? cases.filter((c) => c.createdAt === dateStr(d)) : [];
+              return html`
+                <${md}
+                  key=${i}
+                  initial=${{ opacity: 0, scale: 0.9 }}
+                  animate=${{ opacity: 1, scale: 1 }}
+                  transition=${{ delay: i * 0.005 }}
+                  whileHover=${d ? { scale: 1.04, backgroundColor: 'rgba(110,211,189,0.10)' } : {}}
+                  class=${`min-h-[68px] rounded-lg p-1.5 text-xs ${d ? 'bg-white/60 border border-white/60' : ''}`}
+                >
+                  ${d && html`
+                    <div class=${`font-medium ${d === 30 ? 'text-coral font-bold' : 'text-ink'}`}>${d}</div>
+                    ${dayCases.slice(0, 2).map((c) => html`
+                      <${md}
+                        key=${c.id}
+                        whileHover=${{ x: 2 }}
+                        class="mt-1 truncate px-1.5 py-0.5 rounded text-[10px] bg-lagoon/20 text-ink"
+                        title=${c.type}
+                      >${c.type}</${md}>
+                    `)}
+                    ${dayCases.length > 2 && html`
+                      <div class="text-[10px] text-slate-400 mt-0.5">+${dayCases.length - 2}</div>
+                    `}
+                  `}
+                </${md}>
+              `;
+            })}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function ReportsView({ cases }) {
+    const stats = STAGES.map((s) => ({
+      stage: s,
+      count: cases.filter((c) => c.stage === s).length,
+      pct:   Math.round(100 * cases.filter((c) => c.stage === s).length / cases.length),
+    }));
+    const typeStats = Object.entries(
+      cases.reduce((acc, c) => { acc[c.type] = (acc[c.type] || 0) + 1; return acc; }, {})
+    );
+    return html`
+      <div>
+        <h1 class="text-2xl font-bold mb-1">統計報表</h1>
+        <p class="text-sm text-slate-500 mb-6">各簽核階段案件分佈</p>
+        <div class="glass-card rounded-2xl p-5 space-y-5">
+          ${stats.map((s) => html`
+            <div key=${s.stage}>
+              <div class="flex items-center justify-between text-sm mb-1.5">
+                <span class="font-medium text-ink">${s.stage}</span>
+                <span class="text-slate-500">${s.count} 件 · ${s.pct}%</span>
+              </div>
+              <${ProgressBar} pct=${s.pct} color=${STAGE_COLORS[s.stage].dot} />
+            </div>
+          `)}
+        </div>
+
+        <div class="glass-card rounded-2xl p-5 mt-6">
+          <h2 class="font-semibold mb-4">案件類型分佈</h2>
+          <div class="space-y-3">
+            ${typeStats.map(([type, n], i) => {
+              const pct = Math.round(100 * n / cases.length);
+              return html`
+                <${md}
+                  key=${type}
+                  initial=${{ opacity: 0, x: -10 }}
+                  animate=${{ opacity: 1, x: 0 }}
+                  transition=${{ delay: 0.05 + i * 0.08 }}
+                >
+                  <div class="flex justify-between text-xs text-slate-600 mb-1">
+                    <span>${type}</span><span>${n} 件 (${pct}%)</span>
+                  </div>
+                  <${ProgressBar} pct=${pct} color="bg-lagoon" />
+                </${md}>
+              `;
+            })}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  /* ============================================================
+   * §10 Mount
+   * ============================================================ */
+  const root = ReactDOM.createRoot(document.getElementById('root'));
+  root.render(React.createElement(App));
+  </script>
+</body>
+</html>

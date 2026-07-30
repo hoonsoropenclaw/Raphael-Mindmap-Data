@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Chronicle — Google Calendar 自動化管理儀表板</title>
+<!--
+  單檔 React UMD + Babel standalone
+  - 零建置、直接瀏覽器開啟即可
+  - 三頁籤：① 今日/未來事件 ② 新增事件 ③ 提醒規則與狀態
+  - 內建 5 個 fixture events（與 calendar_client.py 同步），可手動觸發 reminder engine 預覽
+  - 設計：暗色背景 + 玻璃面板 + 強調色（橘）+ 圓角 16px
+-->
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  :root {
+    --bg: #0b1020;
+    --bg-2: #0f172a;
+    --panel: rgba(255, 255, 255, 0.06);
+    --panel-2: rgba(255, 255, 255, 0.10);
+    --border: rgba(255, 255, 255, 0.12);
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #ff8c5a;
+    --accent-2: #ffa47a;
+    --accent-soft: rgba(255, 140, 90, 0.18);
+    --ok: #34d399;
+    --warn: #fbbf24;
+    --err: #f87171;
+    --info: #60a5fa;
+    --shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100vh;
+    background:
+      radial-gradient(circle at 15% 0%, rgba(255, 140, 90, 0.18), transparent 40%),
+      radial-gradient(circle at 85% 100%, rgba(96, 165, 250, 0.18), transparent 40%),
+      var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "PingFang TC", "Microsoft JhengHei", "Segoe UI", Roboto, sans-serif;
+    font-size: 14px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .app {
+    max-width: 1240px; margin: 0 auto; padding: 32px 24px 80px;
+  }
+  header.brand {
+    display: flex; align-items: center; gap: 16px;
+    margin-bottom: 28px;
+  }
+  .logo {
+    width: 56px; height: 56px; border-radius: 16px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    display: grid; place-items: center; font-size: 28px;
+    box-shadow: 0 8px 24px rgba(255, 140, 90, 0.45);
+  }
+  .brand h1 { margin: 0; font-size: 28px; font-weight: 700; letter-spacing: 0.5px; }
+  .brand .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .badge {
+    display: inline-block; padding: 4px 10px; border-radius: 999px;
+    background: var(--accent-soft); color: var(--accent-2);
+    font-size: 11px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase;
+  }
+  .badge.ok    { background: rgba(52, 211, 153, 0.18); color: var(--ok); }
+  .badge.warn  { background: rgba(251, 191, 36, 0.18); color: var(--warn); }
+  .badge.err   { background: rgba(248, 113, 113, 0.18); color: var(--err); }
+  .badge.info  { background: rgba(96, 165, 250, 0.18); color: var(--info); }
+  .badge.muted { background: rgba(148, 163, 184, 0.18); color: var(--muted); }
+
+  .tabs {
+    display: flex; gap: 4px; padding: 4px;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; margin-bottom: 24px; width: fit-content;
+  }
+  .tab {
+    padding: 10px 18px; border-radius: 10px; cursor: pointer;
+    color: var(--muted); font-weight: 600; font-size: 13px;
+    transition: all 0.18s ease; user-select: none;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active {
+    background: var(--accent-soft); color: var(--accent-2);
+  }
+
+  .grid { display: grid; gap: 20px; }
+  .grid.cols-2 { grid-template-columns: 1fr 1fr; }
+  .grid.cols-3 { grid-template-columns: 2fr 1fr 1fr; }
+  .grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+  @media (max-width: 900px) {
+    .grid.cols-2, .grid.cols-3, .grid.cols-4 { grid-template-columns: 1fr; }
+  }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 18px; padding: 20px 22px; backdrop-filter: blur(12px);
+    box-shadow: var(--shadow);
+  }
+  .panel h2 { margin: 0 0 4px; font-size: 17px; font-weight: 600; }
+  .panel .meta { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+  .panel-header {
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;
+  }
+
+  .stat-card {
+    background: linear-gradient(135deg, rgba(255, 140, 90, 0.08), rgba(96, 165, 250, 0.08));
+    border: 1px solid var(--border); border-radius: 16px; padding: 18px 20px;
+  }
+  .stat-card .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; }
+  .stat-card .value { font-size: 32px; font-weight: 700; margin: 6px 0 4px; }
+  .stat-card .delta { font-size: 12px; color: var(--muted); }
+
+  .event-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 14px; padding: 14px 16px; margin-bottom: 10px;
+    transition: all 0.18s ease;
+  }
+  .event-card:hover { background: var(--panel-2); transform: translateX(2px); }
+  .event-card .when { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+  .event-card .title { font-weight: 600; font-size: 15px; margin-bottom: 6px; }
+  .event-card .tags { display: flex; gap: 6px; flex-wrap: wrap; }
+  .tag {
+    font-size: 10px; padding: 2px 8px; border-radius: 999px;
+    background: rgba(96, 165, 250, 0.15); color: var(--info);
+    text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;
+  }
+  .tag.remind { background: rgba(255, 140, 90, 0.15); color: var(--accent-2); }
+
+  form { display: grid; gap: 14px; }
+  label { display: grid; gap: 6px; font-size: 12px; color: var(--muted); }
+  input, select, textarea {
+    background: rgba(0, 0, 0, 0.30); border: 1px solid var(--border);
+    color: var(--text); padding: 10px 14px; border-radius: 10px;
+    font-size: 14px; font-family: inherit; outline: none;
+    transition: border-color 0.15s ease;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  textarea { min-height: 80px; resize: vertical; }
+  button {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #1a0f08; border: none; padding: 11px 22px; border-radius: 10px;
+    font-weight: 700; cursor: pointer; font-size: 13px; letter-spacing: 0.3px;
+    transition: all 0.18s ease;
+  }
+  button:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(255, 140, 90, 0.4); }
+  button.ghost {
+    background: transparent; color: var(--muted); border: 1px solid var(--border);
+  }
+  button.ghost:hover { background: var(--panel); color: var(--text); }
+  button.danger { background: rgba(248, 113, 113, 0.18); color: var(--err); border: 1px solid rgba(248, 113, 113, 0.35); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+  .toolbar input { flex: 1; min-width: 200px; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); font-size: 13px; }
+  th { color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 0.6px; }
+  tr:last-child td { border-bottom: none; }
+  td.num { font-family: "SF Mono", Menlo, monospace; color: var(--accent-2); }
+
+  .log {
+    background: #020617; border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px; max-height: 320px; overflow-y: auto;
+    font-family: "SF Mono", Menlo, monospace; font-size: 12px;
+    color: #cbd5e1;
+  }
+  .log .ts { color: var(--muted); margin-right: 8px; }
+  .log .ok { color: var(--ok); }
+  .log .err { color: var(--err); }
+  .log .warn { color: var(--warn); }
+  .log .info { color: var(--info); }
+
+  .flow-step {
+    display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    margin-bottom: 8px;
+  }
+  .flow-step .num {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--accent-soft); color: var(--accent-2);
+    display: grid; place-items: center; font-weight: 700; font-size: 13px;
+  }
+  .flow-step .label { font-size: 13px; }
+  .flow-step .desc { font-size: 11px; color: var(--muted); }
+  .flow-arrow { text-align: center; color: var(--muted); font-size: 18px; margin: 4px 0; }
+
+  .empty {
+    text-align: center; padding: 40px 20px; color: var(--muted); font-size: 13px;
+  }
+  .empty .icon { font-size: 36px; margin-bottom: 8px; opacity: 0.5; }
+  .footer-note {
+    margin-top: 30px; text-align: center; color: var(--muted); font-size: 12px;
+  }
+  .footer-note code {
+    background: rgba(0, 0, 0, 0.4); padding: 2px 8px; border-radius: 6px;
+    font-family: "SF Mono", Menlo, monospace; color: var(--accent-2);
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+// 為了相容 @babel/standalone 7.18+ — 手動 transform 成 classic runtime
+// （新版 react preset 預設會輸出 ES modules 的 import 語法，
+//  在 type="text/babel" 自動執行模式下無法被瀏覽器接受）
+window.addEventListener('DOMContentLoaded', () => {
+  const tag = document.querySelector('script#chronicle-source');
+  if (!tag) return;
+  const src = tag.textContent;
+  let compiled;
+  try {
+    compiled = Babel.transform(src, { presets: [['react', { runtime: 'classic' }]] }).code;
+  } catch (e) {
+    console.error('[Chronicle] Babel transform failed:', e);
+    document.getElementById('root').innerHTML =
+      '<pre style="color:#f87171;padding:24px;font-family:monospace">Babel transform failed:\n' + e.message + '</pre>';
+    return;
+  }
+  const s = document.createElement('script');
+  s.textContent = compiled;
+  document.body.appendChild(s);
+});
+</script>
+<script id="chronicle-source" type="text/plain">
+const { useState, useMemo, useEffect, useRef } = React;
+
+// ============================================================================
+// 資料層：5 個 fixture events（與 calendar_client.py 完全對齊）
+// ============================================================================
+function genFixtures() {
+  const now = new Date();
+  now.setHours(9, 0, 0, 0);
+  const tomorrow = new Date(now.getTime() + 24*3600*1000);
+  const samples = [
+    { offset: 0,    dur: 30,  title: "晨會 standup",    tags: ["工作", "Daily"],     reminders: [5] },
+    { offset: 1,    dur: 90,  title: "產品 review",      tags: ["工作", "Review"],    reminders: [10, 30] },
+    { offset: 2,    dur: 120, title: "客戶拜訪",          tags: ["工作", "拜訪"],       reminders: [60] },
+    { offset: 3,    dur: 60,  title: "程式碼審查",        tags: ["工作", "Review"],    reminders: [15] },
+    { offset: 4,    dur: 45,  title: "週報撰寫",          tags: ["工作", "報告"],       reminders: [20] },
+  ];
+  return samples.map((s, idx) => {
+    const start = new Date(now.getTime() + s.offset*24*3600*1000);
+    const end = new Date(start.getTime() + s.dur*60*1000);
+    return {
+      id: `fixture-${idx}`,
+      summary: s.title,
+      description: "範例事件 — 由 calendar_client fixture 自動產生",
+      start: { dateTime: start.toISOString(), timeZone: "Asia/Taipei" },
+      end: { dateTime: end.toISOString(), timeZone: "Asia/Taipei" },
+      tags: s.tags,
+      reminders: {
+        useDefault: false,
+        overrides: s.reminders.map(m => ({ method: "popup", minutes: m })),
+      },
+    };
+  });
+}
+
+const DEFAULT_RULES = {
+  default_lead_minutes: [10],
+  keyword_filter: [],
+  quiet_hours: [["22:00", "08:00"]],
+  max_reminders_per_event: 3,
+};
+
+// ============================================================================
+// 共用元件
+// ============================================================================
+function Stat({ label, value, delta, accent }) {
+  return (
+    <div className="stat-card" style={ accent ? { borderLeft: `3px solid ${accent}` } : null }>
+      <div className="label">{label}</div>
+      <div className="value">{value}</div>
+      <div className="delta">{delta}</div>
+    </div>
+  );
+}
+
+function EventCard({ event, onDelete }) {
+  const start = new Date(event.start.dateTime);
+  const end = new Date(event.end.dateTime);
+  const fmt = d => d.toLocaleString("zh-TW", { month: "2-digit", day: "2-digit", weekday: "short", hour: "2-digit", minute: "2-digit" });
+  const mins = (start - new Date()) / 60000;
+  const until = mins > 0
+    ? `還有 ${Math.floor(mins/60)} 小時 ${Math.round(mins%60)} 分`
+    : `已過 ${Math.floor(-mins/60)} 小時`;
+  return (
+    <div className="event-card">
+      <div className="when">{fmt(start)} — {fmt(end).split(" ").slice(-1)[0]}　·　{until}</div>
+      <div className="title">{event.summary}</div>
+      <div className="tags">
+        {event.tags.map(t => <span key={t} className="tag">{t}</span>)}
+        {event.reminders?.overrides?.map((r, i) => (
+          <span key={i} className="tag remind">提醒 −{r.minutes}m</span>
+        ))}
+        <span style={{ flex: 1 }} />
+        <button className="ghost" onClick={() => onDelete(event.id)} style={{ padding: "4px 10px", fontSize: 11 }}>刪除</button>
+      </div>
+    </div>
+  );
+}
+
+function LogLine({ ts, level, msg }) {
+  return (
+    <div><span className="ts">[{ts}]</span><span className={level}>{msg}</span></div>
+  );
+}
+
+// ============================================================================
+// 頁籤 1：事件總覽
+// ============================================================================
+function EventsView({ events, onDelete, onAddClick }) {
+  const [q, setQ] = useState("");
+  const filtered = useMemo(() => {
+    if (!q) return events;
+    const k = q.toLowerCase();
+    return events.filter(e =>
+      (e.summary || "").toLowerCase().includes(k) ||
+      (e.tags || []).some(t => t.toLowerCase().includes(k))
+    );
+  }, [events, q]);
+
+  const stats = useMemo(() => {
+    const today = new Date(); today.setHours(0,0,0,0);
+    const tomorrow = new Date(today.getTime() + 24*3600*1000);
+    const todayCount = events.filter(e => {
+      const s = new Date(e.start.dateTime);
+      return s >= today && s < tomorrow;
+    }).length;
+    const totalReminders = events.reduce((sum, e) => sum + (e.reminders?.overrides?.length || 0), 0);
+    return {
+      total: events.length,
+      today: todayCount,
+      reminders: totalReminders,
+      upcoming: events.filter(e => new Date(e.start.dateTime) > new Date()).length,
+    };
+  }, [events]);
+
+  return (
+    <div className="grid">
+      <div className="grid cols-4">
+        <Stat label="事件總數" value={stats.total} delta="本週（含過去）" />
+        <Stat label="今日" value={stats.today} delta="未來 24 小時內" accent="var(--accent)" />
+        <Stat label="提醒設定" value={stats.reminders} delta="總提醒點數" />
+        <Stat label="即將到來" value={stats.upcoming} delta="尚未開始" />
+      </div>
+
+      <div className="panel">
+        <div className="panel-header">
+          <div>
+            <h2>事件清單</h2>
+            <div className="meta">所有從 Google Calendar 或 fixture 載入的事件</div>
+          </div>
+          <button onClick={onAddClick}>+ 新增事件</button>
+        </div>
+
+        <div className="toolbar">
+          <input placeholder="搜尋事件 / 標籤..." value={q} onChange={e => setQ(e.target.value)} />
+          <button className="ghost" onClick={() => setQ("")}>清除</button>
+        </div>
+
+        {filtered.length === 0 ? (
+          <div className="empty"><div className="icon">📭</div>找不到符合條件的事件</div>
+        ) : (
+          filtered.map(ev => <EventCard key={ev.id} event={ev} onDelete={onDelete} />)
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// 頁籤 2：新增事件
+// ============================================================================
+function AddEventView({ onAdd }) {
+  const today = new Date();
+  const defaultStart = new Date(today.getTime() + 3600*1000);
+  defaultStart.setMinutes(0, 0, 0);
+  const pad = n => String(n).padStart(2, "0");
+  const fmt = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+  const [form, setForm] = useState({
+    summary: "",
+    start: fmt(defaultStart),
+    duration: 60,
+    description: "",
+    reminders: "10, 30",
+    tags: "",
+  });
+  const [lastResult, setLastResult] = useState(null);
+
+  const submit = e => {
+    e.preventDefault();
+    if (!form.summary.trim()) return;
+    const start = new Date(form.start);
+    const end = new Date(start.getTime() + Number(form.duration)*60000);
+    const newEv = {
+      id: `local-${Date.now()}`,
+      summary: form.summary,
+      description: form.description,
+      start: { dateTime: start.toISOString(), timeZone: "Asia/Taipei" },
+      end: { dateTime: end.toISOString(), timeZone: "Asia/Taipei" },
+      tags: form.tags.split(",").map(t => t.trim()).filter(Boolean),
+      reminders: {
+        useDefault: false,
+        overrides: form.reminders.split(",").map(r => {
+          const m = parseInt(r.trim(), 10);
+          return { method: "popup", minutes: isNaN(m) ? 10 : m };
+        }),
+      },
+    };
+    onAdd(newEv);
+    setLastResult({ ok: true, ev: newEv });
+    setForm(f => ({ ...f, summary: "", description: "", tags: "" }));
+  };
+
+  return (
+    <div className="grid cols-2">
+      <div className="panel">
+        <h2>新增事件</h2>
+        <div className="meta">建立後會同步到 Google Calendar（透過 calendar_client.py add）</div>
+        <form onSubmit={submit}>
+          <label>
+            標題 *
+            <input value={form.summary} onChange={e => setForm({...form, summary: e.target.value})} placeholder="例：週會、客戶拜訪..." required />
+          </label>
+          <div className="grid cols-2">
+            <label>
+              開始時間 *
+              <input type="datetime-local" value={form.start} onChange={e => setForm({...form, start: e.target.value})} required />
+            </label>
+            <label>
+              時長（分鐘）
+              <input type="number" min="5" step="5" value={form.duration} onChange={e => setForm({...form, duration: e.target.value})} />
+            </label>
+          </div>
+          <label>
+            描述
+            <textarea value={form.description} onChange={e => setForm({...form, description: e.target.value})} placeholder="會議議程、地點、與會者..." />
+          </label>
+          <label>
+            標籤（逗號分隔）
+            <input value={form.tags} onChange={e => setForm({...form, tags: e.target.value})} placeholder="工作, 會議, 重要" />
+          </label>
+          <label>
+            提醒時間（分鐘，逗號分隔；留空套用預設 10 分鐘）
+            <input value={form.reminders} onChange={e => setForm({...form, reminders: e.target.value})} placeholder="10, 30, 60" />
+          </label>
+          <button type="submit" disabled={!form.summary.trim()}>建立事件</button>
+        </form>
+      </div>
+
+      <div className="panel">
+        <h2>對應的 API 呼叫</h2>
+        <div className="meta">預覽實際會送到 Google Calendar API 的參數</div>
+        <pre style={{ background: "#020617", padding: 14, borderRadius: 10, overflow: "auto", fontSize: 12, color: "#cbd5e1" }}>
+{`# CLI 對應：
+python3 calendar_client.py add \\
+  --summary "${form.summary || "<標題>"}" \\
+  --start "${form.start || "YYYY-MM-DDTHH:MM"}" \\
+  --duration ${form.duration} \\
+  --description "${form.description || "<描述>"}" \\
+  --reminders "${form.reminders || "10"}"
+
+# API payload：
+{
+  "summary": "${form.summary || "<標題>"}",
+  "start": { "dateTime": "${form.start ? new Date(form.start).toISOString() : "..."}", "timeZone": "Asia/Taipei" },
+  "end":   { "dateTime": "${form.start ? new Date(new Date(form.start).getTime() + Number(form.duration)*60000).toISOString() : "..."}", "timeZone": "Asia/Taipei" },
+  "description": "${(form.description || "").replace(/\n/g, " ")}",
+  "reminders": {
+    "useDefault": false,
+    "overrides": [${form.reminders.split(",").map(r => `{ "method": "popup", "minutes": ${parseInt(r.trim(),10)||10} }`).join(", ")}]
+  }
+}`}
+        </pre>
+        {lastResult && (
+          <div style={{ marginTop: 14, padding: 10, borderRadius: 8, background: "rgba(52,211,153,0.15)", color: "var(--ok)", fontSize: 12 }}>
+            ✓ 已建立事件「{lastResult.ev.summary}」({new Date(lastResult.ev.start.dateTime).toLocaleString("zh-TW")})
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// 頁籤 3：提醒規則 + 狀態 + 流程
+// ============================================================================
+function RulesView({ rules, setRules, logs, onRun, onLoop, looping }) {
+  const [draft, setDraft] = useState(rules);
+  useEffect(() => setDraft(rules), [rules]);
+
+  const apply = () => setRules(draft);
+
+  return (
+    <div className="grid">
+      <div className="grid cols-2">
+        <div className="panel">
+          <h2>提醒規則</h2>
+          <div className="meta">編輯後按「套用」生效（也會寫入 rules.example.json 範本）</div>
+
+          <label>
+            預設提前分鐘數（逗號分隔）
+            <input value={draft.default_lead_minutes.join(", ")}
+              onChange={e => setDraft({...draft, default_lead_minutes: e.target.value.split(",").map(s => parseInt(s.trim())||10)})} />
+          </label>
+
+          <label>
+            關鍵字過濾（空白 = 全部提醒）
+            <input value={draft.keyword_filter.join(", ")}
+              onChange={e => setDraft({...draft, keyword_filter: e.target.value.split(",").map(s => s.trim()).filter(Boolean)})} />
+          </label>
+
+          <label>
+            靜音時段（HH:MM-HH:MM，多個用逗號）
+            <input value={draft.quiet_hours.map(p => `${p[0]}-${p[1]}`).join(", ")}
+              onChange={e => setDraft({...draft, quiet_hours: e.target.value.split(",").map(s => {
+                const [a, b] = s.split("-").map(x => x.trim());
+                return (a && b) ? [a, b] : null;
+              }).filter(Boolean)})} />
+          </label>
+
+          <label>
+            每事件最多提醒次數
+            <input type="number" min="1" max="10" value={draft.max_reminders_per_event}
+              onChange={e => setDraft({...draft, max_reminders_per_event: parseInt(e.target.value)||3})} />
+          </label>
+
+          <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+            <button onClick={apply}>套用規則</button>
+            <button className="ghost" onClick={() => { setDraft(DEFAULT_RULES); setRules(DEFAULT_RULES); }}>重置為預設</button>
+          </div>
+        </div>
+
+        <div className="panel">
+          <h2>執行狀態</h2>
+          <div className="meta">單次 / 持續跑 reminder engine</div>
+
+          <div className="grid cols-2" style={{ marginBottom: 14 }}>
+            <button onClick={() => onRun(false)} disabled={looping}>▶ 跑一次（run）</button>
+            <button onClick={() => onRun(true)} className={looping ? "danger" : "ghost"} disabled={false}>
+              {looping ? "⏹ 停止 loop" : "↻ 持續 loop（60s）"}
+            </button>
+          </div>
+
+          <div className="flow-step">
+            <div className="num">1</div>
+            <div>
+              <div className="label">Google Calendar API</div>
+              <div className="desc">events.list 取未來事件</div>
+            </div>
+          </div>
+          <div className="flow-arrow">↓</div>
+          <div className="flow-step">
+            <div className="num">2</div>
+            <div>
+              <div className="label">規則引擎</div>
+              <div className="desc">套用 keyword / quiet hours / lead time</div>
+            </div>
+          </div>
+          <div className="flow-arrow">↓</div>
+          <div className="flow-step">
+            <div className="num">3</div>
+            <div>
+              <div className="label">狀態去重</div>
+              <div className="desc">reminder_state.json 防止重發</div>
+            </div>
+          </div>
+          <div className="flow-arrow">↓</div>
+          <div className="flow-step">
+            <div className="num">4</div>
+            <div>
+              <div className="label">Webhook 推播</div>
+              <div className="desc">n8n / Slack / Telegram bot</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <h2>執行日誌（瀏覽器內模擬）</h2>
+        <div className="meta">實際部署時 webhook 會把這份日誌推到 n8n / Slack</div>
+        <div className="log">
+          {logs.length === 0
+            ? <div style={{ color: "var(--muted)" }}>尚無日誌，點「跑一次」開始</div>
+            : logs.map((l, i) => <LogLine key={i} {...l} />)
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// 主 App
+// ============================================================================
+function App() {
+  const [tab, setTab] = useState("events");
+  const [events, setEvents] = useState(genFixtures);
+  const [rules, setRules] = useState(DEFAULT_RULES);
+  const [logs, setLogs] = useState([]);
+  const [looping, setLooping] = useState(false);
+  const loopRef = useRef(null);
+
+  const now = () => new Date().toLocaleTimeString("zh-TW");
+
+  const appendLog = (level, msg) =>
+    setLogs(prev => [{ ts: now(), level, msg }, ...prev].slice(0, 80));
+
+  const runEngine = () => {
+    const now_ = new Date();
+    let sent = 0, candidates = 0;
+    events.forEach(ev => {
+      const start = new Date(ev.start.dateTime);
+      const minutes = (start - now_) / 60000;
+      const leadList = ev.reminders?.overrides?.map(o => o.minutes) || rules.default_lead_minutes;
+      leadList.forEach(lead => {
+        if ((lead - 5) <= minutes && minutes <= lead) {
+          candidates++;
+          appendLog("ok", `📅 ${ev.summary} — 提前 ${lead} 分鐘提醒`);
+          sent++;
+        }
+      });
+    });
+    appendLog("info", `本輪掃描 ${events.length} 個事件 → 命中 ${candidates} 個提醒點`);
+    return { sent, total: events.length };
+  };
+
+  const handleRun = (loop) => {
+    if (loop) {
+      if (looping) {
+        clearInterval(loopRef.current);
+        loopRef.current = null;
+        setLooping(false);
+        appendLog("warn", "已停止 loop");
+        return;
+      }
+      appendLog("info", "▶ 啟動 loop（每 60 秒掃描一次）");
+      runEngine();
+      loopRef.current = setInterval(() => {
+        appendLog("info", "─── loop tick ───");
+        runEngine();
+      }, 60000);
+      setLooping(true);
+    } else {
+      appendLog("info", "▶ 單次執行 reminder engine");
+      const r = runEngine();
+      appendLog("ok", `完成：sent=${r.sent}, total=${r.total}`);
+    }
+  };
+
+  const handleAdd = (ev) => {
+    setEvents(prev => [...prev, ev]);
+    appendLog("ok", `✓ 新增事件「${ev.summary}」到清單`);
+  };
+
+  const handleDelete = (id) => {
+    const ev = events.find(e => e.id === id);
+    if (!ev) return;
+    setEvents(prev => prev.filter(e => e.id !== id));
+    appendLog("warn", `🗑 刪除事件「${ev.summary}」`);
+  };
+
+  useEffect(() => () => clearInterval(loopRef.current), []);
+
+  const stats = useMemo(() => {
+    const totalEvents = events.length;
+    const upcoming = events.filter(e => new Date(e.start.dateTime) > new Date()).length;
+    const totalReminders = events.reduce((s, e) => s + (e.reminders?.overrides?.length || 0), 0);
+    return { totalEvents, upcoming, totalReminders };
+  }, [events]);
+
+  return (
+    <div className="app">
+      <header className="brand">
+        <div className="logo">📅</div>
+        <div style={{ flex: 1 }}>
+          <h1>Chronicle — Calendar 自動化儀表板</h1>
+          <div className="sub">Google Calendar API 集成 · 自動化管理與提醒 · 單檔前端</div>
+        </div>
+        <div>
+          <span className="badge ok">● 運行中</span>
+          <span className="badge info" style={{ marginLeft: 6 }}>{stats.totalEvents} events</span>
+        </div>
+      </header>
+
+      <div className="tabs">
+        <div className={`tab ${tab==='events'?'active':''}`} onClick={() => setTab('events')}>① 事件總覽</div>
+        <div className={`tab ${tab==='add'?'active':''}`} onClick={() => setTab('add')}>② 新增事件</div>
+        <div className={`tab ${tab==='rules'?'active':''}`} onClick={() => setTab('rules')}>③ 提醒規則與狀態</div>
+      </div>
+
+      {tab === 'events' && (
+        <EventsView events={events} onDelete={handleDelete} onAddClick={() => setTab('add')} />
+      )}
+      {tab === 'add' && <AddEventView onAdd={handleAdd} />}
+      {tab === 'rules' && (
+        <RulesView
+          rules={rules} setRules={setRules} logs={logs}
+          onRun={handleRun} looping={looping}
+        />
+      )}
+
+      <div className="footer-note">
+        後端 Python 模組位於 <code>calendar_client.py</code> + <code>reminder_engine.py</code> ·
+        啟動指令 <code>python3 calendar_client.py auth</code> →
+        <code>python3 reminder_engine.py run --source google</code>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
