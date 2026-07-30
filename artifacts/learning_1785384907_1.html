@@ -1,0 +1,1086 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<title>OCR 自動化行政文件處理流程 — Admin Document OCR Pipeline</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+<!-- React 18 UMD (與 React Flow 同版本, 避免 hook instance 衝突) -->
+<script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+
+<!-- Babel for in-browser JSX -->
+<script src="https://unpkg.com/@babel/standalone@7.24.0/babel.min.js"></script>
+
+<!-- React Flow 11 (UMD 不再維護最新版, 用 ESM 透過 esm.sh) -->
+<script type="module">
+  import * as RF from 'https://esm.sh/reactflow@11.10.1';
+  window.ReactFlow = RF;
+  window.dispatchEvent(new Event('reactflow-ready'));
+</script>
+
+<!-- Tesseract.js v5 (OCR 核心) -->
+<script src="https://unpkg.com/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
+
+<!-- PDF.js (解析 PDF 逐頁轉圖給 Tesseract) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  // 設定 worker (PDF.js 必須, 否則會警告)
+  if (window['pdfjsLib']) {
+    window['pdfjsLib'].GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+</script>
+
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif; background: #0b0e14; color: #e6e9ef; }
+  #root { height: 100vh; display: flex; flex-direction: column; }
+
+  /* ===== Top Bar ===== */
+  .topbar { height: 56px; padding: 0 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #1f2530; background: #0f1320; flex-shrink: 0; }
+  .topbar h1 { font-size: 16px; margin: 0; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .topbar h1 .badge { background: linear-gradient(135deg, #2a6df4, #5f3dc4); color: white; padding: 3px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; letter-spacing: 0.04em; }
+  .topbar .spacer { flex: 1; }
+  .topbar button { background: #2a6df4; color: white; border: 0; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; }
+  .topbar button:hover { background: #1e5ad8; }
+  .topbar button:disabled { background: #3a4257; cursor: not-allowed; }
+  .topbar button.secondary { background: #1c2230; color: #e6e9ef; border: 1px solid #2a3042; }
+  .topbar button.secondary:hover { background: #2a6df4; border-color: #2a6df4; }
+  .topbar input[type="file"] { display: none; }
+  .topbar .file-label { background: #1c2230; color: #e6e9ef; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; border: 1px solid #2a3042; }
+  .topbar .file-label:hover { background: #2a6df4; border-color: #2a6df4; }
+  .topbar .status { font-size: 12px; color: #8a93a6; padding: 4px 10px; background: #0d1117; border: 1px solid #1f2530; border-radius: 6px; }
+  .topbar .status.ok { color: #51cf66; border-color: #2b8a3e; }
+  .topbar .status.warn { color: #f59f00; border-color: #c97a00; }
+
+  /* ===== Main Layout ===== */
+  .main { flex: 1; display: flex; min-height: 0; }
+
+  /* ===== Left Sidebar ===== */
+  .sidebar { width: 260px; background: #0f1320; border-right: 1px solid #1f2530; padding: 12px; overflow-y: auto; flex-shrink: 0; }
+  .sidebar h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #8a93a6; margin: 14px 0 8px 0; font-weight: 600; }
+  .sidebar h3:first-child { margin-top: 0; }
+  .sidebar .doc-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+  .sidebar .doc-picker button { background: #1c2230; color: #e6e9ef; border: 1px solid #2a3042; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 12px; text-align: left; }
+  .sidebar .doc-picker button:hover { border-color: #2a6df4; background: #232a3d; }
+  .sidebar .doc-picker button.active { border-color: #2a6df4; background: rgba(42,109,244,0.18); }
+  .sidebar .doc-picker button .doc-name { font-weight: 600; display: block; }
+  .sidebar .doc-picker button .doc-count { font-size: 10px; color: #8a93a6; }
+  .palette-node { background: #1c2230; border: 1px solid #2a3042; border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; cursor: grab; font-size: 13px; transition: border-color 0.15s; }
+  .palette-node:hover { border-color: #2a6df4; }
+  .palette-node:active { cursor: grabbing; }
+  .palette-node .node-title { font-weight: 600; margin-bottom: 2px; display: flex; align-items: center; gap: 6px; }
+  .palette-node .node-desc { font-size: 11px; color: #8a93a6; }
+  .sidebar .help { font-size: 11px; color: #8a93a6; line-height: 1.65; background: #1c2230; padding: 10px; border-radius: 6px; border-left: 3px solid #2a6df4; }
+
+  /* ===== Flow Canvas ===== */
+  .flow { flex: 1; position: relative; background: #0b0e14; min-width: 0; }
+  .flow .loading-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(11,14,20,0.92); z-index: 10; flex-direction: column; gap: 14px; }
+  .flow .loading-overlay .spinner { width: 36px; height: 36px; border: 3px solid #1f2530; border-top-color: #2a6df4; border-radius: 50%; animation: spin 0.8s linear infinite; }
+  .flow .loading-overlay .label { color: #8a93a6; font-size: 13px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ===== Right Panel ===== */
+  .right-panel { width: 360px; background: #0f1320; border-left: 1px solid #1f2530; padding: 12px; overflow-y: auto; flex-shrink: 0; font-size: 12px; }
+  .right-panel .panel-title { font-size: 13px; font-weight: 600; margin: 0 0 8px 0; display: flex; align-items: center; gap: 6px; }
+  .right-panel .panel-title:not(:first-child) { margin-top: 16px; }
+  .right-panel .actions { display: flex; gap: 8px; margin-bottom: 10px; }
+  .right-panel .actions button { flex: 1; background: #1c2230; color: #e6e9ef; border: 1px solid #2a3042; padding: 7px; border-radius: 4px; font-size: 11px; cursor: pointer; }
+  .right-panel .actions button:hover { background: #2a6df4; border-color: #2a6df4; color: white; }
+  .right-panel .actions button.run { background: #2a6df4; border-color: #2a6df4; color: white; }
+  .right-panel .actions button.run:hover { background: #1e5ad8; }
+  .right-panel .actions button.export { background: #2b8a3e; border-color: #2b8a3e; color: white; }
+  .right-panel .actions button.export:hover { background: #237434; }
+  .right-panel .actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ===== Tabs ===== */
+  .tabs { display: flex; border-bottom: 1px solid #1f2530; margin-bottom: 10px; gap: 2px; }
+  .tabs button { background: transparent; color: #8a93a6; border: 0; padding: 8px 12px; font-size: 12px; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; }
+  .tabs button:hover { color: #e6e9ef; }
+  .tabs button.active { color: #2a6df4; border-bottom-color: #2a6df4; font-weight: 600; }
+
+  /* ===== Log ===== */
+  .run-log { background: #060810; border: 1px solid #1f2530; border-radius: 4px; padding: 8px; max-height: 200px; overflow-y: auto; font-family: ui-monospace, "SF Mono", "Cascadia Code", monospace; font-size: 11px; line-height: 1.55; }
+  .run-log .line { color: #c0c6d4; padding: 1px 0; }
+  .run-log .line.error { color: #ff6b6b; }
+  .run-log .line.ok { color: #51cf66; }
+  .run-log .line.info { color: #74c0fc; }
+  .run-log .line.warn { color: #f59f00; }
+
+  /* ===== OCR Output ===== */
+  .ocr-output { background: #060810; border: 1px solid #1f2530; border-radius: 4px; padding: 8px; max-height: 200px; overflow-y: auto; font-family: ui-monospace, monospace; font-size: 11px; white-space: pre-wrap; line-height: 1.5; color: #c0c6d4; }
+
+  /* ===== Extracted Fields Table ===== */
+  .fields-table { background: #060810; border: 1px solid #1f2530; border-radius: 4px; overflow: hidden; }
+  .fields-table .field-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; border-bottom: 1px solid #1f2530; font-size: 11px; }
+  .fields-table .field-row:last-child { border-bottom: 0; }
+  .fields-table .field-row .field-key { color: #8a93a6; font-weight: 500; }
+  .fields-table .field-row .field-val { color: #e6e9ef; font-family: ui-monospace, monospace; font-weight: 600; }
+  .fields-table .field-row .field-val.empty { color: #f85149; font-style: italic; font-weight: 400; }
+  .fields-table .field-row .field-val.filled { color: #51cf66; }
+
+  /* ===== Batch Table ===== */
+  .batch-table { background: #060810; border: 1px solid #1f2530; border-radius: 4px; max-height: 280px; overflow-y: auto; font-size: 11px; }
+  .batch-table table { width: 100%; border-collapse: collapse; }
+  .batch-table th { background: #1c2230; color: #8a93a6; text-align: left; padding: 6px 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; font-size: 10px; position: sticky; top: 0; }
+  .batch-table td { padding: 6px 8px; border-bottom: 1px solid #1f2530; color: #e6e9ef; }
+  .batch-table tr:hover td { background: rgba(42,109,244,0.08); }
+  .batch-table .empty-cell { color: #f85149; font-style: italic; }
+  .batch-table .badge-ok { background: #2b8a3e; color: white; padding: 1px 6px; border-radius: 8px; font-size: 9px; font-weight: 600; }
+  .batch-table .badge-err { background: #c92a2a; color: white; padding: 1px 6px; border-radius: 8px; font-size: 9px; font-weight: 600; }
+
+  /* ===== React Flow Custom Nodes ===== */
+  .custom-node { background: #1c2230; border: 2px solid #2a3042; border-radius: 8px; padding: 10px 14px; min-width: 180px; color: #e6e9ef; font-size: 12px; transition: all 0.2s; }
+  .custom-node.running { border-color: #f59f00; box-shadow: 0 0 0 3px rgba(245,159,0,0.15); animation: pulse 1.4s ease-in-out infinite; }
+  .custom-node.done { border-color: #51cf66; }
+  .custom-node.error { border-color: #ff6b6b; }
+  @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 3px rgba(245,159,0,0.15); } 50% { box-shadow: 0 0 0 6px rgba(245,159,0,0.25); } }
+  .custom-node.selected { box-shadow: 0 0 0 3px rgba(42,109,244,0.4); }
+  .custom-node .node-header { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 4px; }
+  .custom-node .node-icon { width: 22px; height: 22px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+  .custom-node .node-type { font-size: 10px; color: #8a93a6; text-transform: uppercase; letter-spacing: 0.05em; }
+  .custom-node .node-summary { font-size: 11px; color: #c0c6d4; margin-top: 6px; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .custom-node .node-fields { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 6px; }
+  .custom-node .node-fields .chip { background: #0b0e14; border: 1px solid #2a3042; padding: 1px 6px; border-radius: 3px; font-size: 10px; color: #8a93a6; }
+
+  /* 預設節點型別底色 */
+  .node-input .node-icon { background: #1c4e80; color: #fff; }
+  .node-pdfsplit .node-icon { background: #0c8599; color: #fff; }
+  .node-ocr .node-icon { background: #5f3dc4; color: #fff; }
+  .node-extract .node-icon { background: #862e9c; color: #fff; }
+  .node-table .node-icon { background: #e8590c; color: #fff; }
+  .node-validate .node-icon { background: #c92a2a; color: #fff; }
+  .node-transform .node-icon { background: #c2255c; color: #fff; }
+  .node-export .node-icon { background: #2b8a3e; color: #fff; }
+  .node-output .node-icon { background: #495057; color: #fff; }
+
+  /* ===== React Flow Style Overrides ===== */
+  .react-flow__edge-path { stroke: #4a5568; stroke-width: 2; }
+  .react-flow__edge.selected .react-flow__edge-path { stroke: #2a6df4; }
+  .react-flow__handle { background: #2a6df4; border: 1px solid #0b0e14; width: 10px; height: 10px; }
+  .react-flow__attribution { background: transparent !important; color: #4a5568 !important; }
+  .react-flow__controls button { background: #1c2230 !important; color: #e6e9ef !important; border-bottom: 1px solid #2a3042 !important; fill: #e6e9ef !important; }
+  .react-flow__controls button:hover { background: #2a6df4 !important; }
+  .react-flow__minimap { background: #0f1320 !important; }
+  .react-flow__node.selected .custom-node { border-color: #2a6df4; }
+
+  /* ===== Modal ===== */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .modal { background: #0f1320; border: 1px solid #2a3042; border-radius: 8px; padding: 20px; max-width: 600px; width: 100%; max-height: 80vh; overflow-y: auto; }
+  .modal h2 { margin: 0 0 12px 0; font-size: 16px; color: #e6e9ef; }
+  .modal .modal-close { float: right; background: transparent; color: #8a93a6; border: 0; font-size: 18px; cursor: pointer; }
+  .modal .modal-close:hover { color: #ff6b6b; }
+  .modal pre { background: #060810; padding: 10px; border-radius: 4px; font-size: 11px; max-height: 300px; overflow: auto; color: #c0c6d4; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div style="padding:40px;color:#8a93a6;font-family:-apple-system,sans-serif;">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div style="width:32px;height:32px;border:3px solid #1f2530;border-top-color:#2a6df4;border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+      <span>載入 OCR 行政文件處理流程中…</span>
+    </div>
+  </div>
+</div>
+
+<script type="text/babel" data-presets="env,react">
+const { useState, useEffect, useCallback, useRef, useMemo } = React;
+const e = React.createElement;
+
+// ============================================================================
+// 節點型別定義 — 行政文件 OCR Pipeline 專屬
+// ============================================================================
+const NODE_TYPES = {
+  input: {
+    label: '文件輸入',
+    icon: '📄',
+    color: '#1c4e80',
+    desc: 'PDF / 圖片 (含批次)',
+  },
+  pdfsplit: {
+    label: 'PDF 分頁',
+    icon: '📚',
+    color: '#0c8599',
+    desc: 'PDF.js 拆頁轉圖',
+  },
+  ocr: {
+    label: 'OCR 識別',
+    icon: '🔍',
+    color: '#5f3dc4',
+    desc: 'Tesseract 中英雙語',
+  },
+  extract: {
+    label: '欄位擷取',
+    icon: '✂️',
+    color: '#862e9c',
+    desc: '正則智慧匹配',
+  },
+  table: {
+    label: '表格辨識',
+    icon: '📊',
+    color: '#e8590c',
+    desc: '跨頁表格合併',
+  },
+  validate: {
+    label: '欄位驗證',
+    icon: '✅',
+    color: '#c92a2a',
+    desc: '統編/日期/金額格式',
+  },
+  transform: {
+    label: '清洗/標準化',
+    icon: '🔧',
+    color: '#c2255c',
+    desc: '日期金額格式統一',
+  },
+  export: {
+    label: '匯出 CSV/Excel',
+    icon: '💾',
+    color: '#2b8a3e',
+    desc: '下載結構化結果',
+  },
+  output: {
+    label: '輸出節點',
+    icon: '📤',
+    color: '#495057',
+    desc: '流程終點',
+  },
+};
+
+// ============================================================================
+// 行政文件類型預設範本
+// ============================================================================
+const DOC_TEMPLATES = {
+  invoice: {
+    name: '發票/收據',
+    icon: '🧾',
+    fields: ['發票號碼', '日期', '金額', '統編', '賣方'],
+    workflow: ['input', 'ocr', 'extract', 'validate', 'transform', 'export'],
+  },
+  purchase: {
+    name: '請購單',
+    icon: '📋',
+    fields: ['申請人', '部門', '品項', '數量', '單價', '總額', '日期'],
+    workflow: ['input', 'ocr', 'extract', 'table', 'transform', 'export'],
+  },
+  contract: {
+    name: '合約書',
+    icon: '📜',
+    fields: ['合約編號', '甲方', '乙方', '生效日', '到期日', '金額'],
+    workflow: ['input', 'pdfsplit', 'ocr', 'extract', 'validate', 'export'],
+  },
+  payroll: {
+    name: '薪資單',
+    icon: '💰',
+    fields: ['員工姓名', '員工編號', '底薪', '加班費', '應付額', '發薪日'],
+    workflow: ['input', 'ocr', 'extract', 'table', 'validate', 'export'],
+  },
+  receipt: {
+    name: '報銷單',
+    icon: '🧮',
+    fields: ['報銷人', '部門', '項目', '金額', '發票號碼', '日期'],
+    workflow: ['input', 'ocr', 'extract', 'validate', 'transform', 'export'],
+  },
+  idcard: {
+    name: '身分證件',
+    icon: '🪪',
+    fields: ['姓名', '身分證字號', '出生日期', '地址'],
+    workflow: ['input', 'ocr', 'extract', 'validate', 'output'],
+  },
+};
+
+// ============================================================================
+// 自訂節點元件 (React Flow)
+// ============================================================================
+function CustomNode({ data, selected }) {
+  const meta = NODE_TYPES[data.kind] || NODE_TYPES.output;
+  const status = data.status || 'idle';
+  return e('div', {
+    className: `custom-node node-${data.kind} ${selected ? 'selected' : ''} ${status}`,
+  },
+    e('div', { className: 'node-header' },
+      e('span', { className: 'node-icon' }, meta.icon),
+      e('span', null, data.label || meta.label),
+    ),
+    e('div', { className: 'node-type' }, meta.type + (status !== 'idle' ? ' · ' + status : '')),
+    data.summary && e('div', { className: 'node-summary' }, data.summary),
+    data.fields && data.fields.length > 0 && e('div', { className: 'node-fields' },
+      ...data.fields.slice(0, 4).map((f, i) => e('span', { key: i, className: 'chip' }, f.key + (f.value ? ':' + (f.value.length > 8 ? f.value.slice(0,8)+'…' : f.value) : '')))
+    ),
+  );
+}
+const nodeTypes = { custom: CustomNode };
+
+// ============================================================================
+// 左側節點面板 + 文件類型選擇
+// ============================================================================
+function NodePalette({ onAdd, docType, setDocType }) {
+  return e('div', { className: 'sidebar' },
+    e('h3', null, '📂 行政文件類型'),
+    e('div', { className: 'doc-picker' },
+      ...Object.entries(DOC_TEMPLATES).map(([key, tpl]) =>
+        e('button', {
+          key,
+          className: docType === key ? 'active' : '',
+          onClick: () => setDocType(key),
+        },
+          e('span', { className: 'doc-name' }, tpl.icon + ' ' + tpl.name),
+          e('span', { className: 'doc-count' }, tpl.fields.length + ' 欄位'),
+        )
+      ),
+    ),
+
+    e('h3', null, '🧩 處理節點'),
+    ...Object.entries(NODE_TYPES).map(([key, meta]) =>
+      e('div', {
+        key,
+        className: 'palette-node',
+        draggable: true,
+        onDragStart: (ev) => {
+          ev.dataTransfer.setData('application/hermes-node', key);
+          ev.dataTransfer.effectAllowed = 'move';
+        },
+        onClick: () => onAdd(key),
+      },
+        e('div', { className: 'node-title' }, meta.icon + ' ' + meta.label),
+        e('div', { className: 'node-desc' }, meta.desc),
+      )
+    ),
+
+    e('h3', null, '💡 使用說明'),
+    e('div', { className: 'help' },
+      e('div', null, '① 選擇行政文件類型載入預設工作流'),
+      e('div', null, '② 從節點面板拖曳或點擊新增'),
+      e('div', null, '③ 從節點圓點拖到下一節點建立連線'),
+      e('div', null, '④ 上傳 PDF / 圖片 (支援多檔批次)'),
+      e('div', null, '⑤ 點「▶ 執行」批次 OCR + 欄位擷取'),
+      e('div', null, '⑥ 切到「批次結果」分頁匯出 CSV'),
+    ),
+  );
+}
+
+// ============================================================================
+// 主應用
+// ============================================================================
+function App() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    if (window.ReactFlow) { setReady(true); return; }
+    const handler = () => setReady(true);
+    window.addEventListener('reactflow-ready', handler);
+    return () => window.removeEventListener('reactflow-ready', handler);
+  }, []);
+  if (!ready) {
+    return e('div', { className: 'loading-overlay' },
+      e('div', { className: 'spinner' }),
+      e('div', { className: 'label' }, '載入 React Flow 模組中…')
+    );
+  }
+  return e(WorkflowApp);
+}
+
+function WorkflowApp() {
+  const RF = window.ReactFlow;
+  const {
+    ReactFlowProvider, ReactFlow, Background, Controls, MiniMap,
+    applyNodeChanges, applyEdgeChanges, addEdge,
+  } = RF;
+
+  const reactFlowWrapper = useRef(null);
+  const [rfInstance, setRfInstance] = useState(null);
+  const [docType, setDocType] = useState('invoice');
+
+  // ==========================================================================
+  // 預設工作流生成器
+  // ==========================================================================
+  const buildWorkflowForDocType = useCallback((type) => {
+    const tpl = DOC_TEMPLATES[type];
+    if (!tpl) return { nodes: [], edges: [] };
+
+    const layout = {
+      input:    { x: 80,  y: 140 },
+      pdfsplit: { x: 280, y: 140 },
+      ocr:      { x: 480, y: 140 },
+      extract:  { x: 680, y: 140 },
+      table:    { x: 680, y: 300 },
+      validate: { x: 880, y: 140 },
+      transform:{ x: 880, y: 300 },
+      export:   { x: 1080, y: 140 },
+      output:   { x: 1280, y: 140 },
+    };
+
+    const nodes = tpl.workflow.map((kind, idx) => ({
+      id: String(idx + 1),
+      type: 'custom',
+      position: layout[kind] || { x: 100 + idx * 200, y: 200 },
+      data: {
+        kind,
+        label: NODE_TYPES[kind].label,
+        status: 'idle',
+        fields: kind === 'extract' ? tpl.fields.map(f => ({ key: f, value: null })) : null,
+      },
+    }));
+
+    const edges = nodes.slice(0, -1).map((n, i) => ({
+      id: `e${i+1}-${i+2}`,
+      source: n.id,
+      target: nodes[i+1].id,
+      animated: true,
+    }));
+
+    return { nodes, edges };
+  }, []);
+
+  // ==========================================================================
+  // State
+  // ==========================================================================
+  const initialWorkflow = useMemo(() => buildWorkflowForDocType('invoice'), []);
+  const [nodes, setNodes] = useState(initialWorkflow.nodes);
+  const [edges, setEdges] = useState(initialWorkflow.edges);
+  const [fileData, setFileData] = useState([]); // [{ name, type, dataUrl }]
+  const [logs, setLogs] = useState([]);
+  const [ocrText, setOcrText] = useState('');
+  const [extractedFields, setExtractedFields] = useState({});
+  const [batchResults, setBatchResults] = useState([]); // [{ fileName, fields, ok }]
+  const [running, setRunning] = useState(false);
+  const [activeTab, setActiveTab] = useState('log');
+  const [showJsonModal, setShowJsonModal] = useState(false);
+
+  // ==========================================================================
+  // 切換文件類型時,重置工作流
+  // ==========================================================================
+  useEffect(() => {
+    const wf = buildWorkflowForDocType(docType);
+    setNodes(wf.nodes);
+    setEdges(wf.edges);
+    setExtractedFields({});
+    setOcrText('');
+    log(`已切換至「${DOC_TEMPLATES[docType].name}」預設工作流 (${wf.nodes.length} 節點 / ${DOC_TEMPLATES[docType].fields.length} 欄位)`, 'info');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docType]);
+
+  const log = useCallback((msg, level = 'info') => {
+    setLogs(prev => [...prev, { ts: new Date().toLocaleTimeString(), msg, level }].slice(-300));
+  }, []);
+
+  const onNodesChange = useCallback((changes) => setNodes(nds => applyNodeChanges(changes, nds)), []);
+  const onEdgesChange = useCallback((changes) => setEdges(eds => applyEdgeChanges(changes, eds)), []);
+  const onConnect = useCallback((params) => setEdges(eds => addEdge({ ...params, animated: true }, eds)), []);
+
+  // ==========================================================================
+  // 新增節點 (從面板點擊)
+  // ==========================================================================
+  const addNode = useCallback((kind) => {
+    const id = String(Date.now());
+    setNodes(nds => [...nds, {
+      id, type: 'custom',
+      position: { x: 200 + Math.random() * 300, y: 200 + Math.random() * 200 },
+      data: { kind, label: NODE_TYPES[kind].label, status: 'idle' },
+    }]);
+    log(`已新增節點：${NODE_TYPES[kind].label}`, 'info');
+  }, [log]);
+
+  const onDragOver = useCallback((ev) => {
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = 'move';
+  }, []);
+  const onDrop = useCallback((ev) => {
+    ev.preventDefault();
+    const kind = ev.dataTransfer.getData('application/hermes-node');
+    if (!kind || !rfInstance) return;
+    const bounds = reactFlowWrapper.current.getBoundingClientRect();
+    const pos = rfInstance.screenToFlowPosition({ x: ev.clientX - bounds.left, y: ev.clientY - bounds.top });
+    const id = String(Date.now());
+    setNodes(nds => nds.concat({
+      id, type: 'custom', position: pos,
+      data: { kind, label: NODE_TYPES[kind].label, status: 'idle' },
+    }));
+    log(`已新增節點：${NODE_TYPES[kind].label}`, 'info');
+  }, [rfInstance, log]);
+
+  // ==========================================================================
+  // 檔案上傳 (支援多檔批次)
+  // ==========================================================================
+  const onFile = useCallback((ev) => {
+    const fs = Array.from(ev.target.files || []);
+    if (fs.length === 0) return;
+    let loaded = 0;
+    const newFiles = [];
+    fs.forEach(f => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        newFiles.push({ name: f.name, type: f.type, size: f.size, dataUrl: reader.result });
+        loaded++;
+        if (loaded === fs.length) {
+          setFileData(prev => [...prev, ...newFiles]);
+          log(`批次載入 ${newFiles.length} 個檔案 (${(newFiles.reduce((s,f)=>s+f.size,0)/1024).toFixed(1)} KB)`, 'ok');
+          setNodes(nds => nds.map(n => n.data.kind === 'input'
+            ? { ...n, data: { ...n.data, summary: `${newFiles.length} 個檔案`, status: 'idle' } }
+            : n));
+        }
+      };
+      reader.readAsDataURL(f);
+    });
+    ev.target.value = null;
+  }, [log]);
+
+  const clearFiles = useCallback(() => {
+    setFileData([]);
+    setBatchResults([]);
+    setOcrText('');
+    setExtractedFields({});
+    log('已清除所有檔案', 'info');
+  }, [log]);
+
+  // ==========================================================================
+  // 設置節點狀態
+  // ==========================================================================
+  const setNodeStatus = useCallback((id, status, summary) => {
+    setNodes(nds => nds.map(n => n.id === id
+      ? { ...n, data: { ...n.data, status, summary: summary ?? n.data.summary } }
+      : n));
+  }, []);
+
+  const setNodeFields = useCallback((id, fields) => {
+    setNodes(nds => nds.map(n => n.id === id
+      ? { ...n, data: { ...n.data, fields } }
+      : n));
+  }, []);
+
+  const getDownstream = useCallback((nodeId) => {
+    return edges.filter(ed => ed.source === nodeId).map(ed => ed.target);
+  }, [edges]);
+
+  // ==========================================================================
+  // PDF.js 拆分頁面 → Canvas dataUrl
+  // ==========================================================================
+  const pdfToImages = useCallback(async (dataUrl) => {
+    if (!window.pdfjsLib) {
+      log('PDF.js 未載入,無法處理 PDF', 'error');
+      throw new Error('PDF.js 未載入');
+    }
+    const pdf = await window.pdfjsLib.getDocument({ url: dataUrl }).promise;
+    log(`PDF 共 ${pdf.numPages} 頁,開始轉圖…`, 'info');
+    const images = [];
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page = await pdf.getPage(p);
+      const viewport = page.getViewport({ scale: 2.0 });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      images.push(canvas.toDataURL('image/png'));
+      log(`第 ${p}/${pdf.numPages} 頁轉圖完成`, 'info');
+    }
+    return images;
+  }, [log]);
+
+  // ==========================================================================
+  // Tesseract OCR
+  // ==========================================================================
+  const runOCR = useCallback(async (dataUrl, label = '') => {
+    if (typeof Tesseract === 'undefined') {
+      throw new Error('Tesseract.js 未載入');
+    }
+    const result = await Tesseract.recognize(dataUrl, 'eng+chi_tra', {
+      logger: m => {
+        if (m.status === 'recognizing text') {
+          log(`${label} OCR 進度：${(m.progress * 100).toFixed(0)}%`, 'info');
+        }
+      },
+    });
+    return result.data.text;
+  }, [log]);
+
+  // ==========================================================================
+  // 行政欄位智慧擷取 — 正則 pattern 集
+  // ==========================================================================
+  const FIELD_PATTERNS = useMemo(() => ({
+    '發票號碼': /(?:invoice|發票|发票)[^\w]{0,5}([A-Z]{2}[\-\s]?\d{8}|\d{8})/i,
+    '日期':     /(?:date|日期|发票|發票|开票|開票|issued)[^\d]{0,10}(\d{2,4}[-/.年]\d{1,2}[-/.月]\d{1,4}日?)/i,
+    '金額':     /(?:total|amount|合計|總計|應付|小計|TWD|NT\$)[^\d]{0,10}(\d{1,3}(?:[,\s]\d{3})*(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)/i,
+    '統編':     /(?:統編|統一編號|tax\s*id|business\s*id)[^\dA-Z]{0,10}(\d{8})/i,
+    '賣方':     /(?:from|seller|賣方|廠商|supplier)[：:\s]{1,5}([\u4e00-\u9fa5A-Za-z\s&]{2,30})/,
+    '申請人':   /(?:申請人|applicant|申購人)[：:\s]{1,5}([\u4e00-\u9fa5A-Za-z]{2,10})/,
+    '部門':     /(?:部門|department|dept|單位)[：:\s]{1,5}([\u4e00-\u9fa5A-Za-z]{2,15})/,
+    '品項':     /(?:item|品項|項目|product|description)[：:\s]{1,5}([\u4e00-\u9fa5A-Za-z0-9\s]{2,30})/,
+    '數量':     /(?:quantity|數量|qty|count)[：:\s]{1,5}(\d+)/i,
+    '單價':     /(?:unit\s*price|單價|price)[^\d]{0,8}(\d+(?:\.\d{1,2})?)/i,
+    '總額':     /(?:總額|total\s*amount|grand\s*total)[^\d]{0,8}(\d{1,3}(?:[,\s]\d{3})*(?:\.\d{1,2})?)/i,
+    '合約編號': /(?:contract\s*(?:no|id)|合約[編號])[：:\s]{0,5}([A-Z0-9\-]{4,20})/i,
+    '甲方':     /(?:甲方|party\s*a|first\s*party)[：:\s]{1,5}([\u4e00-\u9fa5A-Za-z\s&]{2,30})/,
+    '乙方':     /(?:乙方|party\s*b|second\s*party)[：:\s]{1,5}([\u4e00-\u9fa5A-Za-z\s&]{2,30})/,
+    '生效日':   /(?:生效日|effective\s*date|start\s*date)[^\d]{0,10}(\d{2,4}[-/.年]\d{1,2}[-/.月]\d{1,4}日?)/i,
+    '到期日':   /(?:到期日|expiry|end\s*date)[^\d]{0,10}(\d{2,4}[-/.年]\d{1,2}[-/.月]\d{1,4}日?)/i,
+    '員工姓名': /(?:員工|姓名|name|employee)[：:\s]{1,5}([\u4e00-\u9fa5A-Za-z]{2,10})/,
+    '員工編號': /(?:員工編號|emp\s*id|employee\s*no)[：:\s]{0,5}([A-Z0-9]{3,12})/i,
+    '底薪':     /(?:底薪|base\s*salary|basic)[^\d]{0,8}(\d{1,3}(?:[,\s]\d{3})*)/i,
+    '加班費':   /(?:加班|overtime|ot\s*pay)[^\d]{0,8}(\d{1,3}(?:[,\s]\d{3})*)/i,
+    '應付額':   /(?:應付|net\s*pay|應發)[^\d]{0,8}(\d{1,3}(?:[,\s]\d{3})*)/i,
+    '發薪日':   /(?:發薪日|pay\s*date)[^\d]{0,10}(\d{2,4}[-/.年]\d{1,2}[-/.月]\d{1,4}日?)/i,
+    '報銷人':   /(?:報銷人|applicant|姓名)[：:\s]{1,5}([\u4e00-\u9fa5A-Za-z]{2,10})/,
+    '項目':     /(?:項目|item|expense\s*type)[：:\s]{1,5}([\u4e00-\u9fa5A-Za-z\s]{2,20})/,
+    '姓名':     /(?:姓名|name)[：:\s]{1,5}([\u4e00-\u9fa5A-Za-z]{2,10})/,
+    '身分證字號':/(?:身分證|身份證|id\s*number|身份證字號)[：:\s]{0,5}([A-Z][12]\d{8})/i,
+    '出生日期': /(?:出生|birth\s*date|dob|birthday)[^\d]{0,10}(\d{2,4}[-/.年]\d{1,2}[-/.月]\d{1,4}日?)/i,
+    '地址':     /(?:地址|address)[：:\s]{1,5}([\u4e00-\u9fa5A-Za-z0-9\s號樓-]{5,50})/,
+  }), []);
+
+  // ==========================================================================
+  // 行政欄位驗證 (台灣格式)
+  // ==========================================================================
+  const validateField = useCallback((key, value) => {
+    if (!value) return { ok: false, reason: '空值' };
+    if (/統編|統一編號/.test(key)) {
+      // 台灣統編驗證
+      if (!/^\d{8}$/.test(value)) return { ok: false, reason: '非 8 碼數字' };
+      const weights = [1,2,1,2,1,2,4,1];
+      let sum = 0;
+      for (let i = 0; i < 8; i++) {
+        const p = parseInt(value[i]) * weights[i];
+        sum += Math.floor(p / 10) + (p % 10);
+      }
+      return { ok: sum % 5 === 0 || (value[6] === '7' && (sum + 1) % 5 === 0), reason: sum % 5 === 0 ? 'OK' : '檢查碼錯誤' };
+    }
+    if (/身分證/.test(key)) {
+      if (!/^[A-Z][12]\d{8}$/i.test(value)) return { ok: false, reason: '格式不符 (A12XXXXXXX)' };
+      return { ok: true, reason: '格式正確' };
+    }
+    if (/日期|日$/.test(key)) {
+      const m = value.match(/(\d{2,4})[-/.年](\d{1,2})[-/.月](\d{1,4})/);
+      if (!m) return { ok: false, reason: '無法解析' };
+      const y = parseInt(m[1]); const mo = parseInt(m[2]); const d = parseInt(m[3]);
+      if (mo < 1 || mo > 12 || d < 1 || d > 31) return { ok: false, reason: '日期不合理' };
+      return { ok: true, reason: 'OK' };
+    }
+    if (/金額|單價|總額|底薪|加班費|應付額/.test(key)) {
+      const n = parseFloat(value.replace(/[,\s]/g, ''));
+      if (isNaN(n) || n < 0) return { ok: false, reason: '非正數' };
+      return { ok: true, reason: 'OK' };
+    }
+    return { ok: true, reason: '通過' };
+  }, []);
+
+  // ==========================================================================
+  // 行政欄位擷取 (從 OCR 文字批次匹配)
+  // ==========================================================================
+  const extractAllFields = useCallback((text, fields) => {
+    const out = {};
+    for (const key of fields) {
+      const pattern = FIELD_PATTERNS[key];
+      if (!pattern) { out[key] = null; continue; }
+      const m = text.match(pattern);
+      out[key] = m ? (m[1] || m[0]).trim() : null;
+    }
+    return out;
+  }, [FIELD_PATTERNS]);
+
+  // ==========================================================================
+  // 流程執行 (BFS)
+  // ==========================================================================
+  const runWorkflow = useCallback(async () => {
+    if (fileData.length === 0) {
+      log('請先上傳文件', 'error');
+      return;
+    }
+    if (running) return;
+    setRunning(true);
+    setLogs([]);
+    setOcrText('');
+    setExtractedFields({});
+    setBatchResults([]);
+    log('▶ 開始批次 OCR 工作流…', 'info');
+
+    const inputNode = nodes.find(n => n.data.kind === 'input');
+    if (!inputNode) { log('找不到輸入節點', 'error'); setRunning(false); return; }
+    const findNode = (id) => nodes.find(n => n.id === id);
+
+    try {
+      const allBatchResults = [];
+      let combinedOcrText = '';
+
+      // 逐檔案處理
+      for (let fIdx = 0; fIdx < fileData.length; fIdx++) {
+        const file = fileData[fIdx];
+        log(`━━━ 處理檔案 ${fIdx+1}/${fileData.length}: ${file.name} ━━━`, 'info');
+        setNodeStatus(inputNode.id, 'running', `${fIdx+1}/${fileData.length}: ${file.name}`);
+        await new Promise(r => setTimeout(r, 250));
+        setNodeStatus(inputNode.id, 'done', `${fIdx+1}/${fileData.length}: ${file.name}`);
+
+        const visited = new Set([inputNode.id]);
+        const queue = [{ id: inputNode.id, payload: file }];
+        const results = { fileName: file.name, fields: {}, ok: true, error: null };
+
+        while (queue.length) {
+          const { id, payload } = queue.shift();
+          const node = findNode(id);
+          if (!node) continue;
+          const kind = node.data.kind;
+          let currentPayload = payload;
+
+          if (kind === 'input') {
+            // pass
+          } else if (kind === 'pdfsplit') {
+            setNodeStatus(id, 'running', '拆分 PDF…');
+            try {
+              if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+                const images = await pdfToImages(file.dataUrl);
+                log(`PDF 拆出 ${images.length} 頁`, 'ok');
+                // 第一頁用於後續 OCR (其他頁文字會合併)
+                currentPayload = { ...payload, _pages: images, _currentPage: images[0] };
+                setNodeStatus(id, 'done', `${images.length} 頁`);
+              } else {
+                log('非 PDF 格式,跳過分頁', 'warn');
+                setNodeStatus(id, 'done', '跳過 (非 PDF)');
+              }
+            } catch (err) {
+              log('PDF 分頁失敗: ' + err.message, 'error');
+              setNodeStatus(id, 'error', '失敗');
+              results.ok = false;
+              results.error = 'PDF 分頁失敗';
+            }
+          } else if (kind === 'ocr') {
+            setNodeStatus(id, 'running', '辨識中…');
+            try {
+              const images = currentPayload._pages || [currentPayload.dataUrl];
+              let fullText = '';
+              for (let p = 0; p < images.length; p++) {
+                const pageText = await runOCR(images[p], `p${p+1}`);
+                fullText += pageText + '\n';
+              }
+              currentPayload = { ...currentPayload, text: fullText };
+              if (fIdx === 0) {
+                setOcrText(fullText);
+                combinedOcrText += fullText;
+              }
+              setNodeStatus(id, 'done', `${fullText.length} 字`);
+              log(`OCR 完成: ${fullText.length} 字`, 'ok');
+            } catch (err) {
+              log('OCR 失敗: ' + err.message, 'error');
+              setNodeStatus(id, 'error', '失敗');
+              results.ok = false;
+              results.error = 'OCR 失敗';
+            }
+          } else if (kind === 'extract') {
+            setNodeStatus(id, 'running', '擷取中…');
+            await new Promise(r => setTimeout(r, 250));
+            const fieldsToExtract = DOC_TEMPLATES[docType].fields;
+            const extracted = extractAllFields(currentPayload.text || '', fieldsToExtract);
+            results.fields = { ...results.fields, ...extracted };
+            currentPayload = { ...currentPayload, fields: extracted };
+            const filledCount = Object.values(extracted).filter(v => v).length;
+            setNodeFields(id, fieldsToExtract.map(f => ({ key: f, value: extracted[f] })));
+            setNodeStatus(id, 'done', `${filledCount}/${fieldsToExtract.length} 欄位`);
+            log(`擷取: ${filledCount}/${fieldsToExtract.length} 欄位`, filledCount === fieldsToExtract.length ? 'ok' : 'warn');
+          } else if (kind === 'table') {
+            setNodeStatus(id, 'running', '表格合併…');
+            await new Promise(r => setTimeout(r, 300));
+            // 簡化:表格辨識 = 把所有頁文字依行切割,合併相似行
+            const text = currentPayload.text || '';
+            const lines = text.split('\n').filter(l => l.trim().length > 3);
+            currentPayload = { ...currentPayload, table: { rows: lines.length, columns: ['行 1', '行 2', '行 3'] } };
+            setNodeStatus(id, 'done', `${lines.length} 列`);
+          } else if (kind === 'validate') {
+            setNodeStatus(id, 'running', '驗證中…');
+            await new Promise(r => setTimeout(r, 250));
+            const validations = {};
+            let allOk = true;
+            for (const [k, v] of Object.entries(currentPayload.fields || {})) {
+              const r = validateField(k, v);
+              validations[k] = r;
+              if (!r.ok) allOk = false;
+            }
+            const okCount = Object.values(validations).filter(r => r.ok).length;
+            setNodeStatus(id, 'done', `${okCount}/${Object.keys(validations).length} 通過`,
+              allOk ? '全部通過 ✓' : `${Object.keys(validations).length - okCount} 項異常`);
+            currentPayload = { ...currentPayload, validations };
+            log(`驗證: ${okCount}/${Object.keys(validations).length} 通過`, allOk ? 'ok' : 'warn');
+          } else if (kind === 'transform') {
+            setNodeStatus(id, 'running', '清洗中…');
+            await new Promise(r => setTimeout(r, 250));
+            const cleaned = {};
+            for (const [k, v] of Object.entries(currentPayload.fields || {})) {
+              if (!v) { cleaned[k] = null; continue; }
+              if (/金額|單價|總額|底薪|加班費|應付額/.test(k)) {
+                cleaned[k] = parseFloat(v.replace(/[,\sTWDNT\$]/gi, '')) || null;
+              } else if (/日期|日$/.test(k)) {
+                cleaned[k] = v.replace(/[年月]/g, '-').replace(/日$/, '').replace(/\./g, '-');
+              } else {
+                cleaned[k] = v.trim();
+              }
+            }
+            results.fields = cleaned;
+            setNodeStatus(id, 'done', `${Object.keys(cleaned).length} 欄位清洗`);
+            log(`清洗完成: ${Object.keys(cleaned).length} 欄位標準化`, 'ok');
+          } else if (kind === 'export') {
+            setNodeStatus(id, 'running', '準備下載…');
+            await new Promise(r => setTimeout(r, 200));
+            // 觸發 CSV 下載 (僅第一個檔案觸發, 避免重複)
+            if (fIdx === 0) {
+              exportCSV([{ fileName: file.name, fields: results.fields }], docType);
+              log('CSV 已下載', 'ok');
+            }
+            setNodeStatus(id, 'done', '已下載');
+          } else if (kind === 'output') {
+            setNodeStatus(id, 'done', '流程終點');
+          }
+
+          // 推進下游
+          for (const nextId of getDownstream(id)) {
+            if (!visited.has(nextId)) {
+              visited.add(nextId);
+              queue.push({ id: nextId, payload: currentPayload });
+            }
+          }
+        }
+
+        allBatchResults.push(results);
+        setBatchResults([...allBatchResults]);
+      }
+
+      // 全部完成,匯出完整 CSV
+      if (fileData.length > 1) {
+        exportCSV(allBatchResults, docType);
+        log(`✓ 批次完成: ${fileData.length} 個檔案,已匯出完整 CSV`, 'ok');
+      }
+
+      log(`━━━ 工作流結束 (共 ${fileData.length} 個檔案) ━━━`, 'ok');
+    } catch (err) {
+      log('嚴重錯誤：' + (err.message || err), 'error');
+      console.error(err);
+    } finally {
+      setRunning(false);
+    }
+  }, [fileData, nodes, edges, running, docType, runOCR, extractAllFields, validateField, getDownstream, log, setNodeStatus, setNodeFields, pdfToImages]);
+
+  // ==========================================================================
+  // CSV 匯出
+  // ==========================================================================
+  const exportCSV = useCallback((results, type) => {
+    const fields = DOC_TEMPLATES[type].fields;
+    const header = ['檔案名稱', ...fields].join(',');
+    const rows = results.map(r => {
+      const cells = [r.fileName, ...fields.map(f => {
+        const v = r.fields[f];
+        if (v === null || v === undefined) return '';
+        const s = String(v).replace(/"/g, '""');
+        return /[,"\n]/.test(s) ? `"${s}"` : s;
+      })];
+      return cells.join(',');
+    });
+    const csv = '\uFEFF' + header + '\n' + rows.join('\n'); // BOM 讓 Excel 正確顯示中文
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${type}_batch_${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  // ==========================================================================
+  // 重置
+  // ==========================================================================
+  const reset = useCallback(() => {
+    setNodes(nds => nds.map(n => ({ ...n, data: { ...n.data, status: 'idle', summary: n.data.kind === 'input' ? (fileData.length ? `${fileData.length} 個檔案` : '') : '', fields: n.data.fields ? n.data.fields.map(f => ({...f, value: null})) : null } })));
+    setLogs([]);
+    setOcrText('');
+    setExtractedFields({});
+    setBatchResults([]);
+    log('⟲ 已重置', 'info');
+  }, [log, fileData.length]);
+
+  // ==========================================================================
+  // 下載範例 SVG (行政發票)
+  // ==========================================================================
+  const downloadSample = useCallback((type = 'invoice') => {
+    const samples = {
+      invoice: `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="500" viewBox="0 0 600 500">
+        <rect width="600" height="500" fill="white" stroke="#333" stroke-width="2"/>
+        <text x="30" y="50" font-family="Arial" font-size="32" font-weight="bold">INVOICE 統一發票</text>
+        <text x="30" y="100" font-family="Arial" font-size="18">統一編號: 12345675</text>
+        <text x="30" y="140" font-family="Arial" font-size="18">發票號碼: AB-12345678</text>
+        <text x="30" y="180" font-family="Arial" font-size="18">日期: 2026-06-15</text>
+        <text x="30" y="220" font-family="Arial" font-size="18">賣方: 測試有限公司</text>
+        <text x="30" y="280" font-family="Arial" font-size="20">品項 咖啡 x 2</text>
+        <text x="30" y="320" font-family="Arial" font-size="20">品項 蛋糕 x 1</text>
+        <text x="30" y="380" font-family="Arial" font-size="20">Subtotal 小計: 250</text>
+        <text x="30" y="420" font-family="Arial" font-size="20">Tax 稅: 13</text>
+        <text x="30" y="470" font-family="Arial" font-size="26" font-weight="bold">Total 合計: NT$ 263</text>
+      </svg>`,
+      payroll: `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="450" viewBox="0 0 600 450">
+        <rect width="600" height="450" fill="white" stroke="#333" stroke-width="2"/>
+        <text x="30" y="50" font-family="Arial" font-size="28" font-weight="bold">薪資單 PAYSLIP</text>
+        <text x="30" y="100" font-family="Arial" font-size="18">員工姓名: 王小明</text>
+        <text x="30" y="140" font-family="Arial" font-size="18">員工編號: EMP001</text>
+        <text x="30" y="180" font-family="Arial" font-size="18">部門: 工程部</text>
+        <text x="30" y="240" font-family="Arial" font-size="20">底薪: 45000</text>
+        <text x="30" y="280" font-family="Arial" font-size="20">加班費: 3500</text>
+        <text x="30" y="320" font-family="Arial" font-size="20">伙食費: 3000</text>
+        <text x="30" y="400" font-family="Arial" font-size="26" font-weight="bold">應付額: 51500</text>
+      </svg>`,
+      purchase: `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="500" viewBox="0 0 600 500">
+        <rect width="600" height="500" fill="white" stroke="#333" stroke-width="2"/>
+        <text x="30" y="50" font-family="Arial" font-size="28" font-weight="bold">請購單 PURCHASE REQUISITION</text>
+        <text x="30" y="100" font-family="Arial" font-size="18">申請人: 林小華</text>
+        <text x="30" y="140" font-family="Arial" font-size="18">部門: 採購部</text>
+        <text x="30" y="180" font-family="Arial" font-size="18">日期: 2026-07-10</text>
+        <text x="30" y="240" font-family="Arial" font-size="20">品項: 筆記型電腦</text>
+        <text x="30" y="280" font-family="Arial" font-size="20">數量: 5</text>
+        <text x="30" y="320" font-family="Arial" font-size="20">單價: 32000</text>
+        <text x="30" y="400" font-family="Arial" font-size="26" font-weight="bold">總額: 160000</text>
+      </svg>`,
+    };
+    const svg = samples[type] || samples.invoice;
+    const blob = new Blob([svg], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `sample_${type}.svg`;
+    a.click();
+    URL.revokeObjectURL(url);
+    log(`已下載範例: sample_${type}.svg`, 'ok');
+  }, [log]);
+
+  // ==========================================================================
+  // Render
+  // ==========================================================================
+  const tpl = DOC_TEMPLATES[docType];
+
+  return e(ReactFlowProvider, null,
+    e('div', { className: 'topbar' },
+      e('h1', null,
+        '📑 OCR 行政文件處理流程',
+        e('span', { className: 'badge' }, 'Admin OCR Pipeline')
+      ),
+      e('label', { className: 'file-label' },
+        '📁 上傳檔案 (支援批次)',
+        e('input', { type: 'file', multiple: true, accept: 'image/*,application/pdf', onChange: onFile }),
+      ),
+      e('button', { className: 'secondary', onClick: () => downloadSample('invoice') }, '⬇ 範例發票'),
+      e('button', { className: 'secondary', onClick: () => downloadSample('payroll') }, '⬇ 範例薪資單'),
+      e('button', { className: 'secondary', onClick: () => downloadSample('purchase') }, '⬇ 範例請購單'),
+      e('div', { className: 'spacer' }),
+      fileData.length > 0 && e('span', { className: 'status ok' }, `${fileData.length} 個檔案已載入`),
+    ),
+
+    e('div', { className: 'main' },
+      e(NodePalette, { onAdd: addNode, docType, setDocType }),
+      e('div', { className: 'flow', ref: reactFlowWrapper, onDragOver, onDrop },
+        e(ReactFlow, {
+          nodes, edges,
+          onNodesChange, onEdgesChange, onConnect,
+          nodeTypes,
+          onInit: setRfInstance,
+          fitView: true,
+          proOptions: { hideAttribution: false },
+        },
+          e(Background, { color: '#1f2530', gap: 18 }),
+          e(Controls, { position: 'bottom-right' }),
+          e(MiniMap, { position: 'bottom-left', nodeColor: (n) => NODE_TYPES[n.data?.kind]?.color || '#495057' }),
+        ),
+      ),
+
+      e('div', { className: 'right-panel' },
+        e('div', { className: 'panel-title' },
+          '⚙️ ',
+          tpl.icon,
+          ' ',
+          tpl.name,
+          e('span', { style: { marginLeft: 'auto', fontSize: 10, color: '#8a93a6' } }, tpl.workflow.length + ' 節點')
+        ),
+
+        e('div', { className: 'actions' },
+          e('button', {
+            className: 'run',
+            onClick: runWorkflow,
+            disabled: running || fileData.length === 0,
+          }, running ? '⏳ 執行中…' : `▶ 執行 (${fileData.length})`),
+          e('button', { onClick: reset, disabled: running }, '⟲ 重置'),
+          fileData.length > 0 && e('button', { onClick: clearFiles, disabled: running }, '🗑 清檔'),
+        ),
+
+        e('div', { className: 'tabs' },
+          e('button', { className: activeTab === 'log' ? 'active' : '', onClick: () => setActiveTab('log') }, '日誌'),
+          e('button', { className: activeTab === 'ocr' ? 'active' : '', onClick: () => setActiveTab('ocr') }, 'OCR'),
+          e('button', { className: activeTab === 'fields' ? 'active' : '', onClick: () => setActiveTab('fields') }, '擷取欄位'),
+          e('button', { className: activeTab === 'batch' ? 'active' : '', onClick: () => setActiveTab('batch') }, `批次 (${batchResults.length})`),
+        ),
+
+        activeTab === 'log' && (() => {
+          const logChildren = logs.length === 0
+            ? [e('div', { style: { color: '#4a5568' } }, '尚未執行')]
+            : logs.map((l, i) => e('div', { key: i, className: 'line ' + l.level }, `[${l.ts}] ${l.msg}`));
+          return e('div', null, e('div', { className: 'run-log' }, ...logChildren));
+        })(),
+
+        activeTab === 'ocr' && e('div', null,
+          e('div', { className: 'ocr-output' },
+            ocrText || (running ? '辨識中…' : '尚無結果')
+          ),
+        ),
+
+        activeTab === 'fields' && (() => {
+          const fieldChildren = tpl.fields.map(f => {
+            const val = batchResults.length > 0 ? batchResults[batchResults.length-1].fields[f] : null;
+            return e('div', { key: f, className: 'field-row' },
+              e('span', { className: 'field-key' }, f),
+              e('span', { className: 'field-val ' + (val ? 'filled' : 'empty') }, val || '(未擷取)')
+            );
+          });
+          return e('div', null, e('div', { className: 'fields-table' }, ...fieldChildren));
+        })(),
+
+        activeTab === 'batch' && (() => {
+          if (batchResults.length === 0) {
+            return e('div', null,
+              e('div', { style: { color: '#4a5568', fontSize: 11 } }, '尚未執行批次')
+            );
+          }
+          const tableRows = batchResults.map((r, i) =>
+            e('tr', { key: i },
+              e('td', { style: { maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, r.fileName),
+              ...tpl.fields.slice(0, 4).map(f =>
+                e('td', { key: f, className: !r.fields[f] ? 'empty-cell' : '' },
+                  r.fields[f] !== null && r.fields[f] !== undefined ? r.fields[f] : '—')
+              ),
+              e('td', null,
+                e('span', { className: r.ok ? 'badge-ok' : 'badge-err' }, r.ok ? 'OK' : 'ERR')
+              ),
+            )
+          );
+          return e('div', null,
+            e('div', { className: 'batch-table' },
+              e('table', null,
+                e('thead', null,
+                  e('tr', null,
+                    e('th', null, '檔案'),
+                    ...tpl.fields.slice(0, 4).map(f => e('th', { key: f }, f)),
+                    e('th', null, '狀態'),
+                  )
+                ),
+                e('tbody', null, ...tableRows)
+              )
+            ),
+            batchResults.length > 0 && e('button', {
+              className: 'export',
+              onClick: () => exportCSV(batchResults, docType),
+              style: { width: '100%', marginTop: 8, padding: '7px', background: '#2b8a3e', color: 'white', border: 0, borderRadius: 4, cursor: 'pointer', fontSize: 11 },
+            }, '💾 匯出 CSV'),
+          );
+        })(),
+      ),
+    ),
+  );
+}
+
+// ============================================================================
+// 啟動
+// ============================================================================
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(e(App));
+</script>
+</body>
+</html>

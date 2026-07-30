@@ -1,24 +1,37 @@
-# SOP Based Decision Making
+# SOP-Based Decision Making
 
 ## 說明...
-此技能涉及根據預先定義的標準操作程序（SOP）來指導決策過程。
+此微技能涉及根據標準作業程序（SOP）來設計決策節點的邏輯，包括條件判斷、分流和路由。
 
-## 關鍵代碼片段或模式
-```python
-# 定義 SOP 步驟
-sop_steps = ['驗證請求', '檢查授權', '評估風險', '選擇行動', '執行行動']
-
-# 執行每個步驟
-for step in sop_steps:
-    if step == '驗證請求':
-        validate_request()
-    elif step == '檢查授權':
-        check_authorization()
-    # 其他步驟...
+## 關鍵程式碼片段或模式
+```javascript
+// 定義 SOP 決策邏輯
+const advanceWithChoice = (nodeId, choice) => {
+  const currentNode = nodes.find((node) => node.id === nodeId);
+  const nextNodes = edges.filter((edge) => edge.source === nodeId);
+  const chosenEdge = nextNodes.find((edge) => edge.label === choice);
+  if (chosenEdge) {
+    setNodes((nds) => nds.map((node) => {
+      if (node.id === nodeId) {
+        node.selected = false;
+      }
+      return node;
+    }));
+    setEdges((eds) => eds.map((edge) => {
+      if (edge.source === nodeId && edge.label === choice) {
+        edge.selected = true;
+      } else {
+        edge.selected = false;
+      }
+      return edge;
+    }));
+    setNodes((nds) => nds.concat(chosenEdge.target));
+  }
+};
 ```
 
 ## 常見錯誤及避免方法
-- **錯誤**：SOP 步驟定義不清晰，導致決策過程混亂。
-  **解決方法**：確保每個步驟都有明確的定義和執行順序。
-- **錯誤**：未考慮到異常情況，導致 SOP 無法處理特殊情況。
-  **解決方法**：在 SOP 中加入異常處理機制，並定期更新 SOP 以適應新情況。
+- **錯誤**：SOP 規則未正確映射到決策節點，導致無法正確分流。
+  **解決方法**：確保 SOP 規則在程式碼中正確實現，並在設計節點時與規則對應。
+- **錯誤**：條件判斷邏輯錯誤，導致決策結果不正確。
+  **解決方法**：在實作前仔細檢查 SOP 規則，並在開發過程中進行充分的測試。

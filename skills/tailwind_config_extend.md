@@ -1,57 +1,36 @@
 # Tailwind Config Extend
 
-## 說明...
-此技能涉及在 `tailwind.config.js` 中擴展自定義顏色、字體、動畫和其他設計 token，以實現高度定制的 UI 設計。
+## 說明
+此微技能涉及擴展 Tailwind CSS 的配置文件，以添加自定義顏色、字體和陰影等，從而滿足特定設計需求。
 
-## 關鍵代碼片段或模式
+## 關鍵代碼片段
 ```javascript
 // tailwind.config.js
 module.exports = {
   theme: {
     extend: {
       colors: {
-        amber: { ... },
-        ink: { ... },
-        glass: {
-          tint: 'rgba(255, 248, 235, 0.06)',
-          panel: 'rgba(255, 255, 255, 0.06)',
-          deep: 'rgba(11, 15, 26, 0.45)',
-          stroke: 'rgba(255, 255, 255, 0.10)',
-          stroke2: 'rgba(255, 255, 255, 0.18)',
-        },
-        status: {
-          approved: '#7fc89e',
-          pending: '#f4c45f',
-          rejected: '#e08282',
-          draft: '#a5a8b5',
-        },
+        ink: '#071b22',
+        lagoon: '#127b78',
+        mint: '#6ed3bd',
+        ice: '#dff8f2',
+        coral: '#ff8c78',
       },
-      backdropBlur: {
-        xs: '2px',
-        '2xl': '32px',
-        '3xl': '48px',
+      fontFamily: {
+        sans: ['"Noto Sans TC"', '"PingFang TC"', 'sans-serif'],
+        display: ['"Avenir Next"', '"Noto Sans TC"', 'sans-serif'],
       },
       boxShadow: {
-        glassSm: '0 2px 8px rgba(0, 0, 0, 0.12)',
-        glassMd: '0 4px 16px rgba(0, 0, 0, 0.2)',
-        glassLg: '0 8px 24px rgba(0, 0, 0, 0.25)',
-        glowAmber: '0 0 24px rgba(244, 159, 51, 0.5)',
-      },
-      keyframes: {
-        drift: { ... },
-        pulseSoft: { ... },
-        shimmer: { ... },
-        ticker: { ... },
-        rise: { ... },
+        glass: '0 20px 60px rgba(0,24,32,.25)',
+        inset: 'inset 0 1px 0 rgba(255,255,255,.28)',
       },
     },
   },
-  plugins: [],
 }
 ```
 
 ## 常見錯誤及避免方法
-- **錯誤**：忘記在 `extend` 塊中定義自定義屬性，導致工具類無法使用。
-  **解決方法**：確保所有自定義屬性都放在 `extend` 塊中。
-- **錯誤**：顏色名稱或鍵名拼寫錯誤，導致 CSS 無法正確生成。
-  **解決方法**：仔細檢查拼寫並參考 Tailwind 官方文檔。
+- **錯誤**：擴展配置時出現語法錯誤，導致 Tailwind 編譯失敗。
+  **解決方法**：使用編輯器的語法檢查功能，並在修改配置後運行 `npx tailwindcss -i input.css -o output.css --watch` 以即時捕捉錯誤。
+- **錯誤**：忘記在 HTML 中引入修改後的 CSS 文件。
+  **解決方法**：確保在 HTML 文件的 `<head>` 部分正確引入編譯後的 CSS 文件，例如 `<link href="dist/output.css" rel="stylesheet">`。

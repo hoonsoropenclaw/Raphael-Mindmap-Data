@@ -1,14 +1,14 @@
-# Docker and FastAPI Setup
+# Full Stack Deployment with Docker
 
 ## Overview
-This micro-skill covers building and running FastAPI applications using Docker containers and setting up an asynchronous FastAPI template with essential features.
+This micro-skill provides a comprehensive guide to deploying and managing full-stack applications using Docker and FastAPI. It covers setting up Docker containers for FastAPI, integrating asynchronous features, and managing frontend components with React Flow.
 
 ---
 
-## Docker Build and Run
+## Docker and FastAPI Setup
 
 ### Description
-Use a `Dockerfile` to build a Docker image for your FastAPI application and run the container using Docker.
+This section focuses on building and running FastAPI applications within Docker containers, including setting up an asynchronous FastAPI template with essential features.
 
 ### Key Code Snippets and Patterns
 
@@ -34,12 +34,7 @@ CMD ["uvicorn", "fastapi_template.main:app", "--host", "0.0.0.0", "--port", "800
 
 ---
 
-## Async FastAPI Template Setup
-
-### Description
-Create a FastAPI template that includes asynchronous SQLAlchemy, SQLite/PostgreSQL support, CRUD architecture, OpenAPI documentation, and Prometheus metrics.
-
-### Key Code Snippets and Patterns
+### Async FastAPI Template Setup
 
 #### Configuration
 ```python
@@ -91,4 +86,44 @@ async_session = sessionmaker(
 
 ---
 
-By following this guide, you can efficiently set up a Dockerized FastAPI application with asynchronous capabilities and essential features, ensuring a robust and scalable foundation for your projects.
+## Full Stack Development Management
+
+### Description
+This section covers the integration of frontend components using React Flow, including node and edge definitions, event handling, and CDN integration.
+
+### Key Code Snippets and Patterns
+```javascript
+const nodes = [
+  { id: '1', type: 'start', position: { x: 250, y: 5 }, data: { label: 'Start' } },
+  // Other nodes
+];
+
+const edges = [
+  { id: 'e1-2', source: '1', target: '2', animated: true },
+  // Other edges
+];
+
+function onNodesChange(changedNodes) {
+  setNodes(changedNodes);
+}
+
+function onEdgesChange(changedEdges) {
+  setEdges(changedEdges);
+}
+
+function onConnect(connection) {
+  setEdges((eds) => addEdge(connection, eds));
+}
+```
+
+### Common Errors and Prevention
+
+- **Error**: Node or edge ID conflicts causing rendering issues.
+  - **Solution**: Use a unique ID generation strategy, such as UUID.
+
+- **Error**: Event handler functions not properly bound, leading to non-triggering events.
+  - **Solution**: Ensure all event handler functions are correctly bound to the React Flow instance.
+
+---
+
+By following this guide, you can efficiently deploy and manage full-stack applications using Docker and FastAPI, ensuring a robust and scalable foundation for your projects.

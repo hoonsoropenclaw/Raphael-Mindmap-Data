@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>員工檔案 OCR 處理 — 瀏覽器端</title>
+
+<!-- PDF.js -->
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.min.mjs" type="module"></script>
+
+<!-- Tesseract.js (WASM 引擎, 含繁中語言) -->
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-2: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --accent-2: #34d399;
+    --warn: #fbbf24;
+    --error: #f87171;
+    --border: #475569;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang TC", "Microsoft JhengHei", sans-serif;
+    font-size: 14px; line-height: 1.55;
+  }
+  header {
+    padding: 1.5rem 2rem 1rem;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+  }
+  header h1 { margin: 0 0 .25rem; font-size: 1.5rem; }
+  header p  { margin: 0; color: var(--muted); font-size: .9rem; }
+  main { display: grid; grid-template-columns: 1fr 380px; gap: 1.5rem; padding: 1.5rem; max-width: 1400px; margin: 0 auto; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+
+  section.panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+  }
+  section.panel h2 {
+    font-size: 1.05rem; margin: 0 0 .75rem;
+    display: flex; align-items: center; gap: .5rem;
+    color: var(--accent);
+  }
+  section.panel h2 .badge { font-size: .7rem; padding: 2px 6px; border-radius: 4px;
+                              background: var(--panel-2); color: var(--muted); font-weight: normal; }
+
+  /* dropzone */
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 8px;
+    padding: 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all .2s;
+    margin-bottom: 1rem;
+  }
+  .dropzone:hover, .dropzone.dragover {
+    border-color: var(--accent); background: rgba(56,189,248,.05);
+  }
+  .dropzone input[type=file] { display: none; }
+  .dropzone p { margin: .25rem 0; color: var(--muted); }
+
+  button.btn {
+    background: var(--accent); color: #0c1424; border: none;
+    padding: .55rem 1rem; border-radius: 6px; cursor: pointer;
+    font-weight: 600; font-size: .9rem;
+    transition: opacity .15s;
+  }
+  button.btn:hover:not(:disabled) { opacity: .85; }
+  button.btn:disabled { opacity: .35; cursor: not-allowed; }
+  button.btn.ghost { background: var(--panel-2); color: var(--text); }
+
+  /* PDF 預覽 canvas */
+  #pdfCanvas { display: block; max-width: 100%; border: 1px solid var(--border); border-radius: 4px; background: #fff; }
+  .page-nav { display: flex; gap: .5rem; align-items: center; justify-content: center; margin-top: .5rem; }
+
+  /* 進度條 */
+  .progress {
+    width: 100%; height: 6px; background: var(--panel-2);
+    border-radius: 3px; overflow: hidden; margin: .5rem 0; display: none;
+  }
+  .progress.active { display: block; }
+  .progress .bar { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2));
+                    width: 0%; transition: width .2s; }
+
+  /* 結果區 */
+  .field { display: grid; grid-template-columns: 120px 1fr; gap: .5rem;
+           padding: .4rem 0; border-bottom: 1px dashed var(--panel-2); }
+  .field:last-child { border-bottom: none; }
+  .field label { color: var(--muted); font-weight: 600; font-size: .85rem; }
+  .field value { word-break: break-all; }
+  .field .empty { color: var(--muted); font-style: italic; }
+  .source-tag { display: inline-block; padding: 2px 6px; border-radius: 4px;
+                font-size: .7rem; font-weight: 600; }
+  .source-tag.text-layer { background: var(--accent-2); color: #042f1d; }
+  .source-tag.ocr         { background: var(--warn);     color: #422006; }
+  .source-tag.error       { background: var(--error);    color: #450a0a; }
+
+  /* log */
+  #log {
+    max-height: 220px; overflow-y: auto;
+    background: #0b1322; border: 1px solid var(--border);
+    border-radius: 4px; padding: .5rem .75rem;
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", Consolas, monospace;
+    font-size: .78rem; color: var(--muted); white-space: pre-wrap;
+  }
+  #log .ok    { color: var(--accent-2); }
+  #log .warn  { color: var(--warn); }
+  #log .err   { color: var(--error); }
+
+  /* 文字預覽 */
+  #textPreview {
+    max-height: 180px; overflow-y: auto;
+    background: #0b1322; border: 1px solid var(--border);
+    border-radius: 4px; padding: .5rem .75rem;
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", Consolas, monospace;
+    font-size: .78rem; white-space: pre-wrap; color: #cbd5e1;
+  }
+
+  details summary { cursor: pointer; color: var(--accent); font-size: .85rem; }
+  small { color: var(--muted); }
+
+  /* checkbox row */
+  .opts { display: flex; gap: 1rem; flex-wrap: wrap; margin: .5rem 0 .75rem; font-size: .85rem; }
+  .opts label { display: inline-flex; align-items: center; gap: .35rem; color: var(--muted); cursor: pointer; }
+  .opts input { accent-color: var(--accent); }
+
+  .download-row { display: flex; gap: .5rem; margin-top: .75rem; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📄 員工檔案 OCR — 瀏覽器端</h1>
+  <p>PDF.js 抽文字層 + Tesseract.js 繁中 OCR + Regex 欄位萃取。整個流程跑在瀏覽器,不上傳任何檔案。</p>
+</header>
+
+<main>
+
+  <!-- 左欄:PDF 上傳 + 預覽 + 流程控制 -->
+  <section class="panel">
+    <h2>📁 上傳 PDF <span class="badge">純前端</span></h2>
+
+    <label class="dropzone" id="dropzone" for="pdfInput">
+      <input type="file" id="pdfInput" accept="application/pdf">
+      <p><strong>點擊選檔</strong> 或把 PDF 拖到這裡</p>
+      <p><small>支援多頁掃描檔;大小 &lt; 50MB 較順</small></p>
+    </label>
+
+    <div class="opts">
+      <label><input type="checkbox" id="optForceOcr"> 強制走 OCR(略過文字層)</label>
+      <label><input type="checkbox" id="optOcrOnlyMissing" checked> 僅對「無文字層」的頁面 OCR</label>
+      <label>DPI:
+        <select id="optDpi" style="background:var(--panel-2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:2px 4px;">
+          <option value="150">150</option>
+          <option value="200" selected>200</option>
+          <option value="300">300</option>
+        </select>
+      </label>
+    </div>
+
+    <div id="pdfInfo" style="margin: .5rem 0; min-height: 1.2em;">
+      <small id="pdfInfoText" style="color: var(--muted);">尚未選檔</small>
+    </div>
+
+    <div style="display: flex; gap: .5rem; align-items: center; flex-wrap: wrap;">
+      <button class="btn" id="btnProcess" disabled>🚀 開始處理</button>
+      <button class="btn ghost" id="btnRenderPreview" disabled>👁 預覽第 1 頁</button>
+      <span id="status" style="color: var(--muted); font-size: .85rem;"></span>
+    </div>
+
+    <div class="progress" id="progress"><div class="bar" id="progressBar"></div></div>
+
+    <div id="previewWrap" style="margin-top: 1rem; display: none;">
+      <canvas id="pdfCanvas"></canvas>
+      <div class="page-nav">
+        <button class="btn ghost" id="btnPrevPage">‹ 上一頁</button>
+        <span id="pageIndicator" style="color: var(--muted);"></span>
+        <button class="btn ghost" id="btnNextPage">下一頁 ›</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 右欄:結果 + log -->
+  <section class="panel">
+    <h2>📊 萃取結果</h2>
+    <div id="results" style="min-height: 80px;">
+      <p style="color: var(--muted);">處理後,常見員工欄位會在這裡顯示。</p>
+    </div>
+
+    <div class="download-row" id="downloadRow" style="display:none;">
+      <button class="btn ghost" id="btnDownloadJson">⬇ 下載結果 JSON</button>
+    </div>
+
+    <details style="margin-top: 1rem;">
+      <summary>每頁文字預覽(.ocr.txt)</summary>
+      <div id="textPreview">(尚無資料)</div>
+    </details>
+
+    <details style="margin-top: 1rem;" open>
+      <summary>處理 log</summary>
+      <div id="log">[等待上傳 PDF]</div>
+    </details>
+  </section>
+</main>
+
+<script type="module">
+  // 設 PDF.js worker (CDN)
+  import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.min.mjs';
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs';
+
+  // 欄位 regex (與後端 employee_pdf_ocr.py 對齊)
+  const FIELD_PATTERNS = {
+    employee_id: [/員工編號[:：=\s]+([A-Z0-9\-]{3,15})/i, /工號[:：=\s]+([A-Z0-9\-]{3,15})/i],
+    id_number:   [/身份證字號[:：=\s]+([A-Z][12]\d{8})/i, /身分證字號[:：=\s]+([A-Z][12]\d{8})/i],
+    name:        [/姓名[:：=\s]+([^\s:：=，,。]{2,5})/i],
+    gender:      [/性別[:：=\s]+(男|女)\b/i],
+    birth_date:  [/出生日期[:：=\s]+(\d{2,4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?)/i,
+                  /生日[:：=\s]+(\d{2,4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?)/i],
+    phone:       [/聯絡電話[:：=\s]+(09\d{2}[-\s]?\d{3}[-\s]?\d{3})/i,
+                  /電話[:：=\s]+(\(?0[2-9]\)?[-\s]?\d{3,4}[-\s]?\d{4})/i],
+    email:       [/電子郵件[:：=\s]+([\w.+-]+@[\w-]+\.[\w\-.]+)/i],
+    hire_date:   [/到職日期[:：=\s]+(\d{2,4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?)/i],
+    department:  [/部門[:：=\s]+([^\s:：=，,。\n]{2,30})/i],
+    job_title:   [/職稱[:：=\s]+([^\s:：=，,。\n]{2,30})/i],
+    address:     [/地址[:：=\s]+((?:[\u4e00-\u9fff]{2,4}[市縣]).+)/i],
+    emergency_contact: [/緊急聯絡人[:：=\s]+([^\s:：=，,。\n]{2,10})/i],
+  };
+  const FIELD_LABEL = {
+    employee_id: "員工編號", id_number: "身分證字號", name: "姓名", gender: "性別",
+    birth_date: "出生日期", phone: "聯絡電話", email: "電子郵件",
+    hire_date: "到職日期", department: "部門", job_title: "職稱",
+    address: "通訊地址", emergency_contact: "緊急聯絡人",
+  };
+
+  const FIELD_LABEL_EN = {
+    employee_id: "員工編號", id_number: "身分證字號", name: "姓名", gender: "性別",
+    birth_date: "出生日期", phone: "聯絡電話", email: "電子郵件",
+    hire_date: "到職日期", department: "部門", job_title: "職稱",
+    address: "通訊地址", emergency_contact: "緊急聯絡人",
+  };
+
+  // ────────────────── DOM ──────────────────
+  const $ = (sel) => document.querySelector(sel);
+  const dropzone  = $('#dropzone');
+  const fileInput = $('#pdfInput');
+  const btnProc   = $('#btnProcess');
+  const btnPrev   = $('#btnRenderPreview');
+  const statusEl  = $('#status');
+  const pdfInfo   = $('#pdfInfoText');
+  const previewWrap = $('#previewWrap');
+  const pdfCanvas = $('#pdfCanvas');
+  const pageIndicator = $('#pageIndicator');
+  const btnPrevPage  = $('#btnPrevPage');
+  const btnNextPage  = $('#btnNextPage');
+  const progressEl  = $('#progress');
+  const progressBar = $('#progressBar');
+  const resultsEl   = $('#results');
+  const downloadRow = $('#downloadRow');
+  const btnDownload = $('#btnDownloadJson');
+  const textPreview = $('#textPreview');
+  const log         = $('#log');
+
+  let currentFile = null;
+  let pdfDoc = null;
+  let pageNum = 1;
+  let lastResults = null;  // 給下載用
+
+  // ────────────────── log 工具 ──────────────────
+  function appendLog(msg, cls='') {
+    const ts = new Date().toLocaleTimeString();
+    const line = document.createElement('div');
+    line.innerHTML = `<span style="opacity:.6">[${ts}]</span> ${cls ? `<span class="${cls}">${msg}</span>` : msg}`;
+    log.appendChild(line);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  // ────────────────── dropzone ──────────────────
+  ['dragenter', 'dragover'].forEach(ev =>
+    dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add('dragover'); }));
+  ['dragleave', 'drop'].forEach(ev =>
+    dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.remove('dragover'); }));
+
+  dropzone.addEventListener('drop', e => {
+    if (e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', e => {
+    if (e.target.files.length) loadFile(e.target.files[0]);
+  });
+
+  function loadFile(file) {
+    if (file.type !== 'application/pdf') {
+      appendLog(`❌ 不是 PDF: ${file.type}`, 'err');
+      return;
+    }
+    currentFile = file;
+    pdfInfo.textContent = `${file.name} (${(file.size/1024).toFixed(1)} KB)`;
+    btnProc.disabled = false;
+    btnPrev.disabled = false;
+    appendLog(`📂 選檔: <span class="ok">${file.name}</span> (${(file.size/1024).toFixed(1)} KB)`);
+
+    // 載入 PDF doc
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const data = new Uint8Array(reader.result);
+        pdfDoc = await pdfjsLib.getDocument({ data }).promise;
+        pageNum = 1;
+        appendLog(`✅ PDF 載入成功: <span class="ok">${pdfDoc.numPages} 頁</span>`);
+        await renderPage(pageNum);
+        previewWrap.style.display = 'block';
+      } catch (e) {
+        appendLog(`❌ PDF 載入失敗: ${e.message}`, 'err');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  // ────────────────── 渲染單頁 ──────────────────
+  async function renderPage(n) {
+    if (!pdfDoc) return;
+    pageNum = Math.max(1, Math.min(n, pdfDoc.numPages));
+    const page = await pdfDoc.getPage(pageNum);
+    const viewport = page.getViewport({ scale: 1.3 });
+    pdfCanvas.width = viewport.width;
+    pdfCanvas.height = viewport.height;
+    const ctx = pdfCanvas.getContext('2d');
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    pageIndicator.textContent = `第 ${pageNum} / ${pdfDoc.numPages} 頁`;
+  }
+
+  btnPrev.addEventListener('click', () => renderPage(pageNum - 1));
+  btnNextPage.addEventListener('click', () => renderPage(pageNum + 1));
+  btnPrevPage.addEventListener('click', () => renderPage(pageNum - 1));
+
+  btnPrev.disabled = true;
+  btnPrev.addEventListener('click', () => renderPage(1));
+
+  // ────────────────── 文字層抽取 ──────────────────
+  async function extractTextLayer(page) {
+    const tc = await page.getTextContent();
+    return tc.items.map(i => i.str).join(' ');
+  }
+
+  // ────────────────── OCR (Tesseract.js) ──────────────────
+  // 用 worker,可以平行 / 顯示進度
+  let ocrWorker = null;
+  async function getOcrWorker(onProgress) {
+    if (ocrWorker) return ocrWorker;
+    appendLog('⏳ 初始化 Tesseract.js worker (繁中+簡中+英文)...');
+    ocrWorker = await Tesseract.createWorker(['chi_tra', 'chi_sim', 'eng'], 1, {
+      logger: m => {
+        if (m.status === 'recognizing text' && onProgress) {
+          onProgress(Math.round(m.progress * 100));
+        }
+      }
+    });
+    appendLog('✅ Tesseract worker 就緒', 'ok');
+    return ocrWorker;
+  }
+
+  async function ocrPage(page, dpi, onProgress) {
+    const worker = await getOcrWorker(onProgress);
+    const scale = dpi / 72;
+    const viewport = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext('2d');
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    const { data } = await worker.recognize(canvas);
+    return data.text || '';
+  }
+
+  // ────────────────── regex 萃取 ──────────────────
+  function extractFields(text, source) {
+    const out = {};
+    for (const [key, patterns] of Object.entries(FIELD_PATTERNS)) {
+      for (const pat of patterns) {
+        const m = text.match(pat);
+        if (m) {
+          let val = (m[1] || m[0]).trim();
+          if (val && val.length <= 200) { out[key] = val; break; }
+        }
+      }
+    }
+    return { fields: out, source };
+  }
+
+  // ────────────────── 主流程 ──────────────────
+  btnProc.addEventListener('click', async () => {
+    if (!pdfDoc) return;
+    btnProc.disabled = true;
+    resultsEl.innerHTML = '<p style="color:var(--muted);">處理中...</p>';
+    downloadRow.style.display = 'none';
+    progressEl.classList.add('active');
+    progressBar.style.width = '0%';
+
+    const forceOcr = $('#optForceOcr').checked;
+    const ocrOnlyMissing = $('#optOcrOnlyMissing').checked;
+    const dpi = parseInt($('#optDpi').value, 10);
+    const total = pdfDoc.numPages;
+
+    const pages = [];
+    let aggText = '';
+    try {
+      for (let i = 1; i <= total; i++) {
+        const page = await pdfDoc.getPage(i);
+        let text = '', source = 'text-layer';
+        if (!forceOcr) {
+          text = await extractTextLayer(page);
+          if (text.trim()) {
+            source = 'text-layer';
+          } else if (!ocrOnlyMissing) {
+            source = 'ocr';
+            text = await ocrPage(page, dpi, p => {
+              progressBar.style.width = `${((i-1) + p/100) / total * 100}%`;
+            });
+          } else {
+            source = 'skipped';
+          }
+        } else {
+          source = 'ocr';
+          text = await ocrPage(page, dpi, p => {
+            progressBar.style.width = `${((i-1) + p/100) / total * 100}%`;
+          });
+        }
+        const r = extractFields(text, source);
+        pages.push({ page: i, source: r.source, chars: text.length, fields: r.fields });
+        aggText += `\n=== Page ${i} (source=${r.source}, chars=${text.length}) ===\n${text.slice(0,300)}\n`;
+        appendLog(`📃 Page ${i}/${total} → <span class="${r.source === 'text-layer' ? 'ok' : 'warn'}">${r.source}</span>, ${Object.keys(r.fields).length} 欄位`);
+        progressBar.style.width = `${(i / total) * 100}%`;
+      }
+
+      // 彙總
+      const consolidated = {};
+      for (const p of pages) for (const [k, v] of Object.entries(p.fields)) if (!(k in consolidated)) consolidated[k] = v;
+
+      renderResults(consolidated, pages);
+      textPreview.textContent = aggText || '(無文字內容)';
+      downloadRow.style.display = 'flex';
+
+      lastResults = {
+        file: currentFile.name,
+        processed_at: new Date().toISOString(),
+        total_pages: total,
+        consolidated_fields: consolidated,
+        per_page: pages,
+      };
+      appendLog(`✅ 全部完成: <span class="ok">${Object.keys(consolidated).length} 個欄位命中</span>`, 'ok');
+    } catch (e) {
+      appendLog(`❌ 處理失敗: ${e.message}`, 'err');
+      resultsEl.innerHTML = `<p style="color:var(--error);">錯誤: ${e.message}</p>`;
+    } finally {
+      btnProc.disabled = false;
+      progressEl.classList.remove('active');
+    }
+  });
+
+  function renderResults(consolidated, pages) {
+    const keys = Object.keys(FIELD_LABEL);
+    let html = '';
+    for (const k of keys) {
+      const v = consolidated[k];
+      html += `<div class="field"><label>${FIELD_LABEL[k]}</label><value>${v ? escapeHtml(v) : '<span class="empty">(未命中)</span>'}</value></div>`;
+    }
+    resultsEl.innerHTML = html;
+    // 每頁摘要
+    html = '<details style="margin-top:1rem;"><summary>每頁來源/欄位數</summary><ul style="font-size:.85rem;">';
+    for (const p of pages) {
+      const tag = p.source === 'text-layer' ? 'text-layer' : p.source === 'ocr' ? 'ocr' : 'error';
+      html += `<li>第 ${p.page} 頁 — <span class="source-tag ${tag}">${p.source}</span> — ${Object.keys(p.fields).length} 欄位</li>`;
+    }
+    html += '</ul></details>';
+    resultsEl.innerHTML += html;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  btnDownload.addEventListener('click', () => {
+    if (!lastResults) return;
+    const blob = new Blob([JSON.stringify(lastResults, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (currentFile.name.replace(/\.pdf$/, '') || 'ocr_result') + '.ocr.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    appendLog(`⬇ 下載結果 JSON`);
+  });
+</script>
+
+</body>
+</html>

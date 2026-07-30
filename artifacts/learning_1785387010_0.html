@@ -1,0 +1,1479 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>行政工作流引擎 + RBAC 權限管理 · Hermes</title>
+<style>
+  /* ============== Glassmorphism Design System ============== */
+  :root {
+    --bg: #0a0e27;
+    --bg-2: #131a3a;
+    --glass: rgba(255, 255, 255, 0.06);
+    --glass-2: rgba(255, 255, 255, 0.10);
+    --border: rgba(255, 255, 255, 0.16);
+    --border-strong: rgba(255, 255, 255, 0.28);
+    --text: #e6e9ff;
+    --text-dim: #9aa3c7;
+    --accent: #6b8afd;
+    --accent-2: #4c6ef5;
+    --green: #4ade80;
+    --amber: #fbbf24;
+    --red: #f87171;
+    --purple: #c084fc;
+    --cyan: #67e8f9;
+    --shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+    --glow-blue: 0 0 24px rgba(108, 138, 253, 0.35);
+    --glow-green: 0 0 24px rgba(74, 222, 128, 0.35);
+    --glow-red: 0 0 24px rgba(248, 113, 113, 0.40);
+    --glow-amber: 0 0 24px rgba(251, 191, 36, 0.35);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC",
+                 "PingFang TC", "Microsoft JhengHei", sans-serif;
+    color: var(--text);
+    background: radial-gradient(1200px 800px at 20% 0%, #1e2659 0%, transparent 60%),
+                radial-gradient(900px 600px at 100% 100%, #2a1f5c 0%, transparent 60%),
+                linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
+    background-attachment: fixed;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+  .glass {
+    background: var(--glass);
+    backdrop-filter: blur(14px) saturate(160%);
+    -webkit-backdrop-filter: blur(14px) saturate(160%);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+  }
+  .glass-strong {
+    background: var(--glass-2);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid var(--border-strong);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+  }
+
+  /* ============== Layout ============== */
+  .app-shell {
+    display: grid;
+    grid-template-columns: 280px 1fr 320px;
+    grid-template-rows: 60px 1fr;
+    height: 100vh;
+    gap: 12px;
+    padding: 12px;
+  }
+  .topbar {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    padding: 0 18px;
+    gap: 14px;
+  }
+  .logo {
+    font-weight: 700;
+    font-size: 16px;
+    letter-spacing: 0.5px;
+    background: linear-gradient(90deg, #6b8afd, #c084fc);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .topbar .sep { color: var(--text-dim); margin: 0 4px; }
+  .topbar .badge {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(108, 138, 253, 0.18);
+    border: 1px solid rgba(108, 138, 253, 0.35);
+    color: #b9c7ff;
+  }
+  .topbar .right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .role-selector {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .role-selector:focus { outline: 2px solid var(--accent); }
+
+  /* ============== Left Sidebar - Node Palette ============== */
+  .sidebar-left {
+    grid-column: 1; grid-row: 2;
+    display: flex; flex-direction: column;
+    padding: 14px;
+    gap: 10px;
+    overflow-y: auto;
+  }
+  .panel-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+  }
+  .node-palette {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .palette-item {
+    padding: 12px 8px;
+    border-radius: 10px;
+    text-align: center;
+    cursor: grab;
+    user-select: none;
+    font-size: 12px;
+    transition: transform 0.15s, box-shadow 0.15s;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.04);
+  }
+  .palette-item:hover { transform: translateY(-2px); }
+  .palette-item:active { cursor: grabbing; transform: scale(0.97); }
+  .palette-item .emoji { font-size: 22px; display: block; margin-bottom: 4px; }
+  .palette-item.start   { border-color: rgba(74, 222, 128, 0.5); }
+  .palette-item.approve { border-color: rgba(108, 138, 253, 0.5); }
+  .palette-item.execute { border-color: rgba(192, 132, 252, 0.5); }
+  .palette-item.decision{ border-color: rgba(251, 191, 36, 0.5); }
+  .palette-item.notify  { border-color: rgba(103, 232, 249, 0.5); }
+  .palette-item.end     { border-color: rgba(248, 113, 113, 0.5); }
+  .palette-item.disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    filter: grayscale(0.6);
+  }
+  .palette-item.disabled:hover { transform: none; }
+
+  /* ============== Center - Canvas ============== */
+  .canvas-area {
+    grid-column: 2; grid-row: 2;
+    position: relative;
+    overflow: hidden;
+  }
+  .canvas-toolbar {
+    position: absolute;
+    top: 12px; left: 12px;
+    display: flex; gap: 8px;
+    z-index: 10;
+  }
+  .toolbar-btn {
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border);
+    color: var(--text);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .toolbar-btn:hover { background: rgba(255, 255, 255, 0.15); }
+  .toolbar-btn.primary {
+    background: rgba(108, 138, 253, 0.25);
+    border-color: rgba(108, 138, 253, 0.5);
+  }
+  .toolbar-btn.danger {
+    background: rgba(248, 113, 113, 0.20);
+    border-color: rgba(248, 113, 113, 0.5);
+  }
+  .canvas-info {
+    position: absolute;
+    bottom: 12px; left: 12px;
+    font-size: 11px;
+    color: var(--text-dim);
+    background: rgba(0, 0, 0, 0.40);
+    padding: 6px 10px;
+    border-radius: 8px;
+    z-index: 10;
+  }
+  .canvas-minimap {
+    position: absolute;
+    bottom: 12px; right: 12px;
+    width: 180px; height: 120px;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    z-index: 10;
+  }
+  .canvas-minimap canvas { width: 100%; height: 100%; }
+
+  /* ============== The Flow Canvas (SVG) ============== */
+  .flow-svg {
+    width: 100%; height: 100%;
+    cursor: grab;
+    display: block;
+  }
+  .flow-svg:active { cursor: grabbing; }
+  .flow-svg.connecting { cursor: crosshair; }
+
+  /* Node styles */
+  .wf-node {
+    cursor: move;
+    transition: filter 0.15s;
+  }
+  .wf-node:hover { filter: brightness(1.15); }
+  .wf-node.selected .node-body {
+    stroke: #fff;
+    stroke-width: 2.5;
+  }
+  .wf-node.locked .node-body {
+    stroke-dasharray: 5 4;
+  }
+  .wf-node .node-body {
+    stroke-width: 1.5;
+    fill: rgba(20, 25, 55, 0.85);
+    stroke: var(--border);
+  }
+  .wf-node.start .node-body   { stroke: var(--green); }
+  .wf-node.approve .node-body { stroke: var(--accent); }
+  .wf-node.execute .node-body { stroke: var(--purple); }
+  .wf-node.decision .node-body{ stroke: var(--amber); }
+  .wf-node.notify .node-body  { stroke: var(--cyan); }
+  .wf-node.end .node-body     { stroke: var(--red); }
+  .wf-node .node-label {
+    fill: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    text-anchor: middle;
+    pointer-events: none;
+  }
+  .wf-node .node-sub {
+    fill: var(--text-dim);
+    font-size: 10px;
+    text-anchor: middle;
+    pointer-events: none;
+  }
+  .wf-node .node-icon {
+    font-size: 18px;
+    text-anchor: middle;
+    pointer-events: none;
+  }
+  .wf-node .port {
+    fill: white;
+    stroke: var(--accent);
+    stroke-width: 2;
+    cursor: crosshair;
+  }
+  .wf-node .port:hover { fill: var(--accent); }
+  .wf-node.locked .port { display: none; }
+
+  /* Edge styles */
+  .wf-edge-path {
+    fill: none;
+    stroke: rgba(180, 195, 255, 0.55);
+    stroke-width: 2;
+    transition: stroke 0.15s;
+  }
+  .wf-edge:hover .wf-edge-path {
+    stroke: var(--accent);
+    stroke-width: 3;
+  }
+  .wf-edge.selected .wf-edge-path {
+    stroke: var(--amber);
+    stroke-width: 3;
+  }
+  .wf-edge.animated .wf-edge-path {
+    stroke: var(--accent);
+    stroke-dasharray: 6 6;
+    animation: dash 0.8s linear infinite;
+  }
+  @keyframes dash {
+    to { stroke-dashoffset: -12; }
+  }
+  .wf-edge-label {
+    fill: var(--text);
+    font-size: 10px;
+    text-anchor: middle;
+    pointer-events: none;
+  }
+  .wf-edge-deletemarker {
+    cursor: pointer;
+    fill: var(--red);
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .wf-edge:hover .wf-edge-deletemarker,
+  .wf-edge.selected .wf-edge-deletemarker { opacity: 1; }
+
+  /* ============== Right Sidebar - RBAC Panel ============== */
+  .sidebar-right {
+    grid-column: 3; grid-row: 2;
+    display: flex; flex-direction: column;
+    padding: 14px;
+    gap: 12px;
+    overflow-y: auto;
+  }
+  .rbac-grid {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 11px;
+  }
+  .rbac-grid th, .rbac-grid td {
+    padding: 6px 4px;
+    text-align: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  .rbac-grid th {
+    color: var(--text-dim);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    font-size: 9px;
+    background: rgba(255, 255, 255, 0.04);
+  }
+  .rbac-grid td.role-name {
+    text-align: left;
+    font-weight: 600;
+    color: var(--text);
+    padding-left: 8px;
+  }
+  .perm-allow { color: var(--green); font-size: 14px; }
+  .perm-deny  { color: var(--red);   font-size: 14px; }
+  .perm-self  { color: var(--amber); font-size: 14px; }
+
+  .perm-legend {
+    display: flex;
+    gap: 10px;
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-top: 6px;
+    flex-wrap: wrap;
+  }
+  .perm-legend span { display: flex; align-items: center; gap: 4px; }
+
+  .perm-detail {
+    padding: 10px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .perm-detail h4 {
+    margin: 0 0 6px 0;
+    font-size: 12px;
+    color: var(--accent);
+  }
+  .perm-detail code {
+    background: rgba(0, 0, 0, 0.4);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: #c5d1ff;
+  }
+  .perm-detail .perm-list {
+    margin: 4px 0 0 0;
+    padding-left: 18px;
+    color: var(--text-dim);
+  }
+
+  /* ============== Status indicator ============== */
+  .status-flash {
+    position: fixed;
+    bottom: 20px; left: 50%;
+    transform: translateX(-50%);
+    padding: 10px 18px;
+    border-radius: 10px;
+    font-size: 13px;
+    z-index: 1000;
+    opacity: 0;
+    transition: opacity 0.3s, transform 0.3s;
+    pointer-events: none;
+  }
+  .status-flash.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(-8px);
+  }
+  .status-flash.deny {
+    background: rgba(248, 113, 113, 0.25);
+    border: 1px solid var(--red);
+    color: #ffd0d0;
+    box-shadow: var(--glow-red);
+  }
+  .status-flash.ok {
+    background: rgba(74, 222, 128, 0.18);
+    border: 1px solid var(--green);
+    color: #d0ffd8;
+    box-shadow: var(--glow-green);
+  }
+  .status-flash.info {
+    background: rgba(108, 138, 253, 0.20);
+    border: 1px solid var(--accent);
+    color: #d0d8ff;
+    box-shadow: var(--glow-blue);
+  }
+
+  /* ============== Inspector panel ============== */
+  .inspector {
+    padding: 10px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .inspector h4 {
+    margin: 0 0 6px 0;
+    font-size: 12px;
+    color: var(--accent);
+  }
+  .inspector label {
+    display: block;
+    color: var(--text-dim);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-top: 8px;
+  }
+  .inspector input, .inspector select, .inspector textarea {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.30);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 12px;
+    margin-top: 3px;
+    font-family: inherit;
+  }
+  .inspector input:disabled, .inspector select:disabled, .inspector textarea:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .inspector .row {
+    display: flex; gap: 6px; margin-top: 8px;
+  }
+  .inspector button {
+    flex: 1;
+    padding: 6px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text);
+    cursor: pointer;
+    font-size: 11px;
+  }
+  .inspector button:hover { background: rgba(255, 255, 255, 0.12); }
+  .inspector button.danger { color: #ffd0d0; border-color: rgba(248, 113, 113, 0.5); }
+  .inspector .empty {
+    color: var(--text-dim);
+    font-style: italic;
+    padding: 4px 0;
+  }
+
+  /* ============== Scrollbar ============== */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.20); }
+
+  /* ============== Toast ============== */
+  .toast-area {
+    position: fixed;
+    top: 80px; right: 20px;
+    display: flex; flex-direction: column; gap: 8px;
+    z-index: 999;
+    pointer-events: none;
+  }
+  .toast {
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 12px;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    background: rgba(20, 25, 55, 0.85);
+    border: 1px solid var(--border);
+    opacity: 0;
+    transform: translateX(20px);
+    transition: opacity 0.25s, transform 0.25s;
+    pointer-events: auto;
+  }
+  .toast.show { opacity: 1; transform: translateX(0); }
+  .toast.deny { border-color: var(--red); }
+  .toast.ok { border-color: var(--green); }
+
+  /* ============== Misc ============== */
+  .meta-row {
+    display: flex; justify-content: space-between;
+    font-size: 11px; color: var(--text-dim);
+    padding: 4px 0;
+  }
+  .meta-row b { color: var(--text); font-weight: 500; }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <!-- ============ Topbar ============ -->
+  <div class="topbar glass-strong">
+    <div class="logo">⚡ Hermes Workflow Engine</div>
+    <span class="sep">·</span>
+    <span class="badge">React Flow Pattern</span>
+    <span class="badge">RBAC Enabled</span>
+    <div class="right">
+      <span style="font-size:12px;color:var(--text-dim)">目前角色：</span>
+      <select id="roleSelector" class="role-selector">
+        <option value="admin">🛡️ 管理員 (admin)</option>
+        <option value="chief" selected>👔 主管 (chief)</option>
+        <option value="staff">👤 員工 (staff)</option>
+        <option value="viewer">👁️ 檢視者 (viewer)</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- ============ Left Sidebar ============ -->
+  <div class="sidebar-left glass">
+    <div class="panel-title">節點工具箱</div>
+    <div class="node-palette" id="palette">
+      <div class="palette-item start" data-type="start" draggable="true">
+        <span class="emoji">🚀</span>開始
+      </div>
+      <div class="palette-item approve" data-type="approve" draggable="true">
+        <span class="emoji">✅</span>審批
+      </div>
+      <div class="palette-item execute" data-type="execute" draggable="true">
+        <span class="emoji">⚙️</span>執行
+      </div>
+      <div class="palette-item decision" data-type="decision" draggable="true">
+        <span class="emoji">🔀</span>分支
+      </div>
+      <div class="palette-item notify" data-type="notify" draggable="true">
+        <span class="emoji">📣</span>通知
+      </div>
+      <div class="palette-item end" data-type="end" draggable="true">
+        <span class="emoji">🏁</span>結束
+      </div>
+    </div>
+
+    <div class="panel-title" style="margin-top:14px">操作說明</div>
+    <div style="font-size:11px;color:var(--text-dim);line-height:1.6">
+      · 拖曳節點到畫布建立流程<br/>
+      · 從節點右側圓點拖曳到另一節點建立連線<br/>
+      · 點擊節點後可在右側面板編輯<br/>
+      · 切換角色體驗 RBAC 權限控管
+    </div>
+
+    <div class="panel-title" style="margin-top:14px">當前工作流狀態</div>
+    <div id="workflowStats" class="perm-detail">
+      <div class="meta-row"><span>節點數</span><b id="statNodes">0</b></div>
+      <div class="meta-row"><span>連線數</span><b id="statEdges">0</b></div>
+      <div class="meta-row"><span>可執行</span><b id="statValid">—</b></div>
+    </div>
+  </div>
+
+  <!-- ============ Center Canvas ============ -->
+  <div class="canvas-area glass">
+    <div class="canvas-toolbar">
+      <button class="toolbar-btn primary" id="btnValidate">✓ 驗證流程</button>
+      <button class="toolbar-btn" id="btnAutoLayout">↔ 自動佈局</button>
+      <button class="toolbar-btn" id="btnExport">⬇ 匯出 JSON</button>
+      <button class="toolbar-btn" id="btnLoadDemo">📦 載入範例</button>
+      <button class="toolbar-btn danger" id="btnClear">🗑 清除</button>
+    </div>
+
+    <svg class="flow-svg" id="flowSvg" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <!-- Arrow marker for edges -->
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="rgba(180, 195, 255, 0.75)"/>
+        </marker>
+        <marker id="arrow-active" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b8afd"/>
+        </marker>
+        <pattern id="dotgrid" x="0" y="0" width="24" height="24" patternUnits="userSpaceOnUse">
+          <circle cx="2" cy="2" r="1" fill="rgba(255,255,255,0.07)"/>
+        </pattern>
+      </defs>
+      <rect id="gridBg" width="100%" height="100%" fill="url(#dotgrid)"/>
+      <g id="viewport">
+        <g id="edgesLayer"></g>
+        <g id="nodesLayer"></g>
+        <g id="tempLayer"></g>
+      </g>
+    </svg>
+
+    <div class="canvas-info">
+      縮放: <span id="zoomLevel">100%</span> · 座標: <span id="cursorPos">0, 0</span>
+    </div>
+    <div class="canvas-minimap">
+      <canvas id="minimapCanvas" width="180" height="120"></canvas>
+    </div>
+  </div>
+
+  <!-- ============ Right Sidebar ============ -->
+  <div class="sidebar-right glass">
+    <div class="panel-title">RBAC 權限矩陣</div>
+    <table class="rbac-grid" id="rbacTable">
+      <thead>
+        <tr>
+          <th>角色</th><th>建立</th><th>編輯</th><th>刪除</th>
+          <th>連線</th><th>審批</th><th>匯出</th><th>管理</th>
+        </tr>
+      </thead>
+      <tbody id="rbacBody"></tbody>
+    </table>
+    <div class="perm-legend">
+      <span><span class="perm-allow">✓</span>允許</span>
+      <span><span class="perm-deny">✗</span>拒絕</span>
+      <span><span class="perm-self">◐</span>僅自己</span>
+    </div>
+
+    <div class="panel-title" style="margin-top:10px">當前角色權限</div>
+    <div class="perm-detail" id="permDetail">
+      <h4 id="permRoleName">主管 (chief)</h4>
+      <div>可執行動作：</div>
+      <ul class="perm-list" id="permList"></ul>
+    </div>
+
+    <div class="panel-title" style="margin-top:10px">節點屬性面板</div>
+    <div class="inspector" id="inspector">
+      <div class="empty" id="inspectorEmpty">尚未選取節點。點擊畫布上任一節點以編輯屬性。</div>
+      <div id="inspectorForm" style="display:none">
+        <h4 id="inspectorTitle">節點</h4>
+        <label>標題</label>
+        <input id="inpTitle" type="text" />
+        <label>處理人 / 角色</label>
+        <select id="inpAssignee">
+          <option value="admin">管理員</option>
+          <option value="chief">主管</option>
+          <option value="staff" selected>員工</option>
+          <option value="viewer">檢視者</option>
+        </select>
+        <label>說明備註</label>
+        <textarea id="inpNote" rows="2"></textarea>
+        <div class="row">
+          <button id="btnApplyNode">套用</button>
+          <button id="btnDeleteNode" class="danger">刪除</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast-area" id="toastArea"></div>
+
+<script>
+/* ====================================================================
+ * Hermes Workflow Engine + RBAC
+ * 模組化設計：
+ *   A. RBAC 矩陣與權限檢查 (rbac_system_security skill)
+ *   B. 工作流資料模型 + 節點/邊 (react_integration_and_flow_design skill)
+ *   C. SVG 互動：拖曳、縮放、連線、最小地圖
+ *   D. 玻璃擬態 UI (glassmorphism_design_system skill)
+ * ==================================================================== */
+
+/* ============== A. RBAC 引擎 ============== */
+const ROLES = {
+  admin:  { name: '管理員', icon: '🛡️',
+            color: '#f87171',
+            desc: '完整權限、可管理所有工作流與角色' },
+  chief:  { name: '主管',   icon: '👔',
+            color: '#6b8afd',
+            desc: '可建立/編輯/審批工作流，但不能刪除他人創建的流程' },
+  staff:  { name: '員工',   icon: '👤',
+            color: '#4ade80',
+            desc: '可建立自己的執行節點、查看所有流程' },
+  viewer: { name: '檢視者', icon: '👁️',
+            color: '#9aa3c7',
+            desc: '唯讀角色，只能查看流程' },
+};
+
+/* 權限矩陣：action → role → 'allow' | 'deny' | 'self' */
+const PERMISSIONS = {
+  create:   { admin: 'allow', chief: 'allow', staff: 'allow', viewer: 'deny'  },
+  edit:     { admin: 'allow', chief: 'allow', staff: 'self',  viewer: 'deny'  },
+  delete:   { admin: 'allow', chief: 'self',  staff: 'self',  viewer: 'deny'  },
+  connect:  { admin: 'allow', chief: 'allow', staff: 'allow', viewer: 'deny'  },
+  approve:  { admin: 'allow', chief: 'allow', staff: 'deny',  viewer: 'deny'  },
+  export:   { admin: 'allow', chief: 'allow', staff: 'allow', viewer: 'allow' },
+  manage:   { admin: 'allow', chief: 'deny',  staff: 'deny',  viewer: 'deny'  },
+};
+
+const ACTION_LABELS = {
+  create: '建立節點', edit: '編輯節點', delete: '刪除節點',
+  connect: '建立連線', approve: '審批流程', export: '匯出流程', manage: '角色管理',
+};
+
+function hasPermission(role, action, ownerRole = null) {
+  const rule = PERMISSIONS[action]?.[role] || 'deny';
+  if (rule === 'allow') return { ok: true, reason: 'allow' };
+  if (rule === 'deny')  return { ok: false, reason: 'deny' };
+  if (rule === 'self') {
+    if (ownerRole && ownerRole === role) return { ok: true, reason: 'self' };
+    return { ok: false, reason: 'self' };
+  }
+  return { ok: false, reason: 'deny' };
+}
+
+function denyMsg(action, role, node = null) {
+  const r = ROLES[role];
+  if (node) {
+    return `✗ ${r.name}「${role}」無法${ACTION_LABELS[action]}（節點由 "${ROLES[node.owner]?.name || node.owner}" 建立）`;
+  }
+  return `✗ ${r.name}「${role}」無權限執行「${ACTION_LABELS[action]}」`;
+}
+
+/* ============== B. 工作流資料模型 ============== */
+const NODE_TYPES = {
+  start:   { icon: '🚀', label: '開始', color: '#4ade80', w: 130, h: 60 },
+  approve: { icon: '✅', label: '審批', color: '#6b8afd', w: 140, h: 64 },
+  execute: { icon: '⚙️', label: '執行', color: '#c084fc', w: 140, h: 64 },
+  decision:{ icon: '🔀', label: '分支', color: '#fbbf24', w: 130, h: 64 },
+  notify:  { icon: '📣', label: '通知', color: '#67e8f9', w: 130, h: 60 },
+  end:     { icon: '🏁', label: '結束', color: '#f87171', w: 130, h: 60 },
+};
+
+const workflow = {
+  nodes: [],         // { id, type, x, y, title, assignee, note, owner }
+  edges: [],         // { id, from, to, label, animated }
+  nextId: 1,
+};
+
+function uid(prefix = 'n') {
+  return `${prefix}_${workflow.nextId++}`;
+}
+
+function addNode(type, x, y, owner) {
+  const meta = NODE_TYPES[type];
+  if (!meta) return null;
+  const node = {
+    id: uid('n'),
+    type,
+    x: x - meta.w / 2,
+    y: y - meta.h / 2,
+    w: meta.w,
+    h: meta.h,
+    title: meta.label,
+    assignee: 'staff',
+    note: '',
+    owner,
+  };
+  workflow.nodes.push(node);
+  return node;
+}
+
+function addEdge(from, to, owner) {
+  if (from === to) return null;
+  if (workflow.edges.some(e => e.from === from && e.to === to)) return null;
+  const edge = {
+    id: uid('e'),
+    from, to,
+    label: '',
+    animated: true,
+    owner,
+  };
+  workflow.edges.push(edge);
+  return edge;
+}
+
+function removeNode(id, role) {
+  const node = workflow.nodes.find(n => n.id === id);
+  if (!node) return false;
+  const r = hasPermission(role, 'delete', node.owner);
+  if (!r.ok) { toast(denyMsg('delete', role, node), 'deny'); return false; }
+  workflow.nodes = workflow.nodes.filter(n => n.id !== id);
+  workflow.edges = workflow.edges.filter(e => e.from !== id && e.to !== id);
+  return true;
+}
+
+function removeEdge(id, role) {
+  const edge = workflow.edges.find(e => e.id === id);
+  if (!edge) return false;
+  const r = hasPermission(role, 'delete', edge.owner);
+  if (!r.ok) { toast(denyMsg('delete', role, { owner: edge.owner }), 'deny'); return false; }
+  workflow.edges = workflow.edges.filter(e => e.id !== id);
+  return true;
+}
+
+/* ============== C. SVG 渲染引擎 ============== */
+const svg = document.getElementById('flowSvg');
+const viewport = document.getElementById('viewport');
+const edgesLayer = document.getElementById('edgesLayer');
+const nodesLayer = document.getElementById('nodesLayer');
+const tempLayer = document.getElementById('tempLayer');
+
+let viewState = { zoom: 1, panX: 0, panY: 0 };
+let selection = { nodeId: null, edgeId: null };
+let drag = null;  // { kind: 'node'|'pan'|'connect', ... }
+let currentRole = 'chief';
+
+function svgPoint(evt) {
+  const rect = svg.getBoundingClientRect();
+  const sx = (evt.clientX - rect.left - viewState.panX) / viewState.zoom;
+  const sy = (evt.clientY - rect.top - viewState.panY) / viewState.zoom;
+  return { x: sx, y: sy, raw: { x: evt.clientX, y: evt.clientY } };
+}
+
+function applyView() {
+  viewport.setAttribute('transform',
+    `translate(${viewState.panX}, ${viewState.panY}) scale(${viewState.zoom})`);
+  document.getElementById('zoomLevel').textContent = `${Math.round(viewState.zoom * 100)}%`;
+  renderMinimap();
+}
+
+function renderEdges() {
+  edgesLayer.innerHTML = '';
+  const nodeMap = Object.fromEntries(workflow.nodes.map(n => [n.id, n]));
+  workflow.edges.forEach(edge => {
+    const from = nodeMap[edge.from];
+    const to = nodeMap[edge.to];
+    if (!from || !to) return;
+
+    const ax = from.x + from.w;
+    const ay = from.y + from.h / 2;
+    const bx = to.x;
+    const by = to.y + to.h / 2;
+    const dx = bx - ax;
+    const c1x = ax + dx * 0.45;
+    const c1y = ay;
+    const c2x = bx - dx * 0.45;
+    const c2y = by;
+    const path = `M ${ax} ${ay} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${bx} ${by}`;
+
+    const isSelected = selection.edgeId === edge.id;
+    const cls = `wf-edge ${edge.animated ? 'animated' : ''} ${isSelected ? 'selected' : ''}`;
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('class', cls);
+    g.setAttribute('data-id', edge.id);
+
+    const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    pathEl.setAttribute('class', 'wf-edge-path');
+    pathEl.setAttribute('d', path);
+    pathEl.setAttribute('marker-end',
+      edge.animated ? 'url(#arrow-active)' : 'url(#arrow)');
+    g.appendChild(pathEl);
+
+    // Midpoint delete marker
+    const mx = (ax + bx) / 2;
+    const my = (ay + by) / 2;
+    const deleteMark = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    deleteMark.setAttribute('class', 'wf-edge-deletemarker');
+    deleteMark.setAttribute('cx', mx);
+    deleteMark.setAttribute('cy', my - 8);
+    deleteMark.setAttribute('r', 8);
+    deleteMark.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (hasPermission(currentRole, 'delete', edge.owner).ok) {
+        removeEdge(edge.id, currentRole);
+        renderAll();
+      } else {
+        toast(denyMsg('delete', currentRole, { owner: edge.owner }), 'deny');
+      }
+    });
+    g.appendChild(deleteMark);
+
+    // Invisible larger hit area
+    const hit = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    hit.setAttribute('d', path);
+    hit.setAttribute('stroke', 'transparent');
+    hit.setAttribute('stroke-width', '14');
+    hit.setAttribute('fill', 'none');
+    hit.style.cursor = 'pointer';
+    hit.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selection = { nodeId: null, edgeId: edge.id };
+      renderAll();
+    });
+    g.appendChild(hit);
+
+    edgesLayer.appendChild(g);
+  });
+}
+
+function renderNodes() {
+  nodesLayer.innerHTML = '';
+  workflow.nodes.forEach(node => {
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    const isSelected = selection.nodeId === node.id;
+    const locked = !hasPermission(currentRole, 'edit', node.owner).ok;
+    g.setAttribute('class',
+      `wf-node ${node.type} ${isSelected ? 'selected' : ''} ${locked ? 'locked' : ''}`);
+    g.setAttribute('data-id', node.id);
+    g.setAttribute('transform', `translate(${node.x}, ${node.y})`);
+
+    // Body
+    const body = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    body.setAttribute('class', 'node-body');
+    body.setAttribute('width', node.w);
+    body.setAttribute('height', node.h);
+    body.setAttribute('rx', 10);
+    g.appendChild(body);
+
+    // Icon
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    icon.setAttribute('class', 'node-icon');
+    icon.setAttribute('x', 14);
+    icon.setAttribute('y', 22);
+    icon.textContent = NODE_TYPES[node.type].icon;
+    g.appendChild(icon);
+
+    // Title
+    const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    title.setAttribute('class', 'node-label');
+    title.setAttribute('x', node.w / 2 + 8);
+    title.setAttribute('y', 22);
+    title.textContent = clipText(node.title, 14);
+    g.appendChild(title);
+
+    // Sub
+    const sub = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    sub.setAttribute('class', 'node-sub');
+    sub.setAttribute('x', node.w / 2);
+    sub.setAttribute('y', 42);
+    sub.textContent = `→ ${ROLES[node.assignee]?.name || node.assignee}`;
+    g.appendChild(sub);
+
+    // Owner indicator
+    const ownerMark = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    ownerMark.setAttribute('class', 'node-sub');
+    ownerMark.setAttribute('x', node.w / 2);
+    ownerMark.setAttribute('y', 56);
+    ownerMark.textContent = `建立者: ${ROLES[node.owner]?.name || node.owner}`;
+    ownerMark.setAttribute('fill', '#9aa3c7');
+    g.appendChild(ownerMark);
+
+    // Output port (right side)
+    if (!locked) {
+      const port = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      port.setAttribute('class', 'port');
+      port.setAttribute('cx', node.w);
+      port.setAttribute('cy', node.h / 2);
+      port.setAttribute('r', 5);
+      port.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+        startConnect(node, e);
+      });
+      g.appendChild(port);
+    }
+
+    // Node events
+    g.addEventListener('mousedown', (e) => {
+      if (e.target.classList.contains('port')) return;
+      e.stopPropagation();
+      if (locked) {
+        toast(denyMsg('edit', currentRole, node), 'deny');
+        return;
+      }
+      selection = { nodeId: node.id, edgeId: null };
+      const pt = svgPoint(e);
+      drag = {
+        kind: 'node',
+        nodeId: node.id,
+        offsetX: pt.x - node.x,
+        offsetY: pt.y - node.y,
+      };
+      renderAll();
+    });
+
+    nodesLayer.appendChild(g);
+  });
+}
+
+function clipText(s, max) {
+  if (!s) return '';
+  return s.length > max ? s.slice(0, max - 1) + '…' : s;
+}
+
+/* ============== Drag handlers ============== */
+svg.addEventListener('mousedown', (e) => {
+  if (e.target === svg || e.target.id === 'gridBg') {
+    selection = { nodeId: null, edgeId: null };
+    drag = { kind: 'pan', startX: e.clientX, startY: e.clientY,
+             panX: viewState.panX, panY: viewState.panY };
+    renderAll();
+  }
+});
+
+window.addEventListener('mousemove', (e) => {
+  const pt = svgPoint(e);
+  document.getElementById('cursorPos').textContent =
+    `${Math.round(pt.x)}, ${Math.round(pt.y)}`;
+
+  if (!drag) return;
+
+  if (drag.kind === 'pan') {
+    viewState.panX = drag.panX + (e.clientX - drag.startX);
+    viewState.panY = drag.panY + (e.clientY - drag.startY);
+    applyView();
+  } else if (drag.kind === 'node') {
+    const node = workflow.nodes.find(n => n.id === drag.nodeId);
+    if (!node) return;
+    node.x = pt.x - drag.offsetX;
+    node.y = pt.y - drag.offsetY;
+    renderAll();
+  } else if (drag.kind === 'connect') {
+    renderTempLine(drag.fromNode, { x: pt.x, y: pt.y });
+  }
+});
+
+window.addEventListener('mouseup', () => {
+  drag = null;
+  tempLayer.innerHTML = '';
+});
+
+svg.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const pt = svgPoint(e);
+  const delta = -e.deltaY * 0.001;
+  const newZoom = Math.max(0.3, Math.min(2.5, viewState.zoom + delta));
+  // Zoom toward cursor
+  viewState.panX -= (pt.x * (newZoom - viewState.zoom));
+  viewState.panY -= (pt.y * (newZoom - viewState.zoom));
+  viewState.zoom = newZoom;
+  applyView();
+}, { passive: false });
+
+function startConnect(fromNode, e) {
+  if (!hasPermission(currentRole, 'connect').ok) {
+    toast(denyMsg('connect', currentRole), 'deny');
+    return;
+  }
+  svg.classList.add('connecting');
+  drag = { kind: 'connect', fromNode };
+}
+
+function renderTempLine(fromNode, to) {
+  tempLayer.innerHTML = '';
+  const ax = fromNode.x + fromNode.w;
+  const ay = fromNode.y + fromNode.h / 2;
+  const dx = to.x - ax;
+  const c1x = ax + dx * 0.45;
+  const c1y = ay;
+  const c2x = to.x - dx * 0.45;
+  const c2y = to.y;
+  const path = `M ${ax} ${ay} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${to.x} ${to.y}`;
+  const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  p.setAttribute('d', path);
+  p.setAttribute('stroke', '#6b8afd');
+  p.setAttribute('stroke-width', '2');
+  p.setAttribute('stroke-dasharray', '4 4');
+  p.setAttribute('fill', 'none');
+  tempLayer.appendChild(p);
+}
+
+// When releasing on a node, complete connection
+nodesLayer.addEventListener('mouseup', (e) => {
+  if (drag && drag.kind === 'connect') {
+    const target = e.target.closest('.wf-node');
+    if (target) {
+      const toId = target.getAttribute('data-id');
+      if (toId !== drag.fromNode.id) {
+        if (hasPermission(currentRole, 'connect').ok) {
+          addEdge(drag.fromNode.id, toId, currentRole);
+          toast('✓ 連線已建立', 'ok');
+        } else {
+          toast(denyMsg('connect', currentRole), 'deny');
+        }
+      }
+    }
+    drag = null;
+    svg.classList.remove('connecting');
+    tempLayer.innerHTML = '';
+    renderAll();
+  }
+});
+
+/* ============== Palette drag-and-drop ============== */
+document.querySelectorAll('.palette-item').forEach(item => {
+  item.addEventListener('dragstart', (e) => {
+    const type = item.getAttribute('data-type');
+    if (!hasPermission(currentRole, 'create').ok) {
+      e.preventDefault();
+      toast(denyMsg('create', currentRole), 'deny');
+      return;
+    }
+    e.dataTransfer.setData('text/plain', type);
+    e.dataTransfer.effectAllowed = 'copy';
+  });
+});
+
+svg.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+});
+
+svg.addEventListener('drop', (e) => {
+  e.preventDefault();
+  const type = e.dataTransfer.getData('text/plain');
+  if (!type || !NODE_TYPES[type]) return;
+  if (!hasPermission(currentRole, 'create').ok) {
+    toast(denyMsg('create', currentRole), 'deny');
+    return;
+  }
+  const pt = svgPoint(e);
+  addNode(type, pt.x, pt.y, currentRole);
+  renderAll();
+  toast(`✓ 已建立「${NODE_TYPES[type].label}」節點`, 'ok');
+});
+
+/* ============== Minimap ============== */
+function renderMinimap() {
+  const canvas = document.getElementById('minimapCanvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.04)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  if (workflow.nodes.length === 0) return;
+
+  // Compute bounds
+  const xs = workflow.nodes.map(n => n.x);
+  const ys = workflow.nodes.map(n => n.y);
+  const xe = workflow.nodes.map(n => n.x + n.w);
+  const ye = workflow.nodes.map(n => n.y + n.h);
+  const minX = Math.min(...xs), minY = Math.min(...ys);
+  const maxX = Math.max(...xe), maxY = Math.max(...ye);
+  const w = Math.max(1, maxX - minX);
+  const h = Math.max(1, maxY - minY);
+  const scale = Math.min((canvas.width - 10) / w, (canvas.height - 10) / h);
+  const offsetX = (canvas.width - w * scale) / 2;
+  const offsetY = (canvas.height - h * scale) / 2;
+
+  // Edges
+  ctx.strokeStyle = 'rgba(180, 195, 255, 0.4)';
+  ctx.lineWidth = 1;
+  const nodeMap = Object.fromEntries(workflow.nodes.map(n => [n.id, n]));
+  workflow.edges.forEach(edge => {
+    const from = nodeMap[edge.from], to = nodeMap[edge.to];
+    if (!from || !to) return;
+    ctx.beginPath();
+    ctx.moveTo(offsetX + (from.x + from.w / 2 - minX) * scale,
+               offsetY + (from.y + from.h / 2 - minY) * scale);
+    ctx.lineTo(offsetX + (to.x + to.w / 2 - minX) * scale,
+               offsetY + (to.y + to.h / 2 - minY) * scale);
+    ctx.stroke();
+  });
+
+  // Nodes
+  workflow.nodes.forEach(n => {
+    ctx.fillStyle = NODE_TYPES[n.type].color;
+    ctx.fillRect(offsetX + (n.x - minX) * scale,
+                 offsetY + (n.y - minY) * scale,
+                 n.w * scale, n.h * scale);
+  });
+}
+
+/* ============== Render & Stats ============== */
+function renderAll() {
+  renderEdges();
+  renderNodes();
+  renderMinimap();
+  renderInspector();
+  updateStats();
+  applyView();
+}
+
+function updateStats() {
+  document.getElementById('statNodes').textContent = workflow.nodes.length;
+  document.getElementById('statEdges').textContent = workflow.edges.length;
+  if (workflow.nodes.length === 0) {
+    document.getElementById('statValid').textContent = '—';
+    return;
+  }
+  const hasStart = workflow.nodes.some(n => n.type === 'start');
+  const hasEnd = workflow.nodes.some(n => n.type === 'end');
+  document.getElementById('statValid').textContent =
+    (hasStart && hasEnd) ? '✓ 可執行' : '⚠ 缺開始/結束';
+}
+
+function renderInspector() {
+  const empty = document.getElementById('inspectorEmpty');
+  const form = document.getElementById('inspectorForm');
+  if (!selection.nodeId) {
+    empty.style.display = 'block';
+    form.style.display = 'none';
+    return;
+  }
+  const node = workflow.nodes.find(n => n.id === selection.nodeId);
+  if (!node) {
+    empty.style.display = 'block';
+    form.style.display = 'none';
+    return;
+  }
+  empty.style.display = 'none';
+  form.style.display = 'block';
+  document.getElementById('inspectorTitle').textContent =
+    `${NODE_TYPES[node.type].icon} ${NODE_TYPES[node.type].label} 節點`;
+
+  const canEdit = hasPermission(currentRole, 'edit', node.owner).ok;
+  const canDelete = hasPermission(currentRole, 'delete', node.owner).ok;
+  document.getElementById('inpTitle').value = node.title;
+  document.getElementById('inpTitle').disabled = !canEdit;
+  document.getElementById('inpAssignee').value = node.assignee;
+  document.getElementById('inpAssignee').disabled = !canEdit;
+  document.getElementById('inpNote').value = node.note;
+  document.getElementById('inpNote').disabled = !canEdit;
+  document.getElementById('btnApplyNode').disabled = !canEdit;
+  document.getElementById('btnDeleteNode').disabled = !canDelete;
+}
+
+document.getElementById('btnApplyNode').addEventListener('click', () => {
+  const node = workflow.nodes.find(n => n.id === selection.nodeId);
+  if (!node) return;
+  if (!hasPermission(currentRole, 'edit', node.owner).ok) {
+    toast(denyMsg('edit', currentRole, node), 'deny'); return;
+  }
+  node.title = document.getElementById('inpTitle').value.trim() || NODE_TYPES[node.type].label;
+  node.assignee = document.getElementById('inpAssignee').value;
+  node.note = document.getElementById('inpNote').value;
+  renderAll();
+  toast('✓ 節點已更新', 'ok');
+});
+
+document.getElementById('btnDeleteNode').addEventListener('click', () => {
+  if (!selection.nodeId) return;
+  if (removeNode(selection.nodeId, currentRole)) {
+    selection.nodeId = null;
+    renderAll();
+    toast('✓ 節點已刪除', 'ok');
+  }
+});
+
+/* ============== RBAC UI ============== */
+function renderRbacTable() {
+  const tbody = document.getElementById('rbacBody');
+  tbody.innerHTML = '';
+  Object.keys(ROLES).forEach(role => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="role-name">${ROLES[role].icon} ${ROLES[role].name}</td>
+      ${['create','edit','delete','connect','approve','export','manage'].map(a => {
+        const v = PERMISSIONS[a][role];
+        const sym = v === 'allow' ? '✓' : v === 'deny' ? '✗' : '◐';
+        const cls = v === 'allow' ? 'perm-allow' : v === 'deny' ? 'perm-deny' : 'perm-self';
+        return `<td class="${cls}" title="${ACTION_LABELS[a]}">${sym}</td>`;
+      }).join('')}
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderPermDetail() {
+  const r = ROLES[currentRole];
+  document.getElementById('permRoleName').textContent = `${r.icon} ${r.name} (${currentRole})`;
+  const list = document.getElementById('permList');
+  list.innerHTML = '';
+  Object.keys(ACTION_LABELS).forEach(action => {
+    const v = PERMISSIONS[action][currentRole];
+    const li = document.createElement('li');
+    const desc = v === 'allow' ? '✓ 允許'
+      : v === 'deny' ? '✗ 拒絕'
+      : '◐ 僅限自己建立';
+    li.innerHTML = `<code>${action}</code> · ${ACTION_LABELS[action]} → <b>${desc}</b>`;
+    list.appendChild(li);
+  });
+  // Add role description
+  const li = document.createElement('li');
+  li.style.marginTop = '6px';
+  li.style.color = 'var(--text-dim)';
+  li.textContent = r.desc;
+  list.appendChild(li);
+}
+
+function applyRBAC() {
+  // Disable palette items based on permissions
+  document.querySelectorAll('.palette-item').forEach(item => {
+    const canCreate = hasPermission(currentRole, 'create').ok;
+    item.classList.toggle('disabled', !canCreate);
+    item.draggable = canCreate;
+  });
+  renderPermDetail();
+  renderAll();
+}
+
+document.getElementById('roleSelector').addEventListener('change', (e) => {
+  currentRole = e.target.value;
+  applyRBAC();
+});
+
+/* ============== Toolbar ============== */
+document.getElementById('btnValidate').addEventListener('click', () => {
+  if (workflow.nodes.length === 0) {
+    toast('ℹ 尚無節點', 'info'); return;
+  }
+  const starts = workflow.nodes.filter(n => n.type === 'start');
+  const ends = workflow.nodes.filter(n => n.type === 'end');
+  if (starts.length === 0) { toast('⚠ 缺少「開始」節點', 'deny'); return; }
+  if (ends.length === 0)   { toast('⚠ 缺少「結束」節點', 'deny'); return; }
+  if (starts.length > 1)   { toast('⚠ 「開始」節點只能有一個', 'deny'); return; }
+  toast('✓ 工作流結構有效', 'ok');
+});
+
+document.getElementById('btnAutoLayout').addEventListener('click', () => {
+  if (workflow.nodes.length === 0) { toast('ℹ 尚無節點', 'info'); return; }
+  // Simple layered layout: group by topological distance from start
+  const layers = new Map();
+  const indeg = new Map();
+  workflow.nodes.forEach(n => indeg.set(n.id, 0));
+  workflow.edges.forEach(e => indeg.set(e.to, (indeg.get(e.to) || 0) + 1));
+
+  const queue = workflow.nodes.filter(n => indeg.get(n.id) === 0 || n.type === 'start');
+  queue.forEach(n => layers.set(n.id, 0));
+  // BFS
+  const visited = new Set();
+  let frontier = queue;
+  while (frontier.length > 0) {
+    const next = [];
+    for (const n of frontier) {
+      const l = layers.get(n.id) || 0;
+      workflow.edges.filter(e => e.from === n.id).forEach(e => {
+        if (!visited.has(e.to)) {
+          layers.set(e.to, Math.max(layers.get(e.to) || 0, l + 1));
+          next.push(workflow.nodes.find(x => x.id === e.to));
+        }
+      });
+      visited.add(n.id);
+    }
+    frontier = next;
+  }
+  // Unconnected nodes: put in last layer
+  let maxLayer = 0;
+  for (const l of layers.values()) maxLayer = Math.max(maxLayer, l);
+  workflow.nodes.forEach(n => {
+    if (!layers.has(n.id)) { layers.set(n.id, maxLayer + 1); }
+  });
+
+  // Group by layer
+  const grouped = {};
+  for (const [id, l] of layers.entries()) {
+    if (!grouped[l]) grouped[l] = [];
+    grouped[l].push(workflow.nodes.find(n => n.id === id));
+  }
+  // Position
+  const colW = 220, rowH = 130;
+  Object.keys(grouped).forEach(l => {
+    const list = grouped[l];
+    list.forEach((n, i) => {
+      n.x = 60 + Number(l) * colW;
+      n.y = 60 + i * rowH;
+    });
+  });
+  renderAll();
+  toast('✓ 已自動佈局', 'ok');
+});
+
+document.getElementById('btnExport').addEventListener('click', () => {
+  if (!hasPermission(currentRole, 'export').ok) {
+    toast(denyMsg('export', currentRole), 'deny'); return;
+  }
+  const data = {
+    nodes: workflow.nodes.map(n => ({
+      id: n.id, type: n.type, x: n.x, y: n.y,
+      title: n.title, assignee: n.assignee, note: n.note, owner: n.owner,
+    })),
+    edges: workflow.edges.map(e => ({
+      id: e.id, from: e.from, to: e.to, label: e.label, owner: e.owner,
+    })),
+    exportedAt: new Date().toISOString(),
+    exportedBy: currentRole,
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `workflow-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('✓ 工作流已匯出', 'ok');
+});
+
+document.getElementById('btnClear').addEventListener('click', () => {
+  if (!hasPermission(currentRole, 'manage').ok) {
+    // Allow chief+staff to clear only their own nodes
+    workflow.nodes = workflow.nodes.filter(n => {
+      if (hasPermission(currentRole, 'delete', n.owner).ok) return false;
+      return true;
+    });
+    workflow.edges = workflow.edges.filter(e => {
+      if (hasPermission(currentRole, 'delete', e.owner).ok) return false;
+      return true;
+    });
+    renderAll();
+    toast('已清除可刪除節點', 'info');
+    return;
+  }
+  workflow.nodes = [];
+  workflow.edges = [];
+  selection = { nodeId: null, edgeId: null };
+  renderAll();
+  toast('✓ 工作流已清除', 'ok');
+});
+
+document.getElementById('btnLoadDemo').addEventListener('click', () => {
+  // Admin-only for demo loading (creates as admin)
+  if (!hasPermission(currentRole, 'create').ok) {
+    toast(denyMsg('create', currentRole), 'deny'); return;
+  }
+  if (!hasPermission(currentRole, 'manage').ok) {
+    toast('✗ 載入範例需要管理權限', 'deny'); return;
+  }
+  workflow.nodes = [];
+  workflow.edges = [];
+  workflow.nextId = 1;
+  const start = addNode('start', 150, 100, 'admin');
+  const a1 = addNode('approve', 380, 100, 'admin');
+  a1.title = '主管審批請假';
+  const dec1 = addNode('decision', 610, 100, 'admin');
+  dec1.title = '超過 3 天？';
+  const notify = addNode('notify', 860, 30, 'admin');
+  notify.title = '通知 HR';
+  const exec = addNode('execute', 860, 170, 'admin');
+  exec.title = '登記請假紀錄';
+  const end = addNode('end', 1110, 100, 'admin');
+  addEdge(start.id, a1.id, 'admin');
+  addEdge(a1.id, dec1.id, 'admin');
+  addEdge(dec1.id, notify.id, 'admin');
+  addEdge(dec1.id, exec.id, 'admin');
+  addEdge(notify.id, end.id, 'admin');
+  addEdge(exec.id, end.id, 'admin');
+  renderAll();
+  toast('✓ 已載入「請假審批」範例', 'ok');
+});
+
+/* ============== Toast ============== */
+function toast(msg, type = 'info') {
+  const area = document.getElementById('toastArea');
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  area.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 300);
+  }, 2200);
+}
+
+/* ============== Keyboard shortcuts ============== */
+window.addEventListener('keydown', (e) => {
+  if (e.target.matches('input, textarea, select')) return;
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (selection.nodeId) {
+      removeNode(selection.nodeId, currentRole);
+      selection.nodeId = null;
+      renderAll();
+    } else if (selection.edgeId) {
+      removeEdge(selection.edgeId, currentRole);
+      selection.edgeId = null;
+      renderAll();
+    }
+  } else if (e.key === 'Escape') {
+    selection = { nodeId: null, edgeId: null };
+    renderAll();
+  }
+});
+
+/* ============== Init ============== */
+renderRbacTable();
+applyRBAC();
+renderAll();
+</script>
+</body>
+</html>

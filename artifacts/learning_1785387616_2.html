@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PDF → 結構化資料 OCR 工具(前端版)</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-2: #334155;
+    --border: #475569;
+    --accent: #38bdf8;
+    --accent-2: #22d3ee;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --err: #f87171;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif; }
+  header {
+    padding: 18px 24px;
+    background: linear-gradient(90deg, #0c4a6e, #0f172a);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    flex-wrap: wrap;
+  }
+  header h1 { margin: 0; font-size: 20px; letter-spacing: 0.5px; }
+  header .badge { padding: 4px 10px; background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 999px; font-size: 12px; color: var(--muted); }
+  main { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; min-height: calc(100% - 64px); }
+  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px; overflow: auto; max-height: calc(100vh - 96px);
+  }
+  .panel h2 { margin: 0 0 12px 0; font-size: 16px; color: var(--accent); display: flex;
+    align-items: center; gap: 8px; }
+  .panel h2 .sub { font-size: 11px; color: var(--muted); font-weight: normal; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; align-items: center; }
+  .controls label { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .controls select, .controls button, .controls input[type=file] {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+    padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 13px;
+  }
+  .controls button.primary { background: var(--accent); color: #0f172a; border-color: var(--accent); font-weight: 600; }
+  .controls button:disabled { opacity: 0.4; cursor: not-allowed; }
+  #drop-zone {
+    border: 2px dashed var(--border); border-radius: 10px; padding: 24px;
+    text-align: center; color: var(--muted); margin-bottom: 12px;
+    transition: all 0.2s;
+  }
+  #drop-zone.dragover { border-color: var(--accent); background: rgba(56, 189, 248, 0.08); color: var(--accent); }
+  #pdf-render {
+    width: 100%; background: #fff; border-radius: 8px; display: block;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  }
+  .progress { width: 100%; height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden;
+    margin: 8px 0; display: none; }
+  .progress.on { display: block; }
+  .progress-bar { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    width: 0%; transition: width 0.3s; }
+  .status { font-size: 13px; color: var(--muted); margin: 6px 0 12px; min-height: 18px; }
+  .status.error { color: var(--err); }
+  .status.ok { color: var(--ok); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { background: var(--panel-2); color: var(--accent); font-weight: 600; }
+  td.key { font-family: ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); white-space: nowrap; }
+  td.value { color: var(--text); word-break: break-all; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  td.hit { color: var(--ok); }
+  td.miss { color: var(--muted); font-style: italic; }
+  .pages-list { margin-top: 16px; }
+  .pages-list details { margin-bottom: 6px; background: var(--panel-2); border-radius: 6px; padding: 6px 10px; }
+  .pages-list summary { cursor: pointer; font-size: 13px; color: var(--accent); }
+  .pages-list pre { white-space: pre-wrap; word-break: break-all; background: #0b1220;
+    padding: 10px; border-radius: 6px; font-size: 12px; max-height: 200px; overflow: auto; color: var(--text); margin: 8px 0 0; }
+  .page-nav { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .page-nav button { padding: 4px 10px; }
+  .page-info { font-size: 12px; color: var(--muted); }
+  .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .actions a { color: var(--accent); text-decoration: none; padding: 6px 10px; border: 1px solid var(--border);
+    border-radius: 6px; font-size: 12px; }
+  .actions a:hover { background: var(--panel-2); }
+  .model-status { font-size: 11px; padding: 3px 8px; border-radius: 4px; background: var(--panel-2); color: var(--muted); }
+  .model-status.loading { background: #1e3a8a; color: var(--accent); }
+  .model-status.ready { background: #166534; color: #dcfce7; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📄 PDF → 結構化資料 OCR 工具</h1>
+  <div style="display:flex; gap:8px; align-items:center;">
+    <span class="model-status" id="model-status">OCR 引擎: 載入中…</span>
+    <span class="badge">PDF.js 4.0 + Tesseract.js 5 (瀏覽器內執行)</span>
+  </div>
+</header>
+<main>
+  <section class="panel">
+    <h2>📥 上傳 & 預覽 <span class="sub">(第 1 步)</span></h2>
+    <div id="drop-zone">
+      拖曳 PDF 到這裡,或
+      <input type="file" id="pdf-upload" accept="application/pdf" style="display:inline-block; margin-left:6px;" />
+    </div>
+    <div class="controls">
+      <label>處理模式:
+        <select id="mode-select">
+          <option value="auto">auto (自動判斷)</option>
+          <option value="text">text (直接抽文字)</option>
+          <option value="ocr">ocr (強制 OCR 全部頁)</option>
+        </select>
+      </label>
+      <label>OCR 語言:
+        <select id="lang-select">
+          <option value="chi_tra+eng">繁體中文 + 英文</option>
+          <option value="chi_tra">繁體中文</option>
+          <option value="eng">英文</option>
+          <option value="chi_sim+eng">簡體中文 + 英文</option>
+        </select>
+      </label>
+      <button class="primary" id="process-btn" disabled>🚀 開始處理</button>
+    </div>
+    <div class="progress" id="progress"><div class="progress-bar" id="progress-bar"></div></div>
+    <div class="status" id="status">尚未載入檔案</div>
+    <div class="page-nav">
+      <button id="prev-page" disabled>← 上一頁</button>
+      <span class="page-info" id="page-info">— / —</span>
+      <button id="next-page" disabled>下一頁 →</button>
+    </div>
+    <canvas id="pdf-render"></canvas>
+  </section>
+
+  <section class="panel">
+    <h2>📊 萃取結果 <span class="sub">(第 2 步)</span></h2>
+    <table id="result-table">
+      <thead>
+        <tr><th style="width:30%;">欄位</th><th style="width:25%;">中文標籤</th><th>萃取結果</th></tr>
+      </thead>
+      <tbody id="result-tbody">
+        <tr><td colspan="3" style="text-align:center; color:var(--muted); padding:24px;">尚未處理</td></tr>
+      </tbody>
+    </table>
+    <div class="actions" id="export-actions" style="display:none;">
+      <a id="download-json" href="#" download="ocr_result.json">⬇ 下載 JSON</a>
+      <a id="download-csv" href="#" download="ocr_result.csv">⬇ 下載 CSV</a>
+      <a id="download-text" href="#" download="ocr_text.txt">⬇ 下載純文字</a>
+    </div>
+    <div class="pages-list" id="pages-list"></div>
+  </section>
+</main>
+
+<!-- Tesseract.js + PDF.js (CDN) -->
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.min.mjs" type="module"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+<script>
+'use strict';
+
+// ---------- 全域狀態 ----------
+const state = {
+  pdfDoc: null,        // PDF.js 文件物件
+  currentPage: 1,
+  totalPages: 0,
+  pdfFile: null,
+  extractedPages: [],  // [{page, text, charCount}]
+  extractedFields: {},
+};
+
+// ---------- DOM ----------
+const $ = (id) => document.getElementById(id);
+const dropZone = $('drop-zone');
+const fileInput = $('pdf-upload');
+const canvas = $('pdf-render');
+const ctx = canvas.getContext('2d');
+const statusEl = $('status');
+const progressEl = $('progress');
+const progressBar = $('progress-bar');
+const modeSelect = $('mode-select');
+const langSelect = $('lang-select');
+const processBtn = $('process-btn');
+const modelStatus = $('model-status');
+const prevBtn = $('prev-page');
+const nextBtn = $('next-page');
+const pageInfo = $('page-info');
+
+// ---------- Regex (與 Python 端一致) ----------
+const REGEX_PATTERNS = {
+  document_number: { pattern: /府授[^\s]{0,6}字[第弟乩芧]\s*(\d[\d-]*)\s*(?:號|5k|5K)/g, label: '發文字號' },
+  roc_date:        { pattern: /中華民國\s*(\d{1,3})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/g, label: '民國日期' },
+  iso_date:        { pattern: /(\d{4})[-/](\d{1,2})[-/](\d{1,2})/g, label: '西元日期' },
+  amount_ntd:      { pattern: /(?:新臺幣|NT\$|NTD)\s*([\d,]+)\s*元/g, label: '金額(新臺幣)' },
+  email:           { pattern: /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, label: '電子郵件' },
+  phone_local:     { pattern: /(?:電話[:：]\s*)?(?:0\d{1,2}|0\d{1,2}[-.\s])\d{3,4}[-.\s]\d{3,4}|\(?\d{2,4}\)?[-.\s]\d{6,8}/g, label: '電話' },
+  address_tw:      { pattern: /(臺北市|新北市|桃園市|臺中市|臺南市|高雄市|基隆市|新竹市|嘉義市|[\u4e00-\u9fff]{2,3}縣)[\u4e00-\u9fff]{0,8}([市區鄉鎮][\u4e00-\u9fff]{0,8}[路段街][\u4e00-\u9fff]{0,8}?\d+號?[\u4e00-\u9fff]*)/g, label: '地址' },
+};
+
+function setStatus(msg, kind = '') {
+  statusEl.textContent = msg;
+  statusEl.className = 'status' + (kind ? ' ' + kind : '');
+}
+
+function setProgress(pct) {
+  if (pct == null) { progressEl.classList.remove('on'); return; }
+  progressEl.classList.add('on');
+  progressBar.style.width = Math.min(100, Math.max(0, pct)) + '%';
+}
+
+// ---------- 載入 PDF ----------
+async function loadPdfFile(file) {
+  state.pdfFile = file;
+  setStatus(`已選擇: ${file.name} (${(file.size / 1024).toFixed(1)} KB) — 解析中…`);
+  const arrayBuf = await file.arrayBuffer();
+  // PDF.js 用 ESM,動態 import
+  const pdfjs = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.min.mjs');
+  pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs';
+  state.pdfDoc = await pdfjs.getDocument({ data: arrayBuf }).promise;
+  state.totalPages = state.pdfDoc.numPages;
+  state.currentPage = 1;
+  await renderPage(state.currentPage);
+  pageInfo.textContent = `${state.currentPage} / ${state.totalPages}`;
+  prevBtn.disabled = state.currentPage <= 1;
+  nextBtn.disabled = state.currentPage >= state.totalPages;
+  processBtn.disabled = false;
+  setStatus(`已載入 ${state.totalPages} 頁。按「開始處理」執行 OCR / 文字萃取。`, 'ok');
+}
+
+async function renderPage(n) {
+  if (!state.pdfDoc) return;
+  const page = await state.pdfDoc.getPage(n);
+  const viewport = page.getViewport({ scale: 1.5 });
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  await page.render({ canvasContext: ctx, viewport }).promise;
+}
+
+// ---------- 文字密度偵測 ----------
+function textDensity(pdf) {
+  // 直接 get text 來估算密度,給 auto mode 判斷
+  return pdf.getPage(1).then(p => p.getTextContent()).then(tc =>
+    tc.items.reduce((s, it) => s + (it.str || '').replace(/\s/g, '').length, 0)
+  );
+}
+
+// ---------- OCR ----------
+let tesseractWorker = null;
+async function getWorker(lang) {
+  if (tesseractWorker) {
+    await tesseractWorker.terminate();
+    tesseractWorker = null;
+  }
+  modelStatus.textContent = 'OCR 引擎: 載入 ' + lang + ' 語言模型…';
+  modelStatus.className = 'model-status loading';
+  tesseractWorker = await Tesseract.createWorker(lang, 1, {
+    logger: m => {
+      if (m.status === 'recognizing text') setProgress(50 + m.progress * 50);
+      else if (m.status === 'loading language traineddata') setProgress(10 + m.progress * 30);
+    }
+  });
+  modelStatus.textContent = 'OCR 引擎: ' + lang + ' 就緒';
+  modelStatus.className = 'model-status ready';
+  return tesseractWorker;
+}
+
+async function ocrPage(pdf, pageNum, lang, worker) {
+  const page = await pdf.getPage(pageNum);
+  const viewport = page.getViewport({ scale: 2.0 }); // 高解析度餵 OCR
+  const offCanvas = document.createElement('canvas');
+  offCanvas.width = viewport.width;
+  offCanvas.height = viewport.height;
+  const offCtx = offCanvas.getContext('2d');
+  await page.render({ canvasContext: offCtx, viewport }).promise;
+  const { data } = await worker.recognize(offCanvas);
+  return data.text;
+}
+
+async function textPage(pdf, pageNum) {
+  const page = await pdf.getPage(pageNum);
+  const tc = await page.getTextContent();
+  return tc.items.map(it => it.str).join('\n');
+}
+
+// ---------- 主處理流程 ----------
+async function process() {
+  if (!state.pdfDoc) return;
+  processBtn.disabled = true;
+  setProgress(0);
+  const mode = modeSelect.value;
+  const lang = langSelect.value;
+  const t0 = performance.now();
+  state.extractedPages = [];
+  setStatus(`處理中(模式=${mode}, 語言=${lang})…`);
+
+  try {
+    for (let i = 1; i <= state.totalPages; i++) {
+      setProgress(((i - 1) / state.totalPages) * 50);
+      let text = '';
+      if (mode === 'text') {
+        text = await textPage(state.pdfDoc, i);
+      } else if (mode === 'ocr') {
+        const w = await getWorker(lang);
+        text = await ocrPage(state.pdfDoc, i, lang, w);
+      } else { // auto
+        const t = await textPage(state.pdfDoc, i);
+        const density = t.replace(/\s/g, '').length;
+        if (density < 30) {
+          const w = await getWorker(lang);
+          text = await ocrPage(state.pdfDoc, i, lang, w);
+        } else {
+          text = t;
+        }
+      }
+      state.extractedPages.push({ page: i, text, charCount: text.replace(/\s/g, '').length });
+    }
+    // 跑 regex
+    const combined = state.extractedPages.map(p => p.text).join('\n');
+    state.extractedFields = {};
+    for (const [key, conf] of Object.entries(REGEX_PATTERNS)) {
+      // 重要:每次 match 都要重置 lastIndex,因為 regex 用 g flag
+      conf.pattern.lastIndex = 0;
+      const m = conf.pattern.exec(combined);
+      state.extractedFields[key] = {
+        label: conf.label,
+        value: m ? m[0].trim() : null,
+        groups: m ? Array.from(m).slice(1) : [],
+      };
+    }
+    renderResults();
+    renderPagesList();
+    setupDownloads();
+    const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
+    setStatus(`✓ 處理完成 — ${state.totalPages} 頁,耗時 ${elapsed}s`, 'ok');
+  } catch (e) {
+    console.error(e);
+    setStatus('✗ 處理失敗: ' + e.message, 'error');
+  } finally {
+    setProgress(null);
+    processBtn.disabled = false;
+  }
+}
+
+function renderResults() {
+  const tbody = $('result-tbody');
+  tbody.innerHTML = '';
+  let hitCount = 0;
+  for (const [key, info] of Object.entries(state.extractedFields)) {
+    const tr = document.createElement('tr');
+    const tdKey = document.createElement('td');
+    tdKey.className = 'key'; tdKey.textContent = key;
+    const tdLabel = document.createElement('td');
+    tdLabel.textContent = info.label;
+    const tdVal = document.createElement('td');
+    if (info.value) { tdVal.className = 'value hit'; hitCount++; }
+    else { tdVal.className = 'value miss'; }
+    tdVal.textContent = info.value || '(未命中)';
+    tr.appendChild(tdKey); tr.appendChild(tdLabel); tr.appendChild(tdVal);
+    tbody.appendChild(tr);
+  }
+  $('export-actions').style.display = 'flex';
+}
+
+function renderPagesList() {
+  const list = $('pages-list');
+  list.innerHTML = '<h3 style="font-size:14px; color:var(--accent); margin: 16px 0 8px;">📄 各頁萃取文字</h3>';
+  for (const p of state.extractedPages) {
+    const det = document.createElement('details');
+    const sum = document.createElement('summary');
+    sum.textContent = `第 ${p.page} 頁 — ${p.charCount} 字`;
+    const pre = document.createElement('pre');
+    pre.textContent = p.text || '(空)';
+    det.appendChild(sum); det.appendChild(pre);
+    list.appendChild(det);
+  }
+}
+
+function setupDownloads() {
+  const result = {
+    source_pdf: state.pdfFile ? state.pdfFile.name : '(uploaded)',
+    mode_used: modeSelect.value,
+    page_count: state.totalPages,
+    extracted_pages: state.extractedPages.map(p => ({ page: p.page, char_count: p.charCount, preview: p.text.slice(0, 200) })),
+    extracted_fields: state.extractedFields,
+  };
+  const jsonStr = JSON.stringify(result, null, 2);
+  $('download-json').href = 'data:application/json;charset=utf-8,' + encodeURIComponent(jsonStr);
+  // CSV
+  let csv = '\uFEFF欄位,中文標籤,萃取結果\n';
+  for (const [key, info] of Object.entries(state.extractedFields)) {
+    csv += `${key},${info.label},"${(info.value || '').replace(/"/g, '""')}"\n`;
+  }
+  $('download-csv').href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+  // 純文字
+  const text = state.extractedPages.map(p => `=== 第 ${p.page} 頁 ===\n${p.text}`).join('\n\n');
+  $('download-text').href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(text);
+}
+
+// ---------- 事件 ----------
+fileInput.addEventListener('change', e => {
+  if (e.target.files[0]) loadPdfFile(e.target.files[0]);
+});
+['dragenter','dragover'].forEach(ev => dropZone.addEventListener(ev, e => {
+  e.preventDefault(); e.stopPropagation();
+  dropZone.classList.add('dragover');
+}));
+['dragleave','drop'].forEach(ev => dropZone.addEventListener(ev, e => {
+  e.preventDefault(); e.stopPropagation();
+  dropZone.classList.remove('dragover');
+}));
+dropZone.addEventListener('drop', e => {
+  const f = e.dataTransfer.files[0];
+  if (f && f.type === 'application/pdf') loadPdfFile(f);
+});
+processBtn.addEventListener('click', process);
+prevBtn.addEventListener('click', async () => {
+  if (state.currentPage > 1) { state.currentPage--; await renderPage(state.currentPage); pageInfo.textContent = `${state.currentPage} / ${state.totalPages}`; prevBtn.disabled = state.currentPage <= 1; nextBtn.disabled = false; }
+});
+nextBtn.addEventListener('click', async () => {
+  if (state.currentPage < state.totalPages) { state.currentPage++; await renderPage(state.currentPage); pageInfo.textContent = `${state.currentPage} / ${state.totalPages}`; prevBtn.disabled = false; nextBtn.disabled = state.currentPage >= state.totalPages; }
+});
+
+// 預載 OCR worker 但不立刻實例化(讓使用者先看到 ready)
+async function preloadOcr() {
+  try {
+    modelStatus.textContent = 'OCR 引擎: 預載入中…';
+    modelStatus.className = 'model-status loading';
+    // 不實例化 worker(會下載 100MB+ 語言檔),只標示 JS 已就緒
+    if (typeof Tesseract === 'undefined') throw new Error('Tesseract.js 未載入');
+    modelStatus.textContent = 'OCR 引擎: JS 就緒(語言模型按需下載)';
+    modelStatus.className = 'model-status ready';
+  } catch (e) {
+    modelStatus.textContent = 'OCR 引擎: 載入失敗 — ' + e.message;
+    modelStatus.className = 'model-status';
+  }
+}
+preloadOcr();
+</script>
+</body>
+</html>

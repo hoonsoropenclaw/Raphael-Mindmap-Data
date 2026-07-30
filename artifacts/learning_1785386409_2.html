@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PDF 公務文件 OCR 自動化處理系統</title>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.min.mjs" type="module"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --panel: #131829;
+    --panel-2: #1a2138;
+    --border: #2a3450;
+    --text: #e4e8f3;
+    --muted: #8892b0;
+    --accent: #4f9eff;
+    --accent-2: #00d4aa;
+    --warn: #ff6b6b;
+    --gold: #ffd166;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC",
+                 "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+  .container {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 32px 24px;
+  }
+
+  /* ── Header ── */
+  header {
+    text-align: center;
+    margin-bottom: 48px;
+    padding: 40px 24px;
+    background: linear-gradient(135deg, rgba(79, 158, 255, 0.08), rgba(0, 212, 170, 0.06));
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  header::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 20% 30%, rgba(79, 158, 255, 0.15), transparent 50%),
+                radial-gradient(circle at 80% 70%, rgba(0, 212, 170, 0.12), transparent 50%);
+    pointer-events: none;
+  }
+  header h1 {
+    font-size: 2.4rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #4f9eff, #00d4aa);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    margin-bottom: 12px;
+    position: relative;
+  }
+  header .subtitle {
+    color: var(--muted);
+    font-size: 1.05rem;
+    position: relative;
+  }
+  header .badges {
+    margin-top: 20px;
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    flex-wrap: wrap;
+    position: relative;
+  }
+  .badge {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 0.78rem;
+    color: var(--muted);
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+  }
+  .badge.accent { color: var(--accent); border-color: rgba(79, 158, 255, 0.3); }
+  .badge.gold   { color: var(--gold);   border-color: rgba(255, 209, 102, 0.3); }
+
+  /* ── Layout grid ── */
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+  }
+
+  /* ── Panels ── */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+  }
+  .panel h2 {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel h2 .icon { font-size: 1.2rem; }
+
+  /* ── Drop zone ── */
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 48px 24px;
+    text-align: center;
+    transition: all 0.2s;
+    cursor: pointer;
+    background: rgba(79, 158, 255, 0.03);
+  }
+  .dropzone:hover, .dropzone.drag-over {
+    border-color: var(--accent);
+    background: rgba(79, 158, 255, 0.08);
+    transform: translateY(-2px);
+  }
+  .dropzone .upload-icon {
+    font-size: 3rem;
+    margin-bottom: 12px;
+    opacity: 0.6;
+  }
+  .dropzone p { color: var(--muted); font-size: 0.95rem; }
+  .dropzone .filename {
+    color: var(--accent-2);
+    font-weight: 600;
+    margin-top: 12px;
+    word-break: break-all;
+  }
+  .dropzone input[type=file] { display: none; }
+
+  /* ── Buttons ── */
+  .btn {
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.15s;
+    margin-top: 12px;
+  }
+  .btn:hover { background: #3d8aeb; transform: translateY(-1px); }
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+  }
+  .btn.btn-secondary {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+  }
+  .btn.btn-secondary:hover { background: var(--border); }
+
+  /* ── Status ── */
+  .status {
+    margin-top: 16px;
+    padding: 12px 16px;
+    background: var(--panel-2);
+    border-radius: 8px;
+    border-left: 3px solid var(--accent);
+    font-size: 0.9rem;
+    color: var(--muted);
+    display: none;
+  }
+  .status.show { display: block; }
+  .status.success { border-left-color: var(--accent-2); }
+  .status.error   { border-left-color: var(--warn); }
+
+  .progress {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    margin-top: 8px;
+    overflow: hidden;
+  }
+  .progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    width: 0%;
+    transition: width 0.3s;
+  }
+
+  /* ── Key data display ── */
+  .key-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .key-row {
+    display: flex;
+    align-items: flex-start;
+    padding: 10px 12px;
+    background: var(--panel-2);
+    border-radius: 6px;
+    border-left: 3px solid var(--accent);
+  }
+  .key-row .label {
+    flex: 0 0 130px;
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+  .key-row .value {
+    flex: 1;
+    color: var(--text);
+    font-size: 0.92rem;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    word-break: break-all;
+  }
+  .key-row.amount { border-left-color: var(--gold); }
+  .key-row.amount .value { color: var(--gold); font-weight: 600; }
+  .key-row.empty { opacity: 0.4; border-left-color: var(--border); }
+
+  /* ── Text preview ── */
+  .text-preview {
+    background: #0d1322;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 0.85rem;
+    line-height: 1.7;
+    color: var(--text);
+    max-height: 420px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  .text-preview::-webkit-scrollbar { width: 8px; }
+  .text-preview::-webkit-scrollbar-track { background: var(--panel); }
+  .text-preview::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  /* ── Stats bar ── */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .stat {
+    background: var(--panel-2);
+    padding: 12px;
+    border-radius: 8px;
+    text-align: center;
+    border: 1px solid var(--border);
+  }
+  .stat .num {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--accent);
+    display: block;
+  }
+  .stat .label {
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  /* ── Page render preview ── */
+  .canvas-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: 480px;
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+  .canvas-wrap {
+    background: white;
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  }
+  .canvas-wrap canvas { display: block; width: 100%; height: auto; }
+
+  /* ── Footer ── */
+  footer {
+    margin-top: 48px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.85rem;
+    padding: 24px;
+    border-top: 1px solid var(--border);
+  }
+  footer code {
+    background: var(--panel-2);
+    padding: 2px 8px;
+    border-radius: 4px;
+    color: var(--accent-2);
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+  }
+
+  /* ── Pipeline indicator ── */
+  .pipeline {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    padding: 12px;
+    background: var(--panel-2);
+    border-radius: 8px;
+    font-size: 0.8rem;
+  }
+  .pipeline .step {
+    flex: 1;
+    text-align: center;
+    color: var(--muted);
+    position: relative;
+  }
+  .pipeline .step.active { color: var(--accent); font-weight: 600; }
+  .pipeline .step.done   { color: var(--accent-2); }
+  .pipeline .step::after {
+    content: '→';
+    position: absolute;
+    right: -8px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--border);
+  }
+  .pipeline .step:last-child::after { content: ''; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <h1>📄 PDF 公務文件 OCR 自動化處理系統</h1>
+    <p class="subtitle">智慧萃取公文內文 · 自動辨識關鍵欄位 · 三層處理管線</p>
+    <div class="badges">
+      <span class="badge">PDF.js 4.0</span>
+      <span class="badge accent">Tesseract.js 5.0 (WASM)</span>
+      <span class="badge gold">中英文混排 OCR</span>
+      <span class="badge">純前端 · 零後端依賴</span>
+      <span class="badge accent">pymupdf / pymupdf4llm</span>
+    </div>
+  </header>
+
+  <div class="layout">
+
+    <!-- ── 左側: 上傳 + 處理狀態 ── -->
+    <div>
+      <div class="panel">
+        <h2><span class="icon">📁</span> 1. 上傳 PDF 文件</h2>
+        <label class="dropzone" id="dropzone">
+          <div class="upload-icon">📥</div>
+          <p>拖曳 PDF 至此 或 點擊選擇檔案</p>
+          <p style="font-size: 0.8rem; margin-top: 6px;">支援文字型 PDF 與掃描型 PDF</p>
+          <div class="filename" id="filename"></div>
+          <input type="file" id="fileInput" accept="application/pdf">
+        </label>
+
+        <div class="pipeline">
+          <div class="step" id="step-upload">① 上傳</div>
+          <div class="step" id="step-render">② 渲染</div>
+          <div class="step" id="step-ocr">③ OCR</div>
+          <div class="step" id="step-extract">④ 萃取</div>
+        </div>
+
+        <div class="status" id="status"></div>
+        <div class="progress" id="progress" style="display:none;">
+          <div class="progress-bar" id="progressBar"></div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top: 24px;">
+        <h2><span class="icon">📊</span> 2. 處理統計</h2>
+        <div class="stats">
+          <div class="stat">
+            <span class="num" id="stat-pages">—</span>
+            <span class="label">頁數</span>
+          </div>
+          <div class="stat">
+            <span class="num" id="stat-chars">—</span>
+            <span class="label">字元數</span>
+          </div>
+          <div class="stat">
+            <span class="num" id="stat-time">—</span>
+            <span class="label">耗時(秒)</span>
+          </div>
+          <div class="stat">
+            <span class="num" id="stat-fields">—</span>
+            <span class="label">萃取欄位</span>
+          </div>
+        </div>
+        <div id="method-info" style="margin-top: 12px; font-size: 0.85rem; color: var(--muted);">
+          等待上傳...
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top: 24px;">
+        <h2><span class="icon">🖼️</span> 3. 文件預覽</h2>
+        <div class="canvas-stack" id="canvasStack">
+          <p style="color: var(--muted); text-align: center; padding: 24px;">尚未上傳檔案</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 右側: 萃取結果 ── -->
+    <div>
+      <div class="panel">
+        <h2><span class="icon">🔑</span> 4. 關鍵資料萃取 (Key Data Extraction)</h2>
+        <div class="key-grid" id="keyData">
+          <div class="key-row empty"><div class="label">等待處理...</div><div class="value">—</div></div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top: 24px;">
+        <h2><span class="icon">📝</span> 5. 內文全文</h2>
+        <div class="text-preview" id="textPreview">尚未萃取文字內容</div>
+        <button class="btn btn-secondary" id="copyBtn" style="display:none;">📋 複製全文</button>
+        <button class="btn btn-secondary" id="downloadBtn" style="display:none;">💾 下載 JSON 結果</button>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <p>
+      <strong>系統架構</strong>:
+      <code>Tier 1 pymupdf 直接萃取</code> →
+      <code>Tier 2 tesseract OCR (掃描件)</code> →
+      <code>Tier 3 pymupdf4llm 表格/排版</code> →
+      <code>Regex 關鍵欄位辨識</code>
+    </p>
+    <p style="margin-top: 8px;">
+      後端引擎: <code>ocr_engine.py</code> ·
+      樣本測試: <code>sample_official_document.pdf</code> ·
+      離線可用 (Python ≥ 3.12 + pymupdf + pytesseract + tesseract-ocr chi_tra)
+    </p>
+  </footer>
+</div>
+
+<script type="module">
+  // pdf.js setup
+  const pdfjsLib = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.min.mjs');
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs';
+
+  // ── DOM refs ──
+  const fileInput   = document.getElementById('fileInput');
+  const dropzone    = document.getElementById('dropzone');
+  const filenameEl  = document.getElementById('filename');
+  const status      = document.getElementById('status');
+  const progress    = document.getElementById('progress');
+  const progressBar = document.getElementById('progressBar');
+  const textPreview = document.getElementById('textPreview');
+  const keyData     = document.getElementById('keyData');
+  const canvasStack = document.getElementById('canvasStack');
+  const copyBtn     = document.getElementById('copyBtn');
+  const downloadBtn = document.getElementById('downloadBtn');
+
+  const stepEls = {
+    upload:  document.getElementById('step-upload'),
+    render:  document.getElementById('step-render'),
+    ocr:     document.getElementById('step-ocr'),
+    extract: document.getElementById('step-extract'),
+  };
+
+  let lastResult = null;
+
+  // ── Drag/drop ──
+  dropzone.addEventListener('click', () => fileInput.click());
+  dropzone.addEventListener('dragover', e => {
+    e.preventDefault();
+    dropzone.classList.add('drag-over');
+  });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+  dropzone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropzone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file && file.type === 'application/pdf') handleFile(file);
+    else showStatus('請上傳 PDF 檔案', 'error');
+  });
+  fileInput.addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (file) handleFile(file);
+  });
+
+  function setStep(name, state) {
+    Object.values(stepEls).forEach(el => {
+      el.classList.remove('active', 'done');
+    });
+    Object.entries(stepEls).forEach(([key, el]) => {
+      if (key === name) el.classList.add(state);
+      else if (isStepDone(key, name)) el.classList.add('done');
+    });
+  }
+  const stepOrder = ['upload', 'render', 'ocr', 'extract'];
+  function isStepDone(step, currentStep) {
+    return stepOrder.indexOf(step) < stepOrder.indexOf(currentStep);
+  }
+
+  function showStatus(msg, type='') {
+    status.className = 'status show ' + type;
+    status.textContent = msg;
+  }
+  function setProgress(pct) {
+    progress.style.display = 'block';
+    progressBar.style.width = pct + '%';
+  }
+  function hideProgress() {
+    setTimeout(() => { progress.style.display = 'none'; }, 500);
+  }
+
+  // ── Main processing ──
+  async function handleFile(file) {
+    filenameEl.textContent = file.name + ' (' + (file.size/1024).toFixed(1) + ' KB)';
+    setStep('upload', 'done');
+    showStatus('⏳ 讀取 PDF 中...', '');
+    setProgress(10);
+
+    try {
+      const buf = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+
+      setStep('render', 'active');
+      showStatus(`⏳ 渲染 ${pdf.numPages} 頁...`);
+      setProgress(20);
+
+      const pageTexts = [];
+      canvasStack.innerHTML = '';
+
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const viewport = page.getViewport({ scale: 1.3 });
+
+        // Render canvas
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport }).promise;
+
+        const wrap = document.createElement('div');
+        wrap.className = 'canvas-wrap';
+        wrap.appendChild(canvas);
+        canvasStack.appendChild(wrap);
+
+        // Tier 1: direct text
+        const textContent = await page.getTextContent();
+        const directText = textContent.items.map(it => it.str).join(' ');
+
+        pageTexts.push({
+          page: i,
+          text: directText,
+          char_count: directText.length,
+        });
+        setProgress(20 + (i / pdf.numPages) * 30);
+      }
+
+      // Determine if OCR needed
+      const avgChars = pageTexts.reduce((s, p) => s + p.char_count, 0) / pageTexts.length;
+      const needsOCR = avgChars < 20;
+
+      let method;
+      const fullTextParts = [];
+
+      if (!needsOCR) {
+        method = 'Tier 1: pymupdf 直接萃取 (文字型 PDF)';
+        for (const p of pageTexts) fullTextParts.push(p.text);
+        setStep('ocr', 'done');
+      } else {
+        setStep('ocr', 'active');
+        showStatus('⏳ 文件為掃描件,啟動 Tesseract OCR (中英文)...');
+        method = 'Tier 2: Tesseract.js WASM OCR (掃描型 PDF)';
+
+        const worker = await Tesseract.createWorker(['chi_tra', 'eng'], 1, {
+          logger: m => {
+            if (m.status === 'recognizing text') {
+              setProgress(50 + m.progress * 30);
+            }
+          }
+        });
+
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const viewport = page.getViewport({ scale: 2.0 });
+          const canvas = document.createElement('canvas');
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          const ctx = canvas.getContext('2d');
+          await page.render({ canvasContext: ctx, viewport }).promise;
+
+          const { data: { text } } = await worker.recognize(canvas);
+          fullTextParts.push(text);
+        }
+        await worker.terminate();
+      }
+
+      const fullText = fullTextParts.join('\n\n');
+      setStep('extract', 'active');
+      setProgress(90);
+      showStatus('⏳ 萃取關鍵資料...');
+
+      const keyDataResult = extractKeyData(fullText);
+      const startTime = performance.now();
+      const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+
+      // Update UI
+      setProgress(100);
+      setStep('extract', 'done');
+
+      document.getElementById('stat-pages').textContent  = pdf.numPages;
+      document.getElementById('stat-chars').textContent  = fullText.length.toLocaleString();
+      document.getElementById('stat-time').textContent   = elapsed;
+      document.getElementById('stat-fields').textContent = Object.keys(keyDataResult).length;
+      document.getElementById('method-info').textContent =
+        '🔧 處理方式: ' + method + ' · 萃取完成';
+
+      textPreview.textContent = fullText || '(文件無文字內容)';
+      renderKeyData(keyDataResult);
+
+      copyBtn.style.display = 'inline-block';
+      downloadBtn.style.display = 'inline-block';
+
+      lastResult = {
+        file: file.name,
+        file_size_kb: (file.size / 1024).toFixed(1),
+        pages: pdf.numPages,
+        method: method,
+        full_text: fullText,
+        key_data: keyDataResult,
+        processed_at: new Date().toISOString(),
+      };
+
+      showStatus(`✅ 處理完成! 共 ${pdf.numPages} 頁 / ${fullText.length} 字元 / ${Object.keys(keyDataResult).length} 個欄位`, 'success');
+      hideProgress();
+
+    } catch (err) {
+      console.error(err);
+      showStatus('❌ 處理失敗: ' + err.message, 'error');
+    }
+  }
+
+  // ── Key data extraction (regex tuned for Taiwan 公務文件) ──
+  const ROC_BASE = 1911;
+  const PATTERNS = {
+    '發文字號': /(?:[\u4e00-\u9fff]{2,15})[字第]\d{6,16}號/g,
+    '中華民國日期': /(?:中華民國|民國)\s?(\d{2,3})\s?年\s?(\d{1,2})\s?月\s?(\d{1,2})\s?日/g,
+    '西元日期 (ISO)': /\b(\d{4})[-/](\d{1,2})[-/](\d{1,2})\b/g,
+    '金額 (NT$)': /(?:NT\$|新台幣|新臺幣|金額[::]?\s?|計[::]?\s?)\s?(\d{1,3}(?:,\d{3})+|\d+)\s?元?/g,
+    '統一編號': /統一編號[::]?\s?(\d{8})/g,
+    '身分證字號': /身分證(?:字號|統一編號)[::]?\s?([A-Z][12]\d{8})/g,
+    '聯絡電話': /(?:電話|聯絡電話|TEL|行動電話|手機)[::]?\s?([\d\-\(\)\s]{8,18})/g,
+    'Email': /\b([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})\b/g,
+    '地址': /((?:[\u4e00-\u9fff]{2,4}(?:市|縣))?[\u4e00-\u9fff]{2,4}(?:區|鄉|鎮|市)[\u4e00-\u9fff]{2,15}(?:路|街|大道)(?:[\u4e00-\u9fff]{0,5}段)?\s?\d+號(?:之\d+)?(?:\d+樓)?)/g,
+    '受文者': /受文者[::]?\s?([^\n\r]{2,80})/g,
+    '主旨': /主旨[::]?\s?([^\n\r]{2,200})/g,
+  };
+
+  function extractKeyData(text) {
+    const result = {};
+    for (const [label, re] of Object.entries(PATTERNS)) {
+      re.lastIndex = 0;
+      const matches = [...text.matchAll(re)];
+      if (matches.length === 0) continue;
+
+      if (label === '中華民國日期') {
+        result[label] = matches.map(m => ({
+          raw: m[0],
+          iso: `${parseInt(m[1]) + ROC_BASE}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`
+        })).slice(0, 5);
+      } else if (label === '金額 (NT$)') {
+        const amts = matches.map(m => parseInt(m[1].replace(/,/g, ''))).filter(n => n > 0);
+        if (amts.length) {
+          result[label] = { count: amts.length, total: amts.reduce((a,b)=>a+b,0),
+                            max: Math.max(...amts), samples: amts.slice(0,5) };
+        }
+      } else {
+        const vals = matches.map(m => m[1] || m[0]).map(v => v.trim());
+        const unique = [...new Set(vals)];
+        if (unique.length) result[label] = unique.slice(0, 5);
+      }
+    }
+    return result;
+  }
+
+  function renderKeyData(data) {
+    const labels = Object.keys(PATTERNS);
+    if (Object.keys(data).length === 0) {
+      keyData.innerHTML = '<div class="key-row empty"><div class="label">無資料</div><div class="value">未偵測到結構化欄位</div></div>';
+      return;
+    }
+    keyData.innerHTML = labels.map(label => {
+      const val = data[label];
+      if (!val) return `<div class="key-row empty"><div class="label">${label}</div><div class="value">—</div></div>`;
+      const isAmount = label.includes('金額');
+      const display = typeof val === 'object' ? JSON.stringify(val, null, 0) : (Array.isArray(val) ? val.join('; ') : String(val));
+      const cls = isAmount ? 'amount' : '';
+      return `<div class="key-row ${cls}">
+        <div class="label">${label}</div>
+        <div class="value">${escapeHtml(display)}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // ── Buttons ──
+  copyBtn.onclick = () => {
+    navigator.clipboard.writeText(textPreview.textContent);
+    copyBtn.textContent = '✅ 已複製';
+    setTimeout(() => copyBtn.textContent = '📋 複製全文', 1500);
+  };
+
+  downloadBtn.onclick = () => {
+    if (!lastResult) return;
+    const blob = new Blob([JSON.stringify(lastResult, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = lastResult.file.replace('.pdf', '') + '_ocr_result.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+</script>
+
+</body>
+</html>
