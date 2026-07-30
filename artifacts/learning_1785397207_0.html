@@ -1,0 +1,1187 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>🗓 Calendar Automation Console — Playwright × Google Calendar</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --bg-2: #131a32;
+    --panel: #182142;
+    --panel-2: #1e2750;
+    --line: #2a3566;
+    --ink: #e8ecff;
+    --ink-dim: #9aa3c7;
+    --ink-mute: #6c759b;
+    --accent: #7aa2ff;
+    --accent-2: #b89dff;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --err: #f87171;
+    --cal-1:#7986cb; --cal-2:#33b679; --cal-3:#8e24aa; --cal-4:#e67c73;
+    --cal-5:#f6bf26; --cal-6:#f4511e; --cal-7:#039be5; --cal-8:#616161;
+    --cal-9:#3f51b5; --cal-10:#0b8043; --cal-11:#d50000;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: radial-gradient(1200px 800px at 20% -10%, #1c2657 0%, transparent 50%),
+                radial-gradient(900px 600px at 100% 0%, #2a1d4a 0%, transparent 50%),
+                var(--bg);
+    color: var(--ink);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    min-height: 100vh;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre, .mono {
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12.5px;
+  }
+
+  /* ===== Layout ===== */
+  header.top {
+    padding: 18px 28px;
+    border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: space-between;
+    background: rgba(11, 16, 32, 0.6);
+    backdrop-filter: blur(12px);
+    position: sticky; top: 0; z-index: 50;
+  }
+  header.top h1 {
+    margin: 0; font-size: 18px; font-weight: 600; letter-spacing: 0.2px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  header.top .meta { font-size: 12px; color: var(--ink-dim); }
+  header.top .meta b { color: var(--accent); }
+
+  .tabs {
+    display: flex; gap: 4px; padding: 0 28px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(11, 16, 32, 0.4);
+  }
+  .tab {
+    padding: 12px 16px; cursor: pointer; user-select: none;
+    color: var(--ink-dim); border-bottom: 2px solid transparent;
+    font-weight: 500; font-size: 13px;
+    transition: color .15s, border-color .15s;
+  }
+  .tab:hover { color: var(--ink); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  main { padding: 24px 28px 60px; max-width: 1400px; margin: 0 auto; }
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* ===== Dashboard cards ===== */
+  .grid {
+    display: grid; gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+  .card {
+    background: linear-gradient(180deg, var(--panel), var(--bg-2));
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .card .label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px;
+    color: var(--ink-mute); margin-bottom: 8px;
+  }
+  .card .value {
+    font-size: 28px; font-weight: 600; color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .card .sub {
+    font-size: 12px; color: var(--ink-dim); margin-top: 4px;
+  }
+  .card.ok .value { color: var(--ok); }
+  .card.warn .value { color: var(--warn); }
+
+  /* ===== Toolbar ===== */
+  .toolbar {
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    margin-bottom: 16px;
+  }
+  .btn {
+    background: var(--panel); border: 1px solid var(--line); color: var(--ink);
+    padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: 13px;
+    transition: background .15s, border-color .15s, transform .05s;
+  }
+  .btn:hover { background: var(--panel-2); border-color: var(--accent); }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary { background: var(--accent); color: #0b1020; border-color: var(--accent); font-weight: 600; }
+  .btn.primary:hover { background: #9ab9ff; }
+  .btn.danger { color: var(--err); }
+  .btn.danger:hover { border-color: var(--err); }
+  .btn.ghost { background: transparent; }
+  .input, select.input {
+    background: var(--bg-2); border: 1px solid var(--line); color: var(--ink);
+    padding: 8px 10px; border-radius: 8px; font-size: 13px;
+    font-family: inherit;
+  }
+  .input:focus, select.input:focus { outline: none; border-color: var(--accent); }
+
+  /* ===== Event list table ===== */
+  .table-wrap {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; overflow: hidden;
+  }
+  table.events { width: 100%; border-collapse: collapse; }
+  table.events th, table.events td {
+    padding: 10px 14px; text-align: left; font-size: 13px;
+    border-bottom: 1px solid var(--line);
+  }
+  table.events th {
+    background: var(--panel-2); font-weight: 600; color: var(--ink-dim);
+    text-transform: uppercase; font-size: 11px; letter-spacing: 1px;
+  }
+  table.events tr:hover td { background: rgba(122, 162, 255, 0.04); }
+  table.events td.swatch {
+    width: 6px; padding: 0;
+  }
+  table.events td.actions { text-align: right; white-space: nowrap; }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 12px;
+    font-size: 11px; background: var(--panel-2); color: var(--ink-dim);
+    border: 1px solid var(--line);
+  }
+  .badge.ok { color: var(--ok); border-color: rgba(74, 222, 128, 0.3); }
+  .badge.warn { color: var(--warn); border-color: rgba(251, 191, 36, 0.3); }
+
+  /* ===== Timeline view ===== */
+  .timeline {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 20px; overflow-x: auto;
+  }
+  .tl-grid {
+    display: grid; gap: 4px;
+    grid-template-columns: 60px repeat(14, minmax(80px, 1fr));
+    min-width: 1100px;
+  }
+  .tl-day-head, .tl-hour {
+    font-size: 11px; color: var(--ink-dim); text-align: center;
+    padding: 4px; border-bottom: 1px solid var(--line);
+  }
+  .tl-day-head.today { color: var(--accent); font-weight: 600; }
+  .tl-hour { text-align: right; padding-right: 8px; border-right: 1px solid var(--line); }
+  .tl-cell {
+    min-height: 28px; border-bottom: 1px dashed rgba(255,255,255,0.04);
+    position: relative;
+  }
+  .tl-cell.today { background: rgba(122, 162, 255, 0.04); }
+  .tl-evt {
+    position: absolute; left: 2px; right: 2px; border-radius: 6px;
+    padding: 4px 8px; font-size: 11.5px; line-height: 1.25;
+    color: white; cursor: pointer;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    border: 1px solid rgba(255,255,255,0.15);
+    transition: transform .1s, box-shadow .1s;
+  }
+  .tl-evt:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+
+  /* ===== Modal ===== */
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    display: none; align-items: center; justify-content: center;
+    z-index: 100; backdrop-filter: blur(4px);
+  }
+  .modal-bg.open { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 14px; padding: 24px; width: 90%; max-width: 520px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  }
+  .modal h2 { margin: 0 0 14px; font-size: 17px; }
+  .modal label { display: block; font-size: 12px; color: var(--ink-dim); margin: 10px 0 4px; }
+  .modal .input { width: 100%; }
+  .modal .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .modal .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+
+  /* ===== Audit log ===== */
+  .log {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px; max-height: 520px; overflow-y: auto;
+    font-size: 12.5px; line-height: 1.6;
+  }
+  .log .entry {
+    display: grid; grid-template-columns: 80px 80px 1fr;
+    gap: 12px; padding: 6px 8px; border-bottom: 1px dashed rgba(255,255,255,0.04);
+  }
+  .log .entry:last-child { border-bottom: none; }
+  .log .ts { color: var(--ink-mute); font-size: 11px; }
+  .log .op { color: var(--accent); font-weight: 600; }
+  .log .ok-mark { color: var(--ok); }
+  .log .err-mark { color: var(--err); }
+
+  /* ===== Pipeline steps ===== */
+  .step-list { display: flex; flex-direction: column; gap: 8px; }
+  .step {
+    display: grid; grid-template-columns: 24px 1fr auto;
+    align-items: center; gap: 12px; padding: 10px 14px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  }
+  .step .icon { font-size: 16px; }
+  .step .name { font-weight: 500; }
+  .step .detail { font-size: 12px; color: var(--ink-dim); }
+  .step.ok .icon { color: var(--ok); }
+  .step.fail .icon { color: var(--err); }
+
+  /* ===== Section headers ===== */
+  h2.section {
+    font-size: 13px; text-transform: uppercase; letter-spacing: 1.5px;
+    color: var(--ink-dim); margin: 24px 0 12px; font-weight: 600;
+  }
+  .footer {
+    margin-top: 40px; padding: 20px; text-align: center;
+    color: var(--ink-mute); font-size: 12px;
+    border-top: 1px solid var(--line);
+  }
+
+  /* ===== Toast ===== */
+  .toast {
+    position: fixed; bottom: 24px; right: 24px;
+    background: var(--panel-2); border: 1px solid var(--line);
+    padding: 12px 18px; border-radius: 10px; font-size: 13px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    transform: translateY(20px); opacity: 0;
+    transition: opacity .2s, transform .2s; pointer-events: none;
+    z-index: 200;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.ok { border-color: var(--ok); }
+  .toast.err { border-color: var(--err); }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>🗓 Calendar Automation Console</h1>
+  <div class="meta">
+    Pipeline: <b id="pipeline-name">—</b> · Mode: <b id="pipeline-mode">mock</b> · Events: <b id="event-count">0</b>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <div class="tab active" data-tab="overview">📊 Overview</div>
+  <div class="tab" data-tab="events">📅 Events</div>
+  <div class="tab" data-tab="timeline">🕒 Timeline</div>
+  <div class="tab" data-tab="rules">📐 Rules</div>
+  <div class="tab" data-tab="pipeline">⚙️ Pipeline</div>
+  <div class="tab" data-tab="audit">📋 Audit Log</div>
+</nav>
+
+<main>
+  <!-- ============ Overview ============ -->
+  <section class="view active" id="view-overview">
+    <div class="grid">
+      <div class="card ok">
+        <div class="label">Pipeline Status</div>
+        <div class="value" id="kpi-status" style="font-size: 22px;">⏸ 待執行</div>
+        <div class="sub" id="kpi-status-sub">點 Pipeline 頁執行 demo</div>
+      </div>
+      <div class="card">
+        <div class="label">Events</div>
+        <div class="value" id="kpi-events">0</div>
+        <div class="sub">跨所有日曆</div>
+      </div>
+      <div class="card">
+        <div class="label">Rules Active</div>
+        <div class="value" id="kpi-rules">0</div>
+        <div class="sub">產生 <span id="kpi-rule-events">0</span> 個事件</div>
+      </div>
+      <div class="card">
+        <div class="label">Audit Entries</div>
+        <div class="value" id="kpi-audit">0</div>
+        <div class="sub"><span id="kpi-ok">0</span> 成功 / <span id="kpi-fail">0</span> 失敗</div>
+      </div>
+      <div class="card">
+        <div class="label">Calendars</div>
+        <div class="value" id="kpi-cals">0</div>
+        <div class="sub">已授權訪問</div>
+      </div>
+      <div class="card">
+        <div class="label">Last Run</div>
+        <div class="value mono" id="kpi-lastrun" style="font-size: 14px; line-height: 1.6;">點 Pipeline 開始 →</div>
+        <div class="sub" id="kpi-duration">—</div>
+      </div>
+    </div>
+
+    <h2 class="section">Color Distribution</h2>
+    <div class="card">
+      <div id="color-bars" style="display:flex; align-items:flex-end; gap:8px; height: 140px; padding-top: 8px;"></div>
+      <div id="color-legend" style="display:flex; flex-wrap:wrap; gap:8px; margin-top: 12px; font-size:12px; color:var(--ink-dim);"></div>
+    </div>
+
+    <h2 class="section">Upcoming (Next 7 Days)</h2>
+    <div id="upcoming-list"></div>
+  </section>
+
+  <!-- ============ Events ============ -->
+  <section class="view" id="view-events">
+    <div class="toolbar">
+      <button class="btn primary" id="btn-new-event">+ 新增事件</button>
+      <button class="btn" id="btn-run-rules">⚡ 套用預設規則</button>
+      <button class="btn danger" id="btn-clear-all">🗑 清空所有</button>
+      <input type="text" class="input" id="search-box" placeholder="搜尋 summary / location / attendees..." style="flex:1; min-width: 200px;">
+      <select class="input" id="sort-by">
+        <option value="start-asc">時間 (近 → 遠)</option>
+        <option value="start-desc">時間 (遠 → 近)</option>
+        <option value="summary">標題 A-Z</option>
+        <option value="color">顏色</option>
+      </select>
+    </div>
+    <div class="table-wrap">
+      <table class="events">
+        <thead>
+          <tr>
+            <th class="swatch"></th>
+            <th>開始時間</th>
+            <th>標題</th>
+            <th>地點</th>
+            <th>與會者</th>
+            <th>狀態</th>
+            <th style="text-align:right">操作</th>
+          </tr>
+        </thead>
+        <tbody id="events-tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ Timeline ============ -->
+  <section class="view" id="view-timeline">
+    <div class="toolbar">
+      <span style="color:var(--ink-dim); font-size:12px;">未來 14 天 × 8:00–22:00 視覺化</span>
+    </div>
+    <div class="timeline">
+      <div class="tl-grid" id="tl-grid"></div>
+    </div>
+  </section>
+
+  <!-- ============ Rules ============ -->
+  <section class="view" id="view-rules">
+    <div class="toolbar">
+      <button class="btn primary" id="btn-apply-rules">⚡ 套用全部規則</button>
+      <button class="btn" id="btn-reload-rules">🔄 重新載入</button>
+    </div>
+    <p style="color: var(--ink-dim); font-size: 13px;">
+      以下 5 條規則會展開為 21 個未來事件。可以修改後重新套用。
+    </p>
+    <div class="grid" id="rules-grid"></div>
+  </section>
+
+  <!-- ============ Pipeline ============ -->
+  <section class="view" id="view-pipeline">
+    <div class="toolbar">
+      <button class="btn primary" id="btn-run-demo">▶ 執行 Demo Pipeline</button>
+      <button class="btn" id="btn-ui-test">🧪 Playwright UI Test</button>
+    </div>
+    <h2 class="section">步驟執行結果</h2>
+    <div class="step-list" id="step-list">
+      <div class="step"><div class="icon">⏸</div><div><div class="name">尚未執行</div><div class="detail">點擊上方按鈕開始</div></div><div></div></div>
+    </div>
+  </section>
+
+  <!-- ============ Audit Log ============ -->
+  <section class="view" id="view-audit">
+    <div class="toolbar">
+      <button class="btn ghost" id="btn-refresh-audit">🔄 Refresh</button>
+      <span style="color:var(--ink-dim); font-size:12px;">所有 Calendar API 操作 + Playwright 互動的稽核日誌</span>
+    </div>
+    <div class="log" id="log-content">
+      <div style="color: var(--ink-mute); padding: 20px;">尚無日誌,請執行 pipeline。</div>
+    </div>
+  </section>
+</main>
+
+<div class="footer">
+  Built with Playwright × Python · <span class="mono">calendar_api.py</span> · <span class="mono">event_rules.py</span> · <span class="mono">calendar_automation.py</span>
+</div>
+
+<!-- ============ New Event Modal ============ -->
+<div class="modal-bg" id="modal-bg">
+  <div class="modal">
+    <h2 id="modal-title">新增事件</h2>
+    <input type="hidden" id="edit-id">
+    <label>標題 *</label>
+    <input class="input" id="edit-summary" placeholder="例: 團隊週會">
+    <label>說明</label>
+    <input class="input" id="edit-description" placeholder="(選填)">
+    <div class="row">
+      <div>
+        <label>開始</label>
+        <input class="input" id="edit-start" type="datetime-local">
+      </div>
+      <div>
+        <label>結束</label>
+        <input class="input" id="edit-end" type="datetime-local">
+      </div>
+    </div>
+    <label>地點</label>
+    <input class="input" id="edit-location" placeholder="例: 會議室 A / 線上">
+    <label>與會者 (逗號分隔)</label>
+    <input class="input" id="edit-attendees" placeholder="alice@team.io, bob@team.io">
+    <label>顏色</label>
+    <select class="input" id="edit-color">
+      <option value="1">1 — Lavender</option>
+      <option value="2">2 — Sage</option>
+      <option value="3">3 — Grape</option>
+      <option value="4">4 — Flamingo</option>
+      <option value="5">5 — Banana</option>
+      <option value="6">6 — Tangerine</option>
+      <option value="7">7 — Peacock</option>
+      <option value="8">8 — Graphite</option>
+      <option value="9">9 — Blueberry</option>
+      <option value="10">10 — Basil</option>
+      <option value="11">11 — Tomato</option>
+    </select>
+    <div class="actions">
+      <button class="btn ghost" id="modal-cancel">取消</button>
+      <button class="btn primary" id="modal-save">儲存</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ============================================================
+// Seed fixtures (mirror the Python MockCalendarClient seed)
+// ============================================================
+
+const SEED_BASE_TEMPLATES = [
+  { summary: "團隊週會", description: "週一早會,review 上週進度", dayOffset: 1, hour: 9, minute: 30, attendees: ["alice@team.io", "bob@team.io"], location: "會議室 A", color: "4", durationMin: 30 },
+  { summary: "產品 Review", description: "Q3 產品 Roadmap 審查", dayOffset: 1, hour: 14, minute: 0, attendees: ["pm@team.io"], location: "線上", color: "6", durationMin: 60 },
+  { summary: "一對一 — 主管", description: "與 Director 個別會談", dayOffset: 2, hour: 10, minute: 0, attendees: ["boss@team.io"], location: "", color: "9", durationMin: 30 },
+  { summary: "客戶 Demo — Acme Corp", description: "展示 v2.0 新功能", dayOffset: 3, hour: 15, minute: 30, attendees: ["client@acme.com", "sales@team.io"], location: "客戶現場", color: "7", durationMin: 90 },
+  { summary: "Code Review 時段", description: "集中 review PR", dayOffset: 4, hour: 11, minute: 0, attendees: [], location: "GitHub", color: "5", durationMin: 60 },
+  { summary: "Sprint 規劃", description: "Sprint 24 啟動會議", dayOffset: 5, hour: 9, minute: 30, attendees: ["team@team.io"], location: "會議室 B", color: "4", durationMin: 60 },
+  { summary: "技術分享 — gRPC", description: "內部分享新技術", dayOffset: 7, hour: 14, minute: 0, attendees: ["eng@team.io"], location: "訓練教室", color: "11", durationMin: 90 },
+  { summary: "家庭聚餐", description: "週日家族聚會", dayOffset: 8, hour: 18, minute: 0, attendees: [], location: "家裡", color: "3", durationMin: 120 },
+  { summary: "健身 — 重訓", description: "例行訓練", dayOffset: 9, hour: 19, minute: 0, attendees: [], location: "健身房", color: "10", durationMin: 60 },
+  { summary: "醫院回診", description: "半年健康檢查", dayOffset: 10, hour: 10, minute: 30, attendees: [], location: "台大醫院", color: "2", durationMin: 60 },
+  { summary: "讀書會 — 系統設計", description: "與小組成員討論 ch.7", dayOffset: 12, hour: 20, minute: 0, attendees: ["study@team.io"], location: "線上", color: "5", durationMin: 90 },
+  { summary: "展會 — AI Summit", description: "產業展覽", dayOffset: 14, hour: 9, minute: 0, attendees: ["team@team.io"], location: "南港展覽館", color: "6", durationMin: 480 },
+];
+
+const DEFAULT_RULES = [
+  { summary: "🌅 Daily Standup", description: "15 分鐘同步昨日 / 今日 / 阻擋", dayOffset: 1, hour: 9, minute: 30, durationMin: 15, recurrenceDays: [0,1,2,3,4], repeatCount: 5, color: "4", location: "線上 — Google Meet", attendees: ["team@team.io"] },
+  { summary: "📋 Sprint Planning", description: "兩週一次的 sprint 啟動會議", dayOffset: 2, hour: 14, minute: 0, durationMin: 90, recurrenceDays: [1], repeatCount: 4, color: "6", location: "會議室 B", attendees: ["team@team.io", "pm@team.io"] },
+  { summary: "☕ 1-on-1 with Manager", description: "每週個別會談", dayOffset: 3, hour: 15, minute: 0, durationMin: 30, recurrenceDays: [2], repeatCount: 3, color: "9", attendees: ["manager@team.io"] },
+  { summary: "🏃 運動 — 重訓", dayOffset: 1, hour: 19, minute: 0, durationMin: 60, recurrenceDays: [0,2,4], repeatCount: 6, color: "10", location: "健身房", attendees: [] },
+  { summary: "📚 讀書會", description: "系統設計一週讀書會", dayOffset: 5, hour: 20, minute: 0, durationMin: 90, recurrenceDays: [5], repeatCount: 3, color: "5", attendees: ["study@team.io"] },
+];
+
+// ============================================================
+// In-memory state (acts as our local "client")
+// ============================================================
+
+const STATE = {
+  events: [],
+  audit: [],
+  calendars: [
+    { id: "primary", summary: "主要行事曆", primary: true, accessRole: "owner" },
+    { id: "team@group.calendar.google.com", summary: "團隊共用", accessRole: "writer" },
+    { id: "holidays@group.calendar.google.com", summary: "台灣國定假日", accessRole: "reader" },
+  ],
+  pipeline: null,
+  lastRun: null,
+};
+
+const CAL_COLORS = {
+  "1":"#7986cb","2":"#33b679","3":"#8e24aa","4":"#e67c73",
+  "5":"#f6bf26","6":"#f4511e","7":"#039be5","8":"#616161",
+  "9":"#3f51b5","10":"#0b8043","11":"#d50000"
+};
+
+const WEEKDAY_ZH = ["週日","週一","週二","週三","週四","週五","週六"];
+
+function uid(prefix="evt") {
+  return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function audit(op, success, detail="") {
+  STATE.audit.push({
+    ts: new Date().toISOString(),
+    op, success, detail
+  });
+  renderAudit();
+  updateKpis();
+}
+
+function toast(msg, kind="ok") {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.className = `toast show ${kind}`;
+  setTimeout(() => t.className = "toast", 2200);
+}
+
+// ============================================================
+// Seed / Rules expansion (client-side mirror of Python)
+// ============================================================
+
+function seedEvents(count=12) {
+  const now = new Date();
+  for (let i=0; i<count; i++) {
+    const t = SEED_BASE_TEMPLATES[i % SEED_BASE_TEMPLATES.length];
+    const start = new Date(now);
+    start.setDate(start.getDate() + t.dayOffset);
+    start.setHours(t.hour, t.minute, 0, 0);
+    const end = new Date(start.getTime() + t.durationMin*60000);
+    STATE.events.push({
+      id: uid("mock"),
+      summary: i >= SEED_BASE_TEMPLATES.length ? `${t.summary} #${i+1}` : t.summary,
+      description: t.description,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      location: t.location,
+      attendees: [...t.attendees],
+      colorId: t.color,
+      status: "confirmed",
+      source: "mock",
+    });
+  }
+  audit("seed", true, `seeded ${count} events`);
+}
+
+function expandRule(rule) {
+  const out = [];
+  let generated = 0;
+  let daysAhead = rule.dayOffset;
+  while (generated < rule.repeatCount) {
+    const d = new Date();
+    d.setDate(d.getDate() + daysAhead);
+    d.setHours(rule.hour, rule.minute, 0, 0);
+    const weekday = d.getDay();
+    if (!rule.recurrenceDays.length || rule.recurrenceDays.includes(weekday)) {
+      const end = new Date(d.getTime() + rule.durationMin*60000);
+      out.push({
+        id: uid("rule"),
+        summary: rule.summary,
+        description: rule.description || "",
+        start: d.toISOString(),
+        end: end.toISOString(),
+        location: rule.location || "",
+        attendees: [...(rule.attendees || [])],
+        colorId: rule.color,
+        status: "confirmed",
+        source: "rule",
+      });
+      generated++;
+    }
+    daysAhead++;
+    if (daysAhead > 365) break;
+  }
+  return out;
+}
+
+function applyAllRules() {
+  let total = 0;
+  for (const r of DEFAULT_RULES) {
+    const evts = expandRule(r);
+    STATE.events.push(...evts);
+    total += evts.length;
+    audit(`rules.expand`, true, `${r.summary} → ${evts.length}`);
+  }
+  STATE.lastRun = new Date().toISOString();
+  renderAll();
+  toast(`套用 ${DEFAULT_RULES.length} 條規則,新增 ${total} 個事件`);
+}
+
+// ============================================================
+// CRUD operations
+// ============================================================
+
+function createEvent(data) {
+  if (!data.summary) return null;
+  const evt = {
+    id: uid("web"),
+    summary: data.summary,
+    description: data.description || "",
+    start: data.start,
+    end: data.end,
+    location: data.location || "",
+    attendees: data.attendees || [],
+    colorId: data.colorId || "1",
+    status: "confirmed",
+    source: "web",
+  };
+  STATE.events.push(evt);
+  audit("create_event", true, evt.summary);
+  return evt;
+}
+
+function updateEvent(id, data) {
+  const evt = STATE.events.find(e => e.id === id);
+  if (!evt) return false;
+  Object.assign(evt, data);
+  evt.source = "web";
+  audit("update_event", true, evt.summary);
+  return true;
+}
+
+function deleteEvent(id) {
+  const idx = STATE.events.findIndex(e => e.id === id);
+  if (idx === -1) return false;
+  const removed = STATE.events.splice(idx, 1)[0];
+  audit("delete_event", true, removed.summary);
+  return true;
+}
+
+function clearAll() {
+  const n = STATE.events.length;
+  STATE.events = [];
+  audit("clear_all", true, `removed ${n}`);
+}
+
+// ============================================================
+// Render
+// ============================================================
+
+function renderAll() {
+  renderKpis();
+  renderColorDistribution();
+  renderUpcoming();
+  renderEvents();
+  renderTimeline();
+  renderRules();
+}
+
+function renderKpis() {
+  document.getElementById("event-count").textContent = STATE.events.length;
+  document.getElementById("kpi-events").textContent = STATE.events.length;
+  document.getElementById("kpi-audit").textContent = STATE.audit.length;
+  document.getElementById("kpi-cals").textContent = STATE.calendars.length;
+  document.getElementById("kpi-rules").textContent = DEFAULT_RULES.length;
+  document.getElementById("kpi-rule-events").textContent = DEFAULT_RULES.reduce((s, r) => s + Math.min(r.repeatCount, 8), 0);
+
+  const ok = STATE.audit.filter(a => a.success).length;
+  const fail = STATE.audit.length - ok;
+  document.getElementById("kpi-ok").textContent = ok;
+  document.getElementById("kpi-fail").textContent = fail;
+
+  if (STATE.pipeline) {
+    document.getElementById("kpi-status").textContent = STATE.pipeline.success ? "✅ Success" : "❌ Failed";
+    document.getElementById("kpi-status-sub").textContent = `${STATE.pipeline.steps.length} 步驟`;
+    document.getElementById("kpi-lastrun").textContent = new Date(STATE.pipeline.startedAt).toLocaleString("zh-TW");
+    document.getElementById("kpi-duration").textContent = `${STATE.pipeline.durationMs} ms`;
+  } else {
+    document.getElementById("kpi-status").textContent = "—";
+  }
+  updateKpis();
+}
+
+function updateKpis() {
+  const ok = STATE.audit.filter(a => a.success).length;
+  const fail = STATE.audit.length - ok;
+  document.getElementById("kpi-audit").textContent = STATE.audit.length;
+  document.getElementById("kpi-ok").textContent = ok;
+  document.getElementById("kpi-fail").textContent = fail;
+}
+
+function renderColorDistribution() {
+  const counts = {};
+  for (const e of STATE.events) {
+    counts[e.colorId] = (counts[e.colorId] || 0) + 1;
+  }
+  const max = Math.max(1, ...Object.values(counts));
+  const bars = document.getElementById("color-bars");
+  const legend = document.getElementById("color-legend");
+  bars.innerHTML = ""; legend.innerHTML = "";
+  for (let i=1; i<=11; i++) {
+    const c = counts[i] || 0;
+    const h = (c / max) * 110;
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "flex:1; display:flex; flex-direction:column; align-items:center; gap:4px;";
+    wrap.innerHTML = `
+      <div style="font-size:11px; color:var(--ink-mute);">${c}</div>
+      <div style="width: 100%; height: ${h}px; background: ${CAL_COLORS[i]}; border-radius: 4px 4px 0 0; min-height: 4px; opacity: ${c?1:0.25};"></div>
+      <div style="font-size:10px; color:var(--ink-mute);">${i}</div>
+    `;
+    bars.appendChild(wrap);
+    if (c > 0) {
+      const l = document.createElement("span");
+      l.style.cssText = `padding: 2px 8px; border-radius: 10px; background: ${CAL_COLORS[i]}33; color: ${CAL_COLORS[i]}; border: 1px solid ${CAL_COLORS[i]}66;`;
+      l.textContent = `${colorName(i)} (${c})`;
+      legend.appendChild(l);
+    }
+  }
+}
+
+function colorName(id) {
+  return ["","Lavender","Sage","Grape","Flamingo","Banana","Tangerine","Peacock","Graphite","Blueberry","Basil","Tomato"][id] || "?";
+}
+
+function renderUpcoming() {
+  const now = new Date();
+  const weekFromNow = new Date(now.getTime() + 7*86400000);
+  const upcoming = STATE.events
+    .filter(e => {
+      const s = new Date(e.start);
+      return s >= now && s <= weekFromNow;
+    })
+    .sort((a,b) => new Date(a.start) - new Date(b.start))
+    .slice(0, 8);
+
+  const wrap = document.getElementById("upcoming-list");
+  if (upcoming.length === 0) {
+    wrap.innerHTML = `<div class="card" style="color:var(--ink-dim); text-align:center;">未來 7 天沒有事件</div>`;
+    return;
+  }
+  wrap.innerHTML = upcoming.map(e => {
+    const s = new Date(e.start);
+    const dayLabel = `${WEEKDAY_ZH[s.getDay()]} ${(s.getMonth()+1)}/${s.getDate()}`;
+    const timeLabel = `${String(s.getHours()).padStart(2,"0")}:${String(s.getMinutes()).padStart(2,"0")}`;
+    return `
+      <div style="display:flex; gap:12px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; align-items: center;">
+        <div style="width: 4px; height: 32px; background: ${CAL_COLORS[e.colorId]}; border-radius: 2px;"></div>
+        <div style="width: 80px; font-size: 12px; color: var(--ink-dim);">
+          <div style="font-weight: 600; color: var(--ink);">${dayLabel}</div>
+          <div class="mono">${timeLabel}</div>
+        </div>
+        <div style="flex: 1;">
+          <div style="font-weight: 500;">${escapeHtml(e.summary)}</div>
+          ${e.location ? `<div style="font-size: 12px; color: var(--ink-dim);">📍 ${escapeHtml(e.location)}</div>` : ""}
+        </div>
+        <span class="badge ok">${e.source}</span>
+      </div>
+    `;
+  }).join("");
+}
+
+function renderEvents() {
+  const tbody = document.getElementById("events-tbody");
+  const search = (document.getElementById("search-box").value || "").toLowerCase().trim();
+  const sortBy = document.getElementById("sort-by").value;
+
+  let list = STATE.events.slice();
+  if (search) {
+    list = list.filter(e =>
+      (e.summary || "").toLowerCase().includes(search) ||
+      (e.location || "").toLowerCase().includes(search) ||
+      (e.attendees || []).join(",").toLowerCase().includes(search)
+    );
+  }
+  if (sortBy === "start-asc") list.sort((a,b) => new Date(a.start) - new Date(b.start));
+  else if (sortBy === "start-desc") list.sort((a,b) => new Date(b.start) - new Date(a.start));
+  else if (sortBy === "summary") list.sort((a,b) => a.summary.localeCompare(b.summary));
+  else if (sortBy === "color") list.sort((a,b) => Number(a.colorId) - Number(b.colorId));
+
+  if (list.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" style="padding: 30px; text-align: center; color: var(--ink-mute);">沒有符合的事件</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = list.map(e => {
+    const s = new Date(e.start);
+    const startLabel = `${s.getMonth()+1}/${s.getDate()} ${WEEKDAY_ZH[s.getDay()]} ${String(s.getHours()).padStart(2,"0")}:${String(s.getMinutes()).padStart(2,"0")}`;
+    const attendeeCount = (e.attendees || []).length;
+    return `
+      <tr data-id="${e.id}">
+        <td class="swatch" style="background: ${CAL_COLORS[e.colorId]};"></td>
+        <td class="mono" style="white-space: nowrap;">${startLabel}</td>
+        <td>
+          <div style="font-weight: 500;">${escapeHtml(e.summary)}</div>
+          ${e.description ? `<div style="font-size: 11px; color: var(--ink-mute);">${escapeHtml(e.description)}</div>` : ""}
+        </td>
+        <td>${e.location ? escapeHtml(e.location) : '<span style="color:var(--ink-mute);">—</span>'}</td>
+        <td>${attendeeCount > 0 ? `<span class="badge">${attendeeCount} 人</span>` : '<span style="color:var(--ink-mute);">—</span>'}</td>
+        <td><span class="badge ok">${e.source}</span></td>
+        <td class="actions">
+          <button class="btn ghost" data-act="edit" data-id="${e.id}">編輯</button>
+          <button class="btn ghost danger" data-act="del" data-id="${e.id}">刪除</button>
+        </td>
+      </tr>
+    `;
+  }).join("");
+
+  // bind actions
+  tbody.querySelectorAll("button[data-act]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.id;
+      if (btn.dataset.act === "edit") openModal(id);
+      else if (btn.dataset.act === "del") {
+        const evt = STATE.events.find(e => e.id === id);
+        if (confirm(`確定刪除「${evt?.summary}」?`)) {
+          deleteEvent(id);
+          renderAll();
+          toast("事件已刪除");
+        }
+      }
+    });
+  });
+}
+
+function renderTimeline() {
+  const grid = document.getElementById("tl-grid");
+  const today = new Date(); today.setHours(0,0,0,0);
+  const days = [];
+  for (let i=0; i<14; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() + i);
+    days.push(d);
+  }
+
+  // header row: empty corner + 14 day labels
+  let html = `<div class="tl-hour" style="border-right:1px solid var(--line);">時段</div>`;
+  for (const d of days) {
+    const isToday = d.toDateString() === today.toDateString();
+    html += `<div class="tl-day-head ${isToday?"today":""}">${WEEKDAY_ZH[d.getDay()]}<br>${d.getMonth()+1}/${d.getDate()}</div>`;
+  }
+
+  // rows: 8:00–22:00
+  for (let h=8; h<=22; h++) {
+    html += `<div class="tl-hour">${String(h).padStart(2,"0")}:00</div>`;
+    for (let i=0; i<14; i++) {
+      const day = days[i];
+      const cellStart = new Date(day); cellStart.setHours(h, 0, 0, 0);
+      const cellEnd = new Date(cellStart.getTime() + 3600000);
+      const isToday = day.toDateString() === today.toDateString();
+
+      const evts = STATE.events.filter(e => {
+        const s = new Date(e.start);
+        const en = new Date(e.end);
+        return s < cellEnd && en > cellStart;
+      });
+
+      let cellHtml = `<div class="tl-cell ${isToday?"today":""}">`;
+      for (const e of evts) {
+        const s = new Date(e.start);
+        const en = new Date(e.end);
+        const top = (s.getTime() - cellStart.getTime()) / 3600000 * 28;
+        const dur = (en.getTime() - Math.max(s.getTime(), cellStart.getTime())) / 60000;
+        const heightPx = Math.max(20, (dur / 60) * 28 - 2);
+        cellHtml += `
+          <div class="tl-evt" style="top: ${top}px; height: ${heightPx}px; background: ${CAL_COLORS[e.colorId]};"
+               title="${escapeHtml(e.summary)} (${e.start.slice(11,16)}–${e.end.slice(11,16)})">
+            ${escapeHtml(e.summary)}
+          </div>
+        `;
+      }
+      cellHtml += `</div>`;
+      html += cellHtml;
+    }
+  }
+  grid.innerHTML = html;
+}
+
+function renderRules() {
+  const grid = document.getElementById("rules-grid");
+  grid.innerHTML = DEFAULT_RULES.map((r, i) => `
+    <div class="card" style="border-left: 4px solid ${CAL_COLORS[r.color]};">
+      <div style="display:flex; align-items:center; justify-content:space-between;">
+        <div style="font-weight: 600;">${escapeHtml(r.summary)}</div>
+        <span class="badge" style="background: ${CAL_COLORS[r.color]}33; color: ${CAL_COLORS[r.color]}; border-color: ${CAL_COLORS[r.color]}66;">Color ${r.color}</span>
+      </div>
+      <div style="font-size:12px; color:var(--ink-dim); margin-top: 4px;">${escapeHtml(r.description || "—")}</div>
+      <div style="margin-top: 10px; font-size: 12px; line-height: 1.7;">
+        <div>🕒 <span class="mono">${String(r.hour).padStart(2,"0")}:${String(r.minute).padStart(2,"0")} · ${r.durationMin} min</div>
+        <div>📆 重複: ${r.recurrenceDays.length ? r.recurrenceDays.map(d => WEEKDAY_ZH[d]).join("、") : "—"} × ${r.repeatCount}</div>
+        <div>📍 ${escapeHtml(r.location || "—")}</div>
+        ${r.attendees.length ? `<div>👥 ${r.attendees.map(escapeHtml).join(", ")}</div>` : ""}
+      </div>
+    </div>
+  `).join("");
+}
+
+function renderAudit() {
+  const log = document.getElementById("log-content");
+  if (STATE.audit.length === 0) {
+    log.innerHTML = `<div style="color: var(--ink-mute); padding: 20px;">尚無日誌,請執行 pipeline。</div>`;
+    return;
+  }
+  log.innerHTML = STATE.audit.slice().reverse().map(a => `
+    <div class="entry">
+      <span class="ts">${a.ts.slice(11, 19)}</span>
+      <span class="op">${escapeHtml(a.op)}</span>
+      <span><span class="${a.success?'ok-mark':'err-mark'}">${a.success?'✓':'✗'}</span> ${escapeHtml(a.detail || "")}</span>
+    </div>
+  `).join("");
+}
+
+function renderPipelineSteps() {
+  const list = document.getElementById("step-list");
+  if (!STATE.pipeline || !STATE.pipeline.steps.length) {
+    list.innerHTML = `<div class="step"><div class="icon">⏸</div><div><div class="name">尚未執行</div><div class="detail">點擊上方按鈕開始</div></div><div></div></div>`;
+    return;
+  }
+  list.innerHTML = STATE.pipeline.steps.map(s => `
+    <div class="step ${s.success?"ok":"fail"}">
+      <div class="icon">${s.success?"✅":"❌"}</div>
+      <div>
+        <div class="name">${escapeHtml(s.step)}</div>
+        <div class="detail mono">${Object.entries(s).filter(([k]) => !["step","success","timestamp"].includes(k)).map(([k,v]) => `${k}=${v}`).join(" · ")}</div>
+      </div>
+      <div class="mono" style="color: var(--ink-mute); font-size: 11px;">${s.timestamp.slice(11,19)}</div>
+    </div>
+  `).join("");
+}
+
+// ============================================================
+// Pipeline simulation (mirror of Python cmd_demo)
+// ============================================================
+
+async function runDemoPipeline() {
+  STATE.events = [];
+  STATE.audit = [];
+  STATE.pipeline = {
+    pipeline: "calendar_demo",
+    mode: "mock",
+    startedAt: new Date().toISOString(),
+    steps: [],
+  };
+  renderAll();
+
+  const steps = [
+    { name: "init_client", run: () => { STATE.pipeline.mode = "mock"; audit("init_client", true, "mode=mock seed=12"); return { mode: "mock", seed: 12 }; }},
+    { name: "authenticate", run: () => { audit("authenticate", true, "mode=mock user=demo@local"); return { mode: "mock", user: "demo@local" }; }},
+    { name: "list_calendars", run: () => { audit("list_calendars", true, `count=${STATE.calendars.length}`); return { count: STATE.calendars.length }; }},
+    { name: "list_events", run: () => { seedEvents(12); return { count: 12 }; }},
+    { name: "create_event", run: () => {
+      const now = new Date();
+      const s = new Date(now); s.setDate(s.getDate()+2); s.setHours(14,0,0,0);
+      const e = new Date(s.getTime() + 3600000);
+      const evt = createEvent({ summary: "🤖 Playwright 自動建立的事件", description: "由 calendar_automation.py 透過 Playwright demo 流程建立", start: s.toISOString(), end: e.toISOString(), location: "線上", colorId: "11", attendees: ["demo@team.io"] });
+      return { event_id: evt.id };
+    }},
+    { name: "bulk_create_via_rules", run: () => {
+      let total = 0;
+      for (const r of DEFAULT_RULES) {
+        const evts = expandRule(r);
+        STATE.events.push(...evts);
+        total += evts.length;
+        audit("rules.expand", true, `${r.summary} → ${evts.length}`);
+      }
+      return { created: total, rules: DEFAULT_RULES.length };
+    }},
+    { name: "update_event", run: () => {
+      const target = STATE.events.find(e => e.source === "web");
+      if (target) {
+        updateEvent(target.id, { summary: "✅ 已更新的事件 — Playwright 驗證成功" });
+        return { event_id: target.id };
+      }
+      return { event_id: null };
+    }},
+    { name: "delete_event", run: () => {
+      const target = STATE.events.find(e => e.source === "web");
+      if (target) {
+        deleteEvent(target.id);
+        return { event_id: target.id };
+      }
+      return { event_id: null };
+    }},
+    { name: "final_list_events", run: () => {
+      audit("final_list_events", true, `count=${STATE.events.length}`);
+      return { count: STATE.events.length };
+    }},
+  ];
+
+  for (const s of steps) {
+    try {
+      const data = s.run();
+      STATE.pipeline.steps.push({ step: s.name, success: true, timestamp: new Date().toISOString(), ...data });
+      renderPipelineSteps();
+      await new Promise(r => setTimeout(r, 200));
+    } catch (e) {
+      STATE.pipeline.steps.push({ step: s.name, success: false, timestamp: new Date().toISOString(), error: String(e) });
+      renderPipelineSteps();
+    }
+  }
+
+  STATE.pipeline.finishedAt = new Date().toISOString();
+  STATE.pipeline.durationMs = new Date(STATE.pipeline.finishedAt) - new Date(STATE.pipeline.startedAt);
+  STATE.pipeline.success = STATE.pipeline.steps.every(s => s.success);
+  STATE.lastRun = STATE.pipeline.startedAt;
+  document.getElementById("pipeline-name").textContent = STATE.pipeline.pipeline;
+  document.getElementById("pipeline-mode").textContent = STATE.pipeline.mode;
+  renderAll();
+  toast(STATE.pipeline.success ? "Pipeline 全部成功 ✅" : "Pipeline 部分失敗 ❌", STATE.pipeline.success ? "ok" : "err");
+}
+
+async function runUiTest() {
+  const results = {
+    page_loaded: !!document.querySelector("h1"),
+    dom_complete: document.readyState === "complete",
+    title_text: document.querySelector("h1")?.textContent || "",
+    tab_count: document.querySelectorAll(".tab").length,
+    event_count: STATE.events.length,
+    audit_count: STATE.audit.length,
+  };
+  results.success = results.page_loaded && results.dom_complete && results.tab_count >= 5;
+  audit("playwright_ui_test", results.success, `tabs=${results.tab_count} events=${results.event_count}`);
+  STATE.pipeline = {
+    pipeline: "ui_smoke_test",
+    mode: "browser",
+    startedAt: new Date().toISOString(),
+    finishedAt: new Date().toISOString(),
+    durationMs: 1,
+    steps: [
+      { step: "page_loaded", success: results.page_loaded, status: 200 },
+      { step: "dom_complete", success: results.dom_complete },
+      { step: "title_present", success: !!results.title_text, text: results.title_text.slice(0,60) },
+      { step: "interactive_elements", success: results.tab_count >= 5, count: results.tab_count },
+    ],
+    success: results.success,
+  };
+  renderAll();
+  renderPipelineSteps();
+  toast(results.success ? `UI 測試通過 (${results.tab_count} tabs)` : "UI 測試失敗", results.success ? "ok" : "err");
+}
+
+// ============================================================
+// Modal
+// ============================================================
+
+function openModal(id=null) {
+  const modal = document.getElementById("modal-bg");
+  modal.classList.add("open");
+  document.getElementById("modal-title").textContent = id ? "編輯事件" : "新增事件";
+  document.getElementById("edit-id").value = id || "";
+
+  if (id) {
+    const e = STATE.events.find(x => x.id === id);
+    if (!e) return;
+    document.getElementById("edit-summary").value = e.summary;
+    document.getElementById("edit-description").value = e.description || "";
+    document.getElementById("edit-location").value = e.location || "";
+    document.getElementById("edit-attendees").value = (e.attendees || []).join(", ");
+    document.getElementById("edit-color").value = e.colorId || "1";
+    document.getElementById("edit-start").value = toLocalDT(e.start);
+    document.getElementById("edit-end").value = toLocalDT(e.end);
+  } else {
+    const now = new Date();
+    now.setMinutes(0, 0, 0);
+    now.setHours(now.getHours() + 1);
+    document.getElementById("edit-summary").value = "";
+    document.getElementById("edit-description").value = "";
+    document.getElementById("edit-location").value = "";
+    document.getElementById("edit-attendees").value = "";
+    document.getElementById("edit-color").value = "1";
+    document.getElementById("edit-start").value = toLocalDT(now.toISOString());
+    document.getElementById("edit-end").value = toLocalDT(new Date(now.getTime() + 3600000).toISOString());
+  }
+}
+
+function closeModal() {
+  document.getElementById("modal-bg").classList.remove("open");
+}
+
+function saveModal() {
+  const id = document.getElementById("edit-id").value;
+  const data = {
+    summary: document.getElementById("edit-summary").value.trim(),
+    description: document.getElementById("edit-description").value.trim(),
+    start: fromLocalDT(document.getElementById("edit-start").value),
+    end: fromLocalDT(document.getElementById("edit-end").value),
+    location: document.getElementById("edit-location").value.trim(),
+    attendees: document.getElementById("edit-attendees").value.split(",").map(s => s.trim()).filter(Boolean),
+    colorId: document.getElementById("edit-color").value,
+  };
+  if (!data.summary) { toast("請填標題", "err"); return; }
+  if (!data.start || !data.end) { toast("請選時間", "err"); return; }
+  if (new Date(data.end) <= new Date(data.start)) { toast("結束時間需晚於開始", "err"); return; }
+
+  if (id) {
+    updateEvent(id, data);
+    toast("事件已更新");
+  } else {
+    createEvent(data);
+    toast("事件已建立");
+  }
+  closeModal();
+  renderAll();
+}
+
+function toLocalDT(iso) {
+  const d = new Date(iso);
+  const pad = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function fromLocalDT(v) {
+  return new Date(v).toISOString();
+}
+
+function escapeHtml(s) {
+  return (s ?? "").toString()
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+}
+
+// ============================================================
+// Tabs
+// ============================================================
+
+document.getElementById("tabs").addEventListener("click", e => {
+  const tab = e.target.closest(".tab");
+  if (!tab) return;
+  const target = tab.dataset.tab;
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t === tab));
+  document.querySelectorAll(".view").forEach(v => v.classList.toggle("active", v.id === `view-${target}`));
+});
+
+// ============================================================
+// Wire up
+// ============================================================
+
+document.getElementById("btn-new-event").addEventListener("click", () => openModal(null));
+document.getElementById("btn-run-rules").addEventListener("click", applyAllRules);
+document.getElementById("btn-clear-all").addEventListener("click", () => {
+  if (confirm(`確定清空 ${STATE.events.length} 個事件?`)) {
+    clearAll();
+    renderAll();
+    toast("已清空所有事件");
+  }
+});
+document.getElementById("search-box").addEventListener("input", renderEvents);
+document.getElementById("sort-by").addEventListener("change", renderEvents);
+
+document.getElementById("btn-apply-rules").addEventListener("click", applyAllRules);
+document.getElementById("btn-reload-rules").addEventListener("click", () => {
+  renderRules();
+  toast("規則已重新載入");
+});
+
+document.getElementById("btn-run-demo").addEventListener("click", runDemoPipeline);
+document.getElementById("btn-ui-test").addEventListener("click", runUiTest);
+
+document.getElementById("btn-refresh-audit").addEventListener("click", renderAudit);
+
+document.getElementById("modal-cancel").addEventListener("click", closeModal);
+document.getElementById("modal-save").addEventListener("click", saveModal);
+document.getElementById("modal-bg").addEventListener("click", e => {
+  if (e.target.id === "modal-bg") closeModal();
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") closeModal();
+});
+
+// ============================================================
+// Initial render (just KPI shell; no events until user runs)
+// ============================================================
+
+renderAll();
+renderPipelineSteps();
+
+// Expose for Playwright tests
+window.CalendarApp = {
+  STATE,
+  runDemoPipeline,
+  runUiTest,
+  applyAllRules,
+  createEvent,
+  updateEvent,
+  deleteEvent,
+  clearAll,
+  expandRule,
+  seedEvents,
+};
+
+console.log("🗓 Calendar Automation Console ready");
+console.log("   Try: CalendarApp.runDemoPipeline()");
+console.log("   Or:  CalendarApp.applyAllRules()");
+</script>
+
+</body>
+</html>

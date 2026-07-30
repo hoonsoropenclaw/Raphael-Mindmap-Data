@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>HR 工作流引擎 · React Flow × RBAC 演示</title>
+
+<!-- React 18 UMD -->
+<script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+
+<!-- React Flow 11 UMD -->
+<script crossorigin src="https://cdn.jsdelivr.net/npm/reactflow@11.11.4/dist/umd/index.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reactflow@11.11.4/dist/style.css" />
+
+<!-- Babel：瀏覽器端即時編譯 JSX -->
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.25.6/babel.min.js"></script>
+
+<style>
+  :root {
+    --bg: #0b1020;
+    --panel: #121833;
+    --panel-2: #1a2348;
+    --ink: #e7ecff;
+    --ink-dim: #9aa6c7;
+    --accent: #6ee7d6;
+    --accent-2: #7c8cff;
+    --warn: #fbbf24;
+    --bad: #ef4444;
+    --good: #34d399;
+    --border: rgba(255,255,255,.08);
+    --edit: #34d399;
+    --view: #7c8cff;
+    --deny: #ef4444;
+    --line: #3a4477;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif; }
+  /* 全 React 管轄；root 容器撐滿 */
+  #root { height: 100vh; display: block; }
+  .app { display: grid; grid-template-columns: 280px 1fr 320px; grid-template-rows: 56px 1fr; height: 100vh; }
+  header.topbar { grid-column: 1 / 4; display: flex; align-items: center; gap: 16px; padding: 0 20px;
+    background: linear-gradient(180deg, rgba(124,140,255,.15), rgba(11,16,32,0));
+    border-bottom: 1px solid var(--border); }
+  header.topbar h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: .5px; }
+  header.topbar .sub { color: var(--ink-dim); font-size: 12px; }
+  header.topbar .grow { flex: 1; }
+  header.topbar .role-select { display: flex; gap: 6px; align-items: center; }
+  header.topbar select { background: var(--panel); color: var(--ink); border: 1px solid var(--border);
+    padding: 6px 10px; border-radius: 6px; font-size: 13px; }
+  aside.left, aside.right { background: var(--panel); border-right: 1px solid var(--border);
+    overflow-y: auto; padding: 14px 14px 24px; }
+  aside.right { border-right: none; border-left: 1px solid var(--border); }
+  aside h3 { margin: 0 0 10px; font-size: 12px; letter-spacing: .8px; color: var(--ink-dim); text-transform: uppercase; }
+  aside h4 { margin: 16px 0 8px; font-size: 12px; color: var(--accent); }
+  .legend { display: grid; gap: 8px; }
+  .legend .row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+  .legend .swatch { width: 12px; height: 12px; border-radius: 3px; }
+  .legend .swatch.edit { background: var(--edit); }
+  .legend .swatch.view { background: var(--view); }
+  .legend .swatch.deny { background: var(--deny); }
+  .rbac-grid { display: grid; grid-template-columns: 64px repeat(5, 1fr); gap: 2px; font-size: 11px; }
+  .rbac-grid .h { font-weight: 600; color: var(--ink-dim); padding: 4px 2px; text-align: center; font-size: 10.5px; }
+  .rbac-grid .n { padding: 2px; text-align: center; color: var(--ink-dim); }
+  .rbac-grid .c { text-align: center; padding: 4px 2px; border-radius: 3px; font-weight: 600; }
+  .rbac-grid .c.edit { background: rgba(52, 211, 153, .15); color: var(--edit); }
+  .rbac-grid .c.view  { background: rgba(124, 140, 255, .15); color: var(--view); }
+  .rbac-grid .c.deny { background: rgba(239, 68, 68, .15); color: var(--deny); }
+  main.canvas { position: relative; background:
+    radial-gradient(circle at 25% 20%, rgba(124,140,255,.10), transparent 40%),
+    radial-gradient(circle at 75% 80%, rgba(110,231,214,.08), transparent 40%),
+    var(--bg); overflow: hidden; }
+  .toolbar { position: absolute; top: 12px; left: 12px; display: flex; gap: 6px; z-index: 5; }
+  .toolbar button { background: var(--panel-2); color: var(--ink); border: 1px solid var(--border);
+    padding: 6px 12px; border-radius: 6px; font-size: 12.5px; cursor: pointer; transition: .15s; }
+  .toolbar button:hover:not(:disabled) { background: var(--accent-2); color: #0b1020; }
+  .toolbar button:disabled { opacity: .4; cursor: not-allowed; }
+  .toolbar .badge { background: rgba(110,231,214,.15); color: var(--accent);
+    border: 1px solid var(--accent); padding: 4px 8px; border-radius: 4px; font-size: 11px; margin-left: 6px; }
+  .audit { display: flex; flex-direction: column; gap: 6px; }
+  .audit .item { background: var(--panel-2); border: 1px solid var(--border);
+    padding: 8px 10px; border-radius: 6px; font-size: 12px; line-height: 1.45; }
+  .audit .item .ts { color: var(--ink-dim); font-size: 10.5px; }
+  .audit .item .tag { display: inline-block; padding: 1px 6px; border-radius: 3px;
+    font-size: 10.5px; margin-right: 4px; font-weight: 600; }
+  .audit .item .tag.allow { background: rgba(52,211,153,.18); color: var(--good); }
+  .audit .item .tag.deny  { background: rgba(239,68,68,.18); color: var(--bad); }
+  .audit .item .tag.info  { background: rgba(124,140,255,.18); color: var(--accent-2); }
+  .wf-node { background: var(--panel); color: var(--ink); border: 2px solid var(--line);
+    border-radius: 10px; padding: 10px 12px; min-width: 160px; font-size: 12.5px;
+    box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+  .wf-node .title { font-weight: 600; font-size: 13.5px; margin-bottom: 4px; }
+  .wf-node .desc  { color: var(--ink-dim); font-size: 11.5px; line-height: 1.35; }
+  .wf-node .perm  { display: inline-block; margin-top: 8px; padding: 2px 7px; border-radius: 4px;
+    font-size: 10.5px; font-weight: 700; letter-spacing: .5px; }
+  .wf-node.perm-edit { border-color: var(--edit); box-shadow: 0 0 0 3px rgba(52,211,153,.12); }
+  .wf-node.perm-edit .perm { background: var(--edit); color: #0b1020; }
+  .wf-node.perm-view { border-color: var(--view); }
+  .wf-node.perm-view .perm { background: var(--view); color: #0b1020; }
+  .wf-node.perm-deny { border-color: var(--deny); opacity: .55; }
+  .wf-node.perm-deny .perm { background: var(--deny); color: #0b1020; }
+  .wf-node.selected { box-shadow: 0 0 0 3px rgba(110,231,214,.4); }
+  .wf-handle { width: 10px !important; height: 10px !important; background: var(--accent) !important; border: 2px solid var(--bg) !important; }
+  .react-flow__edge-path { stroke: var(--ink-dim); stroke-width: 2; }
+  .react-flow__edge.animated .react-flow__edge-path { stroke: var(--accent); stroke-dasharray: 6; }
+  .react-flow__controls button { background: var(--panel-2) !important; color: var(--ink) !important;
+    border-bottom: 1px solid var(--border) !important; }
+  .react-flow__minimap { background: var(--panel) !important; }
+  .react-flow__attribution { background: transparent !important; color: var(--ink-dim) !important; font-size: 10px; }
+  .info { font-size: 11.5px; color: var(--ink-dim); line-height: 1.5; }
+  .info code { background: var(--panel-2); padding: 1px 5px; border-radius: 3px; font-size: 11px; color: var(--accent); }
+  .toast { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: var(--bad); color: white; padding: 10px 18px; border-radius: 8px;
+    font-size: 13px; box-shadow: 0 8px 24px rgba(0,0,0,.4); animation: slideUp .25s ease; z-index: 10; }
+  @keyframes slideUp { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
+</style>
+</head>
+<body>
+<!-- React 接管整棵樹；單一 mount 點 -->
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useCallback, useMemo, useEffect, useRef } = React;
+const RF = window.ReactFlow;
+const {
+  ReactFlow: ReactFlowCmp, Controls, Background, MiniMap, Handle,
+  applyNodeChanges, applyEdgeChanges, addEdge,
+} = RF;
+// JSX 內 <ReactFlow> 需要一個區域變數
+const ReactFlow = ReactFlowCmp;
+
+// =============== 領域模型 ===============
+const NODE_DEFS = [
+  { id: 'n1', type: 'workflow', position: { x:  40, y:  40 }, label: '職缺申請',     desc: '部門主管或申請人提出新職缺',  actor: 'manager' },
+  { id: 'n2', type: 'workflow', position: { x: 280, y:  40 }, label: 'HR 初審',       desc: 'HR 審查 JD 合理性與預算',     actor: 'hr' },
+  { id: 'n3', type: 'workflow', position: { x: 520, y:  40 }, label: '高階核准',     desc: 'VP+ 對主管級職缺進行核准',   actor: 'executive' },
+  { id: 'n4', type: 'workflow', position: { x:  40, y: 220 }, label: '公告招募',     desc: 'HR 對外發布職缺',             actor: 'hr' },
+  { id: 'n5', type: 'workflow', position: { x: 280, y: 220 }, label: '收件/履歷篩選', desc: 'HR 收取履歷並做初步篩選',     actor: 'hr' },
+  { id: 'n6', type: 'workflow', position: { x: 520, y: 220 }, label: '面試評估',     desc: '用人主管 + HR 共同評估',     actor: 'manager' },
+  { id: 'n7', type: 'workflow', position: { x: 280, y: 400 }, label: '錄用決策',     desc: '用人主管最終決定錄用人選',   actor: 'manager' },
+  { id: 'n8', type: 'workflow', position: { x: 520, y: 400 }, label: '結案歸檔',     desc: 'HR 完成入職資料歸檔',         actor: 'hr' },
+];
+const EDGE_DEFS = [
+  { id: 'e1-2', source: 'n1', target: 'n2', animated: true },
+  { id: 'e1-4', source: 'n1', target: 'n4' },
+  { id: 'e2-3', source: 'n2', target: 'n3' },
+  { id: 'e2-5', source: 'n2', target: 'n5' },
+  { id: 'e4-5', source: 'n4', target: 'n5' },
+  { id: 'e5-6', source: 'n5', target: 'n6' },
+  { id: 'e6-7', source: 'n6', target: 'n7' },
+  { id: 'e7-8', source: 'n7', target: 'n8' },
+];
+const RBAC_MATRIX = {
+  applicant:  { n1:'edit', n2:'view', n3:'deny', n4:'view', n5:'deny', n6:'view', n7:'deny', n8:'deny' },
+  manager:    { n1:'edit', n2:'view', n3:'view', n4:'view', n5:'view', n6:'edit', n7:'edit', n8:'view' },
+  hr:         { n1:'view', n2:'edit', n3:'view', n4:'edit', n5:'edit', n6:'edit', n7:'view', n8:'edit' },
+  executive:  { n1:'view', n2:'view', n3:'edit', n4:'view', n5:'view', n6:'view', n7:'edit', n8:'view' },
+  auditor:    { n1:'view', n2:'view', n3:'view', n4:'view', n5:'view', n6:'view', n7:'view', n8:'view' },
+};
+const ROLES = ['applicant','manager','hr','executive','auditor'];
+const ACTION_MIN_PERM = { move:'edit', edit:'edit', delete:'edit', connect:'edit', view:'view' };
+
+function authorize(role, action, resource) {
+  if (role === 'auditor') {
+    const perm = RBAC_MATRIX[role]?.[resource] || 'deny';
+    return { allow: action === 'audit' || perm === 'view', perm, reason: 'auditor 為唯讀角色' };
+  }
+  const perm = RBAC_MATRIX[role]?.[resource];
+  if (!perm) return { allow: false, perm: 'deny', reason: `角色 ${role} 對 ${resource} 無授權（deny-by-default）` };
+  const required = ACTION_MIN_PERM[action] || 'view';
+  const rank = { deny: 0, view: 1, edit: 2 };
+  const ok = rank[perm] >= rank[required];
+  return {
+    allow: ok, perm,
+    reason: ok
+      ? `角色 ${role} 對 ${resource} = ${perm}，滿足 ${action} 所需 ${required}`
+      : `角色 ${role} 對 ${resource} = ${perm}，不足以執行 ${action}（需 ${required}）`,
+  };
+}
+
+function WorkflowNode({ data, selected }) {
+  const cls = `wf-node perm-${data.perm} ${selected ? 'selected' : ''}`;
+  return (
+    <div className={cls}>
+      <Handle type="target" position="left"  className="wf-handle" />
+      <div className="title">{data.label}</div>
+      <div className="desc">{data.desc}</div>
+      <span className="perm">{data.perm.toUpperCase()}</span>
+      <Handle type="source" position="right" className="wf-handle" />
+    </div>
+  );
+}
+const nodeTypes = { workflow: WorkflowNode };
+
+function App() {
+  const [role, setRole] = useState('manager');
+  const [nodes, setNodes] = useState(() => NODE_DEFS.map(n => ({
+    ...n,
+    data: { id: n.id, label: n.label, desc: n.desc, perm: RBAC_MATRIX['manager'][n.id] },
+  })));
+  const [edges, setEdges] = useState(EDGE_DEFS);
+  const [audit, setAudit] = useState([{
+    ts: Date.now(), level: 'info',
+    text: '工作流引擎啟動。預設角色: manager。RBAC 政策已載入。',
+  }]);
+  const [toast, setToast] = useState(null);
+  const toastTimer = useRef(null);
+
+  function log(level, text) {
+    setAudit(a => [{ ts: Date.now(), level, text }, ...a].slice(0, 60));
+  }
+  function showToast(msg) {
+    setToast(msg);
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 2200);
+  }
+
+  useEffect(() => {
+    setNodes(curr => curr.map(n => ({
+      ...n,
+      data: { ...n.data, perm: RBAC_MATRIX[role][n.id] || 'deny' },
+    })));
+    log('info', `切換角色為 ${role}，所有節點權限已重算`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role]);
+
+  const onNodesChange = useCallback((changes) => {
+    const filtered = changes.filter(c => {
+      if (c.type === 'position' && c.dragging) {
+        const r = authorize(role, 'move', c.id);
+        if (!r.allow) { log('deny', `拒絕移動 ${c.id}: ${r.reason}`); showToast(`⛔ 角色 ${role} 無權移動 ${c.id}`); return false; }
+        return true;
+      }
+      if (c.type === 'remove') {
+        const r = authorize(role, 'delete', c.id);
+        if (!r.allow) { log('deny', `拒絕刪除 ${c.id}: ${r.reason}`); showToast(`⛔ 角色 ${role} 無權刪除 ${c.id}`); return false; }
+        log('allow', `已刪除節點 ${c.id}`);
+        return true;
+      }
+      return true;
+    });
+    setNodes(ns => applyNodeChanges(filtered, ns));
+  }, [role]);
+
+  const onEdgesChange = useCallback((changes) => {
+    const filtered = changes.filter(c => {
+      if (c.type === 'remove') {
+        const r1 = authorize(role, 'edit', c.source);
+        const r2 = authorize(role, 'edit', c.target);
+        if (!r1.allow || !r2.allow) {
+          log('deny', `拒絕刪除邊 ${c.source}→${c.target}`);
+          showToast(`⛔ 角色 ${role} 無權刪除此邊`);
+          return false;
+        }
+        log('allow', `刪除邊 ${c.source}→${c.target}`);
+        return true;
+      }
+      return true;
+    });
+    setEdges(es => applyEdgeChanges(filtered, es));
+  }, [role]);
+
+  const onConnect = useCallback((conn) => {
+    const r = authorize(role, 'connect', conn.source);
+    const r2 = authorize(role, 'connect', conn.target);
+    if (!r.allow || !r2.allow) {
+      log('deny', `拒絕連線 ${conn.source}→${conn.target}: 至少一端為 ${!r.allow ? r.perm : r2.perm}`);
+      showToast(`⛔ 角色 ${role} 無權在此端點建立連線`);
+      return;
+    }
+    setEdges(es => addEdge({ ...conn, animated: true }, es));
+    log('allow', `建立邊 ${conn.source} → ${conn.target}`);
+  }, [role]);
+
+  function addNode() {
+    const canCreate = Object.values(RBAC_MATRIX[role] || {}).some(p => p === 'edit');
+    if (!canCreate) {
+      log('deny', `拒絕新增節點：角色 ${role} 對所有資源皆非 edit`);
+      showToast(`⛔ 角色 ${role} 無權新增節點`);
+      return;
+    }
+    const id = 'n' + (Date.now() % 100000);
+    const offset = nodes.length * 25;
+    setNodes(ns => [...ns, {
+      id, type: 'workflow',
+      position: { x: 600 + offset, y: 480 + offset },
+      data: { id, label: '新節點 ' + id.slice(-3), desc: '由 ' + role + ' 新增', perm: 'edit' },
+    }]);
+    log('allow', `新增節點 ${id} (角色 ${role})`);
+  }
+
+  function resetWorkflow() {
+    if (!window.confirm('確定要重置工作流嗎？所有自訂變更將遺失。')) return;
+    setNodes(NODE_DEFS.map(n => ({
+      ...n, data: { id: n.id, label: n.label, desc: n.desc, perm: RBAC_MATRIX[role][n.id] }
+    })));
+    setEdges(EDGE_DEFS);
+    log('info', `工作流已重置（角色 ${role}）`);
+  }
+
+  const stats = useMemo(() => {
+    const m = RBAC_MATRIX[role] || {};
+    let edit=0, view=0, deny=0;
+    Object.values(m).forEach(p => p==='edit'?edit++:p==='view'?view++:deny++);
+    return { edit, view, deny };
+  }, [role]);
+
+  return (
+    <div className="app">
+      <header className="topbar">
+        <h1>⚡ HR 工作流引擎</h1>
+        <span className="sub">React Flow × RBAC · deny-by-default · 即時審計</span>
+        <span className="grow"></span>
+        <div className="role-select">
+          <span className="sub">當前角色</span>
+          <select value={role} onChange={e => setRole(e.target.value)} aria-label="角色切換">
+            <option value="applicant">申請人 (applicant)</option>
+            <option value="manager">用人主管 (manager)</option>
+            <option value="hr">HR (hr)</option>
+            <option value="executive">高階主管 (executive)</option>
+            <option value="auditor">稽核人員 (auditor)</option>
+          </select>
+          <span style={{ background: 'rgba(110,231,214,.15)', color: 'var(--accent)',
+            border: '1px solid var(--accent)', padding: '4px 8px', borderRadius: 4,
+            fontSize: 11, marginLeft: 6 }}>{role.toUpperCase()}</span>
+        </div>
+      </header>
+
+      <aside className="left">
+        <h3>📊 RBAC 矩陣</h3>
+        <div className="rbac-grid">
+          <div className="h">節點</div>
+          {ROLES.map(r => <div className="h" key={r}>{r[0].toUpperCase()}</div>)}
+          {NODE_DEFS.map(n => (
+            <React.Fragment key={n.id}>
+              <div className="n">{n.id}</div>
+              {ROLES.map(r => {
+                const p = RBAC_MATRIX[r][n.id];
+                return <div className={`c ${p}`} key={r} title={`${r} on ${n.id} = ${p}`}>{p[0].toUpperCase()}</div>;
+              })}
+            </React.Fragment>
+          ))}
+        </div>
+        <h4>圖例</h4>
+        <div className="legend">
+          <div className="row"><span className="swatch edit"></span>edit — 可拖曳 / 編輯 / 刪除</div>
+          <div className="row"><span className="swatch view"></span>view — 唯讀檢視</div>
+          <div className="row"><span className="swatch deny"></span>deny — 看不到完整內容、節點淡化</div>
+        </div>
+        <h4>當前角色統計</h4>
+        <div className="info">
+          <div>edit: <code>{stats.edit}</code> 節點</div>
+          <div>view: <code>{stats.view}</code> 節點</div>
+          <div>deny: <code>{stats.deny}</code> 節點</div>
+          <div style={{ marginTop: 8, color: 'var(--accent)' }}>
+            {role === 'auditor' ? '🔍 稽核模式：所有變更會被拒絕（唯讀）'
+             : role === 'applicant' ? '📝 可建立職缺申請，其他流程僅檢視'
+             : '✅ 切換到其他角色試試看權限變化'}
+          </div>
+        </div>
+      </aside>
+
+      <main className="canvas">
+        <div className="toolbar">
+          <button onClick={addNode}>＋ 新增節點</button>
+          <button onClick={resetWorkflow}>↺ 重置工作流</button>
+          <span className="badge">拖拉節點 / 連線試試看</span>
+        </div>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          nodeTypes={nodeTypes}
+          fitView
+          proOptions={{ hideAttribution: true }}
+        >
+          <Controls position="bottom-right" />
+          <Background variant="dots" gap={18} size={1} color="rgba(255,255,255,0.08)" />
+          <MiniMap
+            nodeColor={n => {
+              const p = n.data?.perm;
+              return p === 'edit' ? '#34d399' : p === 'view' ? '#7c8cff' : '#ef4444';
+            }}
+            nodeStrokeWidth={2}
+            maskColor="rgba(11,16,32,0.7)"
+          />
+        </ReactFlow>
+        {toast && <div className="toast">{toast}</div>}
+      </main>
+
+      <aside className="right">
+        <h3>📜 即時審計日誌</h3>
+        <div className="info">所有授權決策即時記錄。<code>{audit.length}</code> 筆事件</div>
+        <h4>事件流</h4>
+        <div className="audit">
+          {audit.map((a, i) => (
+            <div className="item" key={i}>
+              <div className="ts">{new Date(a.ts).toLocaleTimeString('zh-TW', { hour12: false })}</div>
+              <div><span className={`tag ${a.level}`}>{a.level.toUpperCase()}</span>{a.text}</div>
+            </div>
+          ))}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+</body>
+</html>

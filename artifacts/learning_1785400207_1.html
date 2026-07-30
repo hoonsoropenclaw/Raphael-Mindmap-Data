@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Glassmorphism × Tailwind — Dynamic UI Components</title>
+  <meta name="description" content="基於 Tailwind CSS 與 Glassmorphism 設計系統的動態 UI 組件 showcase:互動卡片、Modal、Toast、Tab、Theme Toggle。" />
+
+  <!-- Tailwind CDN (Play CDN for browser-only demo, production should use build step) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // Tailwind config — extend theme to provide reusable glass tokens
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            ink: {
+              50:  '#f8fafc',
+              900: '#0b1020',
+              950: '#05070f',
+            },
+          },
+          backdropBlur: { xs: '2px' },
+          keyframes: {
+            floaty: {
+              '0%, 100%': { transform: 'translateY(0px)' },
+              '50%':      { transform: 'translateY(-12px)' },
+            },
+            shimmer: {
+              '0%':   { backgroundPosition: '-200% 0' },
+              '100%': { backgroundPosition: '200% 0' },
+            },
+            popIn: {
+              '0%':   { opacity: '0', transform: 'scale(.92) translateY(8px)' },
+              '100%': { opacity: '1', transform: 'scale(1) translateY(0)' },
+            },
+            slideUp: {
+              '0%':   { opacity: '0', transform: 'translateY(16px)' },
+              '100%': { opacity: '1', transform: 'translateY(0)' },
+            },
+          },
+          animation: {
+            floaty:  'floaty 6s ease-in-out infinite',
+            shimmer: 'shimmer 2.5s linear infinite',
+            popIn:   'popIn .35s cubic-bezier(.2,.9,.3,1.2) both',
+            slideUp: 'slideUp .45s cubic-bezier(.2,.8,.2,1) both',
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- Tailwind utility extension: reusable glass surfaces -->
+  <style type="text/tailwindcss">
+    @layer components {
+      .glass-soft {
+        @apply bg-white/15 backdrop-blur-md border border-white/25 shadow-xl;
+      }
+      .glass-strong {
+        @apply bg-white/25 backdrop-blur-xl border border-white/40 shadow-2xl;
+      }
+      .glass-frosted {
+        @apply bg-white/30 backdrop-blur-2xl border border-white/50 shadow-[0_8px_32px_rgba(15,23,42,0.25)];
+      }
+      .glass-tint-violet {
+        @apply bg-violet-500/15 backdrop-blur-xl border border-violet-200/30 shadow-xl;
+      }
+      .glass-tint-cyan {
+        @apply bg-cyan-400/15 backdrop-blur-xl border border-cyan-200/30 shadow-xl;
+      }
+      .glass-tint-rose {
+        @apply bg-rose-400/15 backdrop-blur-xl border border-rose-200/30 shadow-xl;
+      }
+      .text-grad {
+        @apply bg-clip-text text-transparent bg-gradient-to-r from-fuchsia-300 via-violet-300 to-sky-300;
+      }
+      .btn-primary {
+        @apply px-4 py-2 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white font-medium shadow-lg shadow-violet-500/30 hover:shadow-violet-500/60 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-300;
+      }
+      .btn-ghost {
+        @apply px-4 py-2 rounded-xl bg-white/10 border border-white/20 text-white hover:bg-white/20 transition-all duration-300;
+      }
+    }
+
+    /* Animated gradient mesh backdrop — required for glass blur to show */
+    .mesh-bg {
+      background:
+        radial-gradient(at 12% 18%, rgba(139,92,246,.55) 0px, transparent 45%),
+        radial-gradient(at 88% 12%, rgba(56,189,248,.55) 0px, transparent 45%),
+        radial-gradient(at 72% 88%, rgba(244,114,182,.55) 0px, transparent 45%),
+        radial-gradient(at 22% 78%, rgba(34,197,94,.40) 0px, transparent 45%);
+      background-size: 200% 200%;
+      animation: meshShift 18s ease-in-out infinite;
+    }
+    @keyframes meshShift {
+      0%, 100% { background-position: 0% 0%, 100% 0%, 100% 100%, 0% 100%; }
+      50%      { background-position: 20% 30%, 80% 10%, 90% 80%, 10% 90%; }
+    }
+
+    .dark .mesh-bg {
+      background:
+        radial-gradient(at 12% 18%, rgba(139,92,246,.35) 0px, transparent 50%),
+        radial-gradient(at 88% 12%, rgba(56,189,248,.35) 0px, transparent 50%),
+        radial-gradient(at 72% 88%, rgba(244,114,182,.30) 0px, transparent 50%),
+        radial-gradient(at 22% 78%, rgba(34,197,94,.25) 0px, transparent 50%);
+    }
+
+    /* Shimmering gradient text */
+    .shimmer-text {
+      background: linear-gradient(90deg, #fff 0%, #c4b5fd 25%, #fff 50%, #7dd3fc 75%, #fff 100%);
+      background-size: 200% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      animation: shimmer 3s linear infinite;
+    }
+
+    /* Tab indicator transition handled by JS via transform */
+
+    /* Reduced motion respect */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+
+  <style>
+    /* non-Tailwind helpers (CSS vars + base) */
+    :root {
+      --ring: 0 0 0 3px rgba(139,92,246,.45);
+    }
+    html, body { min-height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    }
+    [data-theme="light"] body {
+      background: linear-gradient(135deg, #fdf4ff 0%, #ecfeff 50%, #fef2f2 100%);
+    }
+    [data-theme="dark"] body {
+      background: linear-gradient(135deg, #05070f 0%, #0b1020 100%);
+    }
+    /* Focus rings for accessibility */
+    :focus-visible { outline: none; box-shadow: var(--ring); border-radius: 12px; }
+  </style>
+</head>
+
+<body data-theme="dark" class="min-h-screen text-slate-100 antialiased">
+
+  <!-- ============== Animated Mesh Background ============== -->
+  <div class="mesh-bg fixed inset-0 -z-10"></div>
+
+  <!-- ============== Floating decorative blobs (visible blur source) ============== -->
+  <div aria-hidden="true" class="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
+    <div class="absolute top-10 left-10 w-72 h-72 rounded-full bg-violet-500/40 blur-3xl animate-floaty"></div>
+    <div class="absolute top-1/3 right-20 w-80 h-80 rounded-full bg-cyan-400/40 blur-3xl animate-floaty" style="animation-delay:-2s"></div>
+    <div class="absolute bottom-20 left-1/4 w-64 h-64 rounded-full bg-rose-400/40 blur-3xl animate-floaty" style="animation-delay:-4s"></div>
+  </div>
+
+  <!-- ============== Top Navbar (Glass) ============== -->
+  <header class="sticky top-4 z-40 px-4">
+    <nav class="glass-frosted max-w-6xl mx-auto rounded-2xl px-4 md:px-6 py-3 flex items-center justify-between">
+      <a href="#" class="flex items-center gap-2 group">
+        <span class="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 grid place-items-center text-white font-bold shadow-lg group-hover:rotate-6 transition-transform">R</span>
+        <span class="font-semibold tracking-wide text-grad">Raphael.Lab</span>
+      </a>
+
+      <!-- Desktop nav -->
+      <ul class="hidden md:flex items-center gap-1 text-sm">
+        <li><a href="#cards"     class="px-3 py-1.5 rounded-lg hover:bg-white/10 transition">Cards</a></li>
+        <li><a href="#modal"     class="px-3 py-1.5 rounded-lg hover:bg-white/10 transition">Modal</a></li>
+        <li><a href="#tabs"      class="px-3 py-1.5 rounded-lg hover:bg-white/10 transition">Tabs</a></li>
+        <li><a href="#toast"     class="px-3 py-1.5 rounded-lg hover:bg-white/10 transition">Toast</a></li>
+        <li><a href="#toggle"    class="px-3 py-1.5 rounded-lg hover:bg-white/10 transition">Toggle</a></li>
+      </ul>
+
+      <div class="flex items-center gap-2">
+        <!-- Theme toggle -->
+        <button id="themeToggle" type="button" aria-label="切換主題"
+                class="btn-ghost flex items-center gap-2 text-sm">
+          <span id="themeIcon">🌙</span>
+          <span id="themeLabel" class="hidden sm:inline">Dark</span>
+        </button>
+
+        <!-- Mobile menu -->
+        <button id="mobileMenuBtn" type="button" aria-label="開啟選單" aria-expanded="false"
+                class="md:hidden btn-ghost p-2">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+          </svg>
+        </button>
+      </div>
+    </nav>
+
+    <!-- Mobile menu (collapsible) -->
+    <div id="mobileMenu" class="md:hidden max-w-6xl mx-auto mt-2 glass-strong rounded-2xl px-4 py-3 hidden animate-slideUp">
+      <ul class="flex flex-col gap-1 text-sm">
+        <li><a href="#cards"  class="block px-3 py-2 rounded-lg hover:bg-white/10">Cards</a></li>
+        <li><a href="#modal"  class="block px-3 py-2 rounded-lg hover:bg-white/10">Modal</a></li>
+        <li><a href="#tabs"   class="block px-3 py-2 rounded-lg hover:bg-white/10">Tabs</a></li>
+        <li><a href="#toast"  class="block px-3 py-2 rounded-lg hover:bg-white/10">Toast</a></li>
+        <li><a href="#toggle" class="block px-3 py-2 rounded-lg hover:bg-white/10">Toggle</a></li>
+      </ul>
+    </div>
+  </header>
+
+  <!-- ============== Hero ============== -->
+  <main class="max-w-6xl mx-auto px-4 pt-16 md:pt-24 pb-24">
+    <section class="text-center mb-16 animate-slideUp">
+      <span class="inline-block glass-tint-violet rounded-full px-4 py-1 text-xs tracking-widest uppercase mb-6">
+        Glassmorphism × Tailwind
+      </span>
+      <h1 class="text-4xl md:text-6xl font-extrabold leading-tight tracking-tight">
+        <span class="shimmer-text">動態 UI 組件庫</span>
+      </h1>
+      <p class="mt-6 max-w-2xl mx-auto text-slate-300/90 text-base md:text-lg leading-relaxed">
+        以 <code class="text-violet-300">backdrop-blur</code> 與半透明邊框打造的玻璃擬態設計系統,
+        結合 Tailwind CSS 的響應式設計與流暢動畫,展示五個動態互動元件的完整樣板。
+      </p>
+      <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <a href="#cards" class="btn-primary">▶ 開始瀏覽</a>
+        <button id="toastBtnHero" type="button" class="btn-ghost">測試 Toast</button>
+      </div>
+    </section>
+
+    <!-- ============== 1. Interactive Glass Cards ============== -->
+    <section id="cards" class="mb-20 scroll-mt-24">
+      <div class="flex items-end justify-between mb-6">
+        <div>
+          <h2 class="text-2xl md:text-3xl font-bold text-grad">1 · Interactive Cards</h2>
+          <p class="text-slate-400 text-sm mt-1">Hover lift + click selection + 3D tilt</p>
+        </div>
+        <span class="hidden md:inline glass-soft px-3 py-1 rounded-full text-xs">3 cards</span>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <!-- Card 1 -->
+        <button type="button" data-card class="group glass-strong rounded-2xl p-6 text-left transition-all duration-300 hover:-translate-y-2 hover:shadow-violet-500/40 focus-visible:-translate-y-2 active:scale-[.98]" data-tilt>
+          <div class="flex items-center justify-between mb-4">
+            <span class="glass-tint-violet px-3 py-1 rounded-full text-xs">Analytics</span>
+            <span class="text-2xl group-hover:scale-110 transition-transform">📊</span>
+          </div>
+          <h3 class="text-lg font-semibold mb-1">資料儀表板</h3>
+          <p class="text-sm text-slate-300/80 mb-4">即時追蹤 KPI,搭配玻璃卡片堆疊出深度感。</p>
+          <div class="flex items-center justify-between text-xs">
+            <span class="text-violet-300">+12.4%</span>
+            <span class="text-slate-400 group-hover:text-white transition">查看詳情 →</span>
+          </div>
+        </button>
+
+        <!-- Card 2 (selected by default) -->
+        <button type="button" data-card class="group glass-frosted rounded-2xl p-6 text-left transition-all duration-300 hover:-translate-y-2 hover:shadow-cyan-500/40 focus-visible:-translate-y-2 active:scale-[.98] ring-2 ring-cyan-300/60" data-tilt aria-pressed="true">
+          <div class="flex items-center justify-between mb-4">
+            <span class="glass-tint-cyan px-3 py-1 rounded-full text-xs">AI Engine</span>
+            <span class="text-2xl group-hover:scale-110 transition-transform">🤖</span>
+          </div>
+          <h3 class="text-lg font-semibold mb-1">智能代理</h3>
+          <p class="text-sm text-slate-300/80 mb-4">多代理協作、自動接續、被選中狀態以光環提示。</p>
+          <div class="flex items-center justify-between text-xs">
+            <span class="text-cyan-300">Active</span>
+            <span class="text-slate-400 group-hover:text-white transition">查看詳情 →</span>
+          </div>
+        </button>
+
+        <!-- Card 3 -->
+        <button type="button" data-card class="group glass-strong rounded-2xl p-6 text-left transition-all duration-300 hover:-translate-y-2 hover:shadow-rose-500/40 focus-visible:-translate-y-2 active:scale-[.98]" data-tilt>
+          <div class="flex items-center justify-between mb-4">
+            <span class="glass-tint-rose px-3 py-1 rounded-full text-xs">Realtime</span>
+            <span class="text-2xl group-hover:scale-110 transition-transform">⚡</span>
+          </div>
+          <h3 class="text-lg font-semibold mb-1">即時通知</h3>
+          <p class="text-sm text-slate-300/80 mb-4">WebSocket 推送,新事件以彈入動畫提示使用者。</p>
+          <div class="flex items-center justify-between text-xs">
+            <span class="text-rose-300">3 new</span>
+            <span class="text-slate-400 group-hover:text-white transition">查看詳情 →</span>
+          </div>
+        </button>
+      </div>
+
+      <!-- selection indicator -->
+      <p class="text-center text-xs text-slate-400 mt-4">
+        目前選擇:<span id="selectedLabel" class="text-cyan-300 font-medium">智能代理</span>
+      </p>
+    </section>
+
+    <!-- ============== 2. Modal ============== -->
+    <section id="modal" class="mb-20 scroll-mt-24">
+      <div class="mb-6">
+        <h2 class="text-2xl md:text-3xl font-bold text-grad">2 · Modal Dialog</h2>
+        <p class="text-slate-400 text-sm mt-1">Glass overlay + pop-in animation + ESC / 點遮罩關閉</p>
+      </div>
+
+      <div class="glass-soft rounded-2xl p-8 flex flex-col items-center justify-center gap-4">
+        <p class="text-sm text-slate-300 text-center max-w-md">點下方按鈕開啟 modal,體驗玻璃遮罩、聚焦陷阱、與關閉動畫。</p>
+        <button id="openModal" type="button" class="btn-primary">開啟 Modal</button>
+      </div>
+    </section>
+
+    <!-- ============== 3. Tabs ============== -->
+    <section id="tabs" class="mb-20 scroll-mt-24">
+      <div class="mb-6">
+        <h2 class="text-2xl md:text-3xl font-bold text-grad">3 · Animated Tabs</h2>
+        <p class="text-slate-400 text-sm mt-1">滑動指示器 + 內容 fade in</p>
+      </div>
+
+      <div class="glass-strong rounded-2xl p-3 md:p-4">
+        <!-- tab buttons -->
+        <div role="tablist" aria-label="內容分頁" class="relative flex flex-wrap gap-1 p-1 glass-soft rounded-xl">
+          <span id="tabIndicator" aria-hidden="true" class="absolute top-1 left-1 h-[calc(100%-0.5rem)] rounded-lg bg-gradient-to-r from-violet-500 to-fuchsia-500 shadow-lg shadow-violet-500/40 transition-transform duration-500 ease-[cubic-bezier(.2,.8,.2,1)]" style="width:0"></span>
+          <button role="tab" aria-selected="true"  data-tab="0" class="relative z-10 flex-1 min-w-[80px] px-3 py-2 rounded-lg text-sm font-medium text-white transition">總覽</button>
+          <button role="tab" aria-selected="false" data-tab="1" class="relative z-10 flex-1 min-w-[80px] px-3 py-2 rounded-lg text-sm font-medium text-slate-300 transition">元件</button>
+          <button role="tab" aria-selected="false" data-tab="2" class="relative z-10 flex-1 min-w-[80px] px-3 py-2 rounded-lg text-sm font-medium text-slate-300 transition">設計</button>
+          <button role="tab" aria-selected="false" data-tab="3" class="relative z-10 flex-1 min-w-[80px] px-3 py-2 rounded-lg text-sm font-medium text-slate-300 transition">程式碼</button>
+        </div>
+
+        <!-- tab panels -->
+        <div class="mt-4 min-h-[180px]">
+          <div data-panel="0" role="tabpanel" class="animate-slideUp">
+            <h3 class="font-semibold mb-2">玻璃擬態設計系統</h3>
+            <p class="text-sm text-slate-300/90 leading-relaxed">本系統以 <code class="text-violet-300">backdrop-blur</code> 為核心,搭配半透明背景與細邊框,創造出漂浮於彩色 mesh 背景之上的玻璃質感。所有元件均使用 Tailwind utility + CSS variables 統一視覺。</p>
+          </div>
+          <div data-panel="1" role="tabpanel" class="hidden animate-slideUp">
+            <h3 class="font-semibold mb-2">5 個互動元件</h3>
+            <ul class="text-sm text-slate-300/90 space-y-1">
+              <li>• Interactive Cards — hover lift + click selection</li>
+              <li>• Modal Dialog — glass overlay + focus trap</li>
+              <li>• Animated Tabs — sliding indicator</li>
+              <li>• Toast Notifications — auto-dismiss stack</li>
+              <li>• Theme Toggle — light/dark 切換</li>
+            </ul>
+          </div>
+          <div data-panel="2" role="tabpanel" class="hidden animate-slideUp">
+            <h3 class="font-semibold mb-2">設計 Token</h3>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+              <div class="glass-tint-violet rounded-xl p-3">violet<br><code>500/.15</code></div>
+              <div class="glass-tint-cyan rounded-xl p-3">cyan<br><code>400/.15</code></div>
+              <div class="glass-tint-rose rounded-xl p-3">rose<br><code>400/.15</code></div>
+              <div class="glass-soft rounded-xl p-3">neutral<br><code>white/.15</code></div>
+            </div>
+          </div>
+          <div data-panel="3" role="tabpanel" class="hidden animate-slideUp">
+            <h3 class="font-semibold mb-2">技術棧</h3>
+            <pre class="text-xs bg-black/30 rounded-xl p-3 overflow-x-auto"><code>Tailwind CSS (Play CDN)
++ backdrop-blur / 半透明 border
++ custom keyframes (popIn, slideUp, shimmer)
++ vanilla JS (無框架,純 DOM)
++ prefers-reduced-motion 友善</code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============== 4. Toast ============== -->
+    <section id="toast" class="mb-20 scroll-mt-24">
+      <div class="mb-6">
+        <h2 class="text-2xl md:text-3xl font-bold text-grad">4 · Toast Notifications</h2>
+        <p class="text-slate-400 text-sm mt-1">玻璃浮層 + 自動消失 + 堆疊管理</p>
+      </div>
+
+      <div class="glass-soft rounded-2xl p-8 flex flex-wrap items-center justify-center gap-3">
+        <button type="button" data-toast="success" class="btn-primary">✓ Success</button>
+        <button type="button" data-toast="info"    class="btn-ghost">ℹ Info</button>
+        <button type="button" data-toast="warn"    class="btn-ghost">⚠ Warning</button>
+        <button type="button" data-toast="error"   class="btn-ghost">✕ Error</button>
+      </div>
+    </section>
+
+    <!-- ============== 5. Toggle Switches ============== -->
+    <section id="toggle" class="mb-20 scroll-mt-24">
+      <div class="mb-6">
+        <h2 class="text-2xl md:text-3xl font-bold text-grad">5 · Toggle Switches</h2>
+        <p class="text-slate-400 text-sm mt-1">玻璃軌道 + 滑動 thumb + 動態色彩</p>
+      </div>
+
+      <div class="glass-strong rounded-2xl p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Toggle 1: notifications -->
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="font-medium">推播通知</p>
+            <p class="text-xs text-slate-400">接收新訊息即時提醒</p>
+          </div>
+          <button role="switch" aria-checked="true" data-switch class="relative w-12 h-7 rounded-full bg-violet-500 transition-colors duration-300">
+            <span class="absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow-md transition-transform duration-300 translate-x-5"></span>
+          </button>
+        </div>
+
+        <!-- Toggle 2: dark mode (linked to global theme) -->
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="font-medium">深色模式</p>
+            <p class="text-xs text-slate-400">保護眼睛、省電</p>
+          </div>
+          <button id="darkSwitch" role="switch" aria-checked="true" data-switch class="relative w-12 h-7 rounded-full bg-violet-500 transition-colors duration-300">
+            <span class="absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow-md transition-transform duration-300 translate-x-5"></span>
+          </button>
+        </div>
+
+        <!-- Toggle 3: animations -->
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="font-medium">動畫效果</p>
+            <p class="text-xs text-slate-400">介面互動微動畫</p>
+          </div>
+          <button role="switch" aria-checked="false" data-switch class="relative w-12 h-7 rounded-full bg-white/20 transition-colors duration-300">
+            <span class="absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow-md transition-transform duration-300 translate-x-0"></span>
+          </button>
+        </div>
+
+        <!-- Toggle 4: sound -->
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="font-medium">音效</p>
+            <p class="text-xs text-slate-400">點擊與通知音效</p>
+          </div>
+          <button role="switch" aria-checked="false" data-switch class="relative w-12 h-7 rounded-full bg-white/20 transition-colors duration-300">
+            <span class="absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-white shadow-md transition-transform duration-300 translate-x-0"></span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============== Footer ============== -->
+    <footer class="text-center text-xs text-slate-400 mt-16">
+      <p>Built with <span class="text-violet-300">Tailwind CSS</span> + <span class="text-cyan-300">Glassmorphism</span> · Raphael.Lab · 2026</p>
+    </footer>
+  </main>
+
+  <!-- ============== Modal (hidden by default) ============== -->
+  <div id="modalRoot" class="hidden fixed inset-0 z-50 grid place-items-center p-4" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <!-- backdrop -->
+    <div id="modalBackdrop" class="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"></div>
+    <!-- panel -->
+    <div class="relative glass-frosted rounded-3xl p-6 md:p-8 max-w-md w-full animate-popIn">
+      <div class="flex items-start justify-between mb-4">
+        <h3 id="modalTitle" class="text-xl font-bold text-grad">歡迎來到 Raphael.Lab</h3>
+        <button id="closeModal" type="button" aria-label="關閉" class="btn-ghost p-1.5 rounded-lg">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <p class="text-sm text-slate-300/90 leading-relaxed mb-6">
+        這是一個 Glassmorphism modal 範例。具備以下特性:
+      </p>
+      <ul class="text-sm text-slate-300/90 space-y-2 mb-6">
+        <li class="flex items-start gap-2"><span class="text-violet-300">✓</span>玻璃遮罩 + 半透明 panel</li>
+        <li class="flex items-start gap-2"><span class="text-violet-300">✓</span>ESC 鍵關閉、點擊遮罩關閉</li>
+        <li class="flex items-start gap-2"><span class="text-violet-300">✓</span>pop-in 進場動畫</li>
+        <li class="flex items-start gap-2"><span class="text-violet-300">✓</span>ARIA dialog + 焦點管理</li>
+      </ul>
+      <div class="flex justify-end gap-2">
+        <button id="cancelModal" type="button" class="btn-ghost">取消</button>
+        <button id="confirmModal" type="button" class="btn-primary">確認</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============== Toast container ============== -->
+  <div id="toastRoot" aria-live="polite" aria-atomic="true" class="fixed top-4 right-4 z-[60] flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- ============== Scripts ============== -->
+  <script>
+  (function () {
+    'use strict';
+
+    // ------- helpers -------
+    const $  = (sel, root = document) => root.querySelector(sel);
+    const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    // ============== 1. Card selection + 3D tilt ==============
+    const cardLabels = ['資料儀表板', '智能代理', '即時通知'];
+    const selectedLabel = $('#selectedLabel');
+
+    $$('[data-card]').forEach((card, idx) => {
+      // selection
+      card.addEventListener('click', () => {
+        $$('[data-card]').forEach(c => {
+          c.classList.remove('ring-2', 'ring-cyan-300/60', 'glass-frosted');
+          c.classList.add('glass-strong');
+          c.setAttribute('aria-pressed', 'false');
+        });
+        card.classList.remove('glass-strong');
+        card.classList.add('glass-frosted', 'ring-2', 'ring-cyan-300/60');
+        card.setAttribute('aria-pressed', 'true');
+        if (selectedLabel) selectedLabel.textContent = cardLabels[idx] || card.textContent.trim();
+      });
+
+      // 3D tilt (mouse-move)
+      if (!prefersReducedMotion) {
+        card.addEventListener('mousemove', (e) => {
+          const rect = card.getBoundingClientRect();
+          const x = (e.clientX - rect.left) / rect.width - 0.5;
+          const y = (e.clientY - rect.top)  / rect.height - 0.5;
+          card.style.transform = `translateY(-8px) perspective(800px) rotateX(${(-y * 6).toFixed(2)}deg) rotateY(${(x * 6).toFixed(2)}deg)`;
+        });
+        card.addEventListener('mouseleave', () => {
+          card.style.transform = '';
+        });
+      }
+    });
+
+    // ============== 2. Modal ==============
+    const modalRoot    = $('#modalRoot');
+    const modalBackdrop= $('#modalBackdrop');
+    const openModalBtn = $('#openModal');
+    const closeModalBtn= $('#closeModal');
+    const cancelModalBtn = $('#cancelModal');
+    const confirmModalBtn = $('#confirmModal');
+    let lastFocused = null;
+
+    function openModal() {
+      lastFocused = document.activeElement;
+      modalRoot.classList.remove('hidden');
+      document.body.style.overflow = 'hidden';
+      // focus first focusable
+      requestAnimationFrame(() => closeModalBtn.focus());
+      document.addEventListener('keydown', onEsc);
+    }
+    function closeModal() {
+      modalRoot.classList.add('hidden');
+      document.body.style.overflow = '';
+      document.removeEventListener('keydown', onEsc);
+      if (lastFocused && lastFocused.focus) lastFocused.focus();
+    }
+    function onEsc(e) { if (e.key === 'Escape') closeModal(); }
+
+    openModalBtn.addEventListener('click', openModal);
+    closeModalBtn.addEventListener('click', closeModal);
+    cancelModalBtn.addEventListener('click', closeModal);
+    confirmModalBtn.addEventListener('click', () => {
+      closeModal();
+      pushToast('success', '已確認 ✓');
+    });
+    modalBackdrop.addEventListener('click', closeModal);
+
+    // simple focus trap
+    modalRoot.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab') return;
+      const focusables = $$('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])', modalRoot)
+        .filter(el => !el.disabled && el.offsetParent !== null);
+      if (!focusables.length) return;
+      const first = focusables[0];
+      const last  = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault(); last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault(); first.focus();
+      }
+    });
+
+    // ============== 3. Animated Tabs ==============
+    const tabBtns    = $$('[role="tab"][data-tab]');
+    const tabPanels  = $$('[role="tabpanel"][data-panel]');
+    const indicator  = $('#tabIndicator');
+
+    function moveIndicator(activeBtn) {
+      if (!activeBtn || !indicator) return;
+      const parentRect = activeBtn.parentElement.getBoundingClientRect();
+      const rect = activeBtn.getBoundingClientRect();
+      const x = rect.left - parentRect.left - 4; // -4 = p-1 of parent
+      indicator.style.width = `${rect.width}px`;
+      indicator.style.transform = `translateX(${x}px)`;
+    }
+
+    function activateTab(idx) {
+      tabBtns.forEach((b, i) => {
+        const active = i === idx;
+        b.setAttribute('aria-selected', active ? 'true' : 'false');
+        b.classList.toggle('text-white', active);
+        b.classList.toggle('text-slate-300', !active);
+      });
+      tabPanels.forEach((p, i) => {
+        const active = i === idx;
+        p.classList.toggle('hidden', !active);
+        if (active) {
+          // restart animation
+          p.style.animation = 'none';
+          p.offsetHeight; // reflow
+          p.style.animation = '';
+        }
+      });
+      moveIndicator(tabBtns[idx]);
+    }
+
+    tabBtns.forEach((btn, idx) => {
+      btn.addEventListener('click', () => activateTab(idx));
+    });
+
+    // init indicator after layout settles
+    window.addEventListener('load', () => moveIndicator(tabBtns[0]));
+    window.addEventListener('resize', () => {
+      const activeIdx = tabBtns.findIndex(b => b.getAttribute('aria-selected') === 'true');
+      moveIndicator(tabBtns[activeIdx] || tabBtns[0]);
+    });
+
+    // ============== 4. Toast ==============
+    const toastRoot = $('#toastRoot');
+    const toastIcons = {
+      success: '✓',
+      info:    'ℹ',
+      warn:    '⚠',
+      error:   '✕',
+    };
+    const toastStyles = {
+      success: 'bg-emerald-500/25 border-emerald-300/40 text-emerald-50',
+      info:    'bg-sky-500/25 border-sky-300/40 text-sky-50',
+      warn:    'bg-amber-500/25 border-amber-300/40 text-amber-50',
+      error:   'bg-rose-500/25 border-rose-300/40 text-rose-50',
+    };
+
+    function pushToast(type, message, ttl = 3200) {
+      const el = document.createElement('div');
+      el.setAttribute('role', type === 'error' ? 'alert' : 'status');
+      el.className = [
+        'pointer-events-auto glass-strong rounded-2xl px-4 py-3 min-w-[260px] max-w-sm',
+        'flex items-start gap-3 animate-slideUp',
+        toastStyles[type] || '',
+      ].join(' ');
+      el.innerHTML = `
+        <span class="w-7 h-7 shrink-0 grid place-items-center rounded-full bg-white/20 font-bold">${toastIcons[type] || '•'}</span>
+        <div class="flex-1 text-sm leading-snug">${message}</div>
+        <button type="button" aria-label="關閉" class="opacity-70 hover:opacity-100">✕</button>
+      `;
+      toastRoot.appendChild(el);
+      const close = () => {
+        el.style.transition = 'opacity .3s, transform .3s';
+        el.style.opacity = '0';
+        el.style.transform = 'translateX(20px)';
+        setTimeout(() => el.remove(), 320);
+      };
+      el.querySelector('button').addEventListener('click', close);
+      setTimeout(close, ttl);
+    }
+
+    $$('[data-toast]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const t = btn.dataset.toast;
+        const map = {
+          success: '操作成功,資料已儲存',
+          info:    '這是一條提示訊息',
+          warn:    '請注意即將到期',
+          error:   '操作失敗,請稍後再試',
+        };
+        pushToast(t, map[t] || '');
+      });
+    });
+    const heroToast = $('#toastBtnHero');
+    if (heroToast) heroToast.addEventListener('click', () => pushToast('info', '👋 從 Hero 點過來的 Toast!'));
+
+    // expose for testing in console
+    window.__pushToast = pushToast;
+
+    // ============== 5. Toggle Switches ==============
+    $$('[data-switch]').forEach((sw, idx) => {
+      sw.addEventListener('click', () => {
+        const on = sw.getAttribute('aria-checked') === 'true';
+        const next = !on;
+        sw.setAttribute('aria-checked', String(next));
+        sw.classList.toggle('bg-violet-500', next);
+        sw.classList.toggle('bg-white/20', !next);
+        const thumb = sw.firstElementChild;
+        if (thumb) thumb.style.transform = next ? 'translateX(20px)' : 'translateX(0)';
+
+        // dark mode link (the second toggle is dark switch)
+        if (sw.id === 'darkSwitch') {
+          applyTheme(next ? 'dark' : 'light');
+        }
+      });
+    });
+
+    // ============== Theme Toggle ==============
+    const themeToggle = $('#themeToggle');
+    const themeIcon   = $('#themeIcon');
+    const themeLabel  = $('#themeLabel');
+
+    function applyTheme(theme) {
+      document.body.dataset.theme = theme;
+      document.documentElement.classList.toggle('dark', theme === 'dark');
+      const isDark = theme === 'dark';
+      themeIcon.textContent  = isDark ? '🌙' : '☀️';
+      themeLabel.textContent = isDark ? 'Dark' : 'Light';
+      // sync dark switch
+      const ds = $('#darkSwitch');
+      if (ds) {
+        ds.setAttribute('aria-checked', String(isDark));
+        ds.classList.toggle('bg-violet-500', isDark);
+        ds.classList.toggle('bg-white/20', !isDark);
+        const t = ds.firstElementChild;
+        if (t) t.style.transform = isDark ? 'translateX(20px)' : 'translateX(0)';
+      }
+      try { localStorage.setItem('theme', theme); } catch (_) {}
+    }
+    themeToggle.addEventListener('click', () => {
+      const cur = document.body.dataset.theme === 'dark' ? 'light' : 'dark';
+      applyTheme(cur);
+    });
+
+    // init theme
+    let saved = null;
+    try { saved = localStorage.getItem('theme'); } catch (_) {}
+    if (saved === 'light' || saved === 'dark') applyTheme(saved);
+    else applyTheme('dark');
+
+    // ============== Mobile menu ==============
+    const mobileBtn = $('#mobileMenuBtn');
+    const mobileMenu = $('#mobileMenu');
+    if (mobileBtn && mobileMenu) {
+      mobileBtn.addEventListener('click', () => {
+        const open = !mobileMenu.classList.contains('hidden');
+        if (open) {
+          mobileMenu.classList.add('hidden');
+          mobileBtn.setAttribute('aria-expanded', 'false');
+        } else {
+          mobileMenu.classList.remove('hidden');
+          mobileBtn.setAttribute('aria-expanded', 'true');
+        }
+      });
+      // close on link click
+      $$('#mobileMenu a').forEach(a => a.addEventListener('click', () => {
+        mobileMenu.classList.add('hidden');
+        mobileBtn.setAttribute('aria-expanded', 'false');
+      }));
+    }
+
+    // ============== Welcome toast on first load ==============
+    setTimeout(() => pushToast('info', '✨ 歡迎來到玻璃擬態元件 showcase!', 4000), 600);
+  })();
+  </script>
+</body>
+</html>

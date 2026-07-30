@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hermes 語音文件處理中心 · Voice Document Pipeline</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root {
+    --glass-bg: rgba(255, 255, 255, 0.06);
+    --glass-bg-strong: rgba(255, 255, 255, 0.12);
+    --glass-border: rgba(255, 255, 255, 0.18);
+    --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+    --accent: #7dd3fc;
+    --accent-2: #c084fc;
+    --text-primary: #f1f5f9;
+    --text-muted: #94a3b8;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: 'Inter', 'Noto Sans TC', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: var(--text-primary);
+    background:
+      radial-gradient(ellipse at 0% 0%, rgba(125, 211, 252, 0.18) 0%, transparent 50%),
+      radial-gradient(ellipse at 100% 0%, rgba(192, 132, 252, 0.18) 0%, transparent 50%),
+      radial-gradient(ellipse at 50% 100%, rgba(74, 222, 128, 0.12) 0%, transparent 50%),
+      linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+  .glass {
+    background: var(--glass-bg);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    border-radius: 18px;
+  }
+  .glass-strong {
+    background: var(--glass-bg-strong);
+    backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 18px;
+  }
+  .gradient-text {
+    background: linear-gradient(135deg, #7dd3fc 0%, #c084fc 60%, #f472b6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, #7dd3fc 0%, #c084fc 100%);
+    color: #0f172a;
+    font-weight: 600;
+    padding: 0.75rem 1.5rem;
+    border-radius: 12px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 14px rgba(125, 211, 252, 0.35);
+  }
+  .btn-primary:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(125, 211, 252, 0.5);
+  }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-ghost {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+    border: 1px solid var(--glass-border);
+    padding: 0.5rem 1rem;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .btn-ghost:hover { background: rgba(255, 255, 255, 0.14); }
+
+  /* Recording animation */
+  .recording-dot {
+    display: inline-block;
+    width: 12px; height: 12px;
+    background: #ef4444;
+    border-radius: 50%;
+    animation: pulse 1.2s ease-in-out infinite;
+    margin-right: 8px;
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.4); opacity: 0.6; }
+  }
+
+  /* Waveform visualizer */
+  #waveform {
+    display: flex; align-items: center; justify-content: center;
+    height: 80px;
+    gap: 3px;
+  }
+  .wave-bar {
+    width: 4px;
+    background: linear-gradient(180deg, #7dd3fc, #c084fc);
+    border-radius: 2px;
+    transition: height 0.1s ease;
+  }
+
+  /* Tab pills */
+  .tab-pill {
+    padding: 0.5rem 1.2rem;
+    border-radius: 999px;
+    cursor: pointer;
+    color: var(--text-muted);
+    transition: all 0.2s ease;
+    border: 1px solid transparent;
+  }
+  .tab-pill.active {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.1);
+    border-color: var(--glass-border);
+  }
+  .tab-pill:hover:not(.active) { color: var(--text-primary); }
+
+  /* Spinner */
+  .spinner {
+    width: 20px; height: 20px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    display: inline-block;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Code block */
+  pre {
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 1rem;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 24px; right: 24px;
+    padding: 0.75rem 1.25rem;
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.9);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(10px);
+    z-index: 100;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: all 0.3s ease;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.error { border-color: rgba(239, 68, 68, 0.6); }
+  .toast.success { border-color: rgba(74, 222, 128, 0.6); }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .main-grid { grid-template-columns: 1fr !important; }
+    h1 { font-size: 1.8rem !important; }
+  }
+
+  /* Accessibility: focus rings */
+  button:focus-visible, textarea:focus-visible, select:focus-visible, input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  textarea {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--glass-border);
+    color: var(--text-primary);
+    border-radius: 10px;
+    padding: 0.75rem;
+    width: 100%;
+    resize: vertical;
+    font-family: inherit;
+    font-size: 0.95rem;
+  }
+  textarea:focus { background: rgba(0, 0, 0, 0.4); }
+  select, input[type="text"] {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--glass-border);
+    color: var(--text-primary);
+    border-radius: 10px;
+    padding: 0.5rem 0.75rem;
+    font-family: inherit;
+  }
+  select option { background: #0f172a; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); }
+  ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.25); }
+</style>
+</head>
+<body>
+<div class="max-w-6xl mx-auto px-4 py-8">
+
+  <!-- Header -->
+  <header class="text-center mb-10">
+    <h1 class="text-4xl md:text-5xl font-bold gradient-text mb-3">
+      ⚕ Hermes 語音文件處理中心
+    </h1>
+    <p class="text-slate-400 text-base md:text-lg">
+      Voice-to-Document Pipeline · Whisper API × Desktop Automation
+    </p>
+    <div id="status-pill" class="inline-flex items-center gap-2 mt-4 px-4 py-2 glass text-sm text-slate-300">
+      <span class="w-2 h-2 rounded-full bg-yellow-400"></span>
+      <span>檢查中...</span>
+    </div>
+  </header>
+
+  <!-- Main Grid -->
+  <main class="grid main-grid gap-6" style="grid-template-columns: 1fr 1fr;">
+
+    <!-- LEFT: Input Panel -->
+    <section class="glass p-6 space-y-5">
+      <h2 class="text-xl font-semibold text-slate-100 flex items-center gap-2">
+        <span>🎙️</span> 語音輸入
+      </h2>
+
+      <!-- Tabs -->
+      <div class="flex gap-2 flex-wrap">
+        <div class="tab-pill active" data-tab="record" onclick="switchTab('record')">即時錄音</div>
+        <div class="tab-pill" data-tab="upload" onclick="switchTab('upload')">上傳檔案</div>
+        <div class="tab-pill" data-tab="text" onclick="switchTab('text')">直接貼文字</div>
+      </div>
+
+      <!-- Tab: Record -->
+      <div data-tab-content="record" class="space-y-3">
+        <div class="glass-strong p-4 text-center">
+          <div id="waveform" class="mb-3">
+            <!-- 32 個 wave-bar 預留 -->
+          </div>
+          <div id="record-status" class="text-sm text-slate-400 mb-3">點擊下方按鈕開始錄音</div>
+          <button id="btn-record" class="btn-primary w-full" onclick="toggleRecording()">
+            🎤 開始錄音
+          </button>
+        </div>
+        <p class="text-xs text-slate-500 leading-relaxed">
+          提示：本機瀏覽器使用 <code>MediaRecorder</code> API 錄製 WebM/Opus 音訊，
+          停止後自動送出至後端 Whisper pipeline。可支援中文、英文等 16+ 種語言。
+        </p>
+      </div>
+
+      <!-- Tab: Upload -->
+      <div data-tab-content="upload" class="space-y-3" style="display:none;">
+        <label class="block">
+          <div class="glass-strong p-6 text-center cursor-pointer hover:bg-white/10 transition"
+               onclick="document.getElementById('audio-file').click()">
+            <div class="text-4xl mb-2">📁</div>
+            <div class="text-sm text-slate-300" id="file-name">點擊或拖曳音訊檔至此</div>
+            <div class="text-xs text-slate-500 mt-1">支援 .wav .mp3 .m4a .webm .ogg .flac (≤25 MB)</div>
+          </div>
+          <input id="audio-file" type="file" accept="audio/*" class="hidden" onchange="onFileSelected(this)">
+        </label>
+      </div>
+
+      <!-- Tab: Text -->
+      <div data-tab-content="text" class="space-y-3" style="display:none;">
+        <textarea id="text-input" rows="8"
+          placeholder="直接貼上文字，將自動解析為結構化文件。
+
+範例：
+標題: 週會記錄
+總結: 今日討論 Q3 產品路線圖
+重點:
+- 上線新功能 v2.3
+- 招募前端工程師
+待辦:
+- 週三前完成 PRD"></textarea>
+        <button class="btn-primary w-full" onclick="submitText()">
+          ⚡ 解析文字
+        </button>
+      </div>
+
+      <!-- Settings -->
+      <div class="glass-strong p-4 space-y-3">
+        <h3 class="text-sm font-semibold text-slate-300">⚙️ 處理設定</h3>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-xs text-slate-400 block mb-1">語言</label>
+            <select id="sel-language" class="w-full">
+              <option value="zh">中文 (zh)</option>
+              <option value="en">English (en)</option>
+              <option value="ja">日本語 (ja)</option>
+              <option value="ko">한국어 (ko)</option>
+              <option value="es">Español</option>
+              <option value="fr">Français</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs text-slate-400 block mb-1">貼到應用程式</label>
+            <select id="sel-paste" class="w-full">
+              <option value="">不貼 (只輸出檔案)</option>
+              <option value="gedit">gedit</option>
+              <option value="kate">kate</option>
+              <option value="code">VS Code</option>
+              <option value="subl">Sublime</option>
+            </select>
+          </div>
+        </div>
+        <label class="flex items-center gap-2 text-xs text-slate-400">
+          <input type="checkbox" id="chk-dryrun" checked>
+          <span>桌面自動化 dry-run (不實際開 app，只記錄意圖)</span>
+        </label>
+      </div>
+
+      <!-- Action button -->
+      <button id="btn-submit" class="btn-primary w-full" disabled onclick="submitAudio()">
+        🚀 送出至 Pipeline
+      </button>
+    </section>
+
+    <!-- RIGHT: Output Panel -->
+    <section class="glass p-6 space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-xl font-semibold text-slate-100 flex items-center gap-2">
+          <span>📄</span> 處理結果
+        </h2>
+        <button class="btn-ghost text-xs" onclick="loadOutputs()">🔄 重新整理</button>
+      </div>
+
+      <!-- Status indicator -->
+      <div id="processing" class="glass-strong p-4 text-center text-sm text-slate-300" style="display:none;">
+        <span class="spinner"></span>
+        <span id="processing-msg" class="ml-2">處理中...</span>
+      </div>
+
+      <!-- Intent card -->
+      <div id="intent-card" class="glass-strong p-4 space-y-2" style="display:none;">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-slate-300">📌 解析意圖</h3>
+          <span id="intent-language" class="text-xs px-2 py-0.5 rounded-full bg-blue-500/30 text-blue-300"></span>
+        </div>
+        <div class="text-lg font-bold gradient-text" id="intent-title">—</div>
+        <div class="text-sm text-slate-300" id="intent-summary"></div>
+        <div id="intent-bullets" class="text-sm"></div>
+        <div id="intent-actions" class="text-sm"></div>
+        <div id="intent-keywords" class="flex flex-wrap gap-1.5 text-xs"></div>
+      </div>
+
+      <!-- Markdown preview -->
+      <div id="markdown-card" class="glass-strong p-4 space-y-2" style="display:none;">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-slate-300">📝 Markdown 文件</h3>
+          <button class="btn-ghost text-xs" onclick="downloadMarkdown()">⬇ 下載</button>
+        </div>
+        <pre id="markdown-content"></pre>
+      </div>
+
+      <!-- JSON raw -->
+      <details class="glass-strong p-4">
+        <summary class="cursor-pointer text-sm font-semibold text-slate-300">🔍 原始 JSON (debug)</summary>
+        <pre id="json-raw" class="mt-3 text-xs"></pre>
+      </details>
+
+      <!-- Output list -->
+      <div>
+        <h3 class="text-sm font-semibold text-slate-300 mb-2">📦 已產生檔案</h3>
+        <div id="output-list" class="space-y-1.5 text-xs text-slate-400">
+          <div class="text-slate-500">尚未載入...</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="text-center text-xs text-slate-500 mt-12 space-y-1">
+    <p>Built with Hermes Agent · Whisper API × Desktop Automation × Glassmorphism</p>
+    <p>架構師指示：Tailwind + Framer Motion 微動畫 + Glassmorphism + Responsive + Accessibility</p>
+  </footer>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="toast"></div>
+
+<script>
+/* ──────────────────────────────────────────────────────────────
+   State
+   ────────────────────────────────────────────────────────────── */
+const state = {
+  audioBlob: null,
+  audioFilename: 'recording.webm',
+  recording: false,
+  mediaRecorder: null,
+  audioContext: null,
+  analyser: null,
+  animationId: null,
+  lastResult: null,
+};
+
+/* ──────────────────────────────────────────────────────────────
+   API helpers
+   ────────────────────────────────────────────────────────────── */
+const API = '/api';
+
+async function apiStatus() {
+  try {
+    const r = await fetch(API + '/status');
+    return await r.json();
+  } catch (e) {
+    console.error('status failed', e);
+    return null;
+  }
+}
+
+async function apiProcess(payload) {
+  const r = await fetch(API + '/process', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.detail || data.error || 'API error');
+  return data;
+}
+
+async function apiIntent(text, language) {
+  const r = await fetch(API + '/intent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, language }),
+  });
+  return await r.json();
+}
+
+async function apiOutputs() {
+  try {
+    const r = await fetch(API + '/outputs');
+    return await r.json();
+  } catch { return { files: [] }; }
+}
+
+/* ──────────────────────────────────────────────────────────────
+   UI helpers
+   ────────────────────────────────────────────────────────────── */
+function toast(msg, type = '') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + type;
+  setTimeout(() => { el.className = 'toast ' + type; }, 2800);
+}
+
+function switchTab(name) {
+  document.querySelectorAll('[data-tab]').forEach(el => {
+    el.classList.toggle('active', el.dataset.tab === name);
+  });
+  document.querySelectorAll('[data-tab-content]').forEach(el => {
+    el.style.display = el.dataset.tabContent === name ? '' : 'none';
+  });
+  updateSubmitButton();
+}
+
+function updateSubmitButton() {
+  const btn = document.getElementById('btn-submit');
+  const tab = document.querySelector('.tab-pill.active')?.dataset.tab;
+  btn.disabled = (tab === 'record' && !state.audioBlob) || (tab === 'upload' && !state.audioBlob);
+}
+
+function setProcessing(on, msg = '處理中...') {
+  document.getElementById('processing').style.display = on ? 'block' : 'none';
+  document.getElementById('processing-msg').textContent = msg;
+}
+
+/* Build waveform bars once */
+(function initWaveform() {
+  const wf = document.getElementById('waveform');
+  for (let i = 0; i < 32; i++) {
+    const bar = document.createElement('div');
+    bar.className = 'wave-bar';
+    bar.style.height = '4px';
+    wf.appendChild(bar);
+  }
+})();
+
+/* ──────────────────────────────────────────────────────────────
+   Recording
+   ────────────────────────────────────────────────────────────── */
+async function toggleRecording() {
+  if (state.recording) {
+    stopRecording();
+  } else {
+    await startRecording();
+  }
+}
+
+async function startRecording() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    state.mediaRecorder = new MediaRecorder(stream);
+    const chunks = [];
+    state.mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+    state.mediaRecorder.onstop = () => {
+      const blob = new Blob(chunks, { type: 'audio/webm' });
+      state.audioBlob = blob;
+      state.audioFilename = `recording_${Date.now()}.webm`;
+      document.getElementById('record-status').innerHTML =
+        `✅ 錄音完成 (${(blob.size/1024).toFixed(1)} KB) — 可送出`;
+      document.getElementById('btn-record').textContent = '🔄 重新錄音';
+      stream.getTracks().forEach(t => t.stop());
+      updateSubmitButton();
+    };
+    state.mediaRecorder.start();
+    state.recording = true;
+
+    // waveform
+    state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const source = state.audioContext.createMediaStreamSource(stream);
+    state.analyser = state.audioContext.createAnalyser();
+    state.analyser.fftSize = 64;
+    source.connect(state.analyser);
+    drawWaveform();
+
+    document.getElementById('record-status').innerHTML =
+      '<span class="recording-dot"></span>錄音中...';
+    document.getElementById('btn-record').textContent = '⏹ 停止錄音';
+    updateSubmitButton();
+  } catch (e) {
+    toast('麥克風存取失敗: ' + e.message, 'error');
+  }
+}
+
+function stopRecording() {
+  if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') {
+    state.mediaRecorder.stop();
+  }
+  state.recording = false;
+  if (state.animationId) cancelAnimationFrame(state.animationId);
+  document.querySelectorAll('.wave-bar').forEach(b => b.style.height = '4px');
+}
+
+function drawWaveform() {
+  const bars = document.querySelectorAll('.wave-bar');
+  const data = new Uint8Array(state.analyser.frequencyBinCount);
+  function tick() {
+    state.analyser.getByteFrequencyData(data);
+    bars.forEach((bar, i) => {
+      const v = data[i] || 0;
+      bar.style.height = (4 + (v / 255) * 70) + 'px';
+    });
+    state.animationId = requestAnimationFrame(tick);
+  }
+  tick();
+}
+
+/* ──────────────────────────────────────────────────────────────
+   File upload
+   ────────────────────────────────────────────────────────────── */
+function onFileSelected(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (file.size > 25 * 1024 * 1024) {
+    toast('檔案過大 (上限 25 MB)', 'error');
+    return;
+  }
+  state.audioBlob = file;
+  state.audioFilename = file.name;
+  document.getElementById('file-name').textContent = `✅ ${file.name} (${(file.size/1024).toFixed(1)} KB)`;
+  updateSubmitButton();
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Submit handlers
+   ────────────────────────────────────────────────────────────── */
+async function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result.split(',')[1]);
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
+
+async function submitAudio() {
+  if (!state.audioBlob) { toast('請先錄音或選擇檔案', 'error'); return; }
+  setProcessing(true, 'Whisper 轉錄中 (約 5-15 秒)...');
+  try {
+    const b64 = await blobToBase64(state.audioBlob);
+    const payload = {
+      audio_base64: b64,
+      audio_suffix: '.' + (state.audioFilename.split('.').pop() || 'webm'),
+      language: document.getElementById('sel-language').value,
+      paste_to: document.getElementById('sel-paste').value || null,
+      dry_run_automation: document.getElementById('chk-dryrun').checked,
+    };
+    const result = await apiProcess(payload);
+    state.lastResult = result;
+    renderResult(result);
+    toast('✅ Pipeline 處理完成', 'success');
+  } catch (e) {
+    toast('處理失敗: ' + e.message, 'error');
+    console.error(e);
+  } finally {
+    setProcessing(false);
+    loadOutputs();
+  }
+}
+
+async function submitText() {
+  const text = document.getElementById('text-input').value.trim();
+  if (!text) { toast('請輸入文字', 'error'); return; }
+  setProcessing(true, '解析意圖...');
+  try {
+    const language = document.getElementById('sel-language').value;
+    const result = await apiIntent(text, language);
+    state.lastResult = { intent: result.intent, success: true };
+    renderResult({ intent: result.intent, success: true });
+    if (result.markdown_preview) {
+      document.getElementById('markdown-content').textContent = result.markdown_preview;
+      document.getElementById('markdown-card').style.display = 'block';
+    }
+    toast('✅ 解析完成', 'success');
+  } catch (e) {
+    toast('解析失敗: ' + e.message, 'error');
+  } finally {
+    setProcessing(false);
+  }
+}
+
+function renderResult(result) {
+  if (!result || !result.intent) return;
+  const intent = result.intent;
+  document.getElementById('intent-card').style.display = 'block';
+  document.getElementById('intent-language').textContent = intent.language || 'zh';
+  document.getElementById('intent-title').textContent = intent.title || '(無標題)';
+  document.getElementById('intent-summary').textContent = intent.summary || '';
+
+  // Bullets
+  const bEl = document.getElementById('intent-bullets');
+  if (intent.bullets && intent.bullets.length) {
+    bEl.innerHTML = '<div class="text-xs text-slate-500 mt-2 mb-1">重點</div>' +
+      '<ul class="space-y-1">' + intent.bullets.map(b =>
+        `<li class="flex gap-2"><span class="text-cyan-400">▸</span><span>${escapeHtml(b)}</span></li>`
+      ).join('') + '</ul>';
+  } else { bEl.innerHTML = ''; }
+
+  // Actions
+  const aEl = document.getElementById('intent-actions');
+  if (intent.action_items && intent.action_items.length) {
+    aEl.innerHTML = '<div class="text-xs text-slate-500 mt-2 mb-1">待辦</div>' +
+      '<ul class="space-y-1">' + intent.action_items.map(a =>
+        `<li class="flex gap-2"><span class="text-fuchsia-400">☐</span><span>${escapeHtml(a)}</span></li>`
+      ).join('') + '</ul>';
+  } else { aEl.innerHTML = ''; }
+
+  // Keywords
+  const kEl = document.getElementById('intent-keywords');
+  if (intent.keywords && intent.keywords.length) {
+    kEl.innerHTML = intent.keywords.map(k =>
+      `<span class="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300">${escapeHtml(k)}</span>`
+    ).join('');
+  } else { kEl.innerHTML = ''; }
+
+  // JSON raw
+  document.getElementById('json-raw').textContent = JSON.stringify(result, null, 2);
+
+  // Markdown
+  if (result.markdown_path) {
+    fetch(API + '/outputs/' + result.markdown_path.split('/').pop())
+      .then(r => r.text())
+      .then(md => {
+        document.getElementById('markdown-content').textContent = md;
+        document.getElementById('markdown-card').style.display = 'block';
+      });
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[c]);
+}
+
+async function loadOutputs() {
+  const data = await apiOutputs();
+  const list = document.getElementById('output-list');
+  if (!data.files || data.files.length === 0) {
+    list.innerHTML = '<div class="text-slate-500">尚無輸出檔案</div>';
+    return;
+  }
+  list.innerHTML = data.files.map(f =>
+    `<div class="glass-strong px-3 py-1.5 flex justify-between items-center">
+      <span>${escapeHtml(f.name)}</span>
+      <span class="text-slate-500">${(f.size/1024).toFixed(1)} KB</span>
+    </div>`
+  ).join('');
+}
+
+async function downloadMarkdown() {
+  if (!state.lastResult || !state.lastResult.markdown_path) {
+    toast('沒有可下載的 Markdown', 'error'); return;
+  }
+  const name = state.lastResult.markdown_path.split('/').pop();
+  const r = await fetch(API + '/outputs/' + name);
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Status bootstrap
+   ────────────────────────────────────────────────────────────── */
+(async function init() {
+  const status = await apiStatus();
+  const pill = document.getElementById('status-pill');
+  if (status) {
+    const backend = status.automation_backend.backend;
+    const provider = status.whisper.provider;
+    pill.innerHTML = `
+      <span class="w-2 h-2 rounded-full bg-green-400"></span>
+      <span>✓ Server ${status.server} v${status.version} · Whisper: ${provider} · Automation: ${backend}</span>
+    `;
+  } else {
+    pill.innerHTML = `
+      <span class="w-2 h-2 rounded-full bg-red-400"></span>
+      <span>✗ 無法連線到 API server</span>
+    `;
+  }
+  loadOutputs();
+})();
+</script>
+</body>
+</html>

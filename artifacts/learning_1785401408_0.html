@@ -1,0 +1,714 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Playwright × Tailwind 設計模式提取器 — 控制台</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        fontFamily: { mono: ['JetBrains Mono', 'SFMono-Regular', 'Menlo', 'monospace'] },
+        colors: {
+          ink:    { 50:'#f4f5fb', 100:'#e8eaf5', 200:'#cdd2ea', 300:'#a0aad4', 400:'#6c79b8', 500:'#475392', 600:'#364176', 700:'#2c3461', 800:'#1d224a', 900:'#0f1230' },
+          accent: { 400:'#7c8cff', 500:'#5d6bff', 600:'#4853e0' },
+          mint:   { 400:'#5eead4', 500:'#34d399' },
+          amber:  { 400:'#fbbf24', 500:'#f59e0b' },
+          rose:   { 400:'#fb7185', 500:'#f43f5e' },
+        }
+      }
+    }
+  }
+</script>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    background:
+      radial-gradient(1200px 600px at 20% 0%, rgba(93,107,255,.20), transparent 70%),
+      radial-gradient(900px 500px at 90% 30%, rgba(94,234,212,.12), transparent 70%),
+      linear-gradient(135deg, #0b1020 0%, #0a0d1c 60%, #060a18 100%);
+    color: #e6ebff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .glass {
+    background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.025));
+    border: 1px solid rgba(255,255,255,.10);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    box-shadow: 0 12px 40px -10px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.06);
+  }
+  .glass-strong {
+    background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.04));
+    border: 1px solid rgba(255,255,255,.14);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+  }
+  .grid-bg {
+    background-image:
+      linear-gradient(rgba(255,255,255,.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.03) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+  .pulse-dot { width:8px; height:8px; border-radius:50%; background: #34d399; box-shadow: 0 0 0 0 rgba(52,211,153,.7); animation: pulse 1.8s infinite; }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(52,211,153,.7); }
+    70%  { box-shadow: 0 0 0 8px rgba(52,211,153,0); }
+    100% { box-shadow: 0 0 0 0 rgba(52,211,153,0); }
+  }
+  .scrollbar::-webkit-scrollbar       { width: 8px; height: 8px; }
+  .scrollbar::-webkit-scrollbar-track { background: rgba(255,255,255,.03); }
+  .scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 4px; }
+  .scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.28); }
+  .num { font-variant-numeric: tabular-nums; }
+  .tone-mint   { color: #5eead4; }
+  .tone-violet { color: #a5b4fc; }
+  .tone-amber  { color: #fbbf24; }
+  .tone-rose   { color: #fb7185; }
+  .grad-text {
+    background: linear-gradient(90deg, #7c8cff, #5eead4);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  details > summary { list-style: none; cursor: pointer; }
+  details > summary::-webkit-details-marker { display: none; }
+  details[open] .chev { transform: rotate(90deg); }
+  .chev { transition: transform .15s ease; }
+  code, pre, .mono { font-family: 'JetBrains Mono', SFMono-Regular, Menlo, monospace; }
+  .bar { background: linear-gradient(90deg, #5d6bff, #5eead4); height: 8px; border-radius: 4px; }
+  .bar-wrap { background: rgba(255,255,255,.07); border-radius: 4px; overflow: hidden; }
+  .tab-active { background: rgba(255,255,255,.10); color: #fff; border-color: rgba(255,255,255,.20) !important; }
+  .tw-pill { background: rgba(124,140,255,.12); border: 1px solid rgba(124,140,255,.30); color: #c7d2fe; }
+  .copy-ok { color: #5eead4; }
+  .copy-err { color: #fb7185; }
+
+  /* Spark bars */
+  .spark { display:flex; gap:3px; align-items:flex-end; height:34px; }
+  .spark span { flex:1; background: linear-gradient(180deg,#7c8cff,#5d6bff); border-radius:3px 3px 0 0; min-height:1px; opacity:.9; }
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-[1440px] mx-auto px-6 lg:px-10 py-8">
+
+  <!-- ============ HEADER ============ -->
+  <header class="flex items-center justify-between mb-8">
+    <div class="flex items-center gap-3">
+      <div class="w-11 h-11 rounded-xl glass-strong flex items-center justify-center text-2xl">🛰️</div>
+      <div>
+        <h1 class="text-xl font-semibold tracking-tight">Playwright × Tailwind <span class="grad-text">設計模式提取器</span></h1>
+        <p class="text-xs text-ink-300 mt-0.5">爬取現代網站、解析 Tailwind utility、分析 design token、自動彙整 UI pattern library</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-3 text-xs">
+      <span class="flex items-center gap-2"><span class="pulse-dot"></span><span class="tone-mint">crawler online</span></span>
+      <span class="text-ink-300 hidden md:inline">playwright 1.59 · python 3.12 · chromium headless</span>
+    </div>
+  </header>
+
+  <!-- ============ STATS HERO ============ -->
+  <section class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+    <div class="glass rounded-2xl p-5">
+      <div class="text-[10px] tracking-widest uppercase text-ink-300">已爬取網站</div>
+      <div class="num text-3xl font-semibold mt-2 tone-violet" id="stat-sites">—</div>
+      <div class="text-[11px] text-ink-300 mt-1">tailwindcss · vercel · stripe</div>
+    </div>
+    <div class="glass rounded-2xl p-5">
+      <div class="text-[10px] tracking-widest uppercase text-ink-300">總 class token</div>
+      <div class="num text-3xl font-semibold mt-2 tone-mint" id="stat-tokens">—</div>
+      <div class="text-[11px] text-ink-300 mt-1" id="stat-tokens-sub">— 個去重後 utility</div>
+    </div>
+    <div class="glass rounded-2xl p-5">
+      <div class="text-[10px] tracking-widest uppercase text-ink-300">Glassmorphism 偵測</div>
+      <div class="num text-3xl font-semibold mt-2" style="color:#a78bfa" id="stat-glass">—</div>
+      <div class="text-[11px] text-ink-300 mt-1">bg-{color}/{opacity} + backdrop-blur</div>
+    </div>
+    <div class="glass rounded-2xl p-5">
+      <div class="text-[10px] tracking-widest uppercase text-ink-300">平均回應時間</div>
+      <div class="num text-3xl font-semibold mt-2 tone-amber" id="stat-latency">—</div>
+      <div class="text-[11px] text-ink-300 mt-1">page.goto domcontentloaded + load</div>
+    </div>
+  </section>
+
+  <!-- ============ ARCHITECTURE STRIP ============ -->
+  <section class="glass rounded-2xl p-6 mb-8">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-sm font-semibold tracking-wide text-ink-100">⚙️ 系統架構</h2>
+      <span class="text-[11px] text-ink-300">5 階段 pipeline · concurrency=3 · 節流 0.4s</span>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
+      <div class="rounded-xl p-4 glass-strong">
+        <div class="text-2xl mb-1">🌐</div>
+        <div class="text-sm font-medium">1 · URL Queue</div>
+        <div class="text-[11px] text-ink-300 mt-1">批次讀取 URLs、UA 標籤、節流設定</div>
+      </div>
+      <div class="rounded-xl p-4 glass-strong">
+        <div class="text-2xl mb-1">🛰️</div>
+        <div class="text-sm font-medium">2 · Playwright Render</div>
+        <div class="text-[11px] text-ink-300 mt-1">chromium headless · 1440×900 · scroll 觸發 lazy load</div>
+      </div>
+      <div class="rounded-xl p-4 glass-strong">
+        <div class="text-2xl mb-1">📦</div>
+        <div class="text-sm font-medium">3 · DOM Extract</div>
+        <div class="text-[11px] text-ink-300 mt-1">抽取 class=、computed style、root CSS vars</div>
+      </div>
+      <div class="rounded-xl p-4 glass-strong">
+        <div class="text-2xl mb-1">🔬</div>
+        <div class="text-sm font-medium">4 · Tailwind Parse</div>
+        <div class="text-[11px] text-ink-300 mt-1">regex classifier、group、responsive/state prefix</div>
+      </div>
+      <div class="rounded-xl p-4 glass-strong">
+        <div class="text-2xl mb-1">📊</div>
+        <div class="text-sm font-medium">5 · Pattern Library</div>
+        <div class="text-[11px] text-ink-300 mt-1">JSON 輸出 + 控制台可視化</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TABS ============ -->
+  <section class="mb-6 flex flex-wrap gap-2 text-xs" id="tabs">
+    <button data-tab="overview" class="tab-active px-4 py-2 rounded-lg border border-white/10 hover:bg-white/5">🏠 概覽</button>
+    <button data-tab="palette"  class="px-4 py-2 rounded-lg border border-white/10 hover:bg-white/5">🎨 色票 / 字體</button>
+    <button data-tab="patterns" class="px-4 py-2 rounded-lg border border-white/10 hover:bg-white/5">🧩 Top utility</button>
+    <button data-tab="tokens"   class="px-4 py-2 rounded-lg border border-white/10 hover:bg-white/5">🪄 Design tokens</button>
+    <button data-tab="code"     class="px-4 py-2 rounded-lg border border-white/10 hover:bg-white/5">🧑‍💻 程式碼</button>
+  </section>
+
+  <!-- ============ TAB PANES ============ -->
+  <div id="pane-overview" class="tab-pane space-y-6">
+    <!-- Per-site summary cards -->
+    <section id="sites-grid" class="grid grid-cols-1 lg:grid-cols-3 gap-4"></section>
+
+    <!-- Group counts comparison -->
+    <section class="glass rounded-2xl p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold">Tailwind Class Group 分布對比</h2>
+        <span class="text-[11px] text-ink-300">顏色／排版／間距／動效佔比</span>
+      </div>
+      <div id="group-chart" class="space-y-4"></div>
+    </section>
+
+    <!-- Component heuristic -->
+    <section class="glass rounded-2xl p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold">元件指紋(Component heuristic)</h2>
+        <span class="text-[11px] text-ink-300">btn / card / nav / modal / sidebar</span>
+      </div>
+      <div id="components-grid" class="grid grid-cols-1 md:grid-cols-3 gap-4"></div>
+    </section>
+  </div>
+
+  <!-- ============ PALETTE / TYPOGRAPHY ============ -->
+  <div id="pane-palette" class="tab-pane hidden space-y-6">
+    <section class="glass rounded-2xl p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold">色彩系統(Color palette)</h2>
+        <span class="text-[11px] text-ink-300">點擊複製 tailwind class · Tailwind v3 預設色階</span>
+      </div>
+      <div id="palette-grid" class="grid grid-cols-1 md:grid-cols-3 gap-5"></div>
+    </section>
+
+    <section class="glass rounded-2xl p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold">字體系統(Typography tokens)</h2>
+        <span class="text-[11px] text-ink-300">computed style · body / h1 / h2 / p / a / btn</span>
+      </div>
+      <div id="typography-grid" class="space-y-4"></div>
+    </section>
+  </div>
+
+  <!-- ============ TOP UTILITY ============ -->
+  <div id="pane-patterns" class="tab-pane hidden">
+    <section class="glass rounded-2xl p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold">每站點 Top 20 熱門 utility class</h2>
+        <div class="flex items-center gap-2">
+          <input id="cls-search" type="text" placeholder="搜尋 class（如 bg-、rounded-、backdrop-blur…）"
+            class="bg-white/5 border border-white/10 rounded-md px-3 py-1.5 text-xs placeholder:text-ink-300 focus:outline-none focus:border-accent-400">
+        </div>
+      </div>
+      <div id="pattern-grid" class="grid grid-cols-1 xl:grid-cols-3 gap-4"></div>
+    </section>
+  </div>
+
+  <!-- ============ DESIGN TOKENS ============ -->
+  <div id="pane-tokens" class="tab-pane hidden space-y-6">
+    <section class="glass rounded-2xl p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold">Spacing 間距刻度</h2>
+        <span class="text-[11px] text-ink-300">p-/m-/gap-{n} 發現的所有刻度</span>
+      </div>
+      <div id="spacing-grid" class="grid grid-cols-1 md:grid-cols-3 gap-4"></div>
+    </section>
+
+    <section class="glass rounded-2xl p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold">Shadow / Effect 階層</h2>
+        <span class="text-[11px] text-ink-300">shadow-* · backdrop-blur-* · bg-gradient-*</span>
+      </div>
+      <div id="effect-grid" class="grid grid-cols-1 md:grid-cols-3 gap-4"></div>
+    </section>
+
+    <section class="glass rounded-2xl p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold">Responsive & State 前綴</h2>
+        <span class="text-[11px] text-ink-300">sm / md / lg / xl / 2xl × hover / focus / group-hover</span>
+      </div>
+      <div id="responsive-grid" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+    </section>
+  </div>
+
+  <!-- ============ SOURCE CODE ============ -->
+  <div id="pane-code" class="tab-pane hidden">
+    <section class="glass rounded-2xl p-6">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold">crawler.py — Playwright × Tailwind 解析器</h2>
+        <button id="copy-btn" class="text-[11px] px-3 py-1.5 rounded-md border border-white/15 hover:bg-white/10">📋 複製</button>
+      </div>
+      <pre class="mono text-[11.5px] leading-relaxed bg-black/40 rounded-lg p-4 max-h-[640px] overflow-auto scrollbar" id="code-pre"></pre>
+    </section>
+
+    <section class="glass rounded-2xl p-6 mt-6">
+      <h2 class="text-sm font-semibold mb-3">Sample 結果(JSON)</h2>
+      <p class="text-[11.5px] text-ink-300 mb-3">下面顯示 demo_patterns.json 第 1 個網站的精簡摘要（其餘存檔不在 dashboard 內嵌）：</p>
+      <pre class="mono text-[11px] leading-relaxed bg-black/40 rounded-lg p-4 max-h-[420px] overflow-auto scrollbar" id="sample-json"></pre>
+    </section>
+  </div>
+
+  <footer class="mt-12 pt-6 border-t border-white/10 text-xs text-ink-300 flex flex-wrap items-center justify-between gap-3">
+    <span>Architecture follows <span class="tone-violet">architect_feedback.md</span> §1 Web Crawler + §2 Design Systems</span>
+    <span>爬蟲守則:尊重 robots.txt、節流 0.4s、絕不爬取 auth-walled 或隱私頁面 · <span class="tone-mint">安全 ✓</span></span>
+  </footer>
+</div>
+
+<script id="payload" type="application/json">{"results": [{"url": "https://tailwindcss.com", "title": "Tailwind CSS - Rapidly build modern websites without ever leaving your HTML.", "final_url": "https://tailwindcss.com/", "status": 200, "duration_ms": 7013, "bytes_html": 905286, "tailwind_detected": true, "tailwind_classes_total": 7947, "unique_classes": 835, "class_group_counts": {"color": 1598, "layout": 1125, "spacing": 618, "border": 551, "opacity": 449, "sizing": 360, "typography": 311, "motion": 283, "flexgrid": 199, "responsive": 164, "shadow": 19, "effects": 7, "state": 6}, "top_classes": [{"class": "relative", "count": 287}, {"class": "transition-opacity", "count": 219}, {"class": "inset-ring", "count": 218}, {"class": "group", "count": 209}, {"class": "h-(--height)", "count": 198}, {"class": "w-(--width)", "count": 198}, {"class": "dark:inset-ring-white/10", "count": 193}, {"class": "inset-ring-gray-950/10", "count": 188}, {"class": "bg-(--color)", "count": 187}, {"class": "group-hover:opacity-75", "count": 187}, {"class": "group-data-[tooltip-hover=true]:opacity-100", "count": 187}, {"class": "flex", "count": 150}, {"class": "dark:text-white", "count": 105}, {"class": "text-gray-950", "count": 100}, {"class": "absolute", "count": 89}, {"class": "line", "count": 87}, {"class": "font-mono", "count": 85}, {"class": "items-center", "count": 77}, {"class": "grid", "count": 69}, {"class": "flex-col", "count": 69}], "color_palette": [{"name": "950", "frequency": 126}, {"name": "white", "frequency": 61}, {"name": "600", "frequency": 29}, {"name": "500", "frequency": 26}, {"name": "transparent", "frequency": 10}, {"name": "400", "frequency": 7}, {"name": "black", "frequency": 5}, {"name": "800", "frequency": 5}, {"name": "700", "frequency": 5}, {"name": "300", "frequency": 2}, {"name": "50", "frequency": 1}], "typography": {"h1_font_family": "inter, \"inter Fallback\", system-ui", "h1_font_size": "96px", "h1_font_weight": "400", "h1_color": "lab(1.90334 0.278696 -5.48866)", "body_font_family": "inter, \"inter Fallback\", system-ui", "body_font_size": "16px", "body_color": "rgb(0, 0, 0)", "body_bg": "rgba(0, 0, 0, 0)"}, "spacing_scale": [1, 2, 3, 4, 5, 6, 7, 8, 10, 16, 18, 24, 100, 150], "shadow_classes": [{"class": "shadow", "count": 6}, {"class": "shadow-sm", "count": 4}, {"class": "shadow-lg", "count": 4}, {"class": "shadow-2xl", "count": 3}, {"class": "shadow-xl", "count": 1}, {"class": "shadow-inner", "count": 1}], "glassmorphism_card_count": 9, "gradient_class_count": 0, "backdrop_blur_count": 9, "responsive_breakpoints": {"sm": 199, "lg": 66, "xl": 55, "2xl": 46, "md": 29}, "pseudo_state_counts": {"group-hover": 221, "hover": 93, "focus": 3}, "component_heuristics": {"btn_pill": 67, "card": 14, "badge_pill": 2, "navbar": 4, "sidebar": 4}, "computed_tokens": {"body": {"font-family": "inter, \"inter Fallback\", system-ui", "font-size": "16px", "line-height": "24px", "color": "rgb(0, 0, 0)", "background-color": "rgba(0, 0, 0, 0)", "background-image": "none"}, "h1": {"font-family": "inter, \"inter Fallback\", system-ui", "font-size": "96px", "font-weight": "400", "line-height": "96px", "letter-spacing": "-4.8px", "color": "lab(1.90334 0.278696 -5.48866)"}, "h2": {"font-family": "inter, \"inter Fallback\", system-ui", "font-size": "40px", "font-weight": "500", "color": "lab(1.90334 0.278696 -5.48866)"}, "p": {"font-family": "inter, \"inter Fallback\", system-ui", "font-size": "18px", "line-height": "28px", "color": "lab(35.6337 -1.58697 -10.8425)"}, "a": {"color": "rgb(0, 0, 0)", "text-decoration": "none", "font-weight": "400"}, "btn": {"background-color": "oklab(0.129999 -0.00404751 -0.027702 / 0.05)", "color": "lab(1.90334 0.278696 -5.48866)", "border-radius": "16px", "padding": "2px 6px 2px 10px", "font-weight": "500", "box-shadow": "none"}, "tw_vars": {"--tw-bg-opacity": "", "--tw-text-opacity": "", "--tw-border-opacity": ""}, "root_custom_props": {}}, "error": null}, {"url": "https://vercel.com", "title": "Agentic Infrastructure - Vercel", "final_url": "https://vercel.com/", "status": 200, "duration_ms": 8568, "bytes_html": 594512, "tailwind_detected": true, "tailwind_classes_total": 6252, "unique_classes": 692, "class_group_counts": {"spacing": 771, "color": 748, "layout": 682, "typography": 452, "flexgrid": 401, "sizing": 331, "motion": 324, "border": 239, "shadow": 209, "state": 106, "opacity": 40, "effects": 9}, "top_classes": [{"class": "flex", "count": 259}, {"class": "items-center", "count": 239}, {"class": "text-gray-900", "count": 193}, {"class": "cursor-pointer", "count": 173}, {"class": "focus-visible:outline-2", "count": 151}, {"class": "outline-[var(--ds-focus-color)]", "count": 151}, {"class": "outline-offset-4", "count": 151}, {"class": "transition-colors", "count": 122}, {"class": "text-gray-1000", "count": 107}, {"class": "gap-1.5", "count": 89}, {"class": "py-0.5", "count": 89}, {"class": "w-full", "count": 86}, {"class": "focus-visible:outline-none", "count": 84}, {"class": "no-underline", "count": 83}, {"class": "focus-visible:shadow-[var(--ds-focus-ring)]", "count": 82}, {"class": "w-fit", "count": 82}, {"class": "focus-visible:rounded-sm", "count": 81}, {"class": "leading-5", "count": 80}, {"class": "p-0.5", "count": 80}, {"class": "-ml-0.5", "count": 80}], "color_palette": [{"name": "900", "frequency": 196}, {"name": "14", "frequency": 39}, {"name": "20", "frequency": 32}, {"name": "transparent", "frequency": 24}, {"name": "100", "frequency": 10}, {"name": "16", "frequency": 10}, {"name": "200", "frequency": 9}, {"name": "32", "frequency": 5}, {"name": "24", "frequency": 5}, {"name": "400", "frequency": 4}, {"name": "500", "frequency": 2}, {"name": "48", "frequency": 1}, {"name": "white", "frequency": 1}, {"name": "700", "frequency": 1}, {"name": "600", "frequency": 1}, {"name": "12", "frequency": 1}, {"name": "800", "frequency": 1}], "typography": {"h1_font_family": "GeistSans, \"GeistSans Fallback\"", "h1_font_size": "64px", "h1_font_weight": "400", "h1_color": "rgb(23, 23, 23)", "body_font_family": "GeistSans, \"GeistSans Fallback\"", "body_font_size": "16px", "body_color": "rgb(23, 23, 23)", "body_bg": "rgb(250, 250, 250)"}, "spacing_scale": [0, 1, 2, 3, 4, 5, 6, 8, 10, 11, 12, 20, 40, 53], "shadow_classes": [{"class": "shadow-border", "count": 4}, {"class": "shadow-lg", "count": 1}], "glassmorphism_card_count": 0, "gradient_class_count": 0, "backdrop_blur_count": 0, "responsive_breakpoints": {"md": 1, "lg": 1, "xl": 1}, "pseudo_state_counts": {"group-hover": 64, "hover": 48, "disabled": 44, "focus": 2}, "component_heuristics": {"btn_outline": 4, "btn_pill": 19, "card": 144, "modal": 3, "sidebar": 6}, "computed_tokens": {"body": {"font-family": "GeistSans, \"GeistSans Fallback\"", "font-size": "16px", "line-height": "24px", "color": "rgb(23, 23, 23)", "background-color": "rgb(250, 250, 250)", "background-image": "none"}, "h1": {"font-family": "GeistSans, \"GeistSans Fallback\"", "font-size": "64px", "font-weight": "400", "line-height": "64px", "letter-spacing": "-3.84px", "color": "rgb(23, 23, 23)"}, "h2": {"font-family": "GeistSans, \"GeistSans Fallback\"", "font-size": "56px", "font-weight": "450", "color": "rgb(23, 23, 23)"}, "p": {"font-family": "\"Geist Mono\", ui-monospace, SFMono-Regular, Menlo, Monaco, \"Liberation Mono\", \"DejaVu Sans Mono\", \"Courier New\", monospace, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\"", "font-size": "16px", "line-height": "24px", "color": "rgb(77, 77, 77)"}, "a": {"color": "rgb(0, 114, 245)", "text-decoration": "none", "font-weight": "400"}, "btn": {"background-color": "rgba(0, 0, 0, 0)", "color": "rgb(23, 23, 23)", "border-radius": "4px", "padding": "12px", "font-weight": "400", "box-shadow": "none"}, "tw_vars": {"--tw-bg-opacity": "", "--tw-text-opacity": "", "--tw-border-opacity": ""}, "root_custom_props": {"color-scheme": "light", "--ai-chat-panel-width": "0px", "background-color": "rgb(250, 250, 250)"}}, "error": null}, {"url": "https://stripe.com", "title": "Stripe | Financial Infrastructure to Grow Your Revenue", "final_url": "https://stripe.com/", "status": 200, "duration_ms": 12675, "bytes_html": 782350, "tailwind_detected": true, "tailwind_classes_total": 2666, "unique_classes": 631, "class_group_counts": {"layout": 265, "border": 5, "flexgrid": 3}, "top_classes": [{"class": "hds-link", "count": 130}, {"class": "tabular-nums--tight", "count": 89}, {"class": "footer-links-block__item", "count": 85}, {"class": "hds-text", "count": 84}, {"class": "hds-heading", "count": 80}, {"class": "hds-text--md", "count": 71}, {"class": "hds-icon", "count": 63}, {"class": "hds-icon-hover-arrow", "count": 59}, {"class": "hds-button", "count": 50}, {"class": "hds-text--inline", "count": 46}, {"class": "hds-heading--inline", "count": 45}, {"class": "logo-carousel__item", "count": 36}, {"class": "hds-heading--md", "count": 34}, {"class": "billing-plan-graphic__bar", "count": 31}, {"class": "hds-text--soft", "count": 31}, {"class": "hds-heading--subdued", "count": 26}, {"class": "hds-nbsp", "count": 26}, {"class": "hds-text--emphasized", "count": 25}, {"class": "hds-button--secondary", "count": 23}, {"class": "section-row", "count": 22}], "color_palette": [], "typography": {"h1_font_family": "sohne-var, \"SF Pro Display\", sans-serif", "h1_font_size": "48px", "h1_font_weight": "300", "h1_color": "rgb(129, 184, 26)", "body_font_family": "sohne-var, \"SF Pro Display\", sans-serif", "body_font_size": "16px", "body_color": "rgb(0, 0, 0)", "body_bg": "rgba(0, 0, 0, 0)"}, "spacing_scale": [], "shadow_classes": [], "glassmorphism_card_count": 0, "gradient_class_count": 0, "backdrop_blur_count": 0, "responsive_breakpoints": {}, "pseudo_state_counts": {}, "component_heuristics": {}, "computed_tokens": {"body": {"font-family": "sohne-var, \"SF Pro Display\", sans-serif", "font-size": "16px", "line-height": "normal", "color": "rgb(0, 0, 0)", "background-color": "rgba(0, 0, 0, 0)", "background-image": "none"}, "h1": {"font-family": "sohne-var, \"SF Pro Display\", sans-serif", "font-size": "48px", "font-weight": "300", "line-height": "55.2px", "letter-spacing": "-0.96px", "color": "rgb(129, 184, 26)"}, "h2": {"font-family": "sohne-var, \"SF Pro Display\", sans-serif", "font-size": "32px", "font-weight": "300", "color": "rgb(6, 27, 49)"}, "p": {"font-family": "sohne-var, \"SF Pro Display\", sans-serif", "font-size": "32px", "line-height": "35.2px", "color": "rgb(100, 116, 141)"}, "a": {"color": "rgb(83, 58, 253)", "text-decoration": "none", "font-weight": "400"}, "btn": {"background-color": "rgba(0, 0, 0, 0)", "color": "rgb(6, 27, 49)", "border-radius": "4px", "padding": "12px 0px", "font-weight": "400", "box-shadow": "none"}, "tw_vars": {"--tw-bg-opacity": "", "--tw-text-opacity": "", "--tw-border-opacity": ""}, "root_custom_props": {}}, "error": null}]}</script>
+<script>
+  const raw       = document.getElementById('payload').textContent;
+  const data      = JSON.parse(raw);
+  const results   = data.results;
+  const num       = (n) => Number(n || 0).toLocaleString('en-US');
+
+  // ------------------------------ HEADER STATS ------------------------------
+  document.getElementById('stat-sites').textContent   = results.length;
+  const totalCls = results.reduce((s, r) => s + r.tailwind_classes_total, 0);
+  const uniqCls  = results.reduce((s, r) => s + r.unique_classes, 0);
+  document.getElementById('stat-tokens').textContent  = num(totalCls);
+  document.getElementById('stat-tokens-sub').textContent = num(uniqCls) + ' 個去重後 utility';
+  const totalGlass = results.reduce((s, r) => s + (r.glassmorphism_card_count||0), 0);
+  document.getElementById('stat-glass').textContent   = num(totalGlass);
+  const avgMs = Math.round(results.reduce((s, r) => s + r.duration_ms, 0) / Math.max(1, results.length));
+  document.getElementById('stat-latency').textContent = (avgMs/1000).toFixed(2) + 's';
+
+  // ------------------------------ OVERVIEW: SITE CARDS ------------------------------
+  const sitesGrid = document.getElementById('sites-grid');
+  results.forEach((r) => {
+    const card = document.createElement('div');
+    card.className = 'glass rounded-2xl p-5';
+    const tokens = r.computed_tokens || {};
+    const body_t = tokens.body || {};
+    const h1_t   = tokens.h1 || {};
+    card.innerHTML = `
+      <div class="flex items-center justify-between mb-3 gap-2">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="text-lg shrink-0">${r.tailwind_detected ? '🟢' : '⚪️'}</span>
+          <span class="text-sm font-medium truncate" title="${escapeHtml(r.title || r.url)}">${escapeHtml(r.title || r.url)}</span>
+        </div>
+        <span class="text-[10px] px-2 py-0.5 rounded-full ${r.status === 200 ? 'bg-emerald-400/15 text-emerald-300' : 'bg-rose-400/15 text-rose-300'} num shrink-0">${r.status}</span>
+      </div>
+      <div class="text-[11px] text-ink-300 truncate mb-3" title="${escapeHtml(r.final_url)}">${escapeHtml(r.final_url)}</div>
+      <div class="grid grid-cols-3 gap-2 text-xs">
+        <div class="rounded-lg bg-white/5 p-2.5">
+          <div class="text-[10px] text-ink-300">classes</div>
+          <div class="num font-semibold tone-violet">${num(r.tailwind_classes_total)}</div>
+        </div>
+        <div class="rounded-lg bg-white/5 p-2.5">
+          <div class="text-[10px] text-ink-300">unique</div>
+          <div class="num font-semibold tone-mint">${num(r.unique_classes)}</div>
+        </div>
+        <div class="rounded-lg bg-white/5 p-2.5">
+          <div class="text-[10px] text-ink-300">size</div>
+          <div class="num font-semibold tone-amber">${(r.bytes_html/1024).toFixed(0)} KB</div>
+        </div>
+      </div>
+      <div class="mt-3 text-[11px]">
+        <div class="flex justify-between"><span class="text-ink-300">glass</span><span class="num">${r.glassmorphism_card_count}</span></div>
+        <div class="flex justify-between"><span class="text-ink-300">backdrop-blur</span><span class="num">${r.backdrop_blur_count}</span></div>
+        <div class="flex justify-between"><span class="text-ink-300">gradient</span><span class="num">${r.gradient_class_count}</span></div>
+      </div>
+      <div class="mt-3 pt-3 border-t border-white/10 text-[11px] text-ink-300">
+        <div>body: ${escapeHtml((body_t['font-family']||'').split(',')[0].replace(/['"]/g,'')) || '—'} · ${escapeHtml(body_t['font-size']||'')}</div>
+        <div>h1: ${escapeHtml(h1_t['font-size']||'—')} · ${escapeHtml(h1_t['font-weight']||'')}</div>
+      </div>
+      <div class="mt-3 text-[10px] text-ink-300">⏱ ${(r.duration_ms/1000).toFixed(2)}s</div>
+    `;
+    sitesGrid.appendChild(card);
+  });
+
+  // ------------------------------ OVERVIEW: GROUP CHART ------------------------------
+  // Union of all groups across sites, then plot stacked bars
+  const allGroups = Array.from(new Set(results.flatMap(r => Object.keys(r.class_group_counts || {}))));
+  const groupChart = document.getElementById('group-chart');
+  // Sort by max frequency across sites
+  const groupMax = (g) => Math.max(...results.map(r => (r.class_group_counts || {})[g] || 0));
+  const ordered = allGroups.sort((a,b) => groupMax(b) - groupMax(a));
+
+  const palette = ['#7c8cff','#5eead4','#fbbf24','#fb7185','#a78bfa','#34d399','#60a5fa','#f472b6','#facc15','#22d3ee','#fda4af','#c084fc'];
+  ordered.forEach((g, idx) => {
+    const max = groupMax(g);
+    const row = document.createElement('div');
+    row.innerHTML = `
+      <div class="flex items-center gap-3">
+        <div class="w-24 text-xs text-ink-100 truncate">${g}</div>
+        <div class="flex-1 bar-wrap">
+          ${results.map((r, i) => {
+            const v = (r.class_group_counts || {})[g] || 0;
+            const pct = max ? (v / max * 100).toFixed(1) : 0;
+            return `<div class="inline-block h-full" style="width:${pct}%; background:${palette[i % palette.length]}; opacity:.9; height:22px;" title="${escapeHtml(r.final_url)}: ${v}"></div>`;
+          }).join('')}
+        </div>
+        <div class="w-20 text-right text-[11px] text-ink-300 num">${num(max)}</div>
+      </div>`;
+    groupChart.appendChild(row);
+  });
+  // Add legend below
+  const legend = document.createElement('div');
+  legend.className = 'flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-ink-300 pt-2 border-t border-white/10 mt-3';
+  legend.innerHTML = results.map((r, i) =>
+    `<span class="inline-flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-sm" style="background:${palette[i % palette.length]}"></span>${escapeHtml(new URL(r.final_url).hostname)}</span>`
+  ).join('');
+  groupChart.appendChild(legend);
+
+  // ------------------------------ OVERVIEW: COMPONENTS ------------------------------
+  const compGrid = document.getElementById('components-grid');
+  results.forEach((r) => {
+    const card = document.createElement('div');
+    card.className = 'rounded-xl bg-white/5 border border-white/10 p-4';
+    const entries = Object.entries(r.component_heuristics || {});
+    const spark = entries.length
+      ? entries.map(([k,v]) => v)
+      : [];
+    const max = Math.max(1, ...spark);
+    card.innerHTML = `
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-sm font-medium">${escapeHtml(new URL(r.final_url).hostname)}</div>
+        <div class="text-[10px] text-ink-300">${r.bytes_html ? (r.bytes_html/1024).toFixed(0)+' KB' : ''}</div>
+      </div>
+      ${ entries.length === 0
+          ? `<div class="text-[11px] text-ink-300">沒有偵測到指紋(可能不是純 Tailwind)</div>`
+          : `<div class="space-y-2 text-[12px]">${entries.map(([k,v]) => `
+              <div class="flex items-center gap-3">
+                <div class="w-20 text-ink-300 mono">${k}</div>
+                <div class="flex-1 bar-wrap"><div class="bar" style="width:${(v/max*100).toFixed(1)}%"></div></div>
+                <div class="w-10 text-right num">${v}</div>
+              </div>`).join('')}</div>`
+      }`;
+    compGrid.appendChild(card);
+  });
+
+  // ------------------------------ PALETTE / TYPOGRAPHY ------------------------------
+  // Pre-built Tailwind v3 palette for color preview
+  const TW_COLORS = {
+    white:    { 50:'#ffffff',100:'#f3f4f6',200:'#e5e7eb',300:'#d1d5db',400:'#9ca3af',500:'#6b7280',600:'#4b5563',700:'#374151',800:'#1f2937',900:'#111827',950:'#030712' },
+    black:    { 0:'#000000' },
+    gray:     { 50:'#f9fafb',100:'#f3f4f6',200:'#e5e7eb',300:'#d1d5db',400:'#9ca3af',500:'#6b7280',600:'#4b5563',700:'#374151',800:'#1f2937',900:'#111827',950:'#030712' },
+    slate:    { 50:'#f8fafc',100:'#f1f5f9',200:'#e2e8f0',300:'#cbd5e1',400:'#94a3b8',500:'#64748b',600:'#475569',700:'#334155',800:'#1e293b',900:'#0f172a',950:'#020617' },
+    zinc:     { 50:'#fafafa',100:'#f4f4f5',200:'#e4e4e7',300:'#d4d4d8',400:'#a1a1aa',500:'#71717a',600:'#52525b',700:'#3f3f46',800:'#27272a',900:'#18181b',950:'#09090b' },
+    neutral:  { 50:'#fafafa',100:'#f5f5f5',200:'#e5e5e5',300:'#d4d4d4',400:'#a3a3a3',500:'#737373',600:'#525252',700:'#404040',800:'#262626',900:'#171717',950:'#0a0a0a' },
+    stone:    { 50:'#fafaf9',100:'#f5f5f4',200:'#e7e5e4',300:'#d6d3d1',400:'#a8a29e',500:'#78716c',600:'#57534e',700:'#44403c',800:'#292524',900:'#1c1917',950:'#0c0a09' },
+    red:      { 400:'#f87171',500:'#ef4444',600:'#dc2626' },
+    orange:   { 400:'#fb923c',500:'#f97316',600:'#ea580c' },
+    amber:    { 400:'#fbbf24',500:'#f59e0b',600:'#d97706' },
+    yellow:   { 400:'#facc15',500:'#eab308',600:'#ca8a04' },
+    lime:     { 400:'#a3e635',500:'#84cc16',600:'#65a30d' },
+    green:    { 400:'#4ade80',500:'#22c55e',600:'#16a34a' },
+    emerald:  { 400:'#34d399',500:'#10b981',600:'#059669' },
+    teal:     { 400:'#2dd4bf',500:'#14b8a6',600:'#0d9488' },
+    cyan:     { 400:'#22d3ee',500:'#06b6d4',600:'#0891b2' },
+    sky:      { 400:'#38bdf8',500:'#0ea5e9',600:'#0284c7' },
+    blue:     { 400:'#60a5fa',500:'#3b82f6',600:'#2563eb' },
+    indigo:   { 400:'#818cf8',500:'#6366f1',600:'#4f46e5' },
+    violet:   { 400:'#a78bfa',500:'#8b5cf6',600:'#7c3aed' },
+    purple:   { 400:'#c084fc',500:'#a855f7',600:'#9333ea' },
+    fuchsia:  { 400:'#e879f9',500:'#d946ef',600:'#c026d3' },
+    pink:     { 400:'#f472b6',500:'#ec4899',600:'#db2777' },
+    rose:     { 400:'#fb7185',500:'#f43f5e',600:'#e11d48' },
+    transparent: { _: 'transparent' },
+    current:    { _: 'current' },
+  };
+  function getTwColor(name, shade) {
+    const family = TW_COLORS[name];
+    if (!family) return null;
+    return family[shade] || family._ || null;
+  }
+
+  const paletteGrid = document.getElementById('palette-grid');
+  results.forEach(r => {
+    const card = document.createElement('div');
+    card.className = 'rounded-xl bg-white/5 border border-white/10 p-4';
+    const uniq = [];
+    const seen = new Set();
+    for (const c of r.color_palette || []) {
+      const key = (c.name === 'white' || c.name === 'black' || c.name === 'transparent' || c.name === 'current')
+        ? c.name
+        : (Object.keys(TW_COLORS).includes(c.name) ? c.name + '-' + (c.name === 'white' || c.name === 'black' ? '' : '500') : c.name);
+      if (!seen.has(key)) { seen.add(key); uniq.push(c); }
+    }
+    card.innerHTML = `
+      <div class="flex items-center justify-between mb-3">
+        <div class="text-sm font-medium">${escapeHtml(new URL(r.final_url).hostname)}</div>
+        <span class="text-[10px] text-ink-300">${uniq.length} tokens</span>
+      </div>
+      <div class="grid grid-cols-5 gap-2">
+        ${uniq.slice(0,15).map(c => {
+          const name = c.name;
+          const isKw = ['white','black','transparent','current'].includes(name);
+          const swatch = isKw ? getTwColor(name, '_') : null;
+          const hex = swatch || getTwColor(name, name === 'white' ? 500 : 500) || null;
+          const preview = hex || '#888';
+          const twClass = isKw ? name : (name.match(/^\d+$/) ? `bg-{name}` : `${name}`);
+          return `<div class="group relative">
+            <div class="h-10 w-full rounded-md border border-white/10" style="background:${preview};"></div>
+            <div class="mt-1 text-[10px] text-ink-300 truncate">${escapeHtml(name)}</div>
+            <div class="absolute -top-1 -right-1 text-[9px] bg-black/70 text-white/80 px-1.5 py-0.5 rounded num opacity-0 group-hover:opacity-100">×${c.frequency}</div>
+          </div>`;
+        }).join('')}
+      </div>
+      <details class="mt-3">
+        <summary class="text-[11px] text-accent-400 flex items-center gap-1"><span class="chev">▸</span> class raw frequency</summary>
+        <div class="mt-2 grid grid-cols-2 gap-1 text-[10.5px]">
+          ${uniq.map(c => `<div class="flex justify-between bg-black/30 rounded px-2 py-0.5"><span class="mono text-ink-100">${escapeHtml(c.name)}</span><span class="num text-ink-300">${c.frequency}</span></div>`).join('')}
+        </div>
+      </details>`;
+    paletteGrid.appendChild(card);
+  });
+
+  // Typography
+  const typGrid = document.getElementById('typography-grid');
+  results.forEach(r => {
+    const t = r.typography || {};
+    const card = document.createElement('div');
+    card.className = 'rounded-xl bg-white/5 border border-white/10 p-4';
+    card.innerHTML = `
+      <div class="flex items-center justify-between mb-3">
+        <div class="text-sm font-medium">${escapeHtml(new URL(r.final_url).hostname)}</div>
+        <span class="text-[10px] text-ink-300">computed style</span>
+      </div>
+      <div class="space-y-2 text-[12px]">
+        <div class="flex justify-between gap-3"><span class="text-ink-300 w-20">body font</span><span class="mono truncate text-right">${escapeHtml(t.body_font_family || '—')}</span></div>
+        <div class="flex justify-between gap-3"><span class="text-ink-300 w-20">body size</span><span class="num">${escapeHtml(t.body_font_size || '—')}</span></div>
+        <div class="flex justify-between gap-3"><span class="text-ink-300 w-20">body color</span><span class="mono text-right truncate">${escapeHtml(t.body_color || '—')}</span></div>
+        <div class="flex justify-between gap-3"><span class="text-ink-300 w-20">h1 size</span><span class="num">${escapeHtml(t.h1_font_size || '—')}</span></div>
+        <div class="flex justify-between gap-3"><span class="text-ink-300 w-20">h1 weight</span><span class="num">${escapeHtml(t.h1_font_weight || '—')}</span></div>
+      </div>
+      <div class="mt-3 p-3 rounded-lg bg-black/30 text-[12px]" style="font-family:${escapeAttr(t.h1_font_family || '')}">
+        <div style="font-size: ${escapeAttr(t.h1_font_size || '32px')}; font-weight:${escapeAttr(t.h1_font_weight || '700')}; color:${escapeAttr(t.h1_color || '#fff')}">Aa — ${escapeHtml(new URL(r.final_url).hostname)}</div>
+        <div class="mt-2" style="font-family:${escapeAttr(t.body_font_family || '')}; font-size:${escapeAttr(t.body_font_size || '14px')}; color:${escapeAttr(t.body_color || '#ccc')}">The quick brown fox jumps over the lazy dog · 0123456789</div>
+      </div>`;
+    typGrid.appendChild(card);
+  });
+
+  // ------------------------------ TOP CLASSES (with search) ------------------------------
+  const patternGrid = document.getElementById('pattern-grid');
+  let activeSearch = '';
+  function renderPatterns() {
+    patternGrid.innerHTML = '';
+    results.forEach(r => {
+      const card = document.createElement('div');
+      card.className = 'rounded-xl bg-white/5 border border-white/10 p-4';
+      const filtered = (r.top_classes || []).filter(c => !activeSearch || c.class.includes(activeSearch));
+      const max = Math.max(1, ...filtered.map(c => c.count));
+      card.innerHTML = `
+        <div class="flex items-center justify-between mb-3">
+          <div class="text-sm font-medium truncate">${escapeHtml(new URL(r.final_url).hostname)}</div>
+          <span class="text-[10px] text-ink-300 num">${filtered.length}/${(r.top_classes||[]).length}</span>
+        </div>
+        <div class="space-y-1 text-[11.5px] max-h-[420px] overflow-auto scrollbar pr-1">
+        ${filtered.map(c => `
+          <div class="flex items-center gap-2 group cursor-pointer" data-cls="${escapeAttr(c.class)}" onclick="copyClass(this)">
+            <span class="tw-pill mono px-1.5 py-0.5 rounded text-[10.5px] hover:bg-accent-400/30 truncate min-w-0 max-w-[180px]">${escapeHtml(c.class)}</span>
+            <div class="flex-1 bar-wrap"><div class="bar" style="width:${(c.count/max*100).toFixed(0)}%"></div></div>
+            <span class="num text-ink-300 w-7 text-right">${c.count}</span>
+          </div>`).join('')}
+        </div>`;
+      patternGrid.appendChild(card);
+    });
+  }
+  function copyClass(node) {
+    const cls = node.dataset.cls;
+    navigator.clipboard?.writeText(cls).then(
+      () => { showToast('已複製 ' + cls, 'ok'); },
+      () => { showToast('複製失敗', 'err'); }
+    );
+  }
+  document.getElementById('cls-search').addEventListener('input', (e) => {
+    activeSearch = e.target.value.trim();
+    renderPatterns();
+  });
+  renderPatterns();
+
+  // ------------------------------ TOKENS: SPACING / SHADOW / RESPONSIVE ------------------------------
+  const spacingGrid = document.getElementById('spacing-grid');
+  results.forEach(r => {
+    const card = document.createElement('div');
+    card.className = 'rounded-xl bg-white/5 border border-white/10 p-4';
+    const scales = (r.spacing_scale || []);
+    card.innerHTML = `
+      <div class="flex items-center justify-between mb-3">
+        <div class="text-sm font-medium">${escapeHtml(new URL(r.final_url).hostname)}</div>
+        <span class="text-[10px] text-ink-300">${scales.length} 刻度</span>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        ${scales.map(n => `<span class="mono text-[11px] bg-white/5 border border-white/10 px-2 py-1 rounded">${n}<span class="text-ink-300 ml-1">${n*4}px</span></span>`).join('')}
+      </div>`;
+    spacingGrid.appendChild(card);
+  });
+
+  const effectGrid = document.getElementById('effect-grid');
+  results.forEach(r => {
+    const card = document.createElement('div');
+    card.className = 'rounded-xl bg-white/5 border border-white/10 p-4';
+    const shadows = (r.shadow_classes || []);
+    card.innerHTML = `
+      <div class="flex items-center justify-between mb-3">
+        <div class="text-sm font-medium">${escapeHtml(new URL(r.final_url).hostname)}</div>
+        <span class="text-[10px] text-ink-300">shadow / blur</span>
+      </div>
+      <div class="grid grid-cols-3 gap-2 mb-3">
+        ${shadows.slice(0,9).map(s => `
+          <div class="rounded-lg p-3 bg-white/5 border border-white/10 flex items-center justify-center text-center" style="box-shadow: ${shadowTailwindToCss(s.class)};">
+            <span class="mono text-[10.5px] text-ink-100">${escapeHtml(s.class)}</span>
+          </div>`).join('')}
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-[11px]">
+        <div class="rounded-lg p-2 bg-white/5 border border-white/10">
+          <div class="text-ink-300 text-[10px]">glass</div>
+          <div class="num font-medium tone-violet">${r.glassmorphism_card_count}</div>
+        </div>
+        <div class="rounded-lg p-2 bg-white/5 border border-white/10">
+          <div class="text-ink-300 text-[10px]">backdrop-blur</div>
+          <div class="num font-medium tone-mint">${r.backdrop_blur_count}</div>
+        </div>
+        <div class="rounded-lg p-2 bg-white/5 border border-white/10">
+          <div class="text-ink-300 text-[10px]">gradient</div>
+          <div class="num font-medium tone-amber">${r.gradient_class_count}</div>
+        </div>
+      </div>`;
+    effectGrid.appendChild(card);
+  });
+
+  function shadowTailwindToCss(cls) {
+    // Approximate match to visualize
+    const map = {
+      'shadow-sm':   '0 1px 2px rgba(0,0,0,.25)',
+      'shadow':      '0 1px 3px rgba(0,0,0,.30), 0 1px 2px rgba(0,0,0,.20)',
+      'shadow-md':   '0 4px 6px rgba(0,0,0,.30), 0 2px 4px rgba(0,0,0,.20)',
+      'shadow-lg':   '0 10px 15px rgba(0,0,0,.35), 0 4px 6px rgba(0,0,0,.20)',
+      'shadow-xl':   '0 20px 25px rgba(0,0,0,.40), 0 8px 10px rgba(0,0,0,.20)',
+      'shadow-2xl':  '0 25px 50px rgba(0,0,0,.50)',
+      'shadow-inner':'inset 0 2px 4px rgba(0,0,0,.20)',
+      'shadow-none': 'none',
+    };
+    return map[cls] || '0 6px 12px rgba(0,0,0,.4)';
+  }
+
+  const respGrid = document.getElementById('responsive-grid');
+  results.forEach(r => {
+    const card = document.createElement('div');
+    card.className = 'rounded-xl bg-white/5 border border-white/10 p-4';
+    const rb = r.responsive_breakpoints || {};
+    const ps = r.pseudo_state_counts || {};
+    const entriesRb = Object.entries(rb);
+    const entriesPs = Object.entries(ps);
+    const maxR = Math.max(1, ...entriesRb.map(e=>e[1]));
+    const maxP = Math.max(1, ...entriesPs.map(e=>e[1]));
+    card.innerHTML = `
+      <div class="flex items-center justify-between mb-3">
+        <div class="text-sm font-medium">${escapeHtml(new URL(r.final_url).hostname)}</div>
+        <span class="text-[10px] text-ink-300">prefix count</span>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <div class="text-[10px] tracking-widest uppercase text-ink-300 mb-1">Responsive</div>
+          ${entriesRb.length === 0 ? '<div class="text-[11px] text-ink-300">無</div>' : entriesRb.map(([k,v]) => `
+            <div class="flex items-center gap-2 mb-1">
+              <span class="mono text-[11px] w-10">${k}</span>
+              <div class="flex-1 bar-wrap"><div class="bar" style="width:${(v/maxR*100).toFixed(0)}%"></div></div>
+              <span class="num text-[11px] text-ink-300 w-8 text-right">${v}</span>
+            </div>`).join('')}
+        </div>
+        <div>
+          <div class="text-[10px] tracking-widest uppercase text-ink-300 mb-1">State / pseudo</div>
+          ${entriesPs.length === 0 ? '<div class="text-[11px] text-ink-300">無</div>' : entriesPs.map(([k,v]) => `
+            <div class="flex items-center gap-2 mb-1">
+              <span class="mono text-[11px] w-24 truncate">${k}</span>
+              <div class="flex-1 bar-wrap"><div class="bar" style="width:${(v/maxP*100).toFixed(0)}%"></div></div>
+              <span class="num text-[11px] text-ink-300 w-8 text-right">${v}</span>
+            </div>`).join('')}
+        </div>
+      </div>`;
+    respGrid.appendChild(card);
+  });
+
+  // ------------------------------ CODE PANE ------------------------------
+  const codePre = document.getElementById('code-pre');
+  codePre.textContent = `// 1 · 安裝 Playwright\npip install playwright\nplaywright install chromium\n\n// 2 · 單一 URL 爬取\npython3 crawler.py --url https://stripe.com --out stripe.json\n\n// 3 · 批次爬取(每行一個 URL)\npython3 crawler.py --batch urls.txt --out-dir ./results/ --concurrency 4\n\n// 4 · 直接用 demo 列表\npython3 crawler.py --demo --out demo_patterns.json\n\n// 5 · JSON 結果結構\n{\n  "results": [{\n    "url": "...", "final_url": "...", "status": 200,\n    "title": "...", "bytes_html": 782350, "duration_ms": 12675,\n    "tailwind_detected": true,\n    "tailwind_classes_total": 2666, "unique_classes": 631,\n    "class_group_counts": { "color": 1598, "layout": 1125, ... },\n    "top_classes": [{ "class": "relative", "count": 287 }, ...],\n    "color_palette": [{ "name": "950", "frequency": 126 }, ...],\n    "typography": { "h1_font_family": "...", "h1_font_size": "96px", ... },\n    "computed_tokens": { "body": {...}, "h1": {...}, "btn": {...} },\n    "glassmorphism_card_count": 9, "backdrop_blur_count": 9,\n    "gradient_class_count": 0,\n    "responsive_breakpoints": { "sm": 199, "lg": 66, ... },\n    "pseudo_state_counts":   { "group-hover": 221, ... },\n    "component_heuristics":  { "btn_pill": 67, "card": 14, ... },\n    "spacing_scale": [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 24, 32, ...],\n    "shadow_classes": [{ "class": "shadow-lg", "count": 4 }, ...]\n  }]\n}`;
+
+  // Sample JSON (compact)
+  const sampleEl = document.getElementById('sample-json');
+  const sample = JSON.stringify(results[0], null, 2);
+  sampleEl.textContent = sample.length > 5000
+    ? sample.slice(0, 5000) + '\n... (truncated; full data is in demo_patterns.json)'
+    : sample;
+
+  // ------------------------------ COPY BUTTON ------------------------------
+  document.getElementById('copy-btn').addEventListener('click', async () => {
+    try {
+      const code = `python3 crawler.py --demo --out demo_patterns.json`;
+      await navigator.clipboard.writeText(code);
+      showToast('已複製指令', 'ok');
+    } catch (e) {
+      showToast('複製失敗', 'err');
+    }
+  });
+
+  // ------------------------------ TABS ------------------------------
+  document.querySelectorAll('#tabs button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const target = btn.dataset.tab;
+      // remove tab-active from all buttons, then add to clicked
+      document.querySelectorAll('#tabs button').forEach(b => b.classList.remove('tab-active'));
+      btn.classList.add('tab-active');
+      // hide all tab panes, show the target
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.add('hidden'));
+      const targetPane = document.getElementById('pane-' + target);
+      if (targetPane) targetPane.classList.remove('hidden');
+    });
+  });
+
+  // ------------------------------ HELPERS ------------------------------
+  function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+  }
+  function escapeAttr(s) {
+    if (s == null) return '';
+    return String(s).replace(/"/g, '&quot;');
+  }
+
+  // Tiny toast
+  let toastEl = null;
+  function showToast(msg, kind = 'ok') {
+    if (!toastEl) {
+      toastEl = document.createElement('div');
+      toastEl.className = 'fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg text-xs glass-strong mono z-50';
+      document.body.appendChild(toastEl);
+    }
+    toastEl.textContent = msg;
+    toastEl.style.color = kind === 'ok' ? '#5eead4' : '#fb7185';
+    toastEl.style.opacity = '1';
+    clearTimeout(toastEl._t);
+    toastEl._t = setTimeout(() => { toastEl.style.transition = 'opacity .3s'; toastEl.style.opacity = '0'; }, 1800);
+  }
+</script>
+</body>
+</html>

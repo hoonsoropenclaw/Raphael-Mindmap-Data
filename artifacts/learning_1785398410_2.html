@@ -1,0 +1,804 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multilingual OCR + PDF + Whisper Pipeline</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --bg-soft: #131a35;
+    --bg-card: #1a2243;
+    --border: #2a3563;
+    --text: #e6ecff;
+    --text-dim: #9aa6cf;
+    --accent: #6fa8ff;
+    --accent-2: #56e0a0;
+    --warn: #ffb454;
+    --danger: #ff6b8b;
+    --ok: #56e0a0;
+    --mono: ui-monospace, "JetBrains Mono", "Fira Code", "SF Mono", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: var(--sans); }
+  body {
+    min-height: 100vh;
+    background: radial-gradient(ellipse at 20% 0%, rgba(111, 168, 255, 0.12), transparent 50%),
+                radial-gradient(ellipse at 80% 100%, rgba(86, 224, 160, 0.08), transparent 50%),
+                var(--bg);
+  }
+  header {
+    padding: 28px 32px 16px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(111, 168, 255, 0.06), transparent);
+  }
+  header h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: 0.3px; }
+  header h1 .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    margin-left: 8px;
+    background: rgba(111, 168, 255, 0.15);
+    border: 1px solid rgba(111, 168, 255, 0.3);
+    border-radius: 12px;
+    font-size: 11px;
+    color: var(--accent);
+    font-weight: 600;
+    vertical-align: middle;
+  }
+  header p { margin: 6px 0 0; color: var(--text-dim); font-size: 13px; }
+  .container { max-width: 1400px; margin: 0 auto; padding: 24px 32px 80px; }
+  .grid {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    gap: 24px;
+  }
+  @media (max-width: 1000px) {
+    .grid { grid-template-columns: 1fr; }
+  }
+  .panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .panel h2 { font-size: 14px; margin: 0 0 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); }
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 28px 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    background: rgba(255, 255, 255, 0.02);
+  }
+  .drop-zone:hover, .drop-zone.dragging {
+    border-color: var(--accent);
+    background: rgba(111, 168, 255, 0.06);
+    color: var(--accent);
+  }
+  .drop-zone svg { width: 36px; height: 36px; opacity: 0.5; }
+  .drop-zone .hint { font-size: 12px; color: var(--text-dim); margin-top: 8px; }
+  .drop-zone .file-types { font-size: 11px; color: var(--text-dim); margin-top: 6px; opacity: 0.7; }
+  .controls { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+  .control-row { display: flex; flex-direction: column; gap: 4px; }
+  .control-row label { font-size: 12px; color: var(--text-dim); }
+  select, input[type="text"], textarea {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 8px 10px;
+    font-size: 13px;
+    font-family: inherit;
+    width: 100%;
+  }
+  select:focus, textarea:focus, input:focus { outline: none; border-color: var(--accent); }
+  .btn {
+    background: var(--accent);
+    color: #0b1020;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-family: inherit;
+  }
+  .btn:hover:not(:disabled) { background: #8fbaff; transform: translateY(-1px); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn.secondary { background: var(--bg-soft); color: var(--text); border: 1px solid var(--border); }
+  .btn.secondary:hover { background: var(--bg-card); border-color: var(--accent); }
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+  }
+  .status-pill.ok { background: rgba(86, 224, 160, 0.1); color: var(--ok); border-color: rgba(86, 224, 160, 0.3); }
+  .status-pill.warn { background: rgba(255, 180, 84, 0.1); color: var(--warn); border-color: rgba(255, 180, 84, 0.3); }
+  .status-pill.err { background: rgba(255, 107, 139, 0.1); color: var(--danger); border-color: rgba(255, 107, 139, 0.3); }
+  .status-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+
+  .result-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; flex-wrap: wrap; }
+  .result-tab {
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    padding: 8px 14px;
+    cursor: pointer;
+    font-size: 13px;
+    border-bottom: 2px solid transparent;
+    font-family: inherit;
+    transition: all 0.15s ease;
+  }
+  .result-tab:hover { color: var(--text); }
+  .result-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; animation: fadeIn 0.2s; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+
+  pre {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    overflow: auto;
+    max-height: 60vh;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text);
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .field-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+  }
+  .field-card {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .field-card .field-name {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .field-card .field-name .icon { font-size: 14px; opacity: 0.8; }
+  .field-card .field-val { font-family: var(--mono); font-size: 12px; word-break: break-all; }
+  .field-card .field-val .item {
+    display: block;
+    padding: 3px 0;
+    border-bottom: 1px dashed rgba(255,255,255,0.05);
+  }
+  .field-card .field-val .item:last-child { border-bottom: none; }
+  .field-card .count { color: var(--accent); font-weight: 600; }
+
+  .lang-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .lang-bar .lang {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-family: var(--mono);
+  }
+  .lang-bar .lang .prob-bar {
+    display: inline-block;
+    height: 4px;
+    background: var(--accent);
+    border-radius: 2px;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+
+  .table-card {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 12px;
+    overflow: auto;
+  }
+  .table-card .table-meta { font-size: 11px; color: var(--text-dim); margin-bottom: 8px; }
+  .table-card table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  .table-card th, .table-card td {
+    border: 1px solid var(--border);
+    padding: 6px 10px;
+    text-align: left;
+  }
+  .table-card th { background: rgba(111, 168, 255, 0.1); color: var(--accent); font-weight: 600; }
+  .table-card tr:nth-child(even) td { background: rgba(255, 255, 255, 0.02); }
+
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 14px;
+    padding: 10px 14px;
+    background: var(--bg-soft);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .meta-row .meta-item { color: var(--text-dim); }
+  .meta-row .meta-item b { color: var(--text); font-weight: 600; margin-left: 4px; }
+
+  .placeholder {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-dim);
+  }
+  .placeholder svg { width: 64px; height: 64px; opacity: 0.3; margin-bottom: 16px; }
+  .placeholder .placeholder-title { font-size: 16px; color: var(--text); margin-bottom: 6px; }
+  .placeholder .placeholder-sub { font-size: 13px; }
+
+  .banner {
+    padding: 10px 14px;
+    background: rgba(255, 180, 84, 0.08);
+    border: 1px solid rgba(255, 180, 84, 0.3);
+    border-radius: 8px;
+    color: var(--warn);
+    font-size: 12px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .banner.info { background: rgba(111, 168, 255, 0.08); border-color: rgba(111, 168, 255, 0.3); color: var(--accent); }
+  .banner.success { background: rgba(86, 224, 160, 0.08); border-color: rgba(86, 224, 160, 0.3); color: var(--ok); }
+  .banner .x { margin-left: auto; cursor: pointer; opacity: 0.6; }
+  .banner .x:hover { opacity: 1; }
+
+  .spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255,255,255,0.2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .doc-page { margin-bottom: 16px; }
+  .doc-page .page-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .doc-page .page-label .pill {
+    padding: 2px 8px;
+    border-radius: 8px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    font-size: 10px;
+  }
+  .doc-page .page-label .pill.ocr { color: var(--warn); border-color: rgba(255, 180, 84, 0.3); }
+  .doc-page .page-label .pill.text { color: var(--ok); border-color: rgba(86, 224, 160, 0.3); }
+  .doc-page .page-text {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    font-size: 13px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    max-height: 400px;
+    overflow: auto;
+  }
+
+  audio { width: 100%; margin-top: 8px; }
+  .audio-card { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+  .audio-meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; font-size: 12px; }
+  .audio-meta-grid .item { padding: 8px 10px; background: var(--bg-card); border-radius: 6px; }
+  .audio-meta-grid .item .k { color: var(--text-dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .audio-meta-grid .item .v { font-family: var(--mono); color: var(--text); margin-top: 2px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Multilingual Document Intelligence <span class="badge">OCR + PDF + Whisper</span></h1>
+  <p>Upload PDF, image, or audio. Tesseract (chi_tra · chi_sim · eng) for OCR · pdfplumber for text + tables · OpenAI Whisper API for multi-language transcription · langdetect for language detection · regex engine for structured fields.</p>
+</header>
+
+<div class="container">
+  <div class="grid">
+    <!-- LEFT PANEL: Upload + Controls -->
+    <div class="panel">
+      <h2>Upload</h2>
+      <div class="drop-zone" id="dropZone">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M12 16V4m0 0l-4 4m4-4l4 4M4 20h16"/>
+        </svg>
+        <div>Drag &amp; drop file here, or click to browse</div>
+        <div class="hint">Max 100 MB</div>
+        <div class="file-types">PDF · PNG · JPG · WEBP · MP3 · WAV · M4A · OGG · FLAC</div>
+        <input type="file" id="fileInput" hidden>
+      </div>
+
+      <div class="controls">
+        <div class="control-row">
+          <label for="langSelect">Document / audio language</label>
+          <select id="langSelect">
+            <option value="auto">Auto (mixed-script, recommended)</option>
+            <option value="zh-Hant">繁體中文 (zh-Hant)</option>
+            <option value="zh-Hans">简体中文 (zh-Hans)</option>
+            <option value="en">English (en)</option>
+          </select>
+        </div>
+        <div class="control-row">
+          <label for="urlInput">Or fetch from URL (PDF only)</label>
+          <input type="text" id="urlInput" placeholder="https://example.com/report.pdf">
+        </div>
+        <div class="actions">
+          <button class="btn" id="processBtn" disabled>Process</button>
+          <button class="btn secondary" id="fetchUrlBtn">Fetch URL</button>
+          <button class="btn secondary" id="healthBtn">Health</button>
+        </div>
+      </div>
+
+      <div id="serverStatus" style="margin-top: 14px;"></div>
+    </div>
+
+    <!-- RIGHT PANEL: Results -->
+    <div class="panel">
+      <h2>Results</h2>
+      <div id="resultArea">
+        <div class="placeholder">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+            <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+          </svg>
+          <div class="placeholder-title">No document loaded</div>
+          <div class="placeholder-sub">Upload a file or fetch a URL to begin extraction.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  const dom = {
+    dropZone: document.getElementById('dropZone'),
+    fileInput: document.getElementById('fileInput'),
+    processBtn: document.getElementById('processBtn'),
+    fetchUrlBtn: document.getElementById('fetchUrlBtn'),
+    healthBtn: document.getElementById('healthBtn'),
+    langSelect: document.getElementById('langSelect'),
+    urlInput: document.getElementById('urlInput'),
+    resultArea: document.getElementById('resultArea'),
+    serverStatus: document.getElementById('serverStatus'),
+  };
+
+  let selectedFile = null;
+  let currentResult = null;
+
+  // ---- File selection ----------------------------------------------------
+  dom.dropZone.addEventListener('click', () => dom.fileInput.click());
+  dom.dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dom.dropZone.classList.add('dragging');
+  });
+  dom.dropZone.addEventListener('dragleave', () => dom.dropZone.classList.remove('dragging'));
+  dom.dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dom.dropZone.classList.remove('dragging');
+    if (e.dataTransfer.files.length) {
+      handleFileSelect(e.dataTransfer.files[0]);
+    }
+  });
+  dom.fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length) {
+      handleFileSelect(e.target.files[0]);
+    }
+  });
+
+  function handleFileSelect(file) {
+    selectedFile = file;
+    dom.dropZone.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color: var(--accent)">
+        <path d="M9 12l2 2 4-4M3 12a9 9 0 1018 0 9 9 0 00-18 0z"/>
+      </svg>
+      <div style="font-weight: 600; color: var(--accent); margin-bottom: 4px;">${escapeHtml(file.name)}</div>
+      <div class="hint">${formatSize(file.size)} · ${file.type || 'unknown type'}</div>
+      <div class="file-types">Click to choose a different file</div>
+    `;
+    dom.processBtn.disabled = false;
+  }
+
+  // ---- Process -----------------------------------------------------------
+  dom.processBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+    await runWithSpinner(async () => {
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('lang', dom.langSelect.value);
+      const res = await fetch('/api/process', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) {
+        showBanner('error', `Error: ${data.error || res.statusText}`);
+        return;
+      }
+      currentResult = data;
+      renderResult(data);
+    }, dom.processBtn);
+  });
+
+  // ---- Fetch URL ---------------------------------------------------------
+  dom.fetchUrlBtn.addEventListener('click', async () => {
+    const url = dom.urlInput.value.trim();
+    if (!url) {
+      showBanner('warn', 'Enter a URL first.');
+      return;
+    }
+    await runWithSpinner(async () => {
+      const res = await fetch('/api/extract_from_url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, lang: dom.langSelect.value }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showBanner('error', `Error: ${data.error || res.statusText}`);
+        return;
+      }
+      currentResult = data;
+      renderResult(data);
+    }, dom.fetchUrlBtn);
+  });
+
+  // ---- Health ------------------------------------------------------------
+  dom.healthBtn.addEventListener('click', async () => {
+    await runWithSpinner(async () => {
+      const res = await fetch('/health');
+      const data = await res.json();
+      const enabled = data.openai_api_key_set;
+      const tesseractLangs = (data.tesseract_languages || []).join(' · ');
+      dom.serverStatus.innerHTML = `
+        <div class="status-pill ${enabled ? 'ok' : 'warn'}">
+          <span class="dot"></span> Whisper ${enabled ? 'enabled (key set)' : 'disabled (no API key)'}
+        </div>
+        <div class="status-pill ${data.tesseract_available ? 'ok' : 'err'}">
+          <span class="dot"></span> Tesseract ${data.tesseract_available ? 'ready' : 'missing'}
+        </div>
+        <div class="status-pill ${data.pdfplumber_available ? 'ok' : 'err'}">
+          <span class="dot"></span> pdfplumber
+        </div>
+        <div class="status-pill ${data.langdetect_available ? 'ok' : 'err'}">
+          <span class="dot"></span> langdetect
+        </div>
+        <div class="status-pill ${data.ffmpeg_available ? 'ok' : 'err'}">
+          <span class="dot"></span> ffmpeg
+        </div>
+        <div style="margin-top: 8px; font-size: 11px; color: var(--text-dim);">
+          Tesseract langs: <code>${tesseractLangs}</code>
+        </div>
+      `;
+    }, dom.healthBtn);
+  });
+
+  // ---- Render ------------------------------------------------------------
+  function renderResult(data) {
+    const banner = (data.warning || data.error) ? `
+      <div class="banner ${data.error ? 'err' : 'warn'}">
+        <span>${data.error ? '⚠' : 'ℹ'}</span>
+        <span>${escapeHtml(data.warning || data.error)}</span>
+      </div>
+    ` : '';
+
+    const meta = renderMeta(data);
+    const tabs = renderTabs(data);
+
+    dom.resultArea.innerHTML = banner + meta + '<div id="tabsHost">' + tabs + '</div>';
+    bindTabs();
+  }
+
+  function renderMeta(data) {
+    if (data.type === 'pdf') {
+      return `
+        <div class="meta-row">
+          <div class="meta-item">Type<b>PDF</b></div>
+          <div class="meta-item">Pages<b>${data.page_count || 0}</b></div>
+          <div class="meta-item">Text-layer pages<b>${data.text_layer_pages || 0}</b></div>
+          <div class="meta-item">OCR pages<b>${data.ocr_pages || 0}</b></div>
+          <div class="meta-item">Tables<b>${(data.tables || []).length}</b></div>
+          <div class="meta-item">Processing<b>${data.processing_time_sec}s</b></div>
+        </div>
+      `;
+    }
+    if (data.type === 'image') {
+      return `
+        <div class="meta-row">
+          <div class="meta-item">Type<b>Image</b></div>
+          <div class="meta-item">OCR lang<b>${data.tesseract_lang || '-'}</b></div>
+          <div class="meta-item">Chars<b>${data.char_count || 0}</b></div>
+          <div class="meta-item">Confidence<b>${data.avg_confidence || 0}</b></div>
+          <div class="meta-item">Processing<b>${data.processing_time_sec}s</b></div>
+        </div>
+      `;
+    }
+    if (data.type === 'audio') {
+      const m = data.metadata || {};
+      return `
+        <div class="meta-row">
+          <div class="meta-item">Type<b>Audio</b></div>
+          <div class="meta-item">Engine<b>${data.engine || '-'}</b></div>
+          <div class="meta-item">Duration<b>${formatDuration(m.duration_sec)}</b></div>
+          <div class="meta-item">Codec<b>${m.codec || '-'}</b></div>
+          <div class="meta-item">Bitrate<b>${m.bit_rate ? Math.round(m.bit_rate/1000) + ' kbps' : '-'}</b></div>
+          <div class="meta-item">Processing<b>${data.processing_time_sec}s</b></div>
+        </div>
+      `;
+    }
+    return '';
+  }
+
+  function renderTabs(data) {
+    const tabs = [];
+    const content = [];
+
+    if (data.type === 'pdf') {
+      tabs.push({ id: 'text', label: 'Full Text' });
+      content.push({ id: 'text', html: renderPdfPages(data) });
+      if ((data.tables || []).length) {
+        tabs.push({ id: 'tables', label: `Tables (${data.tables.length})` });
+        content.push({ id: 'tables', html: renderTables(data.tables) });
+      }
+    } else if (data.type === 'image') {
+      tabs.push({ id: 'text', label: 'OCR Text' });
+      content.push({ id: 'text', html: `<pre>${escapeHtml(data.text || '(empty)')}</pre>` });
+    } else if (data.type === 'audio') {
+      tabs.push({ id: 'transcript', label: 'Transcript' });
+      content.push({
+        id: 'transcript',
+        html: renderTranscript(data),
+      });
+    }
+
+    if (data.extracted_fields && Object.keys(data.extracted_fields).length) {
+      tabs.push({ id: 'fields', label: `Fields (${Object.keys(data.extracted_fields).length})` });
+      content.push({ id: 'fields', html: renderFields(data.extracted_fields) });
+    }
+
+    if (data.detected_languages && data.detected_languages.length) {
+      tabs.push({ id: 'languages', label: 'Languages' });
+      content.push({ id: 'languages', html: renderLanguages(data.detected_languages) });
+    }
+
+    if (data.segments && data.segments.length) {
+      tabs.push({ id: 'segments', label: `Segments (${data.segments.length})` });
+      content.push({ id: 'segments', html: renderSegments(data.segments) });
+    }
+
+    tabs.push({ id: 'raw', label: 'Raw JSON' });
+    content.push({ id: 'raw', html: `<pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre>` });
+
+    return `
+      <div class="result-tabs">
+        ${tabs.map((t, i) => `<button class="result-tab ${i === 0 ? 'active' : ''}" data-tab="${t.id}">${t.label}</button>`).join('')}
+      </div>
+      <div class="tab-content-host">
+        ${content.map((c, i) => `<div class="tab-content ${i === 0 ? 'active' : ''}" data-tab="${c.id}">${c.html}</div>`).join('')}
+      </div>
+      <div class="actions" style="margin-top: 16px;">
+        <button class="btn secondary" onclick="window.__downloadJson()">Download JSON</button>
+        <button class="btn secondary" onclick="window.__downloadText()">Download Text</button>
+      </div>
+    `;
+  }
+
+  function renderPdfPages(data) {
+    if (!data.pages || !data.pages.length) return '<div class="placeholder">No pages.</div>';
+    return data.pages.map((p) => {
+      const text = p.text || p.text_layer || '';
+      const pill = p.ocr_used
+        ? '<span class="pill ocr">OCR</span>'
+        : '<span class="pill text">text-layer</span>';
+      const conf = p.ocr_confidence !== undefined ? ` · conf ${p.ocr_confidence}` : '';
+      return `
+        <div class="doc-page">
+          <div class="page-label">Page ${p.page} ${pill}${conf}</div>
+          <div class="page-text">${escapeHtml(text || '(no text)')}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function renderTables(tables) {
+    if (!tables.length) return '<div class="placeholder">No tables detected.</div>';
+    return tables.map((t, idx) => {
+      const rows = t.rows || [];
+      if (!rows.length) return '';
+      const headerRow = rows[0];
+      const bodyRows = rows.slice(1);
+      return `
+        <div class="table-card">
+          <div class="table-meta">Table ${idx + 1} · Page ${t.page} · ${rows.length} rows</div>
+          <table>
+            <thead><tr>${headerRow.map(c => `<th>${escapeHtml(c || '')}</th>`).join('')}</tr></thead>
+            <tbody>${bodyRows.map(r => `<tr>${r.map(c => `<td>${escapeHtml(c || '')}</td>`).join('')}</tr>`).join('')}</tbody>
+          </table>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function renderFields(fields) {
+    const icons = {
+      email: '✉', phone: '☎', url: '🔗', money: '💰',
+      date: '📅', id_number: '🆔', ip: '🌐', hashtag: '#',
+    };
+    return `
+      <div class="field-grid">
+        ${Object.entries(fields).map(([name, items]) => `
+          <div class="field-card">
+            <div class="field-name"><span class="icon">${icons[name] || '·'}</span>${name} <span class="count">(${items.length})</span></div>
+            <div class="field-val">${items.map(v => `<span class="item">${escapeHtml(v)}</span>`).join('')}</div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  function renderLanguages(langs) {
+    return `
+      <div class="lang-bar">
+        ${langs.map(l => `
+          <div class="lang">
+            ${escapeHtml(l.lang)}: ${(l.prob * 100).toFixed(1)}%
+            <span class="prob-bar" style="width: ${Math.min(l.prob * 60, 60)}px;"></span>
+          </div>
+        `).join('')}
+      </div>
+      <p style="font-size: 12px; color: var(--text-dim);">
+        Detected via langdetect (deterministic seed). Top language selected automatically for downstream tasks.
+      </p>
+    `;
+  }
+
+  function renderTranscript(data) {
+    const transcript = data.transcript || '';
+    if (!transcript) {
+      return `
+        <div class="audio-card">
+          <div class="audio-meta-grid">
+            <div class="item"><div class="k">Engine</div><div class="v">${escapeHtml(data.engine || '-')}</div></div>
+            <div class="item"><div class="k">Duration</div><div class="v">${formatDuration(data.metadata?.duration_sec || 0)}</div></div>
+            <div class="item"><div class="k">Codec</div><div class="v">${escapeHtml(data.metadata?.codec || '-')}</div></div>
+            <div class="item"><div class="k">Bitrate</div><div class="v">${data.metadata?.bit_rate ? Math.round(data.metadata.bit_rate/1000) + ' kbps' : '-'}</div></div>
+            <div class="item"><div class="k">Format</div><div class="v">${escapeHtml(data.metadata?.format || '-')}</div></div>
+            <div class="item"><div class="k">Channels</div><div class="v">${data.metadata?.channels || '-'}</div></div>
+          </div>
+          ${data.warning ? `<div class="banner" style="margin-top: 12px;">${escapeHtml(data.warning)}</div>` : ''}
+          <p style="margin-top: 14px; font-size: 13px; color: var(--text-dim);">
+            No transcript yet. To enable transcription, set <code>OPENAI_API_KEY</code> in the server environment and restart.
+          </p>
+        </div>
+      `;
+    }
+    return `<pre>${escapeHtml(transcript)}</pre>`;
+  }
+
+  function renderSegments(segments) {
+    return segments.map((s) => `
+      <div class="doc-page">
+        <div class="page-label">
+          <span class="pill">${formatDuration(s.start)} → ${formatDuration(s.end)}</span>
+          <span>confidence ${(s.no_speech_prob !== undefined ? (1 - s.no_speech_prob) : 1).toFixed(2)}</span>
+        </div>
+        <div class="page-text">${escapeHtml(s.text || '')}</div>
+      </div>
+    `).join('');
+  }
+
+  function bindTabs() {
+    document.querySelectorAll('.result-tab').forEach((tab) => {
+      tab.addEventListener('click', () => {
+        const target = tab.dataset.tab;
+        document.querySelectorAll('.result-tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === target));
+        document.querySelectorAll('.tab-content').forEach((c) => c.classList.toggle('active', c.dataset.tab === target));
+      });
+    });
+  }
+
+  // ---- Downloads ---------------------------------------------------------
+  window.__downloadJson = function() {
+    if (!currentResult) return;
+    downloadBlob(JSON.stringify(currentResult, null, 2), `${currentResult.filename || 'result'}.json`, 'application/json');
+  };
+  window.__downloadText = function() {
+    if (!currentResult) return;
+    let text = '';
+    if (currentResult.type === 'pdf') text = currentResult.full_text || '';
+    else if (currentResult.type === 'image') text = currentResult.text || '';
+    else if (currentResult.type === 'audio') text = currentResult.transcript || '';
+    downloadBlob(text, `${currentResult.filename || 'result'}.txt`, 'text/plain');
+  };
+
+  function downloadBlob(content, filename, type) {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  // ---- Helpers -----------------------------------------------------------
+  function escapeHtml(s) {
+    if (s === null || s === undefined) return '';
+    return String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+  }
+  function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+  }
+  function formatDuration(seconds) {
+    if (!seconds) return '0s';
+    const s = Math.round(seconds);
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    if (m === 0) return sec + 's';
+    return `${m}m ${sec}s`;
+  }
+  async function runWithSpinner(fn, btn) {
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Working...';
+    try {
+      await fn();
+    } catch (e) {
+      showBanner('error', `Request failed: ${e.message}`);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = original;
+    }
+  }
+  function showBanner(kind, msg) {
+    const colors = { error: 'err', warn: 'warn', info: 'info', success: 'success' };
+    const icons = { error: '⚠', warn: '⚠', info: 'ℹ', success: '✓' };
+    const div = document.createElement('div');
+    div.className = `banner ${colors[kind] || 'info'}`;
+    div.innerHTML = `<span>${icons[kind] || 'ℹ'}</span><span>${escapeHtml(msg)}</span><span class="x" onclick="this.parentElement.remove()">×</span>`;
+    dom.resultArea.prepend(div);
+  }
+})();
+</script>
+</body>
+</html>

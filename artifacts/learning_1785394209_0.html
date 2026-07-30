@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>行政流程自動化控制台 — RBAC × Calendar API</title>
+<style>
+  :root{
+    --bg:#0a0e14;--bg-2:#0f1419;--bg-3:#161b22;--border:#1f2630;--border-hi:#2d3748;
+    --fg:#c9d1d9;--fg-2:#8b949e;--fg-3:#6e7681;
+    --accent:#58a6ff;--accent-2:#79c0ff;--accent-glow:rgba(88,166,255,.18);
+    --green:#3fb950;--green-glow:rgba(63,185,80,.15);
+    --orange:#d29922;--orange-glow:rgba(210,153,34,.15);
+    --red:#f85149;--red-glow:rgba(248,81,73,.15);
+    --purple:#bc8cff;--purple-glow:rgba(188,140,255,.15);
+    --yellow:#e3b341;
+    --mono:'JetBrains Mono','Fira Code',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+    --sans:'Inter','Noto Sans TC',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--bg);
+    color:var(--fg);
+    font-family:var(--sans);
+    font-size:13px;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  /* ===== Top Bar ===== */
+  header{
+    height:48px;background:var(--bg-2);
+    border-bottom:1px solid var(--border);
+    display:flex;align-items:center;justify-content:space-between;
+    padding:0 20px;
+    position:sticky;top:0;z-index:100;
+  }
+  .brand{display:flex;align-items:center;gap:10px;font-weight:600}
+  .brand .dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green-glow);animation:pulse 2s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+  .brand .sub{color:var(--fg-2);font-weight:400;font-size:11px;margin-left:4px}
+  .topnav{display:flex;gap:18px;font-size:12px;color:var(--fg-2)}
+  .topnav span{display:flex;align-items:center;gap:6px}
+  .topnav .pill{padding:2px 8px;background:var(--bg-3);border:1px solid var(--border);border-radius:10px;color:var(--fg);font-family:var(--mono);font-size:10px}
+  /* ===== Layout ===== */
+  .wrap{display:grid;grid-template-columns:300px 1fr 360px;gap:1px;background:var(--border);min-height:calc(100vh - 48px)}
+  .col{background:var(--bg);padding:16px;overflow:auto}
+  .col.center{padding:0}
+  /* ===== Section ===== */
+  .sec{margin-bottom:20px}
+  .sec-title{
+    font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--fg-3);font-weight:600;
+    display:flex;align-items:center;justify-content:space-between;
+    padding-bottom:8px;margin-bottom:10px;
+    border-bottom:1px dashed var(--border);
+  }
+  .sec-title .count{color:var(--accent);font-family:var(--mono);font-size:10px;background:var(--accent-glow);padding:1px 6px;border-radius:8px}
+  /* ===== Role Picker ===== */
+  .role-picker{display:grid;gap:6px}
+  .role-opt{
+    padding:10px 12px;background:var(--bg-2);border:1px solid var(--border);
+    border-radius:6px;cursor:pointer;transition:.15s;
+    display:flex;justify-content:space-between;align-items:center;
+  }
+  .role-opt:hover{border-color:var(--border-hi);background:var(--bg-3)}
+  .role-opt.active{border-color:var(--accent);background:var(--accent-glow);box-shadow:0 0 0 1px var(--accent) inset}
+  .role-opt .name{font-weight:500;font-size:12px}
+  .role-opt .level{font-family:var(--mono);font-size:10px;color:var(--fg-3)}
+  .role-opt.active .level{color:var(--accent)}
+  /* ===== RBAC Matrix ===== */
+  .matrix{display:grid;grid-template-columns:repeat(2,1fr);gap:4px}
+  .perm{
+    font-family:var(--mono);font-size:10px;padding:4px 6px;
+    background:var(--bg-2);border:1px solid var(--border);border-radius:3px;
+    color:var(--fg-2);position:relative;
+  }
+  .perm::before{content:'●';color:var(--green);margin-right:4px;font-size:8px}
+  .perm.wildcard{background:var(--purple-glow);border-color:var(--purple);color:var(--purple)}
+  .perm.wildcard::before{content:'★';color:var(--purple)}
+  /* ===== Workflow Card ===== */
+  .wf-card{
+    background:var(--bg-2);border:1px solid var(--border);border-radius:8px;
+    padding:18px;margin-bottom:14px;transition:.2s;
+  }
+  .wf-card.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 0 24px var(--accent-glow)}
+  .wf-card .head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}
+  .wf-card h3{font-size:15px;font-weight:600;color:var(--fg)}
+  .wf-card .id{font-family:var(--mono);font-size:10px;color:var(--accent);margin-bottom:3px}
+  .wf-card .desc{font-size:11px;color:var(--fg-2);margin-bottom:10px}
+  .wf-card .meta{display:flex;gap:8px;font-size:10px;color:var(--fg-3)}
+  .wf-card .meta .tag{padding:2px 6px;background:var(--bg-3);border-radius:4px;font-family:var(--mono)}
+  /* ===== Steps ===== */
+  .steps{display:grid;gap:6px;margin-top:12px}
+  .step{
+    display:flex;align-items:center;gap:10px;padding:8px 10px;
+    background:var(--bg);border:1px solid var(--border);border-radius:5px;
+    font-size:11px;transition:.15s;
+  }
+  .step.running{border-color:var(--orange);background:var(--orange-glow)}
+  .step.done{border-color:var(--green);background:var(--green-glow)}
+  .step.failed{border-color:var(--red);background:var(--red-glow)}
+  .step .idx{
+    width:18px;height:18px;border-radius:50%;
+    background:var(--bg-3);color:var(--fg-2);
+    display:flex;align-items:center;justify-content:center;
+    font-family:var(--mono);font-size:10px;flex-shrink:0;
+  }
+  .step.running .idx{background:var(--orange);color:var(--bg);animation:spin 1s linear infinite}
+  .step.done .idx{background:var(--green);color:var(--bg)}
+  .step.failed .idx{background:var(--red);color:var(--bg)}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .step .lbl{flex:1}
+  .step .badge{font-family:var(--mono);font-size:9px;padding:1px 5px;border-radius:3px;background:var(--bg-3);color:var(--fg-3)}
+  .step .badge.state{background:var(--orange-glow);color:var(--orange)}
+  /* ===== Buttons ===== */
+  .btn{
+    background:var(--accent);color:#0a0e14;border:none;padding:8px 16px;
+    border-radius:5px;cursor:pointer;font-size:12px;font-weight:600;
+    font-family:var(--sans);transition:.15s;letter-spacing:.02em;
+  }
+  .btn:hover{background:var(--accent-2);transform:translateY(-1px)}
+  .btn:disabled{background:var(--bg-3);color:var(--fg-3);cursor:not-allowed;transform:none}
+  .btn.ghost{background:var(--bg-2);color:var(--fg);border:1px solid var(--border-hi)}
+  .btn.ghost:hover{background:var(--bg-3);border-color:var(--accent)}
+  .btn.danger{background:var(--red);color:#fff}
+  /* ===== Status ===== */
+  #workflow-status{
+    font-family:var(--mono);font-size:11px;padding:8px 12px;
+    background:var(--bg-2);border:1px solid var(--border);border-radius:5px;
+    color:var(--fg-2);margin-top:10px;
+  }
+  #workflow-status.running{color:var(--orange);border-color:var(--orange);background:var(--orange-glow)}
+  #workflow-status.done{color:var(--green);border-color:var(--green);background:var(--green-glow)}
+  #workflow-status.failed{color:var(--red);border-color:var(--red);background:var(--red-glow)}
+  /* ===== Calendar Panel ===== */
+  .cal-item{
+    background:var(--bg-2);border:1px solid var(--border);border-radius:6px;
+    padding:10px 12px;margin-bottom:8px;transition:.15s;cursor:pointer;
+  }
+  .cal-item:hover{border-color:var(--border-hi);background:var(--bg-3)}
+  .cal-item .time{font-family:var(--mono);font-size:10px;color:var(--accent);margin-bottom:3px}
+  .cal-item .title{font-size:12px;font-weight:500;color:var(--fg);margin-bottom:4px}
+  .cal-item .att{font-size:10px;color:var(--fg-3)}
+  .cal-item .att span{margin-right:6px}
+  /* ===== Audit Stream ===== */
+  .audit-stream{
+    background:var(--bg-2);border:1px solid var(--border);border-radius:6px;
+    padding:10px;max-height:380px;overflow-y:auto;
+    font-family:var(--mono);font-size:10px;
+  }
+  .audit-line{padding:3px 0;border-bottom:1px dashed var(--border);display:flex;gap:6px;align-items:flex-start}
+  .audit-line:last-child{border-bottom:none}
+  .audit-line .ts{color:var(--fg-3);flex-shrink:0;font-size:9px;width:56px}
+  .audit-line .act{color:var(--accent);flex-shrink:0;width:36px;text-align:center;font-weight:600}
+  .audit-line .res{color:var(--fg-2);flex-shrink:0;width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .audit-line .dec{flex-shrink:0;font-weight:600}
+  .audit-line .dec.allow{color:var(--green)}
+  .audit-line .dec.deny{color:var(--red)}
+  .audit-line .reason{color:var(--fg-3);font-size:9px;flex:1}
+  /* ===== Denial Demo ===== */
+  .denial-demo{
+    background:var(--bg-2);border:1px solid var(--border);border-radius:8px;
+    padding:14px;margin-top:14px;
+  }
+  .denial-demo h4{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--fg-3);margin-bottom:10px}
+  .denial-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .denial-btn{
+    background:var(--bg);border:1px solid var(--border);color:var(--fg);
+    padding:6px 8px;border-radius:4px;cursor:pointer;
+    font-family:var(--mono);font-size:10px;transition:.15s;
+    text-align:left;
+  }
+  .denial-btn:hover{border-color:var(--red);background:var(--red-glow)}
+  /* ===== Modal / Toast ===== */
+  .toast{
+    position:fixed;top:60px;right:20px;
+    background:var(--bg-3);border:1px solid var(--border-hi);
+    padding:12px 16px;border-radius:6px;
+    box-shadow:0 8px 24px rgba(0,0,0,.4);
+    font-size:12px;z-index:200;
+    animation:slideIn .3s ease;
+  }
+  .toast.allow{border-color:var(--green);background:var(--green-glow);color:var(--green)}
+  .toast.deny{border-color:var(--red);background:var(--red-glow);color:var(--red)}
+  @keyframes slideIn{from{transform:translateX(20px);opacity:0}to{transform:translateX(0);opacity:1}}
+  /* ===== Hidden hidden ===== */
+  #role-selector{display:none}
+  /* ===== Scrollbar ===== */
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-track{background:var(--bg)}
+  ::-webkit-scrollbar-thumb{background:var(--border-hi);border-radius:3px}
+  ::-webkit-scrollbar-thumb:hover{background:var(--fg-3)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <span class="dot"></span>
+    <span>Hermes Admin Console</span>
+    <span class="sub">RBAC × Google Calendar · Playwright Automation</span>
+  </div>
+  <div class="topnav">
+    <span>狀態 <span class="pill" id="conn-pill">● Online</span></span>
+    <span>日誌 <span class="pill" id="audit-count">0</span></span>
+    <span>時區 <span class="pill">Asia/Taipei</span></span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- ============ LEFT: RBAC ============ -->
+  <aside class="col">
+    <div class="sec">
+      <div class="sec-title">角色選擇 <span class="count">5 roles</span></div>
+      <select id="role-selector" aria-label="role">
+        <option value="SUPER_ADMIN">SUPER_ADMIN · 系統管理員</option>
+        <option value="HR_DIRECTOR" selected>HR_DIRECTOR · 人事主任</option>
+        <option value="DEPT_MANAGER">DEPT_MANAGER · 單位主管</option>
+        <option value="STAFF">STAFF · 一般職員</option>
+        <option value="AUDITOR">AUDITOR · 稽核人員</option>
+      </select>
+      <div class="role-picker" id="role-picker">
+        <div class="role-opt" data-role="SUPER_ADMIN"><span class="name">系統管理員</span><span class="level">L100</span></div>
+        <div class="role-opt active" data-role="HR_DIRECTOR"><span class="name">人事主任</span><span class="level">L80</span></div>
+        <div class="role-opt" data-role="DEPT_MANAGER"><span class="name">單位主管</span><span class="level">L60</span></div>
+        <div class="role-opt" data-role="AUDITOR"><span class="name">稽核人員</span><span class="level">L50</span></div>
+        <div class="role-opt" data-role="STAFF"><span class="name">一般職員</span><span class="level">L20</span></div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title">當前權限 <span class="count" id="perm-count">0</span></div>
+      <div class="matrix" id="perm-matrix"></div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title">安全閘門 <span class="count">state-change</span></div>
+      <div style="font-size:11px;color:var(--fg-2);line-height:1.7">
+        套用 <span style="font-family:var(--mono);color:var(--accent)">state_change_authorization</span> 模式:<br>
+        • 讀取動作 (read/list) → 自動放行<br>
+        • 寫入動作 (create/update/delete/approve) → 需 <span style="font-family:var(--mono);color:var(--orange)">allowStateChange=true</span><br>
+        • 未授權 → 自動 <span style="color:var(--red);font-weight:600">DENY</span> 並寫入審計
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title">權限拒絕演示 <span class="count">try-it</span></div>
+      <div class="denial-demo">
+        <h4>點擊測試當前角色越權操作</h4>
+        <div class="denial-grid" id="denial-grid">
+          <button class="denial-btn" data-test="employee:delete">[超管限定] 刪除員工</button>
+          <button class="denial-btn" data-test="audit:export">[稽核限定] 匯出稽核</button>
+          <button class="denial-btn" data-test="calendar:write">[寫權限] 建立事件</button>
+          <button class="denial-btn" data-test="calendar:read">[讀權限] 列出事件</button>
+          <button class="denial-btn" data-test="leave:approve_l3">[主任限定] L3 核准</button>
+          <button class="denial-btn" data-test="leave:apply">[職員限定] 申請假單</button>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============ CENTER: WORKFLOWS ============ -->
+  <main class="col center">
+
+    <div style="padding:18px 20px 0;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-size:10px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:2px">active workflow</div>
+        <div style="font-size:18px;font-weight:600">行政流程編排</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn ghost" id="btn-reset">重置狀態</button>
+        <button class="btn" id="btn-run-workflow">▶ 啟動 T001</button>
+      </div>
+    </div>
+
+    <div style="padding:18px 20px">
+      <div class="wf-card active" data-task="T001">
+        <div class="head">
+          <div>
+            <div class="id">T001</div>
+            <h3>新進教師報到流程</h3>
+            <div class="desc">應徵文件驗證 → 建立迎新會 Calendar 事件 → 通知用人單位 → 歸檔人事系統</div>
+          </div>
+          <span class="tag" style="font-family:var(--mono);font-size:10px;padding:3px 8px;background:var(--accent-glow);color:var(--accent);border-radius:4px">actor: HR_DIRECTOR</span>
+        </div>
+        <div class="steps" id="steps-T001">
+          <div class="step" data-i="0"><div class="idx">1</div><div class="lbl">驗證應徵文件</div><div class="badge">employee:read</div></div>
+          <div class="step" data-i="1"><div class="idx">2</div><div class="lbl">建立 Google Calendar 迎新會</div><div class="badge state">calendar:write · state-change</div></div>
+          <div class="step" data-i="2"><div class="idx">3</div><div class="lbl">通知用人單位主管</div><div class="badge state">workflow:execute</div></div>
+          <div class="step" data-i="3"><div class="idx">4</div><div class="lbl">歸檔至人事系統</div><div class="badge state">employee:write</div></div>
+        </div>
+      </div>
+
+      <div class="wf-card" data-task="T002">
+        <div class="head">
+          <div>
+            <div class="id">T002</div>
+            <h3>差勤審核批次處理</h3>
+            <div class="desc">讀取待審假單 → 批次核准/退回 → 同步行事曆 → 產生審核報告</div>
+          </div>
+          <span class="tag" style="font-family:var(--mono);font-size:10px;padding:3px 8px;background:var(--green-glow);color:var(--green);border-radius:4px">actor: DEPT_MANAGER</span>
+        </div>
+        <div class="steps" id="steps-T002">
+          <div class="step" data-i="0"><div class="idx">1</div><div class="lbl">讀取待審假單</div><div class="badge">leave:read</div></div>
+          <div class="step" data-i="1"><div class="idx">2</div><div class="lbl">批次核准/退回</div><div class="badge state">leave:approve_l2</div></div>
+          <div class="step" data-i="2"><div class="idx">3</div><div class="lbl">同步至個人行事曆</div><div class="badge state">calendar:write:dept</div></div>
+          <div class="step" data-i="3"><div class="idx">4</div><div class="lbl">產生審核報告</div><div class="badge state">workflow:execute:dept</div></div>
+        </div>
+      </div>
+
+      <div class="wf-card" data-task="T003">
+        <div class="head">
+          <div>
+            <div class="id">T003</div>
+            <h3>加班補休核銷</h3>
+            <div class="desc">撈取本月加班 → 計算應補休 → 建立補休 Calendar 事件 → 通知薪資</div>
+          </div>
+          <span class="tag" style="font-family:var(--mono);font-size:10px;padding:3px 8px;background:var(--orange-glow);color:var(--orange);border-radius:4px">actor: HR_DIRECTOR</span>
+        </div>
+        <div class="steps" id="steps-T003">
+          <div class="step" data-i="0"><div class="idx">1</div><div class="lbl">撈取本月加班時數</div><div class="badge">employee:read</div></div>
+          <div class="step" data-i="1"><div class="idx">2</div><div class="lbl">計算應補休時數</div><div class="badge">audit:read</div></div>
+          <div class="step" data-i="2"><div class="idx">3</div><div class="lbl">建立補休行事曆事件</div><div class="badge state">calendar:write</div></div>
+          <div class="step" data-i="3"><div class="idx">4</div><div class="lbl">通知薪資系統</div><div class="badge state">workflow:execute</div></div>
+        </div>
+      </div>
+
+      <div id="workflow-status">待命中 — 點擊「啟動 T001」開始</div>
+    </div>
+  </main>
+
+  <!-- ============ RIGHT: CALENDAR + AUDIT ============ -->
+  <aside class="col">
+    <div class="sec">
+      <div class="sec-title">Calendar 即時同步 <span class="count" id="cal-count">0</span></div>
+      <div style="font-size:10px;color:var(--fg-3);margin-bottom:8px;font-family:var(--mono)">
+        primary · Google Calendar API · mock backend
+      </div>
+      <div id="cal-list"></div>
+    </div>
+
+    <div class="sec">
+      <div class="sec-title">審計日誌 stream <span class="count" id="audit-total">0</span></div>
+      <div class="audit-stream" id="audit-stream">
+        <div style="color:var(--fg-3);font-style:italic">尚無審計紀錄</div>
+      </div>
+    </div>
+  </aside>
+
+</div>
+
+<script>
+/* =====================================================================
+ *  In-page logic — mirrors rbac_engine.js & calendar_api.js (mock)
+ *  Playwright 透過此 UI 觸發完整 workflow
+ * ===================================================================== */
+
+// ----------- Role / Permission Matrix (mirror of rbac_engine.js) -----------
+const ROLES = {
+  SUPER_ADMIN: { level: 100, label: '系統管理員', perms: ['*'] },
+  HR_DIRECTOR: { level: 80, label: '人事主任', perms: [
+    'calendar:read','calendar:write','leave:approve_l3','leave:reject',
+    'employee:read','employee:write','audit:read','workflow:execute'
+  ]},
+  DEPT_MANAGER:{ level: 60, label: '單位主管', perms: [
+    'calendar:read','calendar:write:dept','leave:approve_l1','leave:approve_l2',
+    'employee:read:dept','workflow:execute:dept'
+  ]},
+  AUDITOR:     { level: 50, label: '稽核人員', perms: [
+    'audit:read','audit:export','calendar:read','employee:read','workflow:read'
+  ]},
+  STAFF:       { level: 20, label: '一般職員', perms: [
+    'calendar:read:own','calendar:write:own','leave:apply','leave:read:own','workflow:read:own'
+  ]},
+};
+const STATE_CHANGING = new Set(['create','update','delete','approve','reject','execute','archive','restore','submit']);
+
+// ----------- State -----------
+let currentRole = 'HR_DIRECTOR';
+let auditLog = [];
+let calendarEvents = [];
+let workflowRunning = false;
+
+// ----------- RBAC check (mirror) -----------
+function rbacCheck(roleId, action, resource, scope='global', allowStateChange=false) {
+  const isStateChanging = STATE_CHANGING.has(action);
+    const audit = (decision, reason) => {
+      const entry = { ts: new Date().toISOString(), roleId, action, resource, scope, allowStateChange, decision, reason };
+      auditLog.unshift(entry);
+      renderAudit();
+      return { decision, reason };
+    };
+    if (isStateChanging && !allowStateChange) return audit('DENY', '狀態變更需要明確授權');
+    const role = ROLES[roleId];
+    if (!role) return audit('DENY', `角色不存在: ${roleId}`);
+    if (role.perms.includes('*')) return audit('ALLOW', '萬用權限');
+    const verbAliases = {
+      create:  ['create', 'write'],
+      update:  ['update', 'write'],
+      delete:  ['delete', 'write'],
+      approve: ['approve', 'approve_l1', 'approve_l2', 'approve_l3'],
+      reject:  ['reject', 'approve_l1', 'approve_l2', 'approve_l3'],
+      execute: ['execute'],
+      archive: ['archive', 'write'],
+      restore: ['restore', 'write'],
+      submit:  ['submit', 'create', 'write'],
+    };
+    const verbs = verbAliases[action] || [action];
+    const candidates = [];
+    for (const v of verbs) {
+      candidates.push(`${resource}:${v}`);
+      candidates.push(`${resource}:${v}:${scope}`);
+      candidates.push(`${resource}:${v}:global`);
+    }
+    candidates.push(`${resource}:*`);
+    candidates.push(`${resource}:*:${scope}`);
+    candidates.push(`${resource}:*:global`);
+        for (const p of candidates) if (role.perms.includes(p)) return audit('ALLOW', `命中 ${p}`);
+        return audit('DENY', `無符合權限 (等級 ${role.level})`);
+      }
+
+// ----------- Seed Calendar Events -----------
+function seedCalendar() {
+  const now = Date.now();
+  const day = 86400000;
+  const seeds = [
+    { summary:'人事甄審委員會', days:1, h:9, m:0, dur:90, attendees:['hr@school.tw','principal@school.tw'] },
+    { summary:'新進教師報到說明會', days:2, h:14, m:0, dur:60, attendees:['hr@school.tw'] },
+    { summary:'資深教師休假申請審查', days:3, h:10, m:30, dur:30, attendees:['principal@school.tw'] },
+    { summary:'加班補休核銷批次', days:4, h:15, m:0, dur:45, attendees:['hr@school.tw','payroll@school.tw'] },
+    { summary:'校務會議前置協調', days:5, h:11, m:0, dur:60, attendees:['principal@school.tw','vp@school.tw'] },
+  ];
+  for (const s of seeds) {
+    const start = new Date(now + s.days * day);
+    start.setHours(s.h, s.m, 0, 0);
+    const end = new Date(start.getTime() + s.dur * 60000);
+    calendarEvents.push({
+      id: 'evt_' + Math.random().toString(36).slice(2,10),
+      summary: s.summary, start, end, attendees: s.attendees, status: 'confirmed'
+    });
+  }
+}
+
+// ----------- Render -----------
+function renderRolePicker() {
+  document.querySelectorAll('.role-opt').forEach(el => {
+    el.classList.toggle('active', el.dataset.role === currentRole);
+  });
+}
+
+function renderPermMatrix() {
+  const perms = ROLES[currentRole].perms;
+  document.getElementById('perm-count').textContent = perms.length;
+  const html = perms.map(p =>
+    p === '*'
+      ? '<div class="perm wildcard">* (ALL)</div>'
+      : `<div class="perm">${p}</div>`
+  ).join('');
+  document.getElementById('perm-matrix').innerHTML = html;
+}
+
+function renderCalendar() {
+  const sorted = [...calendarEvents].sort((a,b) => a.start - b.start);
+  document.getElementById('cal-count').textContent = sorted.length;
+  const fmt = d => {
+    const pad = n => String(n).padStart(2,'0');
+    return `${d.getMonth()+1}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+  document.getElementById('cal-list').innerHTML = sorted.map(e =>
+    `<div class="cal-item">
+      <div class="time">${fmt(e.start)} → ${fmt(e.end)}</div>
+      <div class="title">${e.summary}</div>
+      <div class="att">${e.attendees.map(a=>`<span>@${a.split('@')[0]}</span>`).join('')}</div>
+    </div>`
+  ).join('');
+}
+
+function renderAudit() {
+  document.getElementById('audit-count').textContent = auditLog.length;
+  document.getElementById('audit-total').textContent = auditLog.length;
+  if (auditLog.length === 0) {
+    document.getElementById('audit-stream').innerHTML = '<div style="color:var(--fg-3);font-style:italic">尚無審計紀錄</div>';
+    return;
+  }
+  const fmt = ts => {
+    const d = new Date(ts);
+    return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+  };
+  document.getElementById('audit-stream').innerHTML = auditLog.slice(0, 50).map(e =>
+    `<div class="audit-line">
+      <span class="ts">${fmt(e.ts)}</span>
+      <span class="act">${e.action}</span>
+      <span class="res" title="${e.resource}">${e.resource}</span>
+      <span class="dec ${e.decision.toLowerCase()}">${e.decision}</span>
+      <span class="reason">${e.roleId} · ${e.reason}</span>
+    </div>`
+  ).join('');
+}
+
+function setWorkflowStatus(text, cls='') {
+  const el = document.getElementById('workflow-status');
+  el.textContent = text;
+  el.className = cls;
+}
+
+function showToast(msg, kind='allow') {
+  const t = document.createElement('div');
+  t.className = `toast ${kind}`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+// ----------- Workflow execution -----------
+async function runWorkflow(taskId) {
+  if (workflowRunning) return;
+  workflowRunning = true;
+
+  const btn = document.getElementById('btn-run-workflow');
+  btn.disabled = true;
+
+  const workflows = {
+    T001: { name: '新進教師報到流程', actor: 'HR_DIRECTOR', steps: [
+      { label: '驗證應徵文件', rbac:{action:'read', resource:'employee'}, stateChange:false },
+      { label: '建立 Google Calendar 迎新會', rbac:{action:'create', resource:'calendar'}, stateChange:true, sideEffect: 'createEvent' },
+      { label: '通知用人單位主管', rbac:{action:'execute', resource:'workflow'}, stateChange:true },
+      { label: '歸檔至人事系統', rbac:{action:'update', resource:'employee'}, stateChange:true },
+    ]},
+    T002: { name: '差勤審核批次處理', actor: 'DEPT_MANAGER', steps: [
+      { label: '讀取待審假單', rbac:{action:'read', resource:'leave'}, stateChange:false },
+      { label: '批次核准/退回', rbac:{action:'approve', resource:'leave', scope:'dept'}, stateChange:true },
+      { label: '同步至個人行事曆', rbac:{action:'create', resource:'calendar', scope:'dept'}, stateChange:true, sideEffect: 'createEvent' },
+      { label: '產生審核報告', rbac:{action:'execute', resource:'workflow', scope:'dept'}, stateChange:true },
+    ]},
+    T003: { name: '加班補休核銷', actor: 'HR_DIRECTOR', steps: [
+      { label: '撈取本月加班時數', rbac:{action:'read', resource:'employee'}, stateChange:false },
+      { label: '計算應補休時數', rbac:{action:'read', resource:'audit'}, stateChange:false },
+      { label: '建立補休行事曆事件', rbac:{action:'create', resource:'calendar'}, stateChange:true, sideEffect: 'createEvent' },
+      { label: '通知薪資系統', rbac:{action:'execute', resource:'workflow'}, stateChange:true },
+    ]},
+  };
+
+  const wf = workflows[taskId];
+  if (!wf) {
+    setWorkflowStatus('未知任務', 'failed');
+    workflowRunning = false;
+    btn.disabled = false;
+    return;
+  }
+
+  // 確認當前角色與任務期望演員一致
+  const roleMatch = currentRole === wf.actor;
+  if (!roleMatch) {
+    const check = rbacCheck(currentRole, 'execute', 'workflow', 'global', false);
+    setWorkflowStatus(`⚠ 角色不符 — 預期 ${wf.actor}, 當前 ${currentRole} (${check.decision})`, check.decision === 'ALLOW' ? 'running' : 'failed');
+    showToast(`角色不符: ${wf.actor} ≠ ${currentRole}`, 'deny');
+    workflowRunning = false;
+    btn.disabled = false;
+    return;
+  }
+
+  setWorkflowStatus(`執行中 — ${wf.name}`, 'running');
+
+  const stepEls = document.querySelectorAll(`#steps-${taskId} .step`);
+  stepEls.forEach(el => el.className = 'step');
+
+  for (let i = 0; i < wf.steps.length; i++) {
+    const step = wf.steps[i];
+    stepEls[i].classList.add('running');
+    await new Promise(r => setTimeout(r, 350));
+
+    const check = rbacCheck(currentRole, step.rbac.action, step.rbac.resource, step.rbac.scope || 'global', step.stateChange);
+
+    if (check.decision === 'DENY') {
+      stepEls[i].classList.remove('running');
+      stepEls[i].classList.add('failed');
+      setWorkflowStatus(`✗ 步驟 ${i+1} 拒絕: ${check.reason}`, 'failed');
+      showToast(`✗ 步驟 ${i+1} RBAC 拒絕`, 'deny');
+      workflowRunning = false;
+      btn.disabled = false;
+      return;
+    }
+
+    // 副作用: 建立 Calendar 事件
+    if (step.sideEffect === 'createEvent') {
+      const start = new Date(Date.now() + (i+2) * 86400000);
+      start.setHours(10, 0, 0, 0);
+      const end = new Date(start.getTime() + 60 * 60000);
+      calendarEvents.unshift({
+        id: 'evt_' + Math.random().toString(36).slice(2,10),
+        summary: `[${wf.name}] 自動建立`,
+        start, end, attendees: ['hr@school.tw'], status: 'confirmed'
+      });
+      renderCalendar();
+      showToast(`✓ Calendar 事件已建立`, 'allow');
+    }
+
+    stepEls[i].classList.remove('running');
+    stepEls[i].classList.add('done');
+    await new Promise(r => setTimeout(r, 150));
+  }
+
+  setWorkflowStatus(`✓ 已完成 — ${wf.name}`, 'done');
+  showToast(`✓ ${wf.name} 全部 ${wf.steps.length} 步驟通過 RBAC 校驗`, 'allow');
+  workflowRunning = false;
+  btn.disabled = false;
+}
+
+// ----------- Event wiring -----------
+document.querySelectorAll('.role-opt').forEach(el => {
+  el.addEventListener('click', () => {
+    currentRole = el.dataset.role;
+    document.getElementById('role-selector').value = currentRole;
+    renderRolePicker();
+    renderPermMatrix();
+  });
+});
+
+document.getElementById('role-selector').addEventListener('change', e => {
+  currentRole = e.target.value;
+  renderRolePicker();
+  renderPermMatrix();
+});
+
+document.getElementById('btn-run-workflow').addEventListener('click', () => runWorkflow('T001'));
+
+document.getElementById('btn-reset').addEventListener('click', () => {
+  auditLog = [];
+  workflowRunning = false;
+  document.querySelectorAll('.step').forEach(el => el.className = 'step');
+  document.getElementById('btn-run-workflow').disabled = false;
+  setWorkflowStatus('待命中 — 點擊「啟動 T001」開始');
+  renderAudit();
+});
+
+document.querySelectorAll('.denial-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const [resource, action] = btn.dataset.test.split(':');
+    const isStateChange = ['create','update','delete','approve','execute','reject','submit'].includes(action);
+    const check = rbacCheck(currentRole, action, resource, 'global', isStateChange);
+    showToast(`${check.decision} · ${check.reason}`, check.decision === 'ALLOW' ? 'allow' : 'deny');
+  });
+});
+
+// ----------- Init -----------
+seedCalendar();
+renderRolePicker();
+renderPermMatrix();
+renderCalendar();
+renderAudit();
+setWorkflowStatus('待命中 — 點擊「啟動 T001」開始');
+// 寫入初始 audit 記錄 (證明 stream 運作)
+rbacCheck('SYSTEM', 'init', 'session', 'global', false);
+auditLog.shift();   // 不顯示這個內部初始化
+</script>
+
+</body>
+</html>

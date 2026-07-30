@@ -1,0 +1,1752 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>人事案件動態工作流引擎｜React Flow + 狀態機 + 條件分支 + 並行閘道 + 執行模擬</title>
+<style>
+  /* ============================================================
+   * CSS - 深色工程師儀表板配色
+   * ============================================================ */
+  :root {
+    --bg: #0a0f1c;
+    --bg-2: #0f172a;
+    --panel: #131e36;
+    --panel-2: #1a2843;
+    --panel-3: #243456;
+    --line: #2c3e69;
+    --line-2: #3d528a;
+    --ink: #e8eef9;
+    --ink-2: #b8c5e0;
+    --muted: #6b7d9e;
+    --accent: #5da9ff;
+    --accent-2: #7dd3fc;
+    --ok: #22c55e;
+    --ok-2: #4ade80;
+    --warn: #f59e0b;
+    --danger: #ef4444;
+    --purple: #c084fc;
+    --cyan: #38bdf8;
+    --pink: #f472b6;
+    --amber: #fbbf24;
+    --teal: #2dd4bf;
+    --rose: #fb7185;
+    --indigo: #818cf8;
+    /* 節點狀態 */
+    --st-draft: #6b7280;
+    --st-pending: #fbbf24;
+    --st-reviewing: #38bdf8;
+    --st-approved: #22c55e;
+    --st-rejected: #ef4444;
+    --st-archived: #a78bfa;
+    --st-revision: #f472b6;
+    --st-skipped: #475569;
+    --st-running: #5da9ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft JhengHei", "PingFang TC", Roboto, sans-serif;
+    background: linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
+    color: var(--ink);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  #root { height: 100vh; width: 100vw; }
+  button { font-family: inherit; }
+
+  /* ============ Layout ============ */
+  .app {
+    display: grid;
+    grid-template-columns: 300px 1fr 380px;
+    grid-template-rows: 60px 1fr 30px;
+    height: 100vh;
+  }
+  .topbar {
+    grid-column: 1 / -1;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 18px;
+    background: rgba(10, 15, 28, 0.92);
+    border-bottom: 1px solid var(--line);
+    backdrop-filter: blur(10px);
+    z-index: 10;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 14px; letter-spacing: 0.5px; }
+  .brand .logo {
+    width: 28px; height: 28px; border-radius: 7px;
+    background: linear-gradient(135deg, var(--accent), var(--indigo));
+    display: flex; align-items: center; justify-content: center;
+    color: white; font-size: 14px; font-weight: 800;
+    box-shadow: 0 0 16px rgba(93, 169, 255, 0.45);
+  }
+  .brand .sub { color: var(--muted); font-weight: 500; font-size: 11px; margin-left: 6px; }
+  .brand .ver { color: var(--accent-2); font-weight: 600; font-size: 10px; margin-left: 8px; padding: 1px 6px; border: 1px solid var(--accent-2); border-radius: 4px; }
+
+  .top-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .pill {
+    padding: 5px 10px; border-radius: 999px; font-size: 11px;
+    background: var(--panel); border: 1px solid var(--line); color: var(--ink-2);
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .pill.ok { background: rgba(34, 197, 94, 0.12); color: var(--ok); border-color: rgba(34, 197, 94, 0.35); }
+  .pill.warn { background: rgba(245, 158, 11, 0.12); color: var(--warn); border-color: rgba(245, 158, 11, 0.35); }
+  .pill.info { background: rgba(93, 169, 255, 0.12); color: var(--accent); border-color: rgba(93, 169, 255, 0.35); }
+  .pill.pulse { animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+  .btn {
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+    padding: 7px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
+    transition: all 0.15s; display: inline-flex; align-items: center; gap: 5px;
+  }
+  .btn:hover { background: var(--panel-2); border-color: var(--accent); }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #0a0f1c; font-weight: 600; }
+  .btn.primary:hover { background: #7ab9ff; border-color: #7ab9ff; }
+  .btn.danger { color: var(--danger); border-color: rgba(239, 68, 68, 0.4); }
+  .btn.danger:hover { background: rgba(239, 68, 68, 0.15); }
+  .btn.success { color: var(--ok); border-color: rgba(34, 197, 94, 0.4); }
+  .btn.success:hover { background: rgba(34, 197, 94, 0.15); }
+  .btn.warn { color: var(--warn); border-color: rgba(245, 158, 11, 0.4); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn.tiny { padding: 3px 8px; font-size: 11px; }
+
+  /* ============ Sidebars ============ */
+  .side {
+    background: var(--panel);
+    overflow-y: auto;
+    padding: 14px;
+    border-right: 1px solid var(--line);
+  }
+  .side.right { border-right: none; border-left: 1px solid var(--line); }
+  .side h3 {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 1.4px;
+    color: var(--muted); margin: 0 0 10px; font-weight: 700;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .side h4 { font-size: 13px; margin: 18px 0 8px; color: var(--ink-2); font-weight: 600; }
+  .kbd { font-family: ui-monospace, monospace; padding: 1px 5px; background: var(--panel-3); border-radius: 3px; font-size: 10px; color: var(--accent-2); }
+  .divider { height: 1px; background: var(--line); margin: 14px 0; }
+
+  /* ============ Role Cards ============ */
+  .role-card {
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px; margin-bottom: 6px; cursor: pointer;
+    background: var(--panel-2);
+    transition: all 0.15s;
+  }
+  .role-card:hover { border-color: var(--accent); }
+  .role-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: rgba(93, 169, 255, 0.08); }
+  .role-card .role-name { font-weight: 600; display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .role-card .role-perms { font-size: 10px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+  .badge {
+    display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+    box-shadow: 0 0 8px currentColor;
+  }
+  .badge.hr { background: var(--purple); color: var(--purple); }
+  .badge.dh { background: var(--cyan); color: var(--cyan); }
+  .badge.chief { background: var(--amber); color: var(--amber); }
+  .badge.staff { background: var(--teal); color: var(--teal); }
+
+  /* ============ Palette ============ */
+  .palette-cat {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--muted); margin: 12px 0 6px; font-weight: 700;
+  }
+  .palette-cat:first-child { margin-top: 0; }
+  .palette-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; margin-bottom: 5px;
+    border: 1px dashed var(--line); border-radius: 6px;
+    background: var(--panel-2); cursor: grab;
+    font-size: 12px;
+    transition: all 0.15s;
+  }
+  .palette-item:hover { border-color: var(--accent); border-style: solid; background: var(--panel-3); }
+  .palette-item .ic { font-size: 14px; }
+  .palette-item .meta { display: flex; flex-direction: column; flex: 1; }
+  .palette-item .meta small { font-size: 9px; color: var(--muted); }
+  .palette-item .lock { margin-left: auto; font-size: 10px; color: var(--muted); }
+  .palette-item.locked { opacity: 0.4; cursor: not-allowed; }
+
+  /* ============ Template Cards ============ */
+  .tpl-card {
+    border: 1px solid var(--line); border-radius: 7px;
+    padding: 9px 11px; margin-bottom: 6px; cursor: pointer;
+    background: var(--panel-2);
+    transition: all 0.15s;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .tpl-card:hover { border-color: var(--accent); background: var(--panel-3); }
+  .tpl-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .tpl-card .ic { font-size: 18px; }
+  .tpl-card .meta { display: flex; flex-direction: column; flex: 1; }
+  .tpl-card .title { font-weight: 600; font-size: 12px; }
+  .tpl-card .desc { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+  /* ============ Canvas ============ */
+  .canvas-wrap {
+    position: relative;
+    background:
+      radial-gradient(circle at 20% 20%, rgba(93, 169, 255, 0.06), transparent 45%),
+      radial-gradient(circle at 80% 70%, rgba(129, 140, 248, 0.05), transparent 45%);
+  }
+  .canvas-toolbar {
+    position: absolute; top: 14px; left: 14px; z-index: 5;
+    display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  .canvas-toolbar .pill { background: rgba(10, 15, 28, 0.85); backdrop-filter: blur(6px); }
+  .canvas-toolbar .btn { background: rgba(10, 15, 28, 0.85); backdrop-filter: blur(6px); }
+
+  /* ============ React Flow 節點 ============ */
+  .rf-node {
+    background: var(--panel-2);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    min-width: 220px;
+    max-width: 280px;
+    font-size: 12px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+    transition: all 0.15s;
+  }
+  .rf-node:hover { border-color: var(--accent); }
+  .rf-node.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(93, 169, 255, 0.4), 0 4px 14px rgba(0,0,0,0.35); }
+  .rf-node.locked { opacity: 0.55; cursor: not-allowed; }
+  .rf-node.executing { animation: glowExecuting 1.6s ease-in-out infinite; }
+  @keyframes glowExecuting {
+    0%, 100% { box-shadow: 0 0 0 1px var(--ok), 0 0 18px rgba(34, 197, 94, 0.4); }
+    50% { box-shadow: 0 0 0 2px var(--ok), 0 0 26px rgba(34, 197, 94, 0.7); }
+  }
+
+  .rf-node.kind-start { border-left: 4px solid var(--ok); }
+  .rf-node.kind-end { border-left: 4px solid var(--danger); }
+  .rf-node.kind-decision { border-left: 4px solid var(--warn); }
+  .rf-node.kind-approve { border-left: 4px solid var(--accent); }
+  .rf-node.kind-notify { border-left: 4px solid var(--teal); }
+  .rf-node.kind-archive { border-left: 4px solid var(--purple); }
+  .rf-node.kind-review { border-left: 4px solid var(--cyan); }
+  .rf-node.kind-supplement { border-left: 4px solid var(--pink); }
+  .rf-node.kind-parallel { border-left: 4px solid var(--indigo); }
+  .rf-node.kind-join { border-left: 4px solid var(--indigo); }
+  .rf-node.kind-timer { border-left: 4px solid var(--amber); }
+
+  .rf-node .head { font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; font-size: 13px; }
+  .rf-node .meta { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
+  .rf-node .meta-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  .rf-node .id-stamp {
+    position: absolute; top: -10px; left: 8px;
+    background: var(--panel); border: 1px solid var(--line);
+    padding: 1px 5px; border-radius: 4px;
+    font-family: ui-monospace, monospace; font-size: 9px; color: var(--muted);
+  }
+  .rf-node { position: relative; }
+
+  .status-chip {
+    display: inline-block; padding: 2px 7px; border-radius: 999px;
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .status-chip.st-draft { background: rgba(107, 114, 128, 0.2); color: var(--st-draft); }
+  .status-chip.st-pending { background: rgba(251, 191, 36, 0.18); color: var(--st-pending); }
+  .status-chip.st-reviewing { background: rgba(56, 189, 248, 0.18); color: var(--st-reviewing); }
+  .status-chip.st-approved { background: rgba(34, 197, 94, 0.18); color: var(--st-approved); }
+  .status-chip.st-rejected { background: rgba(239, 68, 68, 0.18); color: var(--st-rejected); }
+  .status-chip.st-archived { background: rgba(167, 139, 250, 0.18); color: var(--st-archived); }
+  .status-chip.st-revision { background: rgba(244, 114, 182, 0.18); color: var(--st-revision); }
+  .status-chip.st-skipped { background: rgba(71, 85, 105, 0.2); color: var(--st-skipped); }
+  .status-chip.st-running { background: rgba(93, 169, 255, 0.18); color: var(--st-running); }
+
+  .perm-chip {
+    display: inline-block; padding: 1px 6px; border-radius: 4px;
+    font-size: 10px; background: var(--panel-3); color: var(--ink-2);
+  }
+  .perm-chip.p-hr { background: rgba(192, 132, 252, 0.18); color: var(--purple); }
+  .perm-chip.p-dh { background: rgba(56, 189, 248, 0.18); color: var(--cyan); }
+  .perm-chip.p-chief { background: rgba(251, 191, 36, 0.18); color: var(--amber); }
+  .perm-chip.p-staff { background: rgba(45, 212, 191, 0.18); color: var(--teal); }
+
+  .sla {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10px; font-family: ui-monospace, monospace;
+    padding: 2px 6px; border-radius: 4px;
+    background: var(--bg); border: 1px solid var(--line);
+  }
+  .sla.urgent { color: var(--danger); border-color: var(--danger); animation: blink 1.5s ease-in-out infinite; }
+  .sla.warning { color: var(--warn); border-color: var(--warn); }
+  .sla.ok { color: var(--ok); border-color: rgba(34, 197, 94, 0.4); }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+  /* 條件運算式顯示 */
+  .cond-box {
+    margin-top: 6px; padding: 4px 7px;
+    background: var(--bg); border: 1px dashed var(--warn);
+    border-radius: 4px; font-family: ui-monospace, monospace;
+    font-size: 10px; color: var(--warn);
+  }
+  .cond-box::before { content: "🔀 IF "; font-weight: 700; }
+
+  /* 計時器顯示 */
+  .timer-box {
+    margin-top: 6px; padding: 4px 7px;
+    background: var(--bg); border: 1px dashed var(--amber);
+    border-radius: 4px; font-size: 10px; color: var(--amber);
+    font-family: ui-monospace, monospace;
+  }
+  .timer-box::before { content: "⏲ "; font-weight: 700; }
+
+  /* ============ React Flow 邊 ============ */
+  .react-flow__edge-path { stroke: var(--accent); stroke-width: 2; }
+  .react-flow__edge.selected .react-flow__edge-path { stroke: var(--accent-2); stroke-width: 3; }
+  .react-flow__edge.edge-rejected .react-flow__edge-path { stroke: var(--danger); stroke-dasharray: 6 4; }
+  .react-flow__edge.edge-revision .react-flow__edge-path { stroke: var(--pink); stroke-dasharray: 4 3; }
+  .react-flow__edge.edge-approved .react-flow__edge-path { stroke: var(--ok); stroke-width: 3; }
+  .react-flow__edge.edge-default .react-flow__edge-path { stroke: var(--muted); stroke-dasharray: 2 2; }
+  .react-flow__edge.edge-active .react-flow__edge-path { stroke: var(--ok); stroke-width: 3; filter: drop-shadow(0 0 4px var(--ok)); }
+  .react-flow__edge-text { fill: var(--ink); font-size: 10px; font-weight: 600; }
+  .react-flow__edge-textbg { fill: var(--panel); }
+
+  .react-flow__handle { background: var(--accent); border: 2px solid var(--bg); width: 10px; height: 10px; }
+  .react-flow__handle:hover { background: var(--accent-2); }
+
+  .react-flow__controls { background: var(--panel); border: 1px solid var(--line); box-shadow: 0 2px 10px rgba(0,0,0,0.35); }
+  .react-flow__controls button { background: var(--panel); color: var(--ink); border-bottom: 1px solid var(--line); }
+  .react-flow__controls button:hover { background: var(--panel-2); }
+  .react-flow__attribution { background: transparent !important; color: var(--muted) !important; font-size: 9px !important; }
+
+  /* ============ Inspector ============ */
+  .insp-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 0; border-bottom: 1px solid var(--line);
+    font-size: 12px; gap: 8px;
+  }
+  .insp-row:last-child { border-bottom: none; }
+  .insp-row .label { color: var(--muted); font-size: 11px; flex-shrink: 0; }
+  .insp-row .value { font-weight: 500; text-align: right; word-break: break-all; }
+  .insp-section { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .insp-input, .insp-select, .insp-textarea {
+    width: 100%; background: var(--bg); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 4px;
+    padding: 6px 8px; margin-top: 4px; font-size: 12px;
+    font-family: inherit;
+  }
+  .insp-textarea { resize: vertical; min-height: 56px; font-family: ui-monospace, monospace; font-size: 11px; }
+  .insp-input:focus, .insp-select:focus, .insp-textarea:focus { outline: none; border-color: var(--accent); }
+  .insp-input:disabled, .insp-select:disabled, .insp-textarea:disabled { opacity: 0.5; cursor: not-allowed; }
+  .insp-label { font-size: 10px; color: var(--muted); margin-top: 10px; display: block; text-transform: uppercase; letter-spacing: 0.6px; font-weight: 700; }
+  .insp-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+
+  /* ============ Stats ============ */
+  .stats-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+    margin-bottom: 12px;
+  }
+  .stat-card {
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 8px 10px; background: var(--panel-2);
+  }
+  .stat-card .l { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; }
+  .stat-card .v { font-size: 18px; font-weight: 700; color: var(--accent); margin-top: 2px; font-family: ui-monospace, monospace; }
+  .stat-card .v.danger { color: var(--danger); }
+  .stat-card .v.ok { color: var(--ok); }
+  .stat-card .v.warn { color: var(--warn); }
+
+  /* ============ Logs ============ */
+  .log {
+    margin-top: 8px; padding: 8px 10px;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11px; color: var(--ink-2);
+    max-height: 200px; overflow-y: auto;
+  }
+  .log .l-ok { color: var(--ok); }
+  .log .l-warn { color: var(--warn); }
+  .log .l-err { color: var(--danger); }
+  .log .l-info { color: var(--ink-2); }
+  .log .l-deco { color: var(--accent-2); }
+  .log .l-engine { color: var(--purple); }
+  .log::-webkit-scrollbar { width: 8px; }
+  .log::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+
+  /* ============ Toast ============ */
+  .toast-host { position: fixed; top: 70px; right: 18px; z-index: 1000; display: flex; flex-direction: column; gap: 6px; max-width: 380px; }
+  .toast {
+    padding: 9px 14px; border-radius: 7px; font-size: 12px;
+    color: white; box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+    animation: slideIn 0.25s ease;
+  }
+  .toast.ok { background: var(--ok); }
+  .toast.warn { background: var(--warn); }
+  .toast.err { background: var(--danger); }
+  .toast.info { background: var(--accent); color: #0a0f1c; }
+  .toast.engine { background: var(--purple); }
+  @keyframes slideIn { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+  /* ============ Footer ============ */
+  .statusbar {
+    grid-column: 1 / -1;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 16px; background: var(--bg);
+    border-top: 1px solid var(--line);
+    font-size: 10px; color: var(--muted);
+    font-family: ui-monospace, monospace;
+    gap: 12px;
+  }
+  .statusbar .legend { display: flex; gap: 12px; flex-wrap: wrap; }
+  .statusbar .legend .item { display: flex; align-items: center; gap: 4px; }
+  .statusbar .sw { width: 12px; height: 3px; border-radius: 2px; }
+
+  /* ============ Modal ============ */
+  .modal-host { position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: 999; display: flex; align-items: center; justify-content: center; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 22px; min-width: 440px; max-width: 580px;
+    box-shadow: 0 16px 50px rgba(0,0,0,0.55);
+  }
+  .modal h3 { margin: 0 0 14px; font-size: 16px; color: var(--ink); }
+  .modal-row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+
+  /* ============ Misc ============ */
+  .empty-hint { color: var(--muted); font-size: 11px; padding: 8px 0; text-align: center; }
+  .section-title {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 1.4px;
+    color: var(--muted); margin: 14px 0 8px; font-weight: 700;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .section-title:first-child { margin-top: 0; }
+  .right-tabs {
+    display: flex; gap: 4px; margin-bottom: 10px; border-bottom: 1px solid var(--line);
+  }
+  .right-tab {
+    padding: 6px 10px; font-size: 11px; cursor: pointer;
+    border-bottom: 2px solid transparent;
+    color: var(--muted); transition: all 0.15s;
+  }
+  .right-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .right-tab:hover { color: var(--ink-2); }
+
+  /* ============ Scrollbar ============ */
+  .side::-webkit-scrollbar { width: 8px; }
+  .side::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+  .side::-webkit-scrollbar-thumb:hover { background: var(--line-2); }
+
+  /* ============ Reduced Motion ============ */
+  @media (prefers-reduced-motion: reduce) {
+    .rf-node.executing { animation: none; }
+    .sla.urgent { animation: none; }
+    .pill.pulse { animation: none; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<div class="toast-host" id="toast-host"></div>
+
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+<script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css" />
+
+<script type="text/babel" data-presets="env,react">
+// ===============================================================
+// ReactFlow UMD 解構
+// ===============================================================
+const { useState, useEffect, useMemo, useCallback, useRef, createContext, useContext } = React;
+const RF = window.ReactFlow;
+const {
+  ReactFlow, ReactFlowProvider, Background, Controls, MiniMap,
+  useNodesState, useEdgesState, addEdge, applyNodeChanges, applyEdgeChanges,
+  Handle, Position, MarkerType, ConnectionMode,
+} = RF;
+
+// ===============================================================
+// 1) 領域定義 — 角色 RBAC / 案件類型 / 節點類型 / 狀態 / 邊分類
+// ===============================================================
+
+const ROLE_DEFS = {
+  hr:     { label: '人事承辦人', badge: 'hr',     desc: '受理、審查、通知、歸檔',
+           perms: { view: 1, edit: 1, approve: 0, dispatch: 1, archive: 1, reject: 1, redo: 1, timer: 1, branch: 1 } },
+  dh:     { label: '單位主管',   badge: 'dh',     desc: '分派、簽核、退件',
+           perms: { view: 1, edit: 1, approve: 1, dispatch: 1, archive: 0, reject: 1, redo: 1, timer: 1, branch: 0 } },
+  chief:  { label: '機關首長',   badge: 'chief',  desc: '最終簽核、退件',
+           perms: { view: 1, edit: 0, approve: 1, dispatch: 0, archive: 0, reject: 1, redo: 1, timer: 0, branch: 0 } },
+  staff:  { label: '一般職員',   badge: 'staff',  desc: '僅可檢視',
+           perms: { view: 1, edit: 0, approve: 0, dispatch: 0, archive: 0, reject: 0, redo: 0, timer: 0, branch: 0 } },
+};
+
+const CASE_TYPES = {
+  leave:        { label: '請假案件',     sla: 24,  parallel: false },
+  transfer:     { label: '調職案件',     sla: 72,  parallel: true  },
+  promotion:    { label: '陞遷案件',     sla: 168, parallel: true  },
+  retire:       { label: '退休案件',     sla: 336, parallel: false },
+  complaint:    { label: '申訴案件',     sla: 168, parallel: true  },
+  recruit:      { label: '新進報到',     sla: 48,  parallel: true  },
+  certificate:  { label: '在職證明',     sla: 24,  parallel: false },
+};
+
+// 完整節點類型（11 種,含動態工作流需要的進階節點）
+const NODE_DEFS = {
+  start:       { kind: 'start',     label: '案件起案',  icon: '🟢', role: 'hr',    category: '起訖',   desc: '流程起點', permKey: 'edit',    isExec: false },
+  intake:      { kind: 'intake',    label: '案件受理',  icon: '📥', role: 'hr',    category: '分派',   desc: '登錄案件、檢查附件', permKey: 'edit', isExec: true },
+  dispatch:    { kind: 'dispatch',  label: '分派承辦',  icon: '📋', role: 'dh',    category: '分派',   desc: '依案件性質分派', permKey: 'dispatch', isExec: true },
+  review:      { kind: 'review',    label: '審查/查證', icon: '🔍', role: 'hr',    category: '審查',   desc: '審查申請內容、法規適用、附件', permKey: 'edit', isExec: true },
+  supplement:  { kind: 'supplement',label: '補件要求',  icon: '✍️', role: 'hr',    category: '審查',   desc: '要求申請人補件', permKey: 'edit', isExec: true },
+  redo:        { kind: 'redo',      label: '重審',      icon: '🔄', role: 'dh',    category: '審查',   desc: '補件後重新進入審查', permKey: 'redo', isExec: true },
+  decision:    { kind: 'decision',  label: '條件分流',  icon: '🔀', role: 'system',category: '決策',   desc: '依條件運算式分流', permKey: 'branch', isExec: true, advanced: true },
+  parallel:    { kind: 'parallel',  label: '並行閘道',  icon: '⇉',  role: 'system',category: '決策',   desc: '同時啟動多個分支', permKey: 'branch', isExec: true, advanced: true },
+  join:        { kind: 'join',      label: '匯聚閘道',  icon: '⇇',  role: 'system',category: '決策',   desc: '等待所有分支完成', permKey: 'branch', isExec: true, advanced: true },
+  timer:       { kind: 'timer',     label: '計時器',    icon: '⏲',  role: 'system',category: '控制',   desc: '延遲 N 小時後繼續', permKey: 'timer', isExec: true, advanced: true },
+  approve:     { kind: 'approve',   label: '主管簽核',  icon: '✅', role: 'chief', category: '簽核',   desc: '單位主管或首長簽核', permKey: 'approve', isExec: true },
+  reject:      { kind: 'reject',    label: '退件處理',  icon: '❌', role: 'chief', category: '簽核',   desc: '退件並通知申請人', permKey: 'reject', isExec: true },
+  notify:      { kind: 'notify',    label: '通知當事人',icon: '🔔', role: 'hr',    category: '通知',   desc: '發送結果通知', permKey: 'edit', isExec: true },
+  archive:     { kind: 'archive',   label: '歸檔入庫',  icon: '🗄️', role: 'hr',    category: '歸檔',   desc: '歸入人事系統', permKey: 'archive', isExec: true },
+  end:         { kind: 'end',       label: '案件結案',  icon: '🔴', role: 'system',category: '起訖',   desc: '流程終點', permKey: 'view', isExec: false },
+};
+
+const PALETTE_CATEGORIES = ['起訖', '分派', '審查', '決策', '控制', '簽核', '通知', '歸檔'];
+
+// 案件狀態（含動態執行用 running / skipped）
+const STATUS_DEFS = {
+  draft:      { label: '草稿',     color: 'st-draft',     next: ['pending'] },
+  pending:    { label: '待執行',   color: 'st-pending',   next: ['running', 'skipped'] },
+  running:    { label: '執行中',   color: 'st-running',   next: ['reviewing', 'approved', 'rejected', 'revision', 'skipped'] },
+  reviewing:  { label: '審查中',   color: 'st-reviewing', next: ['approved', 'rejected', 'revision', 'running'] },
+  revision:   { label: '補件中',   color: 'st-revision',  next: ['pending', 'rejected'] },
+  approved:   { label: '已核准',   color: 'st-approved',   next: ['archived'] },
+  rejected:   { label: '已退件',   color: 'st-rejected',   next: ['archived'] },
+  archived:   { label: '已歸檔',   color: 'st-archived',   next: [] },
+  skipped:    { label: '已跳過',   color: 'st-skipped',    next: [] },
+};
+
+// 邊分類
+const EDGE_KINDS = {
+  normal:     { label: '正常流向', color: null,             dash: null,        cls: '' },
+  approved:   { label: '核准',     color: 'edge-approved', dash: null,        cls: 'edge-approved' },
+  rejected:   { label: '退件',     color: 'edge-rejected', dash: '6 4',       cls: 'edge-rejected' },
+  revision:   { label: '補件',     color: 'edge-revision', dash: '4 3',       cls: 'edge-revision' },
+  default:    { label: '預設',     color: 'edge-default',  dash: '2 2',       cls: 'edge-default' },
+};
+
+// ===============================================================
+// 2) 流程範本（內建 4 個真實 HR 流程,含進階節點）
+// ===============================================================
+
+const TEMPLATES = {
+  leave: {
+    label: '請假案件', icon: '🌴', sla: 24, parallel: false,
+    desc: '一般請假 — 受理→分派→審查→簽核→通知→歸檔（最常見流程）',
+    nodes: [
+      { id: 'L1',  kind: 'start',     label: '起案',                  x: 60,   y: 240 },
+      { id: 'L2',  kind: 'intake',    label: '受理 — 檢查附件',       x: 300,  y: 240 },
+      { id: 'L3',  kind: 'dispatch',  label: '分派單位主管',          x: 540,  y: 240 },
+      { id: 'L4',  kind: 'review',    label: '審查假別計算',          x: 780,  y: 240 },
+      { id: 'L5',  kind: 'supplement',label: '補件',                  x: 1020, y: 80,  cond: 'attachments < 3' },
+      { id: 'L6',  kind: 'decision',  label: '分流決策',              x: 1020, y: 400, cond: 'leave_days > 3 → 主任秘書核准\nleave_days ≤ 3 → 單位主管核准' },
+      { id: 'L7',  kind: 'redo',      label: '重審',                  x: 1260, y: 80 },
+      { id: 'L8',  kind: 'approve',   label: '單位主管核准',          x: 1500, y: 320 },
+      { id: 'L9',  kind: 'approve',   label: '主任秘書核准',          x: 1500, y: 480 },
+      { id: 'L10', kind: 'reject',    label: '退件',                  x: 1500, y: 160 },
+      { id: 'L11', kind: 'notify',    label: '通知當事人',            x: 1740, y: 380 },
+      { id: 'L12', kind: 'archive',   label: '歸檔入庫',              x: 1980, y: 380 },
+      { id: 'L13', kind: 'end',       label: '結案',                  x: 2220, y: 380 },
+    ],
+    edges: [
+      { from: 'L1',  to: 'L2',  kind: 'normal',    label: '送出' },
+      { from: 'L2',  to: 'L3',  kind: 'normal',    label: '附件齊備' },
+      { from: 'L3',  to: 'L4',  kind: 'normal',    label: '分派完成' },
+      { from: 'L4',  to: 'L5',  kind: 'revision',  label: '缺件', animated: true },
+      { from: 'L5',  to: 'L4',  kind: 'normal',    label: '補件完成' },
+      { from: 'L4',  to: 'L6',  kind: 'normal',    label: '審查通過' },
+      { from: 'L6',  to: 'L7',  kind: 'normal',    label: '需重審', animated: false },
+      { from: 'L7',  to: 'L4',  kind: 'normal',    label: '完成重審' },
+      { from: 'L6',  to: 'L8',  kind: 'approved',  label: '≤3天' },
+      { from: 'L6',  to: 'L9',  kind: 'approved',  label: '>3天', animated: true },
+      { from: 'L6',  to: 'L10', kind: 'rejected',  label: '不符規定' },
+      { from: 'L8',  to: 'L11', kind: 'normal',    label: '簽核完成' },
+      { from: 'L9',  to: 'L11', kind: 'normal',    label: '簽核完成' },
+      { from: 'L10', to: 'L11', kind: 'normal',    label: '退件通知' },
+      { from: 'L11', to: 'L12', kind: 'normal',    label: '通知完成' },
+      { from: 'L12', to: 'L13', kind: 'normal',    label: '歸檔完成' },
+    ],
+  },
+  recruit: {
+    label: '新進報到', icon: '🎒', sla: 48, parallel: true,
+    desc: '新進人員 — 起案後並行：人資+單位+資訊 3 條線同時進行',
+    nodes: [
+      { id: 'R1',  kind: 'start',    label: '起案',                       x: 60,   y: 360 },
+      { id: 'R2',  kind: 'intake',   label: '受理 — 報到文件',            x: 300,  y: 360 },
+      { id: 'R3',  kind: 'parallel', label: '並行 — 3 條線同時啟動',       x: 540,  y: 360, cond: 'fork: 人資建檔 / 單位準備 / 資訊開通' },
+      { id: 'R4',  kind: 'review',   label: '人資 — 建檔/勞健保',         x: 800,  y: 100 },
+      { id: 'R5',  kind: 'review',   label: '單位 — 環境/工作指派',        x: 800,  y: 360 },
+      { id: 'R6',  kind: 'review',   label: '資訊 — 帳號/Email',          x: 800,  y: 620 },
+      { id: 'R7',  kind: 'join',     label: '匯聚 — 等待 3 線完成',       x: 1080, y: 360, cond: 'join: 3/3 完成' },
+      { id: 'R8',  kind: 'decision', label: '分流 — 是否需試用期評核',     x: 1320, y: 360, cond: 'trial_required → 試用期流程\n否則 → 直接歸檔' },
+      { id: 'R9',  kind: 'timer',    label: '等待 — 試用期 90 天',         x: 1560, y: 200, cond: 'delay: 90d' },
+      { id: 'R10', kind: 'approve',  label: '試用期評核',                  x: 1800, y: 200 },
+      { id: 'R11', kind: 'notify',   label: '通知 — 報到完成',             x: 1560, y: 520 },
+      { id: 'R12', kind: 'archive',  label: '歸檔 — 人事主檔',             x: 1800, y: 520 },
+      { id: 'R13', kind: 'end',      label: '結案',                        x: 2040, y: 360 },
+    ],
+    edges: [
+      { from: 'R1',  to: 'R2',  kind: 'normal',   label: '送出' },
+      { from: 'R2',  to: 'R3',  kind: 'normal',   label: '文件齊備' },
+      { from: 'R3',  to: 'R4',  kind: 'normal',   label: '人資線' },
+      { from: 'R3',  to: 'R5',  kind: 'normal',   label: '單位線' },
+      { from: 'R3',  to: 'R6',  kind: 'normal',   label: '資訊線' },
+      { from: 'R4',  to: 'R7',  kind: 'normal',   label: '完成' },
+      { from: 'R5',  to: 'R7',  kind: 'normal',   label: '完成' },
+      { from: 'R6',  to: 'R7',  kind: 'normal',   label: '完成' },
+      { from: 'R7',  to: 'R8',  kind: 'normal',   label: '匯聚完成' },
+      { from: 'R8',  to: 'R9',  kind: 'normal',   label: '需試用期' },
+      { from: 'R9',  to: 'R10', kind: 'normal',   label: '到期' },
+      { from: 'R8',  to: 'R11', kind: 'approved', label: '不需試用期' },
+      { from: 'R10', to: 'R11', kind: 'normal',   label: '評核完成' },
+      { from: 'R11', to: 'R12', kind: 'normal',   label: '通知完成' },
+      { from: 'R10', to: 'R13', kind: 'normal',   label: '結案' },
+      { from: 'R12', to: 'R13', kind: 'normal',   label: '歸檔完成' },
+    ],
+  },
+  promotion: {
+    label: '陞遷案件', icon: '📈', sla: 168, parallel: true,
+    desc: '陞遷 — 並行審查（資歷+考核+單位推薦）→ 評審會 → 首長圈選',
+    nodes: [
+      { id: 'P1',  kind: 'start',    label: '起案',                       x: 60,   y: 320 },
+      { id: 'P2',  kind: 'intake',   label: '受理',                       x: 280,  y: 320 },
+      { id: 'P3',  kind: 'parallel', label: '並行 — 3 項審查',             x: 500,  y: 320, cond: 'fork: 資歷 / 考核 / 單位推薦' },
+      { id: 'P4',  kind: 'review',   label: '資歷審查',                    x: 740,  y: 100 },
+      { id: 'P5',  kind: 'review',   label: '考核分數',                    x: 740,  y: 320 },
+      { id: 'P6',  kind: 'review',   label: '單位推薦',                    x: 740,  y: 540 },
+      { id: 'P7',  kind: 'join',     label: '匯聚',                        x: 980,  y: 320, cond: 'join: 3/3 完成' },
+      { id: 'P8',  kind: 'approve',  label: '評審會決議',                  x: 1220, y: 320 },
+      { id: 'P9',  kind: 'decision', label: '分流',                        x: 1460, y: 320, cond: 'ranking ≤ 3 → 進入首長圈選\n否則 → 列備選' },
+      { id: 'P10', kind: 'approve',  label: '首長圈選',                    x: 1700, y: 200 },
+      { id: 'P11', kind: 'reject',   label: '列入備選',                    x: 1700, y: 440 },
+      { id: 'P12', kind: 'notify',   label: '通知當事人',                  x: 1940, y: 200 },
+      { id: 'P13', kind: 'archive',  label: '歸檔',                        x: 1940, y: 440 },
+      { id: 'P14', kind: 'end',      label: '結案',                        x: 2180, y: 320 },
+    ],
+    edges: [
+      { from: 'P1', to: 'P2', kind: 'normal', label: '送出' },
+      { from: 'P2', to: 'P3', kind: 'normal', label: '受理' },
+      { from: 'P3', to: 'P4', kind: 'normal', label: '資歷' },
+      { from: 'P3', to: 'P5', kind: 'normal', label: '考核' },
+      { from: 'P3', to: 'P6', kind: 'normal', label: '推薦' },
+      { from: 'P4', to: 'P7', kind: 'normal', label: '完成' },
+      { from: 'P5', to: 'P7', kind: 'normal', label: '完成' },
+      { from: 'P6', to: 'P7', kind: 'normal', label: '完成' },
+      { from: 'P7', to: 'P8', kind: 'normal', label: '匯聚' },
+      { from: 'P8', to: 'P9', kind: 'normal', label: '決議' },
+      { from: 'P9', to: 'P10', kind: 'approved', label: '前 3 名' },
+      { from: 'P9', to: 'P11', kind: 'rejected', label: '其餘' },
+      { from: 'P10', to: 'P12', kind: 'normal', label: '圈選完成' },
+      { from: 'P11', to: 'P13', kind: 'normal', label: '備選存檔' },
+      { from: 'P12', to: 'P14', kind: 'normal', label: '通知完成' },
+      { from: 'P13', to: 'P14', kind: 'normal', label: '歸檔完成' },
+    ],
+  },
+  complaint: {
+    label: '申訴案件', icon: '⚖️', sla: 168, parallel: false,
+    desc: '申訴 — 受理 → 調查 → 決議（必要時退回補正）→ 通知',
+    nodes: [
+      { id: 'C1', kind: 'start',     label: '起案',                 x: 60,   y: 280 },
+      { id: 'C2', kind: 'intake',    label: '受理',                 x: 300,  y: 280 },
+      { id: 'C3', kind: 'dispatch',  label: '分派調查小組',         x: 540,  y: 280 },
+      { id: 'C4', kind: 'review',    label: '調查事實',             x: 780,  y: 280 },
+      { id: 'C5', kind: 'timer',     label: '調查期 14 天',         x: 1020, y: 280, cond: 'delay: 14d' },
+      { id: 'C6', kind: 'decision',  label: '分流',                 x: 1260, y: 280, cond: 'evidence_sufficient → 決議\n否則 → 退回補正' },
+      { id: 'C7', kind: 'supplement',label: '退回補正',             x: 1020, y: 80,  cond: 'evidence < 3 項' },
+      { id: 'C8', kind: 'redo',      label: '重新調查',             x: 1260, y: 80 },
+      { id: 'C9', kind: 'approve',   label: '申訴委員會決議',       x: 1500, y: 280 },
+      { id: 'C10', kind: 'reject',   label: '申訴駁回',             x: 1500, y: 480 },
+      { id: 'C11', kind: 'notify',   label: '通知當事人',           x: 1740, y: 380 },
+      { id: 'C12', kind: 'archive',  label: '歸檔',                 x: 1980, y: 380 },
+      { id: 'C13', kind: 'end',      label: '結案',                 x: 2220, y: 380 },
+    ],
+    edges: [
+      { from: 'C1', to: 'C2',  kind: 'normal',    label: '送出' },
+      { from: 'C2', to: 'C3',  kind: 'normal',    label: '受理' },
+      { from: 'C3', to: 'C4',  kind: 'normal',    label: '分派' },
+      { from: 'C4', to: 'C5',  kind: 'normal',    label: '進行調查' },
+      { from: 'C5', to: 'C6',  kind: 'normal',    label: '到期' },
+      { from: 'C6', to: 'C7',  kind: 'revision',  label: '證據不足', animated: true },
+      { from: 'C7', to: 'C8',  kind: 'normal',    label: '補正' },
+      { from: 'C8', to: 'C5',  kind: 'normal',    label: '重啟調查' },
+      { from: 'C6', to: 'C9',  kind: 'approved',  label: '證據充分' },
+      { from: 'C6', to: 'C10', kind: 'rejected',  label: '申訴無理由' },
+      { from: 'C9', to: 'C11', kind: 'normal',    label: '決議完成' },
+      { from: 'C10', to: 'C11', kind: 'normal',    label: '駁回通知' },
+      { from: 'C11', to: 'C12', kind: 'normal',    label: '通知完成' },
+      { from: 'C12', to: 'C13', kind: 'normal',    label: '歸檔完成' },
+    ],
+  },
+};
+
+// 把範本展開成 nodes / edges（並補上預設 status、assignee、SLA 等）
+function expandTemplate(key) {
+  const tpl = TEMPLATES[key];
+  if (!tpl) return { nodes: [], edges: [] };
+  const slaHours = tpl.sla;
+  const nodes = tpl.nodes.map((n, i) => {
+    const def = NODE_DEFS[n.kind];
+    const needsSLA = def && def.isExec && (n.kind === 'intake' || n.kind === 'review' || n.kind === 'supplement' || n.kind === 'approve' || n.kind === 'dispatch');
+    return {
+      id: n.id, type: 'case',
+      position: { x: n.x, y: n.y },
+      data: {
+        kind: n.kind, label: n.label,
+        assignee: '',
+        caseId: `HR-${key.toUpperCase()}-${Date.now().toString().slice(-6)}-${i+1}`,
+        status: 'draft',
+        createdAt: Date.now(),
+        sla: needsSLA ? Math.min(slaHours, 24) : 0,
+        slaExpires: needsSLA ? Date.now() + Math.min(slaHours, 24) * 3600 * 1000 : null,
+        cond: n.cond || '',
+      },
+    };
+  });
+  const edges = tpl.edges.map((e, i) => ({
+    id: `e-${key}-${i}`, source: e.from, target: e.to,
+    kind: e.kind, label: e.label || '', animated: !!e.animated,
+  }));
+  return { nodes, edges };
+}
+
+// ===============================================================
+// 3) 極簡 Store（基於 useSyncExternalStore）
+// ===============================================================
+
+function createMiniStore(initializer) {
+  let state = initializer();
+  const initialState = state;
+  const listeners = new Set();
+
+  const setState = (updater) => {
+    const next = typeof updater === 'function' ? updater(state) : updater;
+    if (next == null) return;
+    const prev = state;
+    state = { ...state, ...next };
+    listeners.forEach(l => l(state, prev));
+  };
+  const getState = () => state;
+  const subscribe = (listener) => {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  };
+
+  const wrappedActions = {};
+  Object.keys(initialState).forEach(key => {
+    if (typeof initialState[key] === 'function') {
+      wrappedActions[key] = (...args) => {
+        const result = initialState[key](...args);
+        if (result && typeof result === 'object' && !Array.isArray(result) && Object.keys(result).length > 0 && typeof result.then !== 'function') {
+          setState(result);
+        }
+        return result;
+      };
+    }
+  });
+  state = { ...state, ...wrappedActions };
+
+  const useStore = (selector = (s) => s) => {
+    return React.useSyncExternalStore(
+      subscribe,
+      () => selector(state),
+      () => selector(state)
+    );
+  };
+  return { useStore, getState, setState, subscribe };
+}
+
+// 預設範例
+const { nodes: defaultNodes, edges: defaultEdges } = expandTemplate('leave');
+
+const storeApi = createMiniStore(() => ({
+  // 狀態
+  role: 'hr',
+  templateKey: 'leave',
+  nodes: defaultNodes,
+  edges: defaultEdges,
+  selectedId: null,
+  logs: [],
+  nowTick: Date.now(),
+  engineRunning: false,
+  engineSpeed: 800,
+  executingId: null,
+  varContext: { attachments: 5, leave_days: 2, ranking: 0, evidence: 4, trial_required: true },
+
+  // 純 setter
+  setRole: (role) => ({ role }),
+  setTemplateKey: (k) => ({ templateKey: k }),
+  setNodes: (updater) => ({ nodes: typeof updater === 'function' ? updater(__store.getState().nodes) : updater }),
+  setEdges: (updater) => ({ edges: typeof updater === 'function' ? updater(__store.getState().edges) : updater }),
+  setSelectedId: (id) => ({ selectedId: id }),
+  setVar: (k, v) => ({ varContext: { ...__store.getState().varContext, [k]: v } }),
+  tickNow: () => ({ nowTick: Date.now() }),
+  setEngineRunning: (v) => ({ engineRunning: v }),
+  setEngineSpeed: (s) => ({ engineSpeed: s }),
+  setExecutingId: (id) => ({ executingId: id }),
+
+  // === 拖曳新增節點 ===
+  addNode: (kind, position) => {
+    const role = __store.getState().role;
+    const def = NODE_DEFS[kind];
+    if (!def) return { ok: false, msg: `未知的節點類型：${kind}` };
+    const canAdd = hasPerm(role, def.permKey) || role === 'system';
+    if (!canAdd) {
+      logAction(__store.getState().logs, '權限不足', `${ROLE_DEFS[role].label} 無法新增 ${def.label}`, 'err');
+      return { ok: false, msg: `角色 ${ROLE_DEFS[role].label} 沒有「${permLabel(def.permKey)}」權限` };
+    }
+    const id = `N${Date.now().toString().slice(-8)}`;
+    const needsSLA = def.isExec && ['intake','review','supplement','approve','dispatch'].includes(kind);
+    const sla = needsSLA ? 24 : 0;
+    const node = {
+      id, type: 'case', position,
+      data: {
+        kind, label: def.label, assignee: '',
+        caseId: `HR-NEW-${id}`,
+        status: 'draft',
+        createdAt: Date.now(),
+        sla, slaExpires: sla > 0 ? Date.now() + sla * 3600 * 1000 : null,
+        cond: def.advanced ? '' : '',
+      },
+    };
+    const cur = __store.getState();
+    logAction(cur.logs, '已新增節點', `${def.label}（${id}）`, 'ok');
+    return { ok: true, nodes: [...cur.nodes, node], selectedId: id };
+  },
+
+  // === 編輯節點 ===
+  updateNodeData: (id, patch) => {
+    const role = __store.getState().role;
+    const node = __store.getState().nodes.find(n => n.id === id);
+    if (!node) return { ok: false, msg: '節點不存在' };
+    const def = NODE_DEFS[node.data.kind];
+    if (!hasPerm(role, def.permKey) && (patch.label !== undefined || patch.assignee !== undefined)) {
+      return { ok: false, msg: `角色 ${ROLE_DEFS[role].label} 無權限編輯此節點` };
+    }
+    const cur = __store.getState();
+    return {
+      ok: true,
+      nodes: cur.nodes.map(n => n.id === id ? { ...n, data: { ...n.data, ...patch } } : n),
+    };
+  },
+
+  changeStatus: (id, newStatus) => {
+    const role = __store.getState().role;
+    const node = __store.getState().nodes.find(n => n.id === id);
+    if (!node) return { ok: false, msg: '節點不存在' };
+    if (!STATUS_DEFS[newStatus]) return { ok: false, msg: `未知狀態：${newStatus}` };
+    const valid = STATUS_DEFS[node.data.status].next;
+    if (!valid.includes(newStatus) && node.data.status !== newStatus) {
+      return { ok: false, msg: `狀態 ${STATUS_DEFS[node.data.status].label} 不能直接轉為 ${STATUS_DEFS[newStatus].label}` };
+    }
+    if (!hasPerm(role, 'edit') && newStatus !== 'skipped') return { ok: false, msg: '角色無權限變更狀態' };
+    const fromStatus = node.data.status;
+    const cur = __store.getState();
+    logAction(cur.logs, '狀態變更', `${node.data.label}: ${STATUS_DEFS[fromStatus].label} → ${STATUS_DEFS[newStatus].label}`, 'deco');
+    return {
+      ok: true,
+      nodes: cur.nodes.map(n => n.id === id ? { ...n, data: { ...n.data, status: newStatus } } : n),
+    };
+  },
+
+  removeNode: (id) => {
+    const role = __store.getState().role;
+    const node = __store.getState().nodes.find(n => n.id === id);
+    if (!node) return { ok: false, msg: '節點不存在' };
+    const def = NODE_DEFS[node.data.kind];
+    if (def && !hasPerm(role, def.permKey)) return { ok: false, msg: '角色無權限刪除此節點' };
+    const cur = __store.getState();
+    logAction(cur.logs, '已刪除節點', node.data.label, 'warn');
+    return {
+      ok: true,
+      nodes: cur.nodes.filter(n => n.id !== id),
+      edges: cur.edges.filter(e => e.source !== id && e.target !== id),
+      selectedId: cur.selectedId === id ? null : cur.selectedId,
+    };
+  },
+
+  removeEdge: (id) => {
+    const role = __store.getState().role;
+    if (!hasPerm(role, 'edit')) return { ok: false, msg: '角色無權限刪除連線' };
+    const cur = __store.getState();
+    return { ok: true, edges: cur.edges.filter(e => e.id !== id) };
+  },
+
+  updateEdge: (id, patch) => {
+    const role = __store.getState().role;
+    if (!hasPerm(role, 'edit')) return { ok: false, msg: '角色無權限編輯連線' };
+    const cur = __store.getState();
+    return { ok: true, edges: cur.edges.map(e => e.id === id ? { ...e, ...patch } : e) };
+  },
+
+  clearAll: () => {
+    const cur = __store.getState();
+    logAction(cur.logs, '畫布已清空', '', 'warn');
+    return { ok: true, nodes: [], edges: [], selectedId: null };
+  },
+
+  loadTemplate: (key) => {
+    const { nodes, edges } = expandTemplate(key);
+    const cur = __store.getState();
+    if (!nodes.length) return { ok: false, msg: '範本不存在' };
+    logAction(cur.logs, '已載入範本', `${TEMPLATES[key].label}（${nodes.length} 節點）`, 'info');
+    return { ok: true, nodes, edges, selectedId: null, templateKey: key, varContext: { attachments: 5, leave_days: 2, ranking: 0, evidence: 4, trial_required: true } };
+  },
+
+  addLog: (entry) => {
+    const cur = __store.getState();
+    return { logs: [...cur.logs.slice(-80), entry] };
+  },
+}));
+
+const __store = storeApi;
+const useStore = storeApi.useStore;
+
+// ===============================================================
+// 4) RBAC helpers
+// ===============================================================
+
+function hasPerm(role, perm) {
+  return !!(ROLE_DEFS[role]?.perms?.[perm]);
+}
+function permLabel(p) {
+  return { edit: '編輯', approve: '簽核', dispatch: '分派', archive: '歸檔', reject: '退件', redo: '重審', timer: '計時', branch: '決策節點', view: '檢視' }[p] || p;
+}
+
+// ===============================================================
+// 5) 日誌 + Toast
+// ===============================================================
+
+function logAction(logs, title, detail, type='info') {
+  const time = new Date().toLocaleTimeString();
+  __store.getState().addLog({ time, title, detail, type });
+  const host = document.getElementById('toast-host');
+  if (!host) return;
+  const el = document.createElement('div');
+  el.className = `toast ${type === 'deco' ? 'info' : type}`;
+  el.textContent = detail ? `${title}：${detail}` : title;
+  host.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+function toast(msg, type='info') { logAction([], '', msg, type); }
+
+// ===============================================================
+// 6) 計算 helpers
+// ===============================================================
+
+function formatRemaining(expires) {
+  if (!expires) return null;
+  const ms = expires - Date.now();
+  if (ms <= 0) return { text: '已逾期', cls: 'urgent' };
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  let text = '';
+  if (h > 0) text += `${h}h `;
+  if (h > 0 || m > 0) text += `${m}m `;
+  text += `${s}s`;
+  let cls = 'ok';
+  if (h < 2) cls = 'urgent'; else if (h < 8) cls = 'warning';
+  return { text: text.trim(), cls };
+}
+
+function computeFlowStats(nodes, edges) {
+  if (!Array.isArray(nodes)) return { total: 0, byStatus: {}, overdue: 0 };
+  const total = nodes.length;
+  const byStatus = {};
+  Object.keys(STATUS_DEFS).forEach(s => byStatus[s] = 0);
+  nodes.forEach(n => { if (n.data) byStatus[n.data.status] = (byStatus[n.data.status] || 0) + 1; });
+  const overdue = nodes.filter(n => n.data && n.data.slaExpires && n.data.slaExpires < Date.now() && !['approved','rejected','archived','skipped'].includes(n.data.status)).length;
+  return { total, byStatus, overdue };
+}
+
+// 條件運算式求值（簡化版 — 支援 key op value 格式 + 多行 OR）
+function evalCondition(expr, ctx) {
+  if (!expr || !expr.trim()) return true;
+  const lines = expr.split('\n').map(s => s.trim()).filter(Boolean);
+  for (const line of lines) {
+    // 解析 key op value
+    const m = line.match(/^(\w+)\s*(<=|<|>=|>|==|!=)\s*(.+)$/);
+    if (!m) continue;
+    const [, k, op, raw] = m;
+    const v = ctx[k];
+    let target = raw.trim();
+    let targetNum = parseFloat(target);
+    let targetBool;
+    if (target === 'true') targetBool = true;
+    else if (target === 'false') targetBool = false;
+    if (typeof v === 'boolean' || targetBool !== undefined) {
+      const b = !!targetBool;
+      if (op === '==' && v === b) return true;
+      if (op === '!=' && v !== b) return true;
+    } else if (!isNaN(targetNum) && typeof v === 'number') {
+      if (op === '<=' && v <= targetNum) return true;
+      if (op === '<' && v < targetNum) return true;
+      if (op === '>=' && v >= targetNum) return true;
+      if (op === '>' && v > targetNum) return true;
+      if (op === '==' && v === targetNum) return true;
+      if (op === '!=' && v !== targetNum) return true;
+    } else {
+      if (op === '==' && String(v) === target) return true;
+      if (op === '!=' && String(v) !== target) return true;
+    }
+  }
+  return false;
+}
+
+// ===============================================================
+// 7) 自訂節點元件
+// ===============================================================
+
+function CaseNode({ data, selected }) {
+  const def = NODE_DEFS[data.kind] || { label: '?', icon: '❓', role: 'staff', kind: 'unknown' };
+  const role = useStore(s => s.role);
+  const nowTick = useStore(s => s.nowTick);
+  const executingId = useStore(s => s.executingId);
+  const requiredPerm = def.permKey;
+  const locked = !hasPerm(role, requiredPerm) && role !== 'system';
+  const status = STATUS_DEFS[data.status] || STATUS_DEFS.draft;
+  const slaInfo = data.needsSLA !== false && data.slaExpires ? formatRemaining(data.slaExpires) : null;
+  const isExecuting = executingId === data.id;
+
+  return (
+    <div className={`rf-node kind-${def.kind} ${selected ? 'selected' : ''} ${locked ? 'locked' : ''} ${isExecuting ? 'executing' : ''}`}>
+      <span className="id-stamp">{data.id}</span>
+      <Handle type="target" position={Position.Left} style={{ background: '#5da9ff' }} />
+      <div className="head">
+        <span>{def.icon}</span>
+        <span>{data.label}</span>
+      </div>
+      <div className="meta">
+        <div>👤 {data.assignee || '未指派'}</div>
+        {data.caseId && <div style={{ fontFamily: 'ui-monospace, monospace', fontSize: 10, opacity: 0.7 }}>📋 {data.caseId}</div>}
+      </div>
+      <div className="meta-row">
+        <span className={`status-chip ${status.color}`}>{status.label}</span>
+        <span className={`perm-chip p-${ROLE_DEFS[def.role]?.badge || 'staff'}`}>{ROLE_DEFS[def.role]?.label || def.role}</span>
+        {slaInfo && <span className={`sla ${slaInfo.cls}`}>⏱ {slaInfo.text}</span>}
+      </div>
+      {data.cond && <div className="cond-box">{data.cond.replace(/\n/g, ' · ')}</div>}
+      <Handle type="source" position={Position.Right} style={{ background: '#5da9ff' }} />
+    </div>
+  );
+}
+
+const nodeTypes = { case: CaseNode };
+
+// ===============================================================
+// 8) React Flow 主畫布
+// ===============================================================
+
+function FlowCanvas() {
+  const nodes = useStore(s => s.nodes);
+  const edges = useStore(s => s.edges);
+  const setNodes = useStore(s => s.setNodes);
+  const setEdges = useStore(s => s.setEdges);
+  const setSelectedId = useStore(s => s.setSelectedId);
+  const addNode = useStore(s => s.addNode);
+  const updateEdge = useStore(s => s.updateEdge);
+  const removeEdge = useStore(s => s.removeEdge);
+  const executingId = useStore(s => s.executingId);
+  const rfWrapper = useRef(null);
+  const [rfInstance, setRfInstance] = useState(null);
+
+  const onNodesChange = useCallback((changes) => setNodes((nds) => applyNodeChanges(changes, nds)), [setNodes]);
+  const onEdgesChange = useCallback((changes) => setEdges((eds) => applyEdgeChanges(changes, eds)), [setEdges]);
+
+  const onConnect = useCallback((params) => {
+    setEdges((eds) => addEdge({ ...params, kind: 'normal', label: '', markerEnd: { type: MarkerType.ArrowClosed } }, eds));
+  }, [setEdges]);
+
+  const onDragOver = useCallback((e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const onDrop = useCallback((e) => {
+    e.preventDefault();
+    const kind = e.dataTransfer.getData('application/reactflow');
+    if (!kind || !rfInstance) return;
+    const position = rfInstance.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    const r = addNode(kind, position);
+    if (!r.ok) toast(r.msg, 'err');
+  }, [rfInstance, addNode]);
+
+  const onNodeClick = useCallback((_, n) => setSelectedId(n.id), [setSelectedId]);
+  const onPaneClick = useCallback(() => setSelectedId(null), [setSelectedId]);
+
+  const styledEdges = useMemo(() => edges.map(e => {
+    const kind = e.kind || 'normal';
+    const cls = EDGE_KINDS[kind]?.cls || '';
+    const dashArray = EDGE_KINDS[kind]?.dash || undefined;
+    const activeEdge = isActiveEdge(e, nodes, executingId);
+    return {
+      ...e,
+      className: `${cls} ${activeEdge ? 'edge-active' : ''}`,
+      style: dashArray ? { strokeDasharray: dashArray } : undefined,
+      markerEnd: { type: MarkerType.ArrowClosed, color: kind === 'rejected' ? '#ef4444' : kind === 'approved' ? '#22c55e' : kind === 'revision' ? '#f472b6' : kind === 'default' ? '#6b7d9e' : '#5da9ff' },
+      labelBgPadding: [4, 2],
+      labelBgBorderRadius: 3,
+      labelStyle: { fill: '#e8eef9', fontSize: 10, fontWeight: 600 },
+      labelBgStyle: { fill: '#15233f' },
+    };
+  }), [edges, nodes, executingId]);
+
+  return (
+    <div ref={rfWrapper} style={{ width: '100%', height: '100%' }}>
+      <ReactFlow
+        nodes={nodes}
+        edges={styledEdges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        onInit={setRfInstance}
+        onDrop={onDrop}
+        onDragOver={onDragOver}
+        onNodeClick={onNodeClick}
+        onPaneClick={onPaneClick}
+        nodeTypes={nodeTypes}
+        fitView
+        defaultEdgeOptions={{ animated: false }}
+        proOptions={{ hideAttribution: true }}
+        connectionMode={ConnectionMode.Loose}
+      >
+        <Background color="rgba(255,255,255,0.04)" gap={22} size={1.2} />
+        <Controls position="bottom-right" />
+        <MiniMap
+          nodeColor={(n) => {
+            const k = n.data?.kind;
+            if (k === 'start') return '#22c55e';
+            if (k === 'end') return '#ef4444';
+            if (k === 'decision') return '#f59e0b';
+            if (k === 'approve') return '#5da9ff';
+            if (k === 'notify') return '#2dd4bf';
+            if (k === 'archive') return '#c084fc';
+            if (k === 'review') return '#38bdf8';
+            if (k === 'parallel' || k === 'join') return '#818cf8';
+            if (k === 'timer') return '#fbbf24';
+            return '#7c8caa';
+          }}
+          style={{ background: '#131e36', border: '1px solid #2c3e69' }}
+          maskColor="rgba(10, 15, 28, 0.75)"
+        />
+      </ReactFlow>
+    </div>
+  );
+}
+
+// 判斷邊是否為目前活躍邊
+function isActiveEdge(edge, nodes, executingId) {
+  if (!executingId) return false;
+  if (!Array.isArray(nodes)) return false;
+  if (edge.source !== executingId) return false;
+  const target = nodes.find(n => n.id === edge.target);
+  return target && (target.data.status === 'running' || target.data.status === 'pending');
+}
+
+// ===============================================================
+// 9) 左側 — 角色 / 範本 / Palette
+// ===============================================================
+
+function RolePanel() {
+  const role = useStore(s => s.role);
+  const setRole = useStore(s => s.setRole);
+  return (
+    <div>
+      {Object.entries(ROLE_DEFS).map(([k, def]) => (
+        <div key={k} className={`role-card ${role === k ? 'active' : ''}`} onClick={() => { setRole(k); toast(`已切換角色：${def.label}`, 'info'); }}>
+          <div className="role-name">
+            <span className={`badge ${def.badge}`}></span>
+            {def.label}
+          </div>
+          <div className="role-perms">{def.desc} · {Object.entries(def.perms).filter(([_, v]) => v).map(([p]) => permLabel(p)).join(' · ') || '僅可檢視'}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TemplatePanel() {
+  const templateKey = useStore(s => s.templateKey);
+  const loadTemplate = useStore(s => s.loadTemplate);
+  return (
+    <div>
+      {Object.entries(TEMPLATES).map(([k, tpl]) => (
+        <div key={k} className={`tpl-card ${templateKey === k ? 'active' : ''}`} onClick={() => {
+          const r = loadTemplate(k);
+          if (r && !r.ok) toast(r.msg, 'err');
+        }}>
+          <span className="ic">{tpl.icon}</span>
+          <div className="meta">
+            <span className="title">{tpl.label}</span>
+            <span className="desc">{tpl.nodes.length} 節點 · SLA {tpl.sla}h{tpl.parallel ? ' · 並行' : ''}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Palette() {
+  const role = useStore(s => s.role);
+  const onDragStart = (e, kind) => {
+    e.dataTransfer.setData('application/reactflow', kind);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+  const grouped = PALETTE_CATEGORIES.map(cat => ({
+    cat,
+    items: Object.entries(NODE_DEFS).filter(([_, d]) => d.category === cat),
+  })).filter(g => g.items.length > 0);
+
+  return (
+    <div>
+      {grouped.map(g => (
+        <div key={g.cat}>
+          <div className="palette-cat">{g.cat}</div>
+          {g.items.map(([k, def]) => {
+            const canAdd = hasPerm(role, def.permKey) || role === 'system';
+            return (
+              <div
+                key={k}
+                className={`palette-item ${canAdd ? '' : 'locked'}`}
+                draggable={canAdd}
+                onDragStart={canAdd ? (e) => onDragStart(e, k) : undefined}
+                title={def.desc}
+              >
+                <span className="ic">{def.icon}</span>
+                <div className="meta">
+                  <span>{def.label}</span>
+                  <small>{ROLE_DEFS[def.role]?.label || def.role}</small>
+                </div>
+                <span className="lock">{canAdd ? '' : '🔒'}</span>
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ===============================================================
+// 10) 右側 — 流程統計 / 變數情境 / 節點檢查器 / 執行紀錄 / 時間軸
+// ===============================================================
+
+function FlowStats() {
+  const nodes = useStore(s => s.nodes);
+  const edges = useStore(s => s.edges);
+  const stats = useMemo(() => computeFlowStats(nodes, edges), [nodes, edges]);
+  return (
+    <div>
+      <div className="stats-grid">
+        <div className="stat-card"><div className="l">節點</div><div className="v">{stats.total}</div></div>
+        <div className="stat-card"><div className="l">連線</div><div className="v">{edges.length}</div></div>
+        <div className="stat-card"><div className="l">逾期</div><div className={`v ${stats.overdue > 0 ? 'danger' : 'ok'}`}>{stats.overdue}</div></div>
+        <div className="stat-card"><div className="l">執行中</div><div className="v warn">{stats.byStatus.running || 0}</div></div>
+      </div>
+      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+        {Object.entries(STATUS_DEFS).map(([k, sd]) => stats.byStatus[k] > 0 ? (
+          <span key={k} className={`status-chip ${sd.color}`} style={{ fontSize: 11 }}>{sd.label} {stats.byStatus[k]}</span>
+        ) : null)}
+      </div>
+    </div>
+  );
+}
+
+function VarContextPanel() {
+  const varContext = useStore(s => s.varContext);
+  const setVar = useStore(s => s.setVar);
+  const onChange = (k) => (e) => {
+    let v = e.target.value;
+    if (v === 'true') v = true;
+    else if (v === 'false') v = false;
+    else if (!isNaN(parseFloat(v)) && /^-?\d+(\.\d+)?$/.test(v)) v = parseFloat(v);
+    setVar(k, v);
+  };
+  return (
+    <div>
+      <div className="section-title">條件情境變數</div>
+      {Object.entries(varContext).map(([k, v]) => (
+        <div key={k} className="insp-row" style={{ flexDirection: 'column', alignItems: 'stretch', padding: '5px 0' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--muted)', marginBottom: 2 }}>
+            <span style={{ fontFamily: 'ui-monospace, monospace' }}>{k}</span>
+            <span style={{ color: 'var(--accent-2)' }}>= {String(v)}</span>
+          </div>
+          <input className="insp-input" type="text" value={String(v)} onChange={onChange(k)} style={{ fontSize: 10, padding: '4px 6px' }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Inspector() {
+  const selectedId = useStore(s => s.selectedId);
+  const nodes = useStore(s => s.nodes);
+  const updateNodeData = useStore(s => s.updateNodeData);
+  const changeStatus = useStore(s => s.changeStatus);
+  const removeNode = useStore(s => s.removeNode);
+  const role = useStore(s => s.role);
+  const node = nodes.find(n => n.id === selectedId);
+
+  if (!node) {
+    return (
+      <div>
+        <div className="section-title">節點檢查器</div>
+        <div className="empty-hint">點擊任一節點查看詳細資訊</div>
+      </div>
+    );
+  }
+
+  const def = NODE_DEFS[node.data.kind];
+  const requiredPerm = def.permKey;
+  const locked = !hasPerm(role, requiredPerm) && role !== 'system';
+  const status = STATUS_DEFS[node.data.status];
+  const slaInfo = node.data.slaExpires ? formatRemaining(node.data.slaExpires) : null;
+
+  const onChangeField = (field) => (e) => {
+    const r = updateNodeData(node.id, { [field]: e.target.value });
+    if (r && !r.ok) toast(r.msg, 'err');
+  };
+  const onChangeStatus = (newStatus) => {
+    const r = changeStatus(node.id, newStatus);
+    if (!r.ok) toast(r.msg, 'err');
+  };
+  const onDelete = () => {
+    if (!confirm(`確定刪除「${node.data.label}」？`)) return;
+    const r = removeNode(node.id);
+    if (!r.ok) toast(r.msg, 'err');
+  };
+
+  return (
+    <div>
+      <div className="section-title">節點檢查器 <span style={{ fontSize: 9, color: 'var(--muted)', fontWeight: 400 }}>{node.id}</span></div>
+
+      <div className="insp-row"><span className="label">類型</span><span className="value">{def.icon} {def.label}</span></div>
+      <div className="insp-row"><span className="label">角色需求</span><span className={`value perm-chip p-${ROLE_DEFS[def.role]?.badge}`}>{ROLE_DEFS[def.role]?.label || def.role}</span></div>
+      <div className="insp-row"><span className="label">目前狀態</span><span className={`value status-chip ${status.color}`}>{status.label}</span></div>
+      <div className="insp-row"><span className="label">目前角色</span><span className="value">{ROLE_DEFS[role].label}</span></div>
+      <div className="insp-row"><span className="label">可操作？</span><span className="value" style={{ color: locked ? 'var(--danger)' : 'var(--ok)' }}>{locked ? `🔒 需「${permLabel(requiredPerm)}」權限` : '✓ 是'}</span></div>
+      {slaInfo && <div className="insp-row"><span className="label">SLA 倒數</span><span className={`value sla ${slaInfo.cls}`}>⏱ {slaInfo.text}</span></div>}
+
+      <div className="insp-section">
+        <label className="insp-label">節點標題</label>
+        <input className="insp-input" type="text" value={node.data.label} onChange={onChangeField('label')} disabled={locked} />
+
+        <label className="insp-label">承辦人 / 單位</label>
+        <input className="insp-input" type="text" value={node.data.assignee || ''} onChange={onChangeField('assignee')} disabled={locked} placeholder="輸入承辦人或單位" />
+
+        <label className="insp-label">案件編號</label>
+        <input className="insp-input" type="text" value={node.data.caseId || ''} onChange={onChangeField('caseId')} disabled={locked} style={{ fontFamily: 'ui-monospace, monospace' }} />
+
+        <label className="insp-label">SLA (小時)</label>
+        <input className="insp-input" type="number" min="0" max="999" value={node.data.sla || 0} onChange={onChangeField('sla')} disabled={locked} />
+
+        {def.advanced && (
+          <>
+            <label className="insp-label">{node.data.kind === 'decision' ? '條件運算式（支援 ≤、<、>、≥、==、!=、true、false）' : node.data.kind === 'parallel' ? '並行分支說明' : node.data.kind === 'join' ? '匯聚條件' : node.data.kind === 'timer' ? '延遲時間' : '節點設定'}</label>
+            <textarea className="insp-textarea" value={node.data.cond || ''} onChange={onChangeField('cond')} disabled={locked} placeholder={node.data.kind === 'decision' ? 'leave_days > 3' : node.data.kind === 'timer' ? 'delay: 14d' : 'fork: 描述'} />
+          </>
+        )}
+
+        {node.data.kind !== 'start' && node.data.kind !== 'end' && (
+          <>
+            <label className="insp-label">狀態變更（SOP 流程）</label>
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
+              {STATUS_DEFS[node.data.status].next.map(ns => (
+                <button key={ns} className="btn tiny" onClick={() => onChangeStatus(ns)} disabled={locked}>→ {STATUS_DEFS[ns].label}</button>
+              ))}
+              {STATUS_DEFS[node.data.status].next.length === 0 && (
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>此狀態為終態，無法再變更</span>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="insp-actions">
+        <button className="btn danger tiny" onClick={onDelete} disabled={locked}>🗑 刪除節點</button>
+      </div>
+    </div>
+  );
+}
+
+function LogPanel() {
+  const logs = useStore(s => s.logs);
+  return (
+    <div>
+      <div className="section-title">執行紀錄 ({logs.length})</div>
+      <div className="log">
+        {logs.length === 0 ? (
+          <div className="l-info">尚無記錄。試試拖曳節點、啟動引擎、或切換角色。</div>
+        ) : logs.slice().reverse().slice(0, 60).map((e, i) => (
+          <div key={i} className={`l-${e.type === 'deco' ? 'info' : e.type}`} style={{ padding: '2px 0' }}>
+            <span style={{ color: 'var(--muted)' }}>[{e.time}]</span> {e.title}{e.detail ? ` — ${e.detail}` : ''}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ===============================================================
+// 11) 執行引擎（狀態機 + 並行 + 條件 + 定時器 + 匯聚）
+// ===============================================================
+
+// 取得下一個應該執行的節點（依 status: pending → running）
+function getStartNodes(nodes, edges) {
+  if (!Array.isArray(nodes) || !Array.isArray(edges)) return [];
+  const hasIncoming = new Set(edges.map(e => e.target));
+  return nodes.filter(n => !hasIncoming.has(n.id) && (n.data.status === 'draft' || n.data.status === 'pending'));
+}
+
+function getOutgoing(nodeId, edges) {
+  if (!Array.isArray(edges)) return [];
+  return edges.filter(e => e.source === nodeId);
+}
+
+function hasUnresolvedIncoming(nodeId, edges, nodes) {
+  // 還有任何 incoming 邊尚未跑過（即上游節點未進入終態）
+  return edges.filter(e => e.target === nodeId).some(e => {
+    const src = nodes.find(n => n.id === e.source);
+    if (!src) return true;
+    return !['approved','rejected','archived','skipped'].includes(src.data.status);
+  });
+}
+
+function executeNext(state, setNodeStatus) {
+  const { nodes, edges, varContext, executingId } = state;
+
+  // 找目前正在執行的節點（最多一個）
+  let running = nodes.find(n => n.data.status === 'running');
+  if (running) {
+    // 該節點已完成 → 推進下一個
+    const out = getOutgoing(running.id, edges);
+    // decision 節點：用條件運算式選擇單一分支
+    if (running.data.kind === 'decision') {
+      const passed = evalCondition(running.data.cond, varContext);
+      const branches = out;
+      let chosen = null;
+      for (const b of branches) {
+        const eKind = b.kind || 'normal';
+        if (passed && (eKind === 'approved' || eKind === 'normal' || eKind === 'default')) { chosen = b; break; }
+        if (!passed && (eKind === 'rejected' || eKind === 'revision')) { chosen = b; break; }
+      }
+      if (!chosen) chosen = branches[0];
+      if (chosen) {
+        // 跑完 running, 推下一個
+        const idx = nodes.findIndex(n => n.id === running.id);
+        if (idx >= 0) nodes[idx] = { ...running, data: { ...running.data, status: 'approved' } };
+        running = nodes[idx];
+        const tidx = nodes.findIndex(n => n.id === chosen.target);
+        if (tidx >= 0) nodes[tidx] = { ...nodes[tidx], data: { ...nodes[tidx].data, status: 'pending' } };
+        return { done: false, advance: chosen.target, exec: chosen.target, source: running.id };
+      }
+      // 沒有下一個就結案
+      const idx = nodes.findIndex(n => n.id === running.id);
+      if (idx >= 0) nodes[idx] = { ...running, data: { ...running.data, status: 'approved' } };
+      return { done: true };
+    }
+
+    // parallel 節點：所有 outgoing 同時啟動
+    if (running.data.kind === 'parallel') {
+      const idx = nodes.findIndex(n => n.id === running.id);
+      if (idx >= 0) nodes[idx] = { ...running, data: { ...running.data, status: 'approved' } };
+      out.forEach(o => {
+        const tidx = nodes.findIndex(n => n.id === o.target);
+        if (tidx >= 0) nodes[tidx] = { ...nodes[tidx], data: { ...nodes[tidx].data, status: 'pending' } };
+      });
+      return { done: false, advance: out.map(o => o.target), exec: out[0]?.target, source: running.id };
+    }
+
+    // join 節點：等待所有 incoming 都跑完才往下
+    if (running.data.kind === 'join') {
+      const incoming = edges.filter(e => e.target === running.id);
+      const allDone = incoming.every(e => {
+        const src = nodes.find(n => n.id === e.source);
+        return src && ['approved','rejected','skipped'].includes(src.data.status);
+      });
+      if (!allDone) return { done: false, wait: true };
+      const idx = nodes.findIndex(n => n.id === running.id);
+      if (idx >= 0) nodes[idx] = { ...running, data: { ...running.data, status: 'approved' } };
+      out.forEach(o => {
+        const tidx = nodes.findIndex(n => n.id === o.target);
+        if (tidx >= 0) nodes[tidx] = { ...nodes[tidx], data: { ...nodes[tidx].data, status: 'pending' } };
+      });
+      return { done: false, advance: out.map(o => o.target), exec: out[0]?.target, source: running.id };
+    }
+
+    // 一般節點：依 kind 決定完成狀態
+    let nextStatus = 'approved';
+    if (running.data.kind === 'reject') nextStatus = 'rejected';
+    if (running.data.kind === 'timer') nextStatus = 'approved';
+    const idx = nodes.findIndex(n => n.id === running.id);
+    if (idx >= 0) nodes[idx] = { ...running, data: { ...running.data, status: nextStatus } };
+
+    // 把所有 outgoing 設為 pending（給下一輪推進）
+    if (out.length > 0) {
+      out.forEach(o => {
+        const tidx = nodes.findIndex(n => n.id === o.target);
+        if (tidx >= 0) nodes[tidx] = { ...nodes[tidx], data: { ...nodes[tidx].data, status: 'pending' } };
+      });
+      return { done: false, advance: out.map(o => o.target), exec: out[0]?.target, source: running.id };
+    }
+    return { done: true, source: running.id };
+  }
+
+  // 沒有 running → 找 draft 或 pending 的起始點
+  const starts = getStartNodes(nodes, edges);
+  if (starts.length === 0) {
+    return { done: true };
+  }
+  // 啟動第一個 draft/pending 起始節點
+  const next = starts[0];
+  const nidx = nodes.findIndex(n => n.id === next.id);
+  if (nidx >= 0) nodes[nidx] = { ...next, data: { ...next.data, status: 'running' } };
+  return { done: false, exec: next.id };
+}
+
+function EngineController() {
+  const engineRunning = useStore(s => s.engineRunning);
+  const setEngineRunning = useStore(s => s.setEngineRunning);
+  const engineSpeed = useStore(s => s.engineSpeed);
+  const setEngineSpeed = useStore(s => s.setEngineSpeed);
+  const executingId = useStore(s => s.executingId);
+  const setExecutingId = useStore(s => s.setExecutingId);
+  const setVar = useStore(s => s.setVar);
+
+  // 啟動：把所有節點重設為 draft 或 pending
+  const start = () => {
+    const cur = __store.getState();
+    const reset = cur.nodes.map(n => {
+      if (n.data.kind === 'start') return { ...n, data: { ...n.data, status: 'pending' } };
+      if (n.data.kind === 'end') return { ...n, data: { ...n.data, status: 'draft' } };
+      return { ...n, data: { ...n.data, status: 'draft' } };
+    });
+    __store.getState().setNodes(reset);
+    logAction([], '引擎啟動', `速度 ${engineSpeed}ms / 步`, 'engine');
+    setEngineRunning(true);
+  };
+  const stop = () => {
+    setEngineRunning(false);
+    setExecutingId(null);
+    logAction([], '引擎停止', '', 'engine');
+  };
+  const reset = () => {
+    stop();
+    const cur = __store.getState();
+    const resetNodes = cur.nodes.map(n => ({ ...n, data: { ...n.data, status: n.data.kind === 'start' ? 'pending' : 'draft' } }));
+    __store.getState().setNodes(resetNodes);
+    logAction([], '引擎重置', '所有節點回到初始狀態', 'engine');
+  };
+  const stepOnce = () => {
+    const cur = __store.getState();
+    if (cur.engineRunning) return;
+    setEngineRunning(true);
+    setTimeout(() => setEngineRunning(false), 100);
+  };
+
+  return (
+    <div className="canvas-toolbar">
+      <span className={`pill ${engineRunning ? 'pulse' : ''}`} style={{ background: engineRunning ? 'rgba(34,197,94,0.18)' : 'rgba(10,15,28,0.85)', color: engineRunning ? 'var(--ok)' : 'var(--ink-2)', borderColor: engineRunning ? 'rgba(34,197,94,0.4)' : 'var(--line)' }}>
+        {engineRunning ? '▶ 執行中' : '⏸ 待命中'}
+      </span>
+      {!engineRunning
+        ? <button className="btn primary" onClick={start}>▶ 啟動</button>
+        : <button className="btn warn" onClick={stop}>⏸ 停止</button>
+      }
+      <button className="btn" onClick={stepOnce} disabled={engineRunning}>⏭ 單步</button>
+      <button className="btn danger" onClick={reset}>↺ 重置</button>
+      <span className="pill" style={{ fontSize: 10 }}>速度
+        <select className="insp-select" style={{ width: 70, marginLeft: 4, padding: '2px 6px', fontSize: 10 }} value={engineSpeed} onChange={(e) => setEngineSpeed(parseInt(e.target.value))}>
+          <option value={400}>0.4s</option>
+          <option value={800}>0.8s</option>
+          <option value={1500}>1.5s</option>
+          <option value={3000}>3s</option>
+        </select>
+      </span>
+    </div>
+  );
+}
+
+// 引擎 tick loop
+function EngineLoop() {
+  const engineRunning = useStore(s => s.engineRunning);
+  const engineSpeed = useStore(s => s.engineSpeed);
+  const setExecutingId = useStore(s => s.setExecutingId);
+
+  useEffect(() => {
+    if (!engineRunning) return;
+    const t = setInterval(() => {
+      const cur = __store.getState();
+      // executeNext 會直接修改 cur.nodes 的元素（in-place replace）
+      // 接著把整個 array 設回 store 觸發 React 重渲染
+      const result = executeNext(cur, () => {});
+      // 用 setNodes 直接推送當前 array（觸發 reference change）
+      __store.getState().setNodes([...cur.nodes]);
+      if (result.exec) setExecutingId(result.exec);
+      if (result.done) {
+        setExecutingId(null);
+        __store.getState().setEngineRunning(false);
+        logAction([], '引擎完成', '流程已走完', 'ok');
+      }
+    }, engineSpeed);
+    return () => clearInterval(t);
+  }, [engineRunning, engineSpeed, setExecutingId]);
+  return null;
+}
+
+// ===============================================================
+// 12) Top actions / Statusbar / App
+// ===============================================================
+
+function GlobalActions() {
+  const clearAll = useStore(s => s.clearAll);
+  const loadTemplate = useStore(s => s.loadTemplate);
+
+  const onClear = () => {
+    if (!confirm('確定清空畫布？此動作無法復原。')) return;
+    clearAll();
+  };
+
+  const onExport = () => {
+    const { nodes, edges, role, templateKey, varContext } = __store.getState();
+    const json = JSON.stringify({ role, templateKey, nodes, edges, varContext, exportedAt: new Date().toISOString(), version: '2.0-dynamic' }, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `hr-workflow-dynamic-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast('已匯出工作流 JSON', 'ok');
+  };
+
+  const onImport = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result);
+        if (!data.nodes || !data.edges) throw new Error('格式錯誤');
+        __store.getState().setNodes(data.nodes);
+        __store.getState().setEdges(data.edges);
+        if (data.role) __store.getState().setRole(data.role);
+        if (data.templateKey) __store.getState().setTemplateKey(data.templateKey);
+        if (data.varContext) __store.getState().setState({ varContext: data.varContext });
+        toast(`已匯入 ${data.nodes.length} 節點`, 'ok');
+      } catch (err) {
+        toast('匯入失敗：' + err.message, 'err');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  return (
+    <div className="top-actions">
+      <button className="btn" onClick={() => { const r = loadTemplate('leave'); if (r && !r.ok) toast(r.msg, 'err'); }} title="快速載入請假範本">📂 載入範本</button>
+      <button className="btn" onClick={onExport}>💾 匯出 JSON</button>
+      <label className="btn" style={{ cursor: 'pointer' }}>
+        📥 匯入 JSON
+        <input type="file" accept=".json" onChange={onImport} style={{ display: 'none' }} />
+      </label>
+      <button className="btn danger" onClick={onClear}>清空畫布</button>
+    </div>
+  );
+}
+
+function StatusBar() {
+  const nodes = useStore(s => s.nodes);
+  const edges = useStore(s => s.edges);
+  const role = useStore(s => s.role);
+  const engineRunning = useStore(s => s.engineRunning);
+  const stats = useMemo(() => computeFlowStats(nodes, edges), [nodes, edges]);
+
+  return (
+    <div className="statusbar">
+      <div>
+        角色 <span style={{ color: 'var(--accent-2)' }}>{ROLE_DEFS[role].label}</span>
+        {' · '}節點 <span style={{ color: 'var(--ink)' }}>{stats.total}</span>
+        {' · '}連線 <span style={{ color: 'var(--ink)' }}>{edges.length}</span>
+        {' · '}執行 <span style={{ color: engineRunning ? 'var(--ok)' : 'var(--muted)' }}>{engineRunning ? '中' : '停'}</span>
+      </div>
+      <div className="legend">
+        <div className="item"><span className="sw" style={{background:'#22c55e'}}></span>正常</div>
+        <div className="item"><span className="sw" style={{background:'#22c55e', height: 4}}></span>核准</div>
+        <div className="item"><span className="sw" style={{background:'#ef4444', height: 4, border: '1px dashed #ef4444'}}></span>退件</div>
+        <div className="item"><span className="sw" style={{background:'#f472b6', height: 4, border: '1px dashed #f472b6'}}></span>補件</div>
+        <div className="item"><span className="sw" style={{background:'#6b7d9e', height: 4, border: '1px dashed #6b7d9e'}}></span>預設</div>
+        <div className="item"><span className="sw" style={{background:'#22c55e', boxShadow: '0 0 6px #22c55e'}}></span>執行中</div>
+      </div>
+      <div>v2.0 · Dynamic Engine · React Flow</div>
+    </div>
+  );
+}
+
+function App() {
+  const [tab, setTab] = useState('inspector');
+
+  return (
+    <div className="app">
+      <header className="topbar">
+        <div className="brand">
+          <div className="logo">⚡</div>
+          <span>人事案件動態工作流引擎</span>
+          <span className="sub">React Flow · RBAC · 狀態機 · 條件分支 · 並行閘道</span>
+          <span className="ver">v2.0</span>
+        </div>
+        <GlobalActions />
+      </header>
+
+      <aside className="side">
+        <div className="section-title">角色（RBAC） <span className="kbd">點擊切換</span></div>
+        <RolePanel />
+
+        <div className="divider"></div>
+        <div className="section-title">流程範本 <span className="kbd">點擊載入</span></div>
+        <TemplatePanel />
+
+        <div className="divider"></div>
+        <div className="section-title">節點範本 <span className="kbd">拖曳到畫布</span></div>
+        <Palette />
+      </aside>
+
+      <main className="canvas-wrap">
+        <EngineController />
+        <ReactFlowProvider>
+          <FlowCanvas />
+        </ReactFlowProvider>
+        <EngineLoop />
+      </main>
+
+      <aside className="side right">
+        <div className="section-title">流程統計</div>
+        <FlowStats />
+
+        <div className="divider"></div>
+
+        <div className="right-tabs">
+          <div className={`right-tab ${tab === 'inspector' ? 'active' : ''}`} onClick={() => setTab('inspector')}>檢查器</div>
+          <div className={`right-tab ${tab === 'var' ? 'active' : ''}`} onClick={() => setTab('var')}>條件變數</div>
+          <div className={`right-tab ${tab === 'log' ? 'active' : ''}`} onClick={() => setTab('log')}>日誌</div>
+        </div>
+
+        {tab === 'inspector' && <Inspector />}
+        {tab === 'var' && <VarContextPanel />}
+        {tab === 'log' && <LogPanel />}
+      </aside>
+
+      <StatusBar />
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

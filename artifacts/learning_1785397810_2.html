@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>HR PDF → Google Calendar（OCR 自動化）</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1f242c; --line:#2a313c;
+    --fg:#e6e9ef; --muted:#9aa3b2; --accent:#7c9cff; --ok:#3ecf8e; --warn:#ffb454; --err:#ff6b6b;
+    --chip:#232a36;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC","PingFang TC",sans-serif}
+  header{padding:18px 24px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;background:linear-gradient(180deg,#14171e,#0f1115)}
+  header h1{margin:0;font-size:16px;letter-spacing:.3px}
+  header .meta{font-size:12px;color:var(--muted)}
+  main{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:16px}
+  @media (max-width:980px){main{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
+  .card h2{margin:0;padding:12px 14px;border-bottom:1px solid var(--line);font-size:13px;color:var(--muted);font-weight:600;letter-spacing:.4px;text-transform:uppercase;display:flex;align-items:center;justify-content:space-between}
+  .card .body{padding:14px;overflow:auto}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .btn{appearance:none;border:1px solid var(--line);background:var(--panel2);color:var(--fg);padding:8px 12px;border-radius:8px;cursor:pointer;font-size:13px}
+  .btn:hover{border-color:#3a4452}
+  .btn.primary{background:#1f2740;border-color:#2c3a66;color:#cfd8ff}
+  .btn.primary:hover{border-color:#3d518f;background:#243057}
+  .btn.ok{background:#16331f;border-color:#1f5a36;color:#b8f1cf}
+  .btn.warn{background:#3a2715;border-color:#6a4423;color:#ffd2a3}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .drop{border:1.5px dashed #3a4452;border-radius:10px;padding:22px;text-align:center;color:var(--muted)}
+  .drop.over{border-color:var(--accent);background:#182238;color:var(--fg)}
+  input[type=file]{display:none}
+  .pill{display:inline-flex;align-items:center;gap:6px;background:var(--chip);padding:4px 10px;border-radius:999px;font-size:12px;color:var(--muted);border:1px solid var(--line)}
+  .pill.ok{color:#b8f1cf;border-color:#1f5a36;background:#16331f}
+  .pill.warn{color:#ffd2a3;border-color:#6a4423;background:#3a2715}
+  .pill.err{color:#ffb3b3;border-color:#7a2f2f;background:#3a1818}
+  .pill.run{color:#cfd8ff;border-color:#2c3a66;background:#1f2740}
+  textarea{width:100%;min-height:160px;background:#0e1117;color:#cfd8ff;border:1px solid var(--line);border-radius:8px;padding:10px;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;resize:vertical}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+  th{color:var(--muted);font-weight:600;background:#141821;position:sticky;top:0}
+  tr:hover td{background:#161b25}
+  .mono{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:#cfd8ff}
+  .muted{color:var(--muted)}
+  .progress{height:6px;background:#1c2230;border-radius:4px;overflow:hidden;margin-top:8px}
+  .progress>div{height:100%;background:linear-gradient(90deg,#7c9cff,#3ecf8e);width:0%;transition:width .25s}
+  .log{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;background:#0c0f15;border:1px solid var(--line);border-radius:8px;padding:10px;max-height:220px;overflow:auto;color:#9fb0c8;white-space:pre-wrap}
+  .kvs{display:grid;grid-template-columns:120px 1fr;gap:6px 10px}
+  .kvs .k{color:var(--muted)}
+  .chip{display:inline-block;background:var(--chip);border:1px solid var(--line);padding:2px 8px;border-radius:6px;margin-right:4px;font-size:11px;color:#cfd8ff}
+  details>summary{cursor:pointer;color:var(--muted);font-size:12px;margin-top:8px}
+  a{color:#9bb4ff;text-decoration:none}
+  a:hover{text-decoration:underline}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .sep{height:1px;background:var(--line);margin:10px 0}
+  .empty{padding:24px;color:var(--muted);text-align:center}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>HR PDF → Google Calendar（OCR 自動化）</h1>
+    <div class="meta">PDF.js 解析 + Tesseract.js OCR（影像 PDF fallback）→ 自動開啟 Google Calendar 事件新增</div>
+  </div>
+  <div class="row">
+    <span id="statusPill" class="pill">待命中</span>
+  </div>
+</header>
+
+<main>
+  <!-- 左：PDF 上傳 / OCR / 解析 -->
+  <section class="card">
+    <h2>① 文件上傳與解析
+      <span class="row">
+        <button id="btnSample" class="btn">載入範例</button>
+        <button id="btnClear" class="btn">清除</button>
+      </span>
+    </h2>
+    <div class="body">
+      <label id="drop" class="drop" for="file">
+        <div>拖曳 PDF 到這裡，或點擊選擇檔案</div>
+        <div class="muted" style="margin-top:6px;font-size:12px">支援多檔案批次 · 純文字 PDF 自動抓文字層 · 影像 PDF 走 OCR</div>
+        <input id="file" type="file" accept="application/pdf,.pdf" multiple />
+      </label>
+
+      <div class="row" style="margin-top:10px">
+        <span class="pill">語言: <span id="ocrLangLabel">繁體中文 + 英文</span></span>
+        <span class="pill">Worker: <span id="workerLabel">—</span></span>
+        <span class="pill">文字層: <span id="textLayerLabel">—</span></span>
+      </div>
+
+      <div class="progress" aria-hidden="true"><div id="bar"></div></div>
+
+      <div class="sep"></div>
+
+      <div class="toolbar">
+        <strong style="font-size:12px;color:var(--muted)">解析到的人事資料</strong>
+        <span class="row" style="margin-left:auto">
+          <button id="btnExtract" class="btn primary" disabled>解析人事欄位</button>
+          <button id="btnAllCal" class="btn ok" disabled>全部送出到 Google Calendar</button>
+        </span>
+      </div>
+
+      <div id="extractSummary" class="muted" style="font-size:12px;margin-top:8px"></div>
+    </div>
+  </section>
+
+  <!-- 右：抽出結果 + Calendar 連結 -->
+  <section class="card">
+    <h2>② 人事事件結果
+      <span class="row">
+        <span class="pill"><span id="eventCount">0</span> 筆</span>
+      </span>
+    </h2>
+    <div class="body">
+      <div id="eventTableWrap">
+        <table id="eventTable">
+          <thead><tr>
+            <th>姓名</th><th>事件類型</th><th>日期 / 時間</th><th>地點</th><th>備註</th><th>動作</th>
+          </tr></thead>
+          <tbody id="eventTbody"><tr><td colspan="6" class="empty">尚未解析。上傳 PDF 或按「載入範例」開始。</td></tr></tbody>
+        </table>
+      </div>
+
+      <details>
+        <summary>查看原始解析文字 / OCR 結果</summary>
+        <textarea id="rawText" readonly placeholder="（解析後這裡會顯示原始文字與 OCR 輸出）"></textarea>
+      </details>
+
+      <details>
+        <summary>執行日誌</summary>
+        <div id="log" class="log"></div>
+      </details>
+    </div>
+  </section>
+</main>
+
+<!-- PDF.js 主程式 -->
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.min.mjs" type="module"></script>
+<!-- Tesseract.js（影像 PDF fallback OCR） -->
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+
+<script type="module">
+/* ===========================================================
+   HR PDF → Google Calendar (OCR 自動化)
+   - pdfjs-dist 用 ESM import
+   - Tesseract.js（UMD）全域變數 Tesseract
+   - Google Calendar 事件透過 URL protocol 開啟（不需 OAuth）
+   =========================================================== */
+
+import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.min.mjs";
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs";
+
+// ---------- DOM 工具 ----------
+const $ = (id) => document.getElementById(id);
+const log = (msg) => {
+  const el = $("log");
+  const t = new Date().toLocaleTimeString();
+  el.textContent += `[${t}] ${msg}\n`;
+  el.scrollTop = el.scrollHeight;
+};
+const setStatus = (text, kind = "") => {
+  const p = $("statusPill");
+  p.textContent = text;
+  p.className = "pill " + (kind || "");
+};
+const setBar = (pct) => { $("bar").style.width = Math.max(0, Math.min(100, pct)) + "%"; };
+
+// ---------- 全域狀態 ----------
+const state = {
+  files: [],          // [{file, text, ocrUsed, pageCount, name}]
+  events: [],         // [{name, type, date(yyyy-mm-dd), time(HH:MM), endTime, location, notes, sourceFile}]
+};
+
+// ---------- 範例 PDF（內建 Base64 純文字示範） ----------
+// 為避免外部依賴，我們內建一段會被「載入範例」按鈕直接餵進解析器的範例文本，
+// 模擬「從 PDF 解析出來的文字」。
+const SAMPLE_TEXT = `
+新進人員到職通知單
+
+員工姓名：王小明
+到職日期：2026/08/15
+報到時間：09:00
+報到地點：台北市中正區重慶南路一段 122 號 5樓 人事室
+備註：請攜帶身分證、學歷證件、戶籍謄本
+
+============
+
+員工姓名：林怡君
+到職日期：2026/09/01
+報到時間：09:30
+報到地點：台北市中正區重慶南路一段 122 號 5樓 人事室
+備註：研發替代役第3梯次
+
+============
+
+員工姓名：陳大文
+到職日期：2026/10/12
+報到時間：08:50
+報到地點：高雄市左營區崇德路 17 號
+備註：南區辦公室，請提前聯繫王經理
+
+============
+
+員工姓名：張雅婷
+離職生效日：2026/08/31
+最後工作日：2026/08/28
+備註：轉職至友站，請協助辦理離職手續
+
+============
+
+員工姓名：黃志豪
+面試日期：2026/08/05
+面試時間：14:00
+面試地點：台北市中正區重慶南路一段 122 號 5樓 會議室 A
+備註：第二輪面試，請準備技術題庫
+`;
+
+// ---------- 拖曳 / 上傳 ----------
+const drop = $("drop");
+["dragenter", "dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => { handleFiles(e.dataTransfer.files); });
+$("file").addEventListener("change", e => handleFiles(e.target.files));
+
+$("btnSample").addEventListener("click", () => {
+  log("載入範例文本（模擬「從 PDF 抽出的文字層」）");
+  state.files = [{
+    file: { name: "sample-人事通知.pdf（內建範例）" },
+    text: SAMPLE_TEXT,
+    ocrUsed: false,
+    pageCount: 1,
+    name: "sample-人事通知.pdf（內建範例）"
+  }];
+  $("rawText").value = SAMPLE_TEXT;
+  $("textLayerLabel").textContent = "有（範例）";
+  $("workerLabel").textContent = "—";
+  setStatus("範例已載入", "ok");
+  $("btnExtract").disabled = false;
+  $("btnAllCal").disabled = true;
+  $("eventCount").textContent = "0";
+  $("eventTbody").innerHTML = `<tr><td colspan="6" class="empty">尚未解析。按「解析人事欄位」開始。</td></tr>`;
+});
+
+$("btnClear").addEventListener("click", () => {
+  state.files = []; state.events = [];
+  $("rawText").value = ""; $("log").textContent = "";
+  $("textLayerLabel").textContent = "—"; $("workerLabel").textContent = "—";
+  setBar(0); setStatus("待命中");
+  $("btnExtract").disabled = true; $("btnAllCal").disabled = true;
+  $("eventCount").textContent = "0";
+  $("eventTbody").innerHTML = `<tr><td colspan="6" class="empty">已清除。</td></tr>`;
+  $("extractSummary").textContent = "";
+});
+
+// ---------- 檔案處理 ----------
+async function handleFiles(fileList) {
+  const files = Array.from(fileList || []).filter(f => /pdf$/i.test(f.name) || f.type === "application/pdf");
+  if (!files.length) { setStatus("請選擇 PDF 檔", "warn"); return; }
+  setStatus(`解析中（${files.length} 個檔案）…`, "run");
+  setBar(0);
+
+  const out = [];
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    log(`開始處理：${f.name}（${(f.size/1024).toFixed(1)} KB）`);
+    try {
+      const result = await extractPdfText(f, (frac) => {
+        const overall = ((i + frac) / files.length) * 100;
+        setBar(overall);
+      });
+      out.push(result);
+      log(`  完成：文字層 ${result.textLayerChars} 字，OCR ${result.ocrUsed ? "已啟用" : "未啟用"}`);
+    } catch (err) {
+      log(`  [ERROR] ${f.name}: ${err.message}`);
+    }
+  }
+  state.files = out;
+  const allText = out.map(o => `===== ${o.name} =====\n${o.text}`).join("\n\n");
+  $("rawText").value = allText;
+  $("textLayerLabel").textContent = out.some(o => o.textLayerChars > 0) ? "有" : "無";
+  $("workerLabel").textContent = out.some(o => o.ocrUsed) ? "Tesseract.js" : "—";
+  setBar(100);
+  setStatus(`解析完成（${out.length}）`, "ok");
+  $("btnExtract").disabled = out.length === 0;
+}
+
+// ---------- PDF 文字層擷取 + OCR fallback ----------
+async function extractPdfText(file, onProgress) {
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const pageCount = pdf.numPages;
+  const pageTexts = [];
+  let totalChars = 0;
+
+  for (let p = 1; p <= pageCount; p++) {
+    const page = await pdf.getPage(p);
+    const tc = await page.getTextContent();
+    const text = tc.items.map(it => it.str).join(" ").replace(/\s+/g, " ").trim();
+    pageTexts.push({ page: p, text });
+    totalChars += text.length;
+    onProgress?.(p / pageCount * 0.5);  // 前半段：文字層
+  }
+
+  // 文字層足夠時直接用
+  if (totalChars > 30) {
+    return {
+      file, name: file.name, pageCount,
+      text: pageTexts.map(x => `[第 ${x.page} 頁]\n${x.text}`).join("\n\n"),
+      textLayerChars: totalChars, ocrUsed: false
+    };
+  }
+
+  // 否則 OCR fallback
+  log(`  文字層空白（${totalChars} 字），啟用 Tesseract.js OCR`);
+  setStatus("OCR 辨識中…", "run");
+
+  const worker = await Tesseract.createWorker(["chi_tra", "eng"], 1, {
+    logger: m => {
+      if (m.status === "recognizing text") {
+        onProgress?.(0.5 + m.progress * 0.5);
+        if (Math.random() < 0.1) log(`  OCR p${m.progress.toFixed(2)}`);
+      }
+    }
+  });
+
+  let ocrText = "";
+  for (let p = 1; p <= pageCount; p++) {
+    const page = await pdf.getPage(p);
+    const viewport = page.getViewport({ scale: 2.0 });  // 放大有利 OCR
+    const canvas = document.createElement("canvas");
+    canvas.width = viewport.width; canvas.height = viewport.height;
+    const ctx = canvas.getContext("2d");
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    const { data } = await worker.recognize(canvas);
+    ocrText += `[第 ${p} 頁 OCR]\n${data.text}\n\n`;
+  }
+  await worker.terminate();
+
+  return {
+    file, name: file.name, pageCount,
+    text: ocrText.trim(),
+    textLayerChars: totalChars, ocrUsed: true
+  };
+}
+
+// ---------- 人事欄位解析（正則） ----------
+$("btnExtract").addEventListener("click", () => extractEvents());
+
+function extractEvents() {
+  const allText = state.files.map(f => f.text).join("\n");
+  const events = [];
+
+  // 用行/段滑動視窗掃描：每段以連續 3 行以上有相關欄位為單位
+  // 規則：以「員工姓名 / 到職日期 / 面試日期 / 離職生效日 / 報到時間 / 面試時間 / 報到地點 / 面試地點 / 備註」
+  const lines = allText.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+
+  // 用「姓名標記」當 anchor，往後抓 N 行
+  // 中英文混合：員工姓名 / Employee Name / Name
+  const NAME_RE = /(?:員工姓名|應徵者|面試者|Employee\s*Name|Candidate|面试者|Name)\s*[：:]?\s*([A-Za-z\u4e00-\u9fa5][A-Za-z\u4e00-\u9fa5\s]{1,20})/;
+  const DATE_RES = [
+    { type: "到職", re: /(到職日期|報到日期|到職日|Start\s*Date|Report\s*Date)\s*[：:]?\s*(\d{3,4}[\/.\\-年]\d{1,2}[\/.\\-月]\d{1,2}日?)/i },
+    { type: "面試", re: /(面試日期|面談日期|Interview\s*Date)\s*[：:]?\s*(\d{3,4}[\/.\\-年]\d{1,2}[\/.\\-月]\d{1,2}日?)/i },
+    { type: "離職", re: /(離職生效日|生效日|離職日|Last\s*Day|Resign\s*Date)\s*[：:]?\s*(\d{3,4}[\/.\\-年]\d{1,2}[\/.\\-月]\d{1,2}日?)/i },
+    { type: "最後工作日", re: /(最後工作日)\s*[：:]?\s*(\d{3,4}[\/.\\-年]\d{1,2}[\/.\\-月]\d{1,2}日?)/ },
+  ];
+  const TIME_RES = [
+    { type: "報到", re: /(報到時間|到職時間|Report\s*Time|Start\s*Time)\s*[：:]?\s*(\d{1,2}[:：]\d{2})/i },
+    { type: "面試", re: /(面試時間|面談時間|Interview\s*Time)\s*[：:]?\s*(\d{1,2}[:：]\d{2})/i },
+  ];
+  const LOC_RES = [
+    { type: "報到", re: /(報到地點|到職地點|工作地點|Location|Address|Place)\s*[：:]?\s*([^\n|]+?)(?=\s*\||\s*Note|\s*備註|$)/i },
+    { type: "面試", re: /(面試地點|面談地點|Interview\s*Location)\s*[：:]?\s*([^\n|]+?)(?=\s*\||\s*Note|\s*備註|$)/i },
+  ];
+  const NOTE_RE = /(備註|說明|備注|附註|Note)\s*[：:]?\s*([^\n|]+)/i;
+
+  const normDate = (s) => {
+    // 2026/08/15 → 2026-08-15；2026年8月15日 → 2026-08-15
+    let m = s.match(/(\d{3,4})[\/.\\-](\d{1,2})[\/.\\-](\d{1,2})/);
+    if (m) return `${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;
+    m = s.match(/(\d{3,4})年(\d{1,2})月(\d{1,2})日/);
+    if (m) return `${m[1]}-${m[2].padStart(2,"0")}-${m[3].padStart(2,"0")}`;
+    return null;
+  };
+  const normTime = (s) => s.replace(/[：]/g, ":");
+  const addHour = (hhmm, h) => {
+    const [H, M] = hhmm.split(":").map(Number);
+    const t = new Date(2000,0,1,H+h,M);
+    return `${String(t.getHours()).padStart(2,"0")}:${String(t.getMinutes()).padStart(2,"0")}`;
+  };
+
+  // 先把文字按「員工姓名 / Employee Name / Name」這類 anchor 切塊。
+  // PDF.js 文字層常把整頁擠成一行，所以必須在「整段文字」內找 anchor，
+  // 不能假設每筆資料各佔一行。
+  const fullText = allText;
+  // 用 global regex 找出所有 anchor 的位置
+  const NAME_RE_G = /(?:員工姓名|應徵者|面試者|Employee\s*Name|面试者)\s*[：:]?\s*([A-Za-z\u4e00-\u9fa5][A-Za-z\u4e00-\u9fa5\s]{1,15}?)(?=\s+(?:到職|面試|離職|Start|Interview|Report|Resign|Last|員工|Employee|$))/gi;
+  // 用更穩健的策略：把所有 anchor 抓出來 + 計算下一個 anchor 位置切塊
+  const anchorMatches = [...fullText.matchAll(/員工姓名\s*[：:]?|Employee\s*Name\s*[::]?/gi)];
+  const blocks = [];
+  if (anchorMatches.length === 0) {
+    // fallback：原文範例是逐行格式
+    const lineArr = allText.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    blocks.push(...lineArr.map((_, i, arr) => arr.slice(i, Math.min(arr.length, i + 14)).join(" | ")));
+  } else {
+    for (let i = 0; i < anchorMatches.length; i++) {
+      const start = anchorMatches[i].index;
+      const end = (i + 1 < anchorMatches.length) ? anchorMatches[i + 1].index : fullText.length;
+      blocks.push(fullText.slice(start, end));
+    }
+  }
+
+  for (const block of blocks) {
+    // 抓姓名：取 anchor 詞後第一個連續中英文 token（1-10 字）
+    const nameM = block.match(/(?:員工姓名|應徵者|面試者|Employee\s*Name|面试者|Name)\s*[：:]?\s*([A-Za-z\u4e00-\u9fa5][A-Za-z\u4e00-\u9fa5]{1,9})/);
+    const name = nameM ? nameM[1].trim() : null;
+    if (!name) continue;
+
+    let date = null, type = null, time = null, loc = null, note = null;
+
+    for (const r of DATE_RES) {
+      const x = block.match(r.re);
+      if (x) { date = normDate(x[2]); type = r.type; break; }
+    }
+    for (const r of TIME_RES) {
+      const x = block.match(r.re);
+      if (x) { time = normTime(x[2]); break; }
+    }
+    if (!time) {
+      const t = block.match(/\b(\d{1,2}[:：]\d{2})\b/);
+      if (t) time = t[1];
+    }
+    for (const r of LOC_RES) {
+      const x = block.match(r.re);
+      if (x) { loc = x[2].trim(); break; }
+    }
+    if (!loc) {
+      const t = block.match(/([A-Za-z\u4e00-\u9fa50-9]+(?:路|街|區|室|樓|號|Road|Street|Ave|Floor|No\.)[^|]*?)(?=\s*Note|\s*備註|$)/i);
+      if (t) loc = t[1].trim();
+    }
+    const nx = block.match(NOTE_RE);
+    if (nx) note = nx[2].trim();
+
+    if (date) {
+      const endTime = time ? addHour(time, 1) : "10:00";
+      events.push({
+        name, type, date, time: time || "09:00", endTime,
+        location: loc || "", notes: note || "", sourceFile: "(本檔)"
+      });
+    } else {
+      log(`  跳過「${name}」：找不到日期欄位`);
+    }
+  }
+
+  // 去重（同姓名同日期）
+  const seen = new Set();
+  state.events = events.filter(e => {
+    const k = `${e.name}|${e.date}`;
+    if (seen.has(k)) return false; seen.add(k); return true;
+  });
+
+  log(`解析完成：${events.length} 筆，去重後 ${state.events.length} 筆`);
+  $("extractSummary").innerHTML = events.length === state.events.length
+    ? `<span class="pill ok">解析 ${events.length} 筆人事事件</span>`
+    : `<span class="pill warn">原始 ${events.length} 筆 / 去重後 ${state.events.length} 筆</span>`;
+
+  renderEvents();
+  $("btnAllCal").disabled = state.events.length === 0;
+}
+
+// ---------- 渲染事件表 ----------
+function renderEvents() {
+  const tbody = $("eventTbody");
+  $("eventCount").textContent = state.events.length;
+  if (state.events.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty">沒有符合的人事事件。</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = state.events.map((e, idx) => `
+    <tr>
+      <td><strong>${escape(e.name)}</strong></td>
+      <td><span class="chip">${escape(e.type || "未分類")}</span></td>
+      <td class="mono">${e.date} ${e.time}–${e.endTime}</td>
+      <td>${escape(e.location) || '<span class="muted">—</span>'}</td>
+      <td>${escape(e.notes) || '<span class="muted">—</span>'}</td>
+      <td>
+        <button class="btn primary" data-idx="${idx}">送出</button>
+        <button class="btn warn" data-del="${idx}">刪除</button>
+      </td>
+    </tr>
+  `).join("");
+
+  tbody.querySelectorAll("button[data-idx]").forEach(b => {
+    b.addEventListener("click", () => openCalendar(state.events[+b.dataset.idx], true));
+  });
+  tbody.querySelectorAll("button[data-del]").forEach(b => {
+    b.addEventListener("click", () => {
+      state.events.splice(+b.dataset.del, 1);
+      renderEvents();
+      $("btnAllCal").disabled = state.events.length === 0;
+    });
+  });
+}
+
+function escape(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+// ---------- Google Calendar URL protocol ----------
+// 說明：Google Calendar 支援「公開 URL 預填表單」，不需 OAuth、不需 API key。
+// 格式：https://calendar.google.com/calendar/render?action=TEMPLATE&text=...&dates=...&details=...&location=...
+function buildGCalUrl(e) {
+  // dates 要 ISO basic format：YYYYMMDDTHHMMSS/YYYYMMDDTHHMMSS
+  const toBasic = (date, time) => {
+    const [y, m, d] = date.split("-");
+    const [hh, mm] = time.split(":");
+    return `${y}${m}${d}T${hh}${mm}00`;
+  };
+  const start = toBasic(e.date, e.time);
+  const end   = toBasic(e.date, e.endTime);
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text:   `[人事] ${e.name} - ${e.type || "事件"}`,
+    dates:  `${start}/${end}`,
+    details: e.notes ? `備註：${e.notes}` : "",
+    location: e.location || "",
+    sf: "true",  // 跳出確認對話框，避免直接寫入
+    output: "xml",
+  });
+  return "https://calendar.google.com/calendar/render?" + params.toString();
+}
+
+function openCalendar(e, focus = false) {
+  const url = buildGCalUrl(e);
+  log(`開啟 Google Calendar：${e.name} @ ${e.date} ${e.time}`);
+  // 新分頁開啟（瀏覽器會詢問是否登入帳號；登入後可一鍵儲存）
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+$("btnAllCal").addEventListener("click", () => {
+  if (state.events.length === 0) return;
+  log(`批次送出 ${state.events.length} 筆到 Google Calendar（會依序開新分頁）`);
+  let i = 0;
+  const openNext = () => {
+    if (i >= state.events.length) return;
+    openCalendar(state.events[i]);
+    i++;
+    setTimeout(openNext, 700);  // 避免瀏覽器擋彈窗
+  };
+  openNext();
+});
+
+// ---------- 對外可呼叫的全域介面（debug 用） ----------
+window.__hrPdf = { state, buildGCalUrl };
+log("初始化完成。等待檔案…");
+setStatus("待命中");
+</script>
+
+</body>
+</html>

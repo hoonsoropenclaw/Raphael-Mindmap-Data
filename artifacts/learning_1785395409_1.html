@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>人事案件 × Google Calendar 時間軸提醒 — 整合原型</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-2: #273449;
+    --border: #334155;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --accent: #38bdf8;
+    --accent-2: #818cf8;
+    --warn: #f59e0b;
+    --danger: #ef4444;
+    --ok: #10b981;
+    --case: #a78bfa;
+    --event: #38bdf8;
+    --reminder: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC",
+                 "Microsoft JhengHei", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  header {
+    padding: 24px 32px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  header h1 { margin: 0; font-size: 20px; font-weight: 600; }
+  header .subtitle { color: var(--text-dim); font-size: 13px; margin-top: 4px; }
+  header .badge {
+    background: var(--panel-2);
+    color: var(--text-dim);
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    border: 1px solid var(--border);
+  }
+  header .badge.ok { color: var(--ok); border-color: var(--ok); }
+  .layout {
+    display: grid;
+    grid-template-columns: 320px 1fr 360px;
+    gap: 16px;
+    padding: 16px;
+    height: calc(100vh - 73px);
+  }
+  @media (max-width: 1100px) {
+    .layout { grid-template-columns: 1fr; height: auto; }
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .panel-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel-2);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .panel-body {
+    padding: 16px;
+    overflow-y: auto;
+    flex: 1;
+  }
+  .stat-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .stat {
+    background: var(--panel-2);
+    padding: 10px;
+    border-radius: 6px;
+    text-align: center;
+    border: 1px solid var(--border);
+  }
+  .stat .num { font-size: 20px; font-weight: 700; color: var(--accent); }
+  .stat .label { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+  .case-item {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--case);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: transform 0.1s, border-color 0.1s;
+  }
+  .case-item:hover { transform: translateX(2px); border-color: var(--case); }
+  .case-item.active { border-color: var(--accent); border-left-color: var(--accent); background: #1e3a5f; }
+  .case-item .id { font-size: 11px; color: var(--text-dim); font-family: monospace; }
+  .case-item .title { font-weight: 500; margin: 4px 0; }
+  .case-item .meta { font-size: 12px; color: var(--text-dim); display: flex; gap: 8px; flex-wrap: wrap; }
+  .case-item .stage {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    background: var(--case);
+    color: var(--bg);
+  }
+  /* Timeline */
+  .timeline-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+  }
+  .timeline-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+  .timeline-header h2 { margin: 0; font-size: 16px; }
+  .controls { display: flex; gap: 6px; }
+  .controls button {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .controls button:hover { background: var(--accent); color: var(--bg); }
+  .controls button.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  .timeline {
+    position: relative;
+    padding-left: 60px;
+  }
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 28px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--border);
+  }
+  .timeline-day {
+    position: relative;
+    margin-bottom: 24px;
+  }
+  .timeline-day::before {
+    content: attr(data-date);
+    position: absolute;
+    left: -60px;
+    top: -2px;
+    width: 50px;
+    text-align: right;
+    color: var(--text-dim);
+    font-size: 11px;
+    font-family: monospace;
+  }
+  .timeline-item {
+    position: relative;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+    margin-left: 12px;
+  }
+  .timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -19px;
+    top: 14px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--bg);
+  }
+  .timeline-item.event::before { background: var(--event); }
+  .timeline-item.reminder::before { background: var(--reminder); }
+  .timeline-item.deadline::before { background: var(--danger); }
+  .timeline-item .time {
+    font-family: monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .timeline-item .title { font-weight: 500; margin: 2px 0; }
+  .timeline-item .desc { font-size: 13px; color: var(--text-dim); }
+  .timeline-item .type-tag {
+    display: inline-block;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-left: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .type-tag.event { background: var(--event); color: var(--bg); }
+  .type-tag.reminder { background: var(--reminder); color: var(--bg); }
+  .type-tag.deadline { background: var(--danger); color: #fff; }
+  /* Reminders panel */
+  .reminder-item {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--reminder);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    gap: 8px;
+  }
+  .reminder-item .info { flex: 1; }
+  .reminder-item .info .when { font-size: 11px; color: var(--reminder); font-family: monospace; }
+  .reminder-item .info .what { font-weight: 500; margin: 2px 0; }
+  .reminder-item .info .where { font-size: 12px; color: var(--text-dim); }
+  .reminder-item button {
+    background: transparent;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  .reminder-item button:hover { color: var(--ok); border-color: var(--ok); }
+  .empty { color: var(--text-dim); text-align: center; padding: 24px; font-size: 13px; }
+  footer {
+    padding: 8px 32px;
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 11px;
+    text-align: center;
+  }
+  footer code { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>人事案件 × Google Calendar 時間軸提醒</h1>
+    <div class="subtitle">整合原型 — 雙軌時間軸：日曆事件 + 案件節點 → 自動提醒</div>
+  </div>
+  <div>
+    <span class="badge ok">● Calendar 連線（mock）</span>
+    <span class="badge ok">● HR Case API（mock）</span>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- Left panel: HR Cases -->
+  <section class="panel">
+    <div class="panel-header">
+      <span>📁 人事案件</span>
+      <span id="case-count" style="font-weight:normal; color: var(--text-dim); font-size:12px;"></span>
+    </div>
+    <div class="panel-body">
+      <div class="stat-row">
+        <div class="stat"><div class="num" id="stat-active">—</div><div class="label">進行中</div></div>
+        <div class="stat"><div class="num" id="stat-deadline">—</div><div class="label">本週到期</div></div>
+        <div class="stat"><div class="num" id="stat-events">—</div><div class="label">連動事件</div></div>
+      </div>
+      <div id="case-list"></div>
+    </div>
+  </section>
+
+  <!-- Middle panel: Timeline -->
+  <section class="panel">
+    <div class="timeline-container">
+      <div class="timeline-header">
+        <h2>🕒 時間軸（事件 + 提醒 + 案件節點）</h2>
+        <div class="controls">
+          <button data-filter="all" class="active">全部</button>
+          <button data-filter="event">日曆事件</button>
+          <button data-filter="reminder">提醒</button>
+          <button data-filter="deadline">案件截止</button>
+        </div>
+      </div>
+      <div id="timeline" class="timeline"></div>
+    </div>
+  </section>
+
+  <!-- Right panel: Reminders / Settings -->
+  <section class="panel">
+    <div class="panel-header">
+      <span>🔔 即將到來的提醒</span>
+    </div>
+    <div class="panel-body">
+      <div id="reminder-list"></div>
+      <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border);">
+        <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 8px; font-weight: 600;">提醒規則設定</div>
+        <div style="font-size: 12px; color: var(--text-dim); line-height: 1.8;">
+          • 案件截止前 <strong style="color:var(--text);">72 小時</strong>：寫入日曆<br>
+          • 截止前 <strong style="color:var(--text);">24 小時</strong>：Email + 推播<br>
+          • 截止當天 <strong style="color:var(--text);">09:00</strong>：二次提醒<br>
+          • 面試前 <strong style="color:var(--text);">2 小時</strong>：與會者通知<br>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  整合層：<code>Google Calendar API v3 (events.insert)</code> ↔ <code>HR Case API (mock)</code>；
+  提醒排程：<code>CronJob 每 15 分鐘掃描</code>；
+  OAuth scope：<code>https://www.googleapis.com/auth/calendar.events</code>
+</footer>
+
+<script>
+// ============================================================
+// Mock data layer
+// 在 production，這兩個來源會換成：
+//   - fetch('https://www.googleapis.com/calendar/v3/calendars/.../events')
+//   - fetch('/api/hr/cases?status=active')
+// 兩者都需 Bearer token（Calendar OAuth / 內部 SSO）
+// ============================================================
+
+const mockCalendarEvents = [
+  { id: 'evt-1', date: '2026-07-30', time: '10:00', duration: 60,
+    title: '新進教師報到 — 林○○',
+    desc: '人事室會議室 A / 攜帶：合約書、識別證申請表',
+    attendees: ['hr@school.edu', 'principal@school.edu'] },
+  { id: 'evt-2', date: '2026-07-30', time: '14:30', duration: 45,
+    title: '代理教師甄試 — 王○○ 面試',
+    desc: '3F 會議室 / 評審委員：3 人',
+    attendees: ['hr@school.edu'] },
+  { id: 'evt-3', date: '2026-07-31', time: '09:00', duration: 30,
+    title: '敘薪審查委員會',
+    desc: '審查 5 件新進人員敘薪案',
+    attendees: ['hr@school.edu', 'principal@school.edu'] },
+  { id: 'evt-4', date: '2026-08-01', time: '15:00', duration: 60,
+    title: '在職進修補助審查',
+    desc: '申請案：陳○○（碩士學分）、張○○（教師證加註）',
+    attendees: ['hr@school.edu'] },
+  { id: 'evt-5', date: '2026-08-04', time: '11:00', duration: 30,
+    title: '考核通知 — 李○○（10年敘獎）',
+    desc: '線上表單送出截止提醒',
+    attendees: ['hr@school.edu'] },
+];
+
+const mockHRCases = [
+  { id: 'HR-2026-0142', title: '新進教師 — 林○○ 報到流程',
+    stage: '文件繳交', status: 'active', deadline: '2026-07-31',
+    linked_event_id: 'evt-1', priority: 'high' },
+  { id: 'HR-2026-0143', title: '代理教師甄試 — 王○○',
+    stage: '面試', status: 'active', deadline: '2026-07-30',
+    linked_event_id: 'evt-2', priority: 'high' },
+  { id: 'HR-2026-0144', title: '敘薪案 — 吳○○ 等 5 人',
+    stage: '審查委員會', status: 'active', deadline: '2026-07-31',
+    linked_event_id: 'evt-3', priority: 'medium' },
+  { id: 'HR-2026-0145', title: '在職進修補助 — 陳○○',
+    stage: '審查中', status: 'active', deadline: '2026-08-01',
+    linked_event_id: 'evt-4', priority: 'medium' },
+  { id: 'HR-2026-0140', title: '離職 — 黃○○（退休）',
+    stage: '已結案', status: 'closed', deadline: '2026-07-15',
+    linked_event_id: null, priority: 'low' },
+];
+
+// ============================================================
+// Integration logic
+// ============================================================
+
+// 1. 把 HR 案件 deadline 轉成日曆事件（含 24h / 72h reminder）
+function hrDeadlineToCalendarEvent(hrCase, baseDate = new Date('2026-07-30')) {
+  const deadline = new Date(hrCase.deadline + 'T17:00:00');
+  const reminder24h = new Date(deadline.getTime() - 24 * 60 * 60 * 1000);
+  const reminder72h = new Date(deadline.getTime() - 72 * 60 * 60 * 1000);
+
+  return [
+    {
+      id: `reminder-72h-${hrCase.id}`,
+      date: reminder72h.toISOString().slice(0, 10),
+      time: reminder72h.toTimeString().slice(0, 5),
+      duration: 15,
+      title: `[預先提醒] ${hrCase.title} — 72 小時前`,
+      desc: `案件 ${hrCase.id} / 階段：${hrCase.stage} / 優先度：${hrCase.priority}`,
+      type: 'reminder',
+      source_case: hrCase.id,
+    },
+    {
+      id: `reminder-24h-${hrCase.id}`,
+      date: reminder24h.toISOString().slice(0, 10),
+      time: reminder24h.toTimeString().slice(0, 5),
+      duration: 15,
+      title: `[緊急提醒] ${hrCase.title} — 24 小時前`,
+      desc: `Email + Push 雙通道`,
+      type: 'reminder',
+      source_case: hrCase.id,
+    },
+    {
+      id: `deadline-${hrCase.id}`,
+      date: hrCase.deadline,
+      time: '17:00',
+      duration: 0,
+      title: `【截止】${hrCase.title}`,
+      desc: `案件 ${hrCase.id} — 截止時間`,
+      type: 'deadline',
+      source_case: hrCase.id,
+    },
+  ];
+}
+
+// 2. 合併兩個來源，產出統一時間軸
+function buildTimeline() {
+  const generatedReminders = mockHRCases
+    .filter(c => c.status === 'active')
+    .flatMap(c => hrDeadlineToCalendarEvent(c));
+
+  const allItems = [
+    ...mockCalendarEvents.map(e => ({ ...e, type: 'event' })),
+    ...generatedReminders,
+  ];
+
+  return allItems.sort((a, b) => {
+    const ka = `${a.date} ${a.time}`;
+    const kb = `${b.date} ${b.time}`;
+    return ka.localeCompare(kb);
+  });
+}
+
+// 3. 統計
+function computeStats() {
+  const active = mockHRCases.filter(c => c.status === 'active').length;
+  const weekFromNow = new Date('2026-07-30');
+  weekFromNow.setDate(weekFromNow.getDate() + 7);
+  const deadlineThisWeek = mockHRCases.filter(c => {
+    if (c.status !== 'active') return false;
+    const d = new Date(c.deadline);
+    return d >= new Date('2026-07-30') && d <= weekFromNow;
+  }).length;
+  const linkedEvents = mockHRCases.filter(c => c.linked_event_id).length;
+  return { active, deadlineThisWeek, linkedEvents };
+}
+
+// ============================================================
+// Render
+// ============================================================
+
+function renderCases() {
+  const list = document.getElementById('case-list');
+  list.innerHTML = mockHRCases.map(c => `
+    <div class="case-item" data-id="${c.id}">
+      <div class="id">${c.id}</div>
+      <div class="title">${c.title}</div>
+      <div class="meta">
+        <span class="stage">${c.stage}</span>
+        <span>截止：${c.deadline}</span>
+        ${c.linked_event_id ? '<span>🔗 已連動</span>' : ''}
+      </div>
+    </div>
+  `).join('');
+  document.getElementById('case-count').textContent = `${mockHRCases.length} 件`;
+}
+
+function renderTimeline(filter = 'all') {
+  const items = buildTimeline().filter(it => filter === 'all' || it.type === filter);
+  const grouped = {};
+  items.forEach(it => {
+    if (!grouped[it.date]) grouped[it.date] = [];
+    grouped[it.date].push(it);
+  });
+
+  const container = document.getElementById('timeline');
+  if (items.length === 0) {
+    container.innerHTML = '<div class="empty">沒有符合條件的項目</div>';
+    return;
+  }
+
+  container.innerHTML = Object.entries(grouped).map(([date, dayItems]) => `
+    <div class="timeline-day" data-date="${date.slice(5)}">
+      ${dayItems.map(it => `
+        <div class="timeline-item ${it.type}">
+          <div>
+            <span class="time">${it.time}</span>
+            <span class="type-tag ${it.type}">${labelOf(it.type)}</span>
+          </div>
+          <div class="title">${it.title}</div>
+          <div class="desc">${it.desc}</div>
+        </div>
+      `).join('')}
+    </div>
+  `).join('');
+}
+
+function labelOf(type) {
+  return { event: '日曆', reminder: '提醒', deadline: '截止' }[type] || type;
+}
+
+function renderReminders() {
+  const upcoming = buildTimeline()
+    .filter(it => it.type === 'reminder' || it.type === 'deadline')
+    .slice(0, 6);
+
+  const list = document.getElementById('reminder-list');
+  if (upcoming.length === 0) {
+    list.innerHTML = '<div class="empty">目前沒有待發送的提醒</div>';
+    return;
+  }
+
+  list.innerHTML = upcoming.map(it => `
+    <div class="reminder-item">
+      <div class="info">
+        <div class="when">${it.date} ${it.time}</div>
+        <div class="what">${it.title}</div>
+        <div class="where">${it.desc}</div>
+      </div>
+      <button onclick="ackReminder('${it.id}')">✓ 確認</button>
+    </div>
+  `).join('');
+}
+
+function renderStats() {
+  const s = computeStats();
+  document.getElementById('stat-active').textContent = s.active;
+  document.getElementById('stat-deadline').textContent = s.deadlineThisWeek;
+  document.getElementById('stat-events').textContent = s.linkedEvents;
+}
+
+function ackReminder(id) {
+  alert(`已確認提醒 ${id}。\n（Production：呼叫 /api/reminders/${id}/ack 並從佇列移除）`);
+}
+
+// ============================================================
+// Wire up
+// ============================================================
+
+document.querySelectorAll('.controls button').forEach(btn => {
+  btn.addEventListener('click', e => {
+    document.querySelectorAll('.controls button').forEach(b => b.classList.remove('active'));
+    e.target.classList.add('active');
+    renderTimeline(e.target.dataset.filter);
+  });
+});
+
+renderCases();
+renderStats();
+renderTimeline();
+renderReminders();
+</script>
+
+</body>
+</html>

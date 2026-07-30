@@ -1,153 +1,17 @@
-# umd_dependency_management
+# UMD Dependency Management
 
-## Overview
-Managing UMD (Universal Module Definition) dependencies and integrating them into a React Flow application involves handling asynchronous loading of dependencies, ensuring all necessary global variables are available before initializing the application, and gracefully handling potential errors or delays in the loading process.
+## 說明...
+此技能涉及管理 React Flow 的 UMD 依賴項，確保在瀏覽器中正確加載和初始化 React Flow 庫。
 
-## Key Concepts
-- **UMD Dependencies**: These are JavaScript modules that can be used in various environments (browser, CommonJS, AMD). They expose themselves as global variables when loaded via a `<script>` tag.
-- **Dependency Polling**: Since UMD dependencies may load at unpredictable times, polling is used to check if all required global variables are available before proceeding.
-- **Error Handling**: Implementing retry mechanisms and timeout strategies to handle cases where dependencies fail to load.
-
-## Detailed Steps
-
-### 1. Define the Dependencies
-Identify all UMD dependencies required by your React Flow application. For example:
-- `ReactFlowCore`
-- `ReactFlowBackground`
-- `ReactFlowControls`
-- `ReactFlowMinimap`
-
-### 2. Implement Dependency Polling
-Use a polling function to periodically check if all necessary global variables are available. This ensures that the application does not attempt to initialize before the dependencies are fully loaded.
-
-#### Key Code Snippet
-```javascript
-function checkDependencies() {
-  const RF = window.ReactFlowCore;
-  const RFB = window.ReactFlowBackground;
-  const RFC = window.ReactFlowControls;
-  const RFM = window.ReactFlowMinimap;
-
-  if (!RF || !RFB || !RFC || !RFM) {
-    // Retry after 100 milliseconds
-    setTimeout(checkDependencies, 100);
-    return;
-  }
-
-  // All dependencies are loaded
-  compileAndRun();
-}
-
-// Start polling for dependencies
-checkDependencies();
+## 關鍵代碼片段或模式
+```html
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
 ```
 
-### 3. Handling Timeout and Errors
-To prevent the application from hanging indefinitely if dependencies fail to load, implement a timeout mechanism. This will stop the polling process after a certain period and notify the user or fallback to a safe state.
-
-#### Enhanced Polling Function with Timeout
-```javascript
-function checkDependencies(timeout = 5000, interval = 100) {
-  const startTime = Date.now();
-  const RF = window.ReactFlowCore;
-  const RFB = window.ReactFlowBackground;
-  const RFC = window.ReactFlowControls;
-  const RFM = window.ReactFlowMinimap;
-
-  if (!RF || !RFB || !RFC || !RFM) {
-    if (Date.now() - startTime < timeout) {
-      // Retry after the specified interval
-      setTimeout(() => checkDependencies(timeout, interval), interval);
-    } else {
-      // Timeout occurred
-      console.error('Failed to load UMD dependencies within the specified timeout.');
-      // Implement fallback or notify the user
-    }
-    return;
-  }
-
-  // All dependencies are loaded
-  compileAndRun();
-}
-
-// Start polling with a timeout of 5 seconds
-checkDependencies();
-```
-
-### 4. Integrating with React Flow
-Once dependencies are confirmed to be loaded, initialize and integrate them into your React Flow application. This may involve setting up the React Flow instance, configuring components, and rendering the flow diagram.
-
-#### Example Initialization
-```javascript
-function compileAndRun() {
-  // Initialize React Flow
-  const reactFlowInstance = new ReactFlow({
-    elements: initialElements,
-    // Other configuration options
-  });
-
-  // Render React Flow
-  ReactDOM.render(<ReactFlowProvider instance={reactFlowInstance}>
-    <YourFlowComponent />
-  </ReactFlowProvider>, document.getElementById('root'));
-}
-```
-
-### 5. Best Practices and Error Prevention
-- **Explicit Dependency Declaration**: Always declare all dependencies explicitly to avoid unexpected missing variables.
-- **Retry Logic**: Implement a reasonable retry interval and timeout to balance between quick failure and giving dependencies enough time to load.
-- **User Feedback**: Provide clear feedback to the user if dependencies fail to load, such as displaying an error message or a retry button.
-- **Fallback Mechanisms**: Consider implementing fallback mechanisms or alternative workflows if critical dependencies are missing.
-
-## Summary
-Effectively managing UMD dependencies and integrating them into a React Flow application requires careful handling of asynchronous loading, polling for dependencies, and implementing robust error handling. By following the steps and best practices outlined above, you can ensure a smooth and reliable user experience.
-
----
-
-# Poll for UMD Dependencies
-
-## Explanation
-After loading UMD packages, use a polling mechanism to check that all dependencies have been correctly loaded, preventing errors due to loading order issues.
-
-### Key Steps:
-1. **Define the Dependencies**: Identify the global variables exposed by the UMD dependencies.
-2. **Implement Polling**: Use a function to check the existence of these variables at regular intervals.
-3. **Handle Timeouts**: Set a maximum waiting time to prevent the application from hanging indefinitely.
-4. **Error Handling**: Provide mechanisms to handle cases where dependencies fail to load, such as displaying error messages or fallback options.
-
-### Example Polling Function
-```javascript
-function pollForDependencies(timeout = 5000, interval = 100) {
-  const startTime = Date.now();
-  const dependencies = ['ReactFlowCore', 'ReactFlowBackground', 'ReactFlowControls', 'ReactFlowMinimap'];
-
-  function check() {
-    const missing = dependencies.filter(dep => !window[dep]);
-
-    if (missing.length > 0) {
-      if (Date.now() - startTime < timeout) {
-        setTimeout(check, interval);
-      } else {
-        console.error(`Failed to load dependencies: ${missing.join(', ')}`);
-        // Implement fallback or notify the user
-      }
-    } else {
-      // All dependencies are loaded
-      compileAndRun();
-    }
-  }
-
-  check();
-}
-
-// Start polling with a timeout of 5 seconds
-pollForDependencies();
-```
-
-### Best Practices:
-- **Explicit Declaration**: Clearly list all dependencies to be polled.
-- **Reasonable Timeouts**: Set timeout values that give dependencies enough time to load without causing unnecessary delays.
-- **User Notifications**: Inform users if dependencies fail to load, providing options to retry or proceed with limited functionality.
-- **Fallback Strategies**: Plan for scenarios where critical dependencies are missing, ensuring the application remains usable.
-
-By integrating these practices, you can enhance the reliability and user experience of your application when dealing with UMD dependencies.
+## 常見錯誤及避免方法
+- **錯誤**：依賴項版本不兼容，導致 React Flow 無法正常運行。
+  **解決方法**：確保所有 UMD 依賴項版本與 React Flow 版本匹配，並在部署前進行兼容性測試。
+- **錯誤**：依賴項加載順序錯誤，導致未定義的變量錯誤。
+  **解決方法**：按照正確的順序加載依賴項，通常是先加載 React 和 ReactDOM，然後再加載 React Flow。
