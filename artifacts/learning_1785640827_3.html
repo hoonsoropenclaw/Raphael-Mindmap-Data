@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="description" content="基於 OpenAI Whisper API 的實時語音轉文字桌面 PWA" />
+<title>Whisper Live · 實時語音轉文字</title>
+
+<!-- Tailwind CDN (advanced_ui_development §2.1) -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        colors: {
+          brand: {
+            50:  '#eef2ff',
+            200: '#c7d2fe',
+            400: '#818cf8',
+            500: '#6366f1',
+            600: '#4f46e5',
+            700: '#4338ca',
+          },
+          ink: {
+            900: '#0b0d12',
+            800: '#11141b',
+            700: '#1a1f2b',
+            600: '#2a3142',
+            500: '#3b4256',
+          },
+        },
+        fontFamily: {
+          display: ['"Space Grotesk"', 'system-ui', 'sans-serif'],
+          body: ['Inter', 'system-ui', 'sans-serif'],
+          mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+        },
+        animation: {
+          'pulse-ring':  'pulse-ring 1.6s cubic-bezier(0.215, 0.61, 0.355, 1) infinite',
+          'pulse-dot':   'pulse-dot 1.6s cubic-bezier(0.455, 0.03, 0.515, 0.955) infinite',
+          'fade-up':     'fade-up 0.45s cubic-bezier(0.16, 1, 0.3, 1) both',
+          'gradient-x':  'gradient-x 8s ease infinite',
+          'shimmer':     'shimmer 2.4s linear infinite',
+        },
+        keyframes: {
+          'pulse-ring': {
+            '0%':   { transform: 'scale(0.7)', opacity: '0.8' },
+            '80%':  { transform: 'scale(1.6)', opacity: '0' },
+            '100%': { transform: 'scale(1.6)', opacity: '0' },
+          },
+          'pulse-dot': {
+            '0%, 100%': { transform: 'scale(1)',   opacity: '1' },
+            '50%':      { transform: 'scale(1.2)', opacity: '0.85' },
+          },
+          'fade-up': {
+            '0%':   { opacity: '0', transform: 'translateY(8px)' },
+            '100%': { opacity: '1', transform: 'translateY(0)' },
+          },
+          'gradient-x': {
+            '0%, 100%': { 'background-position': '0% 50%' },
+            '50%':      { 'background-position': '100% 50%' },
+          },
+          'shimmer': {
+            '0%':   { 'background-position': '-200% 0' },
+            '100%': { 'background-position': '200% 0' },
+          },
+        },
+      },
+    },
+  };
+</script>
+
+<!-- React 18 + Babel Standalone (standalone_web_application_development §1) -->
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+
+<style>
+  html, body { height: 100%; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: #0b0d12;
+    color: #e7eaf2;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* 漸層光暈背景 (advanced_ui_development §3 動畫設計) */
+  .aurora {
+    background:
+      radial-gradient(60rem 60rem at 10% -10%, rgba(99,102,241,0.25), transparent 60%),
+      radial-gradient(50rem 50rem at 100% 0%, rgba(56,189,248,0.18), transparent 60%),
+      radial-gradient(40rem 40rem at 50% 110%, rgba(217,70,239,0.18), transparent 60%),
+      #0b0d12;
+  }
+  .glass {
+    background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015));
+    border: 1px solid rgba(255,255,255,0.08);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+  }
+  .gradient-text {
+    background: linear-gradient(90deg, #c7d2fe, #f0abfc, #93c5fd, #c7d2fe);
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: gradient-x 8s ease infinite;
+  }
+  .shimmer {
+    background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.12) 50%, rgba(255,255,255,0.04) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 2.4s linear infinite;
+  }
+  /* 字幕區的最終/中間態區隔 */
+  .final-line { color: #e7eaf2; }
+  .interim-line { color: #94a3b8; font-style: italic; }
+  .ts-line { color: #818cf8; }
+
+  /* 自訂滾動條 */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 8px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+
+  /* 範圍輸入客製 */
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 999px;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px; height: 14px;
+    background: #6366f1;
+    border-radius: 999px;
+    box-shadow: 0 0 0 4px rgba(99,102,241,0.2);
+    cursor: pointer;
+  }
+</style>
+</head>
+<body class="aurora">
+  <div id="root"></div>
+
+  <!-- 應用主程式 (Babel Standalone 即時編譯 JSX) -->
+  <script type="text/babel" data-presets="env,react">
+  /* eslint-disable */
+  const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+  /* =========================================================
+   *  本地持久化 (localStorage 模擬 — standalone_web_application_development §4)
+   * ========================================================= */
+  const LS_KEYS = {
+    apiKey:  'whisper.apiKey',
+    model:   'whisper.model',
+    lang:    'whisper.lang',
+    prompt:  'whisper.prompt',
+    chunkMs: 'whisper.chunkMs',
+    history: 'whisper.history.v1',
+  };
+  const ls = {
+    get: (k, d=null) => {
+      try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); }
+      catch { return d; }
+    },
+    set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+    del: (k) => { try { localStorage.removeItem(k); } catch {} },
+  };
+
+  /* =========================================================
+   *  Whisper 串接 (OpenAI 官方 REST API)
+   *    - POST https://api.openai.com/v1/audio/transcriptions
+   *    - multipart/form-data: file + model + optional language, prompt, response_format
+   *    - 回 JSON { text: "..." }
+   *  瀏覽器直接呼叫:API key 由使用者輸入,僅存在 localStorage。
+   *  CORS:OpenAI 允許瀏覽器直接呼叫(需 Authorization header)。
+   *  此為「最終翻譯」,不適合做 streaming token,但可做「即時分段輪詢」近似 real-time。
+   * ========================================================= */
+  async function transcribeChunk({ apiKey, model, language, prompt, blob, signal }) {
+    const form = new FormData();
+    // 副檔名依 MIME 對應 Whisper 接受的格式;MediaRecorder 預設 webm/opus
+    const ext = (blob.type.includes('ogg')) ? 'ogg'
+              : (blob.type.includes('mp4'))  ? 'mp4'
+              : (blob.type.includes('wav'))  ? 'wav'
+              : 'webm';
+    form.append('file', blob, `chunk.${ext}`);
+    form.append('model', model || 'whisper-1');
+    if (language) form.append('language', language);
+    if (prompt)   form.append('prompt',   prompt);
+    form.append('response_format', 'json');
+
+    const r = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+      body: form,
+      signal,
+    });
+    if (!r.ok) {
+      const errText = await r.text().catch(() => '');
+      throw new Error(`Whisper API ${r.status}: ${errText.slice(0, 220)}`);
+    }
+    const data = await r.json();
+    return (data?.text || '').trim();
+  }
+
+  /* =========================================================
+   *  音訊錄製 (MediaRecorder 即時切片)
+   *    - 每 CHUNK_MS 觸發 ondataavailable
+   *    - 切片完成立即送出 Whisper,達成「近即時」轉寫
+   * ========================================================= */
+  function pickMimeType() {
+    const candidates = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/ogg;codecs=opus',
+      'audio/mp4',
+    ];
+    for (const c of candidates) {
+      if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(c)) return c;
+    }
+    return '';
+  }
+
+  /* =========================================================
+   *  小工具
+   * ========================================================= */
+  const fmtClock = (ms) => {
+    const s = Math.floor(ms / 1000);
+    const mm = String(Math.floor(s / 60)).padStart(2, '0');
+    const ss = String(s % 60).padStart(2, '0');
+    const cs = String(Math.floor((ms % 1000) / 10)).padStart(2, '0');
+    return `${mm}:${ss}.${cs}`;
+  };
+  const fmtBytes = (n) => {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024*1024) return `${(n/1024).toFixed(1)} KB`;
+    return `${(n/1024/1024).toFixed(2)} MB`;
+  };
+  const nowId = () => Math.random().toString(36).slice(2, 10);
+
+  /* =========================================================
+   *  狀態列元件 (極簡自製 — 不引第三方 UI 庫)
+   * ========================================================= */
+  const StatusPill = ({ tone, children }) => {
+    const map = {
+      idle:    'bg-ink-700 text-slate-300 ring-white/10',
+      run:     'bg-emerald-500/15 text-emerald-300 ring-emerald-400/30',
+      pause:   'bg-amber-500/15 text-amber-300 ring-amber-400/30',
+      err:     'bg-rose-500/15 text-rose-300 ring-rose-400/30',
+      info:    'bg-brand-500/15 text-brand-200 ring-brand-400/30',
+    };
+    return (
+      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-full ring-1 ${map[tone]||map.idle}`}>
+        <span className={`w-1.5 h-1.5 rounded-full ${
+          tone==='run' ? 'bg-emerald-400 animate-pulse-dot' :
+          tone==='err' ? 'bg-rose-400' :
+          tone==='pause' ? 'bg-amber-400' :
+          tone==='info' ? 'bg-brand-400' : 'bg-slate-400'
+        }`}/>
+        {children}
+      </span>
+    );
+  };
+
+  /* =========================================================
+   *  錄音動畫核心 — 波形/聲壓計
+   * ========================================================= */
+  const Waveform = ({ stream, active }) => {
+    const canvasRef = useRef(null);
+    const rafRef = useRef(0);
+    const audioCtxRef = useRef(null);
+    const analyserRef = useRef(null);
+    const dataRef = useRef(null);
+
+    useEffect(() => {
+      if (!active || !stream) return;
+      const ctx = canvasRef.current?.getContext('2d');
+      if (!ctx) return;
+      const AC = window.AudioContext || window.webkitAudioContext;
+      const audioCtx = new AC();
+      audioCtxRef.current = audioCtx;
+      const src = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.7;
+      src.connect(analyser);
+      analyserRef.current = analyser;
+      dataRef.current = new Uint8Array(analyser.frequencyBinCount);
+
+      const draw = () => {
+        const w = canvasRef.current.width  = canvasRef.current.clientWidth;
+        const h = canvasRef.current.height = canvasRef.current.clientHeight;
+        analyser.getByteFrequencyData(dataRef.current);
+        ctx.clearRect(0, 0, w, h);
+        const bars = 64;
+        const step = Math.floor(dataRef.current.length / bars);
+        const gap = 3;
+        const bw = Math.max(2, (w - gap*(bars-1)) / bars);
+        for (let i = 0; i < bars; i++) {
+          const v = dataRef.current[i*step] / 255;
+          const bh = Math.max(2, v * (h - 8));
+          const y = (h - bh) / 2;
+          const grad = ctx.createLinearGradient(0, y, 0, y + bh);
+          grad.addColorStop(0, '#a5b4fc');
+          grad.addColorStop(1, '#6366f1');
+          ctx.fillStyle = grad;
+          ctx.fillRect(i*(bw+gap), y, bw, bh);
+        }
+        rafRef.current = requestAnimationFrame(draw);
+      };
+      draw();
+      return () => {
+        cancelAnimationFrame(rafRef.current);
+        try { audioCtx.close(); } catch {}
+      };
+    }, [active, stream]);
+
+    return (
+      <div className="relative h-24 rounded-xl glass overflow-hidden">
+        {!active && (
+          <div className="absolute inset-0 grid place-items-center text-slate-500 text-sm">
+            點擊麥克風開始錄音,即時字幕會逐段出現於此
+          </div>
+        )}
+        <canvas ref={canvasRef} className="w-full h-full block" />
+      </div>
+    );
+  };
+
+  /* =========================================================
+   *  字幕逐行元件
+   * ========================================================= */
+  const TranscriptLine = ({ line }) => {
+    const [shown, setShown] = useState('');
+    useEffect(() => {
+      let i = 0;
+      const txt = line.text || '';
+      if (!txt) { setShown(''); return; }
+      const speed = Math.max(8, Math.min(28, Math.floor(txt.length / 30)));
+      const tick = () => {
+        i = Math.min(txt.length, i + speed);
+        setShown(txt.slice(0, i));
+        if (i < txt.length) id = setTimeout(tick, 18);
+      };
+      let id = setTimeout(tick, 80);
+      return () => clearTimeout(id);
+    }, [line.id]);
+    return (
+      <div className="animate-fade-up flex gap-3 py-2 border-b border-white/5 last:border-b-0">
+        <span className="ts-line font-mono text-xs whitespace-nowrap pt-0.5 select-none">{line.ts}</span>
+        <span className={`${line.kind === 'interim' ? 'interim-line' : 'final-line'} leading-relaxed`}>
+          {shown || (line.text ? '' : '…')}
+        </span>
+        {line.status === 'sending' && (
+          <span className="ml-auto text-xs text-slate-500">上傳中…</span>
+        )}
+        {line.status === 'error' && (
+          <span className="ml-auto text-xs text-rose-400" title={line.error}>失敗</span>
+        )}
+      </div>
+    );
+  };
+
+  /* =========================================================
+   *  主元件
+   * ========================================================= */
+  const App = () => {
+    const [apiKey, setApiKey]     = useState(ls.get(LS_KEYS.apiKey, ''));
+    const [model,  setModel]      = useState(ls.get(LS_KEYS.model,  'whisper-1'));
+    const [lang,   setLang]       = useState(ls.get(LS_KEYS.lang,   'zh'));
+    const [prompt, setPrompt]     = useState(ls.get(LS_KEYS.prompt, ''));
+    const [chunkMs,setChunkMs]    = useState(ls.get(LS_KEYS.chunkMs, 2500));
+    const [showKey,setShowKey]    = useState(false);
+
+    const [recState, setRecState] = useState('idle');   // idle | running | paused | error
+    const [lines,    setLines]    = useState(ls.get(LS_KEYS.history, []));
+    const [elapsed,  setElapsed]  = useState(0);
+    const [bytesSent,setBytesSent]= useState(0);
+    const [apiCalls, setApiCalls] = useState(0);
+    const [errMsg,   setErrMsg]   = useState('');
+    const [showSettings, setShowSettings] = useState(false);
+
+    const mediaRecorderRef = useRef(null);
+    const streamRef        = useRef(null);
+    const startTimeRef     = useRef(0);
+    const tickRef          = useRef(0);
+    const acRef            = useRef(null);  // abort controller for current chunk
+
+    /* 持久化設定 */
+    useEffect(() => ls.set(LS_KEYS.apiKey,  apiKey),  [apiKey]);
+    useEffect(() => ls.set(LS_KEYS.model,   model),   [model]);
+    useEffect(() => ls.set(LS_KEYS.lang,    lang),    [lang]);
+    useEffect(() => ls.set(LS_KEYS.prompt,  prompt),  [prompt]);
+    useEffect(() => ls.set(LS_KEYS.chunkMs, chunkMs), [chunkMs]);
+    useEffect(() => ls.set(LS_KEYS.history, lines.slice(-200)), [lines]);
+
+    /* 計時器 */
+    useEffect(() => {
+      if (recState !== 'running') return;
+      tickRef.current = setInterval(() => {
+        setElapsed(Date.now() - startTimeRef.current);
+      }, 100);
+      return () => clearInterval(tickRef.current);
+    }, [recState]);
+
+    const updateLine = useCallback((id, patch) => {
+      setLines((arr) => arr.map((l) => l.id === id ? { ...l, ...patch } : l));
+    }, []);
+
+    const pushLine = useCallback((line) => {
+      setLines((arr) => [...arr, line].slice(-400));
+    }, []);
+
+    /* =========================================================
+     *  核心:啟動錄音 + 分段上傳
+     * ========================================================= */
+    const startRecording = useCallback(async () => {
+      setErrMsg('');
+      if (!apiKey) {
+        setErrMsg('請先在右上角「設定」填入 OpenAI API Key。');
+        setShowSettings(true);
+        return;
+      }
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setErrMsg('此瀏覽器不支援麥克風存取,請用 Chrome / Edge / Firefox 最新版。');
+        return;
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            channelCount: 1,
+            noiseSuppression: true,
+            echoCancellation: true,
+            autoGainControl: true,
+          },
+        });
+        streamRef.current = stream;
+
+        const mimeType = pickMimeType();
+        const mr = mimeType
+          ? new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 64_000 })
+          : new MediaRecorder(stream);
+        mediaRecorderRef.current = mr;
+
+        const startedAt = Date.now();
+        startTimeRef.current = startedAt;
+        setElapsed(0);
+        setBytesSent(0);
+        setApiCalls(0);
+
+        // ondataavailable — 每 chunkMs 觸發一次
+        mr.ondataavailable = async (ev) => {
+          if (!ev.data || ev.data.size === 0) return;
+          const blob = ev.data;
+          const lineId = nowId();
+          const offsetMs = Date.now() - startedAt;
+          // 「送中」預留行(interim)
+          pushLine({
+            id: lineId,
+            ts: fmtClock(offsetMs - chunkMs),
+            text: '',
+            kind: 'interim',
+            status: 'sending',
+          });
+          try {
+            const ac = new AbortController();
+            acRef.current = ac;
+            const text = await transcribeChunk({
+              apiKey, model, language: lang || undefined, prompt: prompt || undefined,
+              blob, signal: ac.signal,
+            });
+            setBytesSent((b) => b + blob.size);
+            setApiCalls((n) => n + 1);
+            if (text) {
+              updateLine(lineId, { text, kind: 'final', status: 'done', ts: fmtClock(offsetMs - chunkMs) });
+            } else {
+              // 空字串(靜音/無語音)— 移除 placeholder
+              setLines((arr) => arr.filter((l) => l.id !== lineId));
+            }
+          } catch (e) {
+            if (e.name === 'AbortError') return;
+            updateLine(lineId, { status: 'error', error: String(e.message || e) });
+            setRecState('error');
+            setErrMsg(String(e.message || e));
+          }
+        };
+
+        mr.onerror = (e) => {
+          setErrMsg(`MediaRecorder 錯誤: ${e?.error?.name || 'unknown'}`);
+          setRecState('error');
+        };
+
+        mr.onstop = () => {
+          stream.getTracks().forEach((t) => t.stop());
+          streamRef.current = null;
+          mediaRecorderRef.current = null;
+        };
+
+        // 開始;timeslice 觸發 ondataavailable
+        mr.start(chunkMs);
+        setRecState('running');
+      } catch (e) {
+        setErrMsg(`無法啟動錄音: ${e.message || e}`);
+        setRecState('error');
+      }
+    }, [apiKey, model, lang, prompt, chunkMs, pushLine, updateLine]);
+
+    const stopRecording = useCallback(() => {
+      try {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+          mediaRecorderRef.current.stop();
+        }
+        if (acRef.current) { try { acRef.current.abort(); } catch {} }
+      } catch (e) {
+        setErrMsg(`停止時發生錯誤: ${e.message || e}`);
+      }
+      setRecState('idle');
+    }, []);
+
+    const clearAll = useCallback(() => {
+      if (!confirm('清空所有字幕紀錄?(設定值會保留)')) return;
+      setLines([]);
+    }, []);
+
+    const exportTxt = useCallback(() => {
+      const body = lines
+        .filter((l) => l.kind === 'final' && l.text)
+        .map((l) => `[${l.ts}] ${l.text}`)
+        .join('\n');
+      const blob = new Blob([body || '(尚無字幕)'], { type: 'text/plain;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `whisper-transcript-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(a.href);
+    }, [lines]);
+
+    const copyAll = useCallback(async () => {
+      const text = lines
+        .filter((l) => l.kind === 'final' && l.text)
+        .map((l) => l.text)
+        .join(' ');
+      try {
+        await navigator.clipboard.writeText(text || '');
+        alert('已複製到剪貼簿');
+      } catch {
+        alert('複製失敗,請改用匯出 TXT');
+      }
+    }, [lines]);
+
+    /* 快捷鍵:空白鍵 = 開始/停止 */
+    useEffect(() => {
+      const onKey = (e) => {
+        if (e.target.matches('input, textarea, select')) return;
+        if (e.code === 'Space') {
+          e.preventDefault();
+          if (recState === 'running') stopRecording();
+          else if (recState === 'idle' || recState === 'error') startRecording();
+        }
+      };
+      window.addEventListener('keydown', onKey);
+      return () => window.removeEventListener('keydown', onKey);
+    }, [recState, startRecording, stopRecording]);
+
+    const stats = useMemo(() => {
+      const finals = lines.filter((l) => l.kind === 'final');
+      const chars = finals.reduce((n, l) => n + (l.text?.length || 0), 0);
+      return { finals: finals.length, chars };
+    }, [lines]);
+
+    return (
+      <div className="min-h-screen flex flex-col">
+        {/* ============= 頂部 ============= */}
+        <header className="px-6 py-4 flex items-center justify-between border-b border-white/5">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-400 to-fuchsia-500 grid place-items-center shadow-lg shadow-brand-500/30">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="9" y="3" width="6" height="12" rx="3"/>
+                <path d="M5 11a7 7 0 0 0 14 0"/>
+                <path d="M12 18v3"/>
+                <path d="M8 21h8"/>
+              </svg>
+            </div>
+            <div>
+              <h1 className="font-display text-lg font-semibold tracking-tight">
+                <span className="gradient-text">Whisper Live</span>
+              </h1>
+              <p className="text-xs text-slate-400">基於 OpenAI Whisper API · 即時分段轉寫</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <StatusPill
+              tone={recState==='running' ? 'run' : recState==='error' ? 'err' : 'idle'}>
+              {recState==='running' ? '錄音中' : recState==='error' ? '錯誤' : '待命中'}
+            </StatusPill>
+            <button
+              onClick={() => setShowSettings((s) => !s)}
+              className="px-3 py-1.5 text-sm rounded-lg glass hover:bg-white/5 transition">
+              ⚙ 設定
+            </button>
+          </div>
+        </header>
+
+        {/* ============= 設定面板(可折疊)============= */}
+        {showSettings && (
+          <section className="px-6 py-4 border-b border-white/5 bg-ink-800/40 animate-fade-up">
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="md:col-span-2">
+                <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">OpenAI API Key</label>
+                <div className="flex gap-2">
+                  <input
+                    type={showKey ? 'text' : 'password'}
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value.trim())}
+                    placeholder="sk-..."
+                    className="flex-1 bg-ink-700/60 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-brand-400"
+                  />
+                  <button onClick={() => setShowKey((s) => !s)}
+                    className="px-3 py-2 text-xs rounded-lg glass hover:bg-white/5">
+                    {showKey ? '隱藏' : '顯示'}
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  Key 只存在你的瀏覽器 localStorage,不會上傳到任何第三方伺服器(除了 OpenAI 本身)。
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Model</label>
+                <select
+                  value={model} onChange={(e) => setModel(e.target.value)}
+                  className="w-full bg-ink-700/60 border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-400">
+                  <option value="whisper-1">whisper-1 (標準)</option>
+                  <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe (新)</option>
+                  <option value="gpt-4o-transcribe">gpt-4o-transcribe (新·高品質)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">Language (ISO-639-1)</label>
+                <input
+                  value={lang} onChange={(e) => setLang(e.target.value)}
+                  placeholder="zh / en / ja ..."
+                  className="w-full bg-ink-700/60 border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-400"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">
+                  提示詞 Prompt(選填,引導專有名詞/風格)
+                </label>
+                <textarea
+                  value={prompt} onChange={(e) => setPrompt(e.target.value)}
+                  rows={2} placeholder="例:會議記錄、專有名詞列表"
+                  className="w-full bg-ink-700/60 border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-400 resize-y"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="block text-xs uppercase tracking-wider text-slate-400 mb-1">
+                  分段長度: <span className="text-brand-300 font-mono">{(chunkMs/1000).toFixed(1)}s</span>
+                  <span className="text-slate-500 ml-2">(越小越即時,但 API 呼叫次數越多)</span>
+                </label>
+                <input
+                  type="range" min="1000" max="8000" step="500"
+                  value={chunkMs} onChange={(e) => setChunkMs(parseInt(e.target.value, 10))}
+                  className="w-full"
+                />
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ============= 主體 ============= */}
+        <main className="flex-1 grid lg:grid-cols-3 gap-6 p-6">
+          {/* 左:控制 + 波形 */}
+          <section className="lg:col-span-1 space-y-4">
+            <div className="glass rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="font-display text-sm uppercase tracking-wider text-slate-300">控制台</h2>
+                <span className="text-xs text-slate-500">空白鍵 = 開始/停止</span>
+              </div>
+
+              {/* 大圓鈕 */}
+              <div className="relative grid place-items-center my-6">
+                {recState === 'running' && (
+                  <>
+                    <span className="absolute w-32 h-32 rounded-full bg-rose-500/20 animate-pulse-ring"></span>
+                    <span className="absolute w-32 h-32 rounded-full bg-rose-500/10 animate-pulse-ring" style={{animationDelay:'0.5s'}}></span>
+                  </>
+                )}
+                <button
+                  onClick={() => recState === 'running' ? stopRecording() : startRecording()}
+                  className={`relative w-28 h-28 rounded-full grid place-items-center transition-all duration-300 ${
+                    recState === 'running'
+                      ? 'bg-gradient-to-br from-rose-500 to-rose-700 shadow-2xl shadow-rose-500/40 scale-105'
+                      : 'bg-gradient-to-br from-brand-500 to-brand-700 shadow-xl shadow-brand-500/30 hover:scale-105'
+                  }`}
+                  aria-label={recState === 'running' ? '停止錄音' : '開始錄音'}
+                >
+                  {recState === 'running' ? (
+                    <svg width="36" height="36" viewBox="0 0 24 24" fill="white"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                  ) : (
+                    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.4" strokeLinecap="round">
+                      <rect x="9" y="3" width="6" height="12" rx="3" fill="white"/>
+                      <path d="M5 11a7 7 0 0 0 14 0" stroke="white"/>
+                      <path d="M12 18v3" stroke="white"/>
+                    </svg>
+                  )}
+                </button>
+              </div>
+
+              {/* 即時波形 */}
+              <Waveform stream={streamRef.current} active={recState === 'running'} />
+
+              {/* 計時與統計 */}
+              <div className="mt-4 grid grid-cols-2 gap-3 text-center">
+                <div className="glass rounded-xl py-3">
+                  <div className="text-xs text-slate-400 mb-0.5">已錄製</div>
+                  <div className="font-mono text-lg font-semibold text-brand-200">{fmtClock(elapsed)}</div>
+                </div>
+                <div className="glass rounded-xl py-3">
+                  <div className="text-xs text-slate-400 mb-0.5">API 呼叫</div>
+                  <div className="font-mono text-lg font-semibold text-brand-200">{apiCalls}</div>
+                </div>
+                <div className="glass rounded-xl py-3">
+                  <div className="text-xs text-slate-400 mb-0.5">已轉字元</div>
+                  <div className="font-mono text-lg font-semibold text-emerald-300">{stats.chars}</div>
+                </div>
+                <div className="glass rounded-xl py-3">
+                  <div className="text-xs text-slate-400 mb-0.5">上傳量</div>
+                  <div className="font-mono text-lg font-semibold text-fuchsia-300">{fmtBytes(bytesSent)}</div>
+                </div>
+              </div>
+
+              {errMsg && (
+                <div className="mt-4 p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-sm text-rose-300 animate-fade-up">
+                  <strong>⚠</strong> {errMsg}
+                </div>
+              )}
+
+              <div className="mt-4 grid grid-cols-3 gap-2 text-sm">
+                <button onClick={copyAll}
+                  className="py-2 rounded-lg glass hover:bg-white/5 transition">
+                  📋 複製
+                </button>
+                <button onClick={exportTxt}
+                  className="py-2 rounded-lg glass hover:bg-white/5 transition">
+                  💾 匯出
+                </button>
+                <button onClick={clearAll}
+                  className="py-2 rounded-lg glass hover:bg-white/5 transition text-rose-300">
+                  🗑 清空
+                </button>
+              </div>
+            </div>
+
+            {/* 架構說明 */}
+            <details className="glass rounded-2xl p-4 text-sm text-slate-400">
+              <summary className="cursor-pointer text-slate-200 font-medium">ℹ 架構與運作原理</summary>
+              <ul className="mt-3 space-y-1.5 list-disc list-inside leading-relaxed">
+                <li>單一 HTML 自包含(React 18 + Babel Standalone,Tailwind CDN)。</li>
+                <li>MediaRecorder 透過 <code className="text-brand-300">timeslice</code> 每 N ms 切片。</li>
+                <li>每片音訊即時 <code className="text-brand-300">multipart/form-data</code> 上傳到 <code className="text-brand-300">/v1/audio/transcriptions</code>。</li>
+                <li>結果以「逐行時間軸」回填 UI,模擬 real-time streaming。</li>
+                <li>API Key 僅在 localStorage,離開瀏覽器即消失。</li>
+              </ul>
+            </details>
+          </section>
+
+          {/* 右:字幕 */}
+          <section className="lg:col-span-2 glass rounded-2xl p-5 flex flex-col min-h-[60vh]">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-display text-sm uppercase tracking-wider text-slate-300">即時字幕</h2>
+              <span className="text-xs text-slate-500">
+                {stats.finals} 段 · {stats.chars} 字
+              </span>
+            </div>
+            <div className="flex-1 overflow-y-auto pr-2 -mr-2 max-h-[68vh]">
+              {lines.length === 0 ? (
+                <div className="h-full grid place-items-center text-slate-500 text-center">
+                  <div>
+                    <div className="text-5xl mb-3">🎙</div>
+                    <p>按下麥克風開始,字幕會逐段出現於此。</p>
+                    <p className="text-xs mt-2 opacity-60">支援中文、英文、日文等多語,Whisper 會自動偵測語言。</p>
+                  </div>
+                </div>
+              ) : (
+                lines.map((l) => <TranscriptLine key={l.id} line={l} />)
+              )}
+            </div>
+          </section>
+        </main>
+
+        {/* ============= 底欄 ============= */}
+        <footer className="px-6 py-3 text-xs text-slate-500 border-t border-white/5 flex items-center justify-between">
+          <span>Whisper Live · 桌面 PWA · {new Date().getFullYear()}</span>
+          <span>
+            提示:長度 {(chunkMs/1000).toFixed(1)}s · 模型 {model} · 語言 {lang || 'auto'}
+          </span>
+        </footer>
+      </div>
+    );
+  };
+
+  /* 渲染到 root (分離 portal 與 root — advanced_ui_development §1.2.1) */
+  const rootEl = document.getElementById('root');
+  const root = ReactDOM.createRoot(rootEl);
+  root.render(<App />);
+  </script>
+</body>
+</html>

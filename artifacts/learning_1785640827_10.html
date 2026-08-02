@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AsyncReverse — API Reverse Engineering Dashboard</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --panel: #161b22;
+      --panel-2: #1c2230;
+      --border: #30363d;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-2: #d2a8ff;
+      --good: #3fb950;
+      --warn: #d29922;
+      --bad: #f85149;
+      --info: #79c0ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 0;
+      background: var(--bg); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                   "Microsoft JhengHei", "PingFang TC", sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    header {
+      padding: 24px 32px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, #161b22 0%, #0d1117 100%);
+    }
+    header h1 { margin: 0; font-size: 22px; font-weight: 600; }
+    header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+    main { padding: 24px 32px; max-width: 1400px; margin: 0 auto; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .card .label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .card .value {
+      font-size: 24px;
+      font-weight: 600;
+      color: var(--accent);
+    }
+    .card .sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .section {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .section h2 {
+      margin: 0 0 16px;
+      font-size: 16px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .section h2 .badge {
+      background: var(--accent-2);
+      color: var(--bg);
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+    th { font-weight: 600; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+    tbody tr:hover { background: var(--panel-2); }
+    code, pre {
+      font-family: "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+      font-size: 12px;
+    }
+    code { background: var(--panel-2); padding: 2px 6px; border-radius: 4px; }
+    pre {
+      background: var(--panel-2);
+      padding: 12px;
+      border-radius: 6px;
+      overflow-x: auto;
+      max-height: 400px;
+    }
+    .status-2xx { color: var(--good); font-weight: 600; }
+    .status-3xx { color: var(--info); }
+    .status-4xx { color: var(--warn); }
+    .status-5xx { color: var(--bad); }
+    .status-0 { color: var(--bad); }
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .pill.api { background: rgba(63, 185, 80, 0.15); color: var(--good); }
+    .pill.doc { background: rgba(210, 168, 255, 0.15); color: var(--accent-2); }
+    .pill.static { background: rgba(139, 148, 158, 0.15); color: var(--muted); }
+    .pill.unknown { background: rgba(210, 153, 34, 0.15); color: var(--warn); }
+    .pill.redirect { background: rgba(121, 192, 255, 0.15); color: var(--info); }
+    .toolbar {
+      display: flex; gap: 8px; align-items: center; margin-bottom: 12px;
+    }
+    input[type=text] {
+      background: var(--panel-2); color: var(--text);
+      border: 1px solid var(--border); padding: 6px 12px;
+      border-radius: 6px; flex: 1; font-size: 13px;
+    }
+    input[type=text]:focus { outline: none; border-color: var(--accent); }
+    .empty {
+      color: var(--muted); padding: 24px; text-align: center;
+      border: 1px dashed var(--border); border-radius: 6px;
+    }
+    .row-detail {
+      max-height: 200px; overflow: auto;
+      background: var(--panel-2); border-radius: 4px;
+      padding: 8px; margin-top: 8px;
+    }
+    .footer {
+      padding: 24px 32px; color: var(--muted); font-size: 12px;
+      border-top: 1px solid var(--border); text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>⚡ AsyncReverse — API Reverse Engineering Dashboard</h1>
+    <p>基於 Asyncio 的高效 API 逆向工程與數據抓取工具 — 運行結果視覺化</p>
+  </header>
+
+  <main>
+    <div class="grid" id="stats-grid">
+      <div class="card"><div class="label">載入中</div><div class="value">…</div></div>
+    </div>
+
+    <section class="section">
+      <h2>🔍 端點探測結果 <span class="badge" id="probe-count">0</span></h2>
+      <p style="color: var(--muted); margin: 0 0 12px;">
+        啟發式掃描常見 REST / GraphQL / OpenAPI 路徑，依據狀態碼、回應內容分類。
+      </p>
+      <div class="toolbar">
+        <input type="text" id="probe-filter" placeholder="篩選 URL 或分類…" />
+        <span style="color: var(--muted); font-size: 12px;" id="probe-visible"></span>
+      </div>
+      <table id="probe-table">
+        <thead>
+          <tr><th>URL</th><th>狀態</th><th>分類</th><th>Content-Type</th><th>大小</th><th>提示</th></tr>
+        </thead>
+        <tbody><tr><td colspan="6" class="empty">載入中…</td></tr></tbody>
+      </table>
+    </section>
+
+    <section class="section">
+      <h2>📦 抓取到的結構化資料 <span class="badge" id="data-count">0</span></h2>
+      <p style="color: var(--muted); margin: 0 0 12px;">
+        從 JSON 響應中按 dotted-path 抽取的欄位，已自動去重。
+      </p>
+      <div id="data-list"><div class="empty">載入中…</div></div>
+    </section>
+
+    <section class="section">
+      <h2>🌐 HAR 流量記錄 <span class="badge" id="har-count">0</span></h2>
+      <p style="color: var(--muted); margin: 0 0 12px;">
+        所有 HTTP 請求/響應的 HAR 1.2 標準記錄，可匯入 Chrome DevTools 進一步分析。
+      </p>
+      <div class="toolbar">
+        <input type="text" id="har-filter" placeholder="篩選 URL、狀態…" />
+      </div>
+      <table id="har-table">
+        <thead>
+          <tr><th>URL</th><th>Method</th><th>Status</th><th>Time (ms)</th><th>Size</th><th>Type</th></tr>
+        </thead>
+        <tbody><tr><td colspan="6" class="empty">載入中…</td></tr></tbody>
+      </table>
+    </section>
+
+    <section class="section">
+      <h2>📜 HAR JSON 預覽</h2>
+      <pre id="har-preview">載入中…</pre>
+    </section>
+  </main>
+
+  <div class="footer">
+    AsyncReverse v1.0 — 由 N100 迷你電腦驅動 ·
+    <code>python3 -m asyncreverse.cli self-test</code> ·
+    HAR 格式: HTTP Archive 1.2
+  </div>
+
+  <script>
+  // State
+  let HAR = null;
+  let DATA = [];
+  let PROBE = [];
+
+  const $ = (id) => document.getElementById(id);
+
+  function statusClass(s) {
+    if (s === 0) return "status-0";
+    if (s < 300) return "status-2xx";
+    if (s < 400) return "status-3xx";
+    if (s < 500) return "status-4xx";
+    return "status-5xx";
+  }
+
+  function fmtBytes(n) {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / 1024 / 1024).toFixed(2)} MB`;
+  }
+
+  // ---- Load artifacts (fetched from same directory if served) ----
+  async function loadArtifacts() {
+    const errors = [];
+    try {
+      const r = await fetch("./traffic.har");
+      if (r.ok) HAR = await r.json();
+      else errors.push(`traffic.har: ${r.status}`);
+    } catch (e) { errors.push(`traffic.har: ${e.message}`); }
+
+    try {
+      const r = await fetch("./data.json");
+      if (r.ok) DATA = await r.json();
+      else errors.push(`data.json: ${r.status}`);
+    } catch (e) { errors.push(`data.json: ${e.message}`); }
+
+    // Probe results aren't a separate file; derive from HAR entries.
+    if (HAR) {
+      PROBE = HAR.log.entries.map(e => {
+        const url = e.request.url;
+        const status = e.response.status;
+        const ct = e.response.content.mimeType || "";
+        let classification = "unknown";
+        let hint = "";
+        if (status === 0) { hint = "no-response"; }
+        else if (status === 404) { hint = "not-found"; }
+        else if (status >= 500) { hint = `server-error-${status}`; }
+        else if (300 <= status && status < 400) { classification = "redirect"; hint = `-> ${ct}`; }
+        else if (url.includes("openapi") || url.includes("swagger") || url.includes("docs")) {
+          classification = "doc"; hint = "path matches";
+        }
+        else if (ct.includes("json")) { classification = "api"; hint = "json content-type"; }
+        else if (ct.includes("text/html")) { classification = "static"; hint = "html"; }
+        else if (ct.startsWith("image/") || ct.startsWith("font/")) { classification = "static"; hint = ct; }
+        return {
+          url, status, content_type: ct,
+          size: e.response.content.size || 0,
+          classification, hint,
+        };
+      });
+    }
+
+    if (errors.length) {
+      console.warn("Load errors:", errors);
+    }
+  }
+
+  // ---- Render stats ----
+  function renderStats() {
+    const total = HAR ? HAR.log.entries.length : 0;
+    const ok = PROBE.filter(p => p.status >= 200 && p.status < 300).length;
+    const api = PROBE.filter(p => p.classification === "api").length;
+    const doc = PROBE.filter(p => p.classification === "doc").length;
+    const totalMs = HAR
+      ? HAR.log.entries.reduce((s, e) => s + (e.time || 0), 0)
+      : 0;
+    const cards = [
+      { label: "HTTP 請求總數", value: total, sub: HAR ? "via HAR 1.2 capture" : "no HAR loaded" },
+      { label: "成功回應 (2xx)", value: ok, sub: `${total ? Math.round(ok / total * 100) : 0}% of total` },
+      { label: "識別 API 端點", value: api, sub: "content-type 為 JSON" },
+      { label: "API 文件端點", value: doc, sub: "OpenAPI / Swagger / docs" },
+      { label: "結構化資料項", value: DATA.length, sub: "已去重" },
+      { label: "總耗時 (ms)", value: Math.round(totalMs), sub: `${total ? Math.round(totalMs / total) : 0} ms / req avg` },
+    ];
+    $("stats-grid").innerHTML = cards.map(c => `
+      <div class="card">
+        <div class="label">${c.label}</div>
+        <div class="value">${c.value}</div>
+        <div class="sub">${c.sub}</div>
+      </div>
+    `).join("");
+  }
+
+  // ---- Render probe table ----
+  function renderProbe(filter = "") {
+    $("probe-count").textContent = PROBE.length;
+    const q = filter.toLowerCase().trim();
+    const filtered = PROBE.filter(p =>
+      !q || p.url.toLowerCase().includes(q) || p.classification.includes(q)
+    );
+    $("probe-visible").textContent = `顯示 ${filtered.length} / ${PROBE.length}`;
+    const tbody = $("probe-table").querySelector("tbody");
+    if (!filtered.length) {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty">無結果</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = filtered.map(p => `
+      <tr>
+        <td><code>${escapeHtml(p.url)}</code></td>
+        <td class="${statusClass(p.status)}">${p.status}</td>
+        <td><span class="pill ${p.classification}">${p.classification}</span></td>
+        <td>${escapeHtml(p.content_type || "—")}</td>
+        <td>${fmtBytes(p.size)}</td>
+        <td>${escapeHtml(p.hint || "")}</td>
+      </tr>
+    `).join("");
+  }
+
+  // ---- Render data items ----
+  function renderData() {
+    $("data-count").textContent = DATA.length;
+    if (!DATA.length) {
+      $("data-list").innerHTML = `<div class="empty">沒有資料 — 確認 data.json 是否存在於同目錄</div>`;
+      return;
+    }
+    const allKeys = new Set();
+    DATA.forEach(d => Object.keys(d).forEach(k => allKeys.add(k)));
+    const keys = Array.from(allKeys).slice(0, 12);
+
+    $("data-list").innerHTML = `
+      <table>
+        <thead>
+          <tr>${keys.map(k => `<th><code>${escapeHtml(k)}</code></th>`).join("")}</tr>
+        </thead>
+        <tbody>
+          ${DATA.slice(0, 50).map(d => `
+            <tr>
+              ${keys.map(k => {
+                const v = d[k];
+                let s = Array.isArray(v) ? `[${v.length} items]` :
+                        v === null ? "—" :
+                        typeof v === "object" ? JSON.stringify(v).slice(0, 80) :
+                        String(v);
+                if (s.length > 100) s = s.slice(0, 100) + "…";
+                return `<td>${escapeHtml(s)}</td>`;
+              }).join("")}
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+      ${DATA.length > 50 ? `<p style="color: var(--muted); margin-top: 12px;">… 還有 ${DATA.length - 50} 筆 (見 data.json)</p>` : ""}
+    `;
+  }
+
+  // ---- Render HAR table ----
+  function renderHar(filter = "") {
+    $("har-count").textContent = HAR ? HAR.log.entries.length : 0;
+    if (!HAR) {
+      $("har-table").querySelector("tbody").innerHTML =
+        `<tr><td colspan="6" class="empty">沒有 HAR 資料</td></tr>`;
+      $("har-preview").textContent = "(empty)";
+      return;
+    }
+    const q = filter.toLowerCase().trim();
+    const filtered = HAR.log.entries.filter(e =>
+      !q || e.request.url.toLowerCase().includes(q) ||
+      String(e.response.status).includes(q)
+    );
+    const tbody = $("har-table").querySelector("tbody");
+    if (!filtered.length) {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty">無結果</td></tr>`;
+    } else {
+      tbody.innerHTML = filtered.slice(0, 200).map(e => {
+        const s = e.response.status;
+        const ct = e.response.content.mimeType || "";
+        return `
+          <tr>
+            <td><code>${escapeHtml(e.request.url)}</code></td>
+            <td>${e.request.method}</td>
+            <td class="${statusClass(s)}">${s}</td>
+            <td>${(e.time || 0).toFixed(1)}</td>
+            <td>${fmtBytes(e.response.content.size || 0)}</td>
+            <td>${escapeHtml(ct)}</td>
+          </tr>
+        `;
+      }).join("");
+      if (filtered.length > 200) {
+        tbody.innerHTML += `<tr><td colspan="6" class="empty">… 還有 ${filtered.length - 200} 筆</td></tr>`;
+      }
+    }
+    // Preview JSON
+    const preview = JSON.stringify(HAR, null, 2);
+    $("har-preview").textContent = preview.length > 8000
+      ? preview.slice(0, 8000) + "\n… (truncated; 完整 HAR 在 traffic.har)"
+      : preview;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  // ---- Boot ----
+  async function boot() {
+    await loadArtifacts();
+    renderStats();
+    renderProbe();
+    renderData();
+    renderHar();
+    $("probe-filter").addEventListener("input", e => renderProbe(e.target.value));
+    $("har-filter").addEventListener("input", e => renderHar(e.target.value));
+  }
+  boot();
+  </script>
+</body>
+</html>

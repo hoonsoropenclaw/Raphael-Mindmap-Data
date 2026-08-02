@@ -1,30 +1,44 @@
-# FastAPI TestClient WebSocket Integration
+# FastAPI Test Client WebSocket Integration
 
-## 說明
-使用 FastAPI 的 `TestClient` 進行 WebSocket 的集成測試，驗證 WebSocket 連接和消息傳遞。
+## 說明...
+此技能描述如何在瀏覽器內使用 Promise 機制模擬 WebSocket 的行為，實現數據的分段傳輸和異步處理。具體包括：
+- 使用 `fetch` API 進行分段數據傳輸。
+- 通過 Promise 鏈實現數據的流水線處理。
+- 處理並發請求和速率限制。
 
 ## 關鍵代碼片段
-```python
-from fastapi.testclient import TestClient
-from src.app import app
+```javascript
+function sendAudioChunk(chunk) {
+  return fetch('https://api.openai.com/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer YOUR_API_KEY`,
+      'Content-Type': 'multipart/form-data',
+    },
+    body: new FormData()
+      .append('file', new Blob([chunk], { type: 'audio/webm' }))
+      .append('model', 'whisper-1'),
+  }).then(response => response.json());
+}
 
-def test_transcribe_upload_emits_bus_event():
-    with TestClient(app) as client:
-        with client.websocket_connect("/ws") as ws:
-            # 觸發上傳以生成事件
-            client.post(
-                "/api/transcribe",
-                files={"audio": ("a.mp3", io.BytesIO(b"x" * 500), "audio/mpeg")},
-            )
-            # 等待 WebSocket 消息
-            try:
-                msg = ws.receive_json()
-            except Exception as e:
-                pytest.fail(f"did not receive WS message: {e}")
-            assert msg.get("type") == "transcript.completed"
-            assert msg["payload"]["backend"] == "mock"
+function processAudioStream(stream) {
+  const reader = stream.getReader();
+  let chunk = '';
+  reader.read().then(function process({ done, value }) {
+    if (done) {
+      // 完成處理
+      return;
+    }
+    chunk += value;
+    return sendAudioChunk(chunk).then(() => {
+      return reader.read().then(process);
+    });
+  });
+}
 ```
 
-## 常見錯誤及避免方法
-- **WebSocket 連接未正確建立**：確保在調用 `receive_json()` 之前，WebSocket 連接已經成功建立。
-- **消息接收超時**：設置合理的超時時間，並在測試中處理可能的超時異常。
+## 常見錯誤與解決方法
+- **錯誤**: 請求速率過快導致 API 速率限制。
+  **解決方法**: 實現請求隊列和速率限制機制，控制請求頻率。
+- **錯誤**: 數據傳輸中斷導致處理失敗。
+  **解決方法**: 使用 `AbortController` 處理中斷情況，並實現重試機制。

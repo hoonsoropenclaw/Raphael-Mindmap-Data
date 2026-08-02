@@ -1,0 +1,1432 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1020" />
+  <meta name="description" content="Glassmorphism UI 組件庫 + 性能優化 Demo — 一個獨立、可離線運行的單檔 HTML 範例,展示 backdrop-filter、content-visibility、will-change、prefers-reduced-motion 等現代瀏覽器優化技術。" />
+  <title>Glassmorphism UI Kit · 性能優化 Demo</title>
+
+  <!-- 性能優化:字體非阻塞載入 + display=swap + 預連接 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'" />
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" /></noscript>
+
+  <style>
+    /* =========================================================
+       1) 設計 Token (CSS 變數系統)
+       - 主題:Dark / Light,透過 [data-theme] 切換
+       - 所有玻璃組件共享同一組語意化 token
+       ========================================================= */
+    :root {
+      /* 色票 — 背景漸層 */
+      --bg-grad-1: #5b6cff;
+      --bg-grad-2: #b85bff;
+      --bg-grad-3: #ff5bb8;
+      --bg-grad-4: #5be3ff;
+
+      /* 玻璃表面 (Dark 主題) */
+      --glass-bg: rgba(255, 255, 255, 0.08);
+      --glass-bg-strong: rgba(255, 255, 255, 0.14);
+      --glass-border: rgba(255, 255, 255, 0.18);
+      --glass-border-strong: rgba(255, 255, 255, 0.28);
+      --glass-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+      --glass-inner-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+
+      /* 模糊半徑 */
+      --blur-sm: 8px;
+      --blur-md: 14px;
+      --blur-lg: 22px;
+      --blur-xl: 32px;
+
+      /* 圓角 */
+      --r-sm: 8px;
+      --r-md: 14px;
+      --r-lg: 20px;
+      --r-xl: 28px;
+      --r-full: 999px;
+
+      /* 文字 */
+      --text-primary: rgba(255, 255, 255, 0.95);
+      --text-secondary: rgba(255, 255, 255, 0.72);
+      --text-muted: rgba(255, 255, 255, 0.5);
+
+      /* 強調色 */
+      --accent: #7c5cff;
+      --accent-2: #00e0ff;
+      --success: #2ee6a8;
+      --danger: #ff5d6c;
+      --warning: #ffc857;
+
+      /* 動效 */
+      --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+      --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+      --t-fast: 160ms;
+      --t-base: 240ms;
+      --t-slow: 420ms;
+
+      /* 字體 */
+      --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto,
+                   "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+
+      /* 容器 */
+      --container: 1200px;
+    }
+
+    [data-theme="light"] {
+      --glass-bg: rgba(255, 255, 255, 0.55);
+      --glass-bg-strong: rgba(255, 255, 255, 0.7);
+      --glass-border: rgba(255, 255, 255, 0.75);
+      --glass-border-strong: rgba(255, 255, 255, 0.9);
+      --glass-shadow: 0 10px 40px rgba(70, 50, 150, 0.18);
+      --glass-inner-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+
+      --text-primary: #1a1340;
+      --text-secondary: #4a3f7a;
+      --text-muted: #8a82b8;
+    }
+
+    /* =========================================================
+       2) Reset + 全域排版
+       ========================================================= */
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--font-sans);
+      font-size: 15px;
+      line-height: 1.55;
+      color: var(--text-primary);
+      letter-spacing: -0.005em;
+      background: #0b1020;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    [data-theme="light"] body {
+      background: #eef0ff;
+    }
+
+    /* =========================================================
+       3) 動態背景層 (受 GPU 加速、不觸發 reflow)
+       - 4 個 blob + 細噪點 + 緩慢漂移
+       - 使用 transform-only animation 維持 60fps
+       ========================================================= */
+    .bg-stage {
+      position: fixed;
+      inset: 0;
+      z-index: -2;
+      overflow: hidden;
+      pointer-events: none;
+      background:
+        radial-gradient(1200px 800px at 10% 10%, rgba(124, 92, 255, 0.55), transparent 60%),
+        radial-gradient(900px 700px at 90% 30%, rgba(0, 224, 255, 0.4), transparent 60%),
+        radial-gradient(900px 700px at 50% 90%, rgba(255, 93, 200, 0.4), transparent 60%),
+        linear-gradient(135deg, var(--bg-grad-1), var(--bg-grad-2) 40%, var(--bg-grad-3));
+      will-change: transform;
+    }
+
+    [data-theme="light"] .bg-stage {
+      background:
+        radial-gradient(1200px 800px at 10% 10%, rgba(255, 200, 230, 0.65), transparent 60%),
+        radial-gradient(900px 700px at 90% 30%, rgba(180, 220, 255, 0.6), transparent 60%),
+        radial-gradient(900px 700px at 50% 90%, rgba(220, 200, 255, 0.55), transparent 60%),
+        linear-gradient(135deg, #e0e7ff, #f3e7ff 50%, #ffe6f3);
+    }
+
+    .blob {
+      position: absolute;
+      width: 520px;
+      height: 520px;
+      border-radius: 50%;
+      filter: blur(80px);
+      opacity: 0.55;
+      mix-blend-mode: screen;
+      will-change: transform;
+      animation: drift 22s ease-in-out infinite;
+      contain: layout paint;
+    }
+
+    [data-theme="light"] .blob {
+      mix-blend-mode: multiply;
+      opacity: 0.4;
+    }
+
+    .blob.b1 { background: var(--accent); top: -8%; left: -10%; animation-delay: 0s; }
+    .blob.b2 { background: var(--accent-2); top: 30%; right: -12%; animation-delay: -6s; }
+    .blob.b3 { background: var(--bg-grad-3); bottom: -12%; left: 30%; animation-delay: -12s; }
+
+    @keyframes drift {
+      0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+      33%      { transform: translate3d(60px, -40px, 0) scale(1.08); }
+      66%      { transform: translate3d(-40px, 50px, 0) scale(0.95); }
+    }
+
+    /* 噪點覆蓋:防止大面積漸層 banding,極小 SVG 內聯 */
+    .noise {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      opacity: 0.05;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.55 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    }
+
+    /* =========================================================
+       4) 玻璃表面 mixin (任何元素加 .glass 即可獲得玻璃質感)
+       ========================================================= */
+    .glass {
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--r-lg);
+      backdrop-filter: blur(var(--blur-md)) saturate(160%);
+      -webkit-backdrop-filter: blur(var(--blur-md)) saturate(160%);
+      box-shadow: var(--glass-shadow), var(--glass-inner-highlight);
+      transition:
+        transform var(--t-base) var(--ease-out),
+        box-shadow var(--t-base) var(--ease-out),
+        background-color var(--t-base) var(--ease-out),
+        border-color var(--t-base) var(--ease-out);
+    }
+
+    .glass.strong {
+      background: var(--glass-bg-strong);
+      border-color: var(--glass-border-strong);
+      backdrop-filter: blur(var(--blur-lg)) saturate(180%);
+      -webkit-backdrop-filter: blur(var(--blur-lg)) saturate(180%);
+    }
+
+    /* 滑鼠位置高光層 (JS 注入 --mx/--my) */
+    .glass {
+      position: relative;
+      isolation: isolate;
+    }
+
+    .glass::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      padding: 1px;
+      background: radial-gradient(
+        400px circle at var(--mx, 50%) var(--my, 0%),
+        rgba(255, 255, 255, 0.35),
+        transparent 40%
+      );
+      -webkit-mask:
+        linear-gradient(#000 0 0) content-box,
+        linear-gradient(#000 0 0);
+      -webkit-mask-composite: xor;
+              mask-composite: exclude;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity var(--t-base) var(--ease-out);
+      z-index: 1;
+    }
+
+    .glass:hover::before {
+      opacity: 1;
+    }
+
+    /* =========================================================
+       5) 版面配置
+       ========================================================= */
+    .container {
+      width: min(100% - 2rem, var(--container));
+      margin-inline: auto;
+    }
+
+    .stack > * + * { margin-top: var(--stack, 1.5rem); }
+
+    /* =========================================================
+       6) 導航列
+       ========================================================= */
+    .nav {
+      position: sticky;
+      top: 1rem;
+      z-index: 50;
+      margin-top: 1rem;
+      padding: 0.65rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      border-radius: var(--r-full);
+      will-change: transform;
+    }
+
+    .nav .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-weight: 700;
+      font-size: 1.05rem;
+      letter-spacing: -0.01em;
+      color: var(--text-primary);
+      text-decoration: none;
+      padding: 0.25rem 0.5rem;
+    }
+
+    .nav .brand-mark {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background:
+        conic-gradient(from 220deg, var(--accent), var(--accent-2), var(--bg-grad-3), var(--accent));
+      box-shadow: 0 4px 16px rgba(124, 92, 255, 0.55);
+      transform: translateZ(0);
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 0.25rem;
+      margin-left: auto;
+      list-style: none;
+      padding: 0;
+    }
+
+    .nav-links a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      padding: 0.45rem 0.85rem;
+      border-radius: var(--r-full);
+      font-weight: 500;
+      font-size: 0.92rem;
+      transition: color var(--t-fast) var(--ease-out), background-color var(--t-fast) var(--ease-out);
+    }
+
+    .nav-links a:hover,
+    .nav-links a:focus-visible {
+      color: var(--text-primary);
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    /* =========================================================
+       7) Hero
+       ========================================================= */
+    .hero {
+      padding: clamp(3rem, 8vw, 6rem) clamp(1.25rem, 3vw, 2rem);
+      text-align: center;
+      margin-top: 2rem;
+      border-radius: var(--r-xl);
+    }
+
+    .hero h1 {
+      font-size: clamp(2.2rem, 5.5vw, 4rem);
+      line-height: 1.05;
+      letter-spacing: -0.03em;
+      margin: 0 0 1rem;
+      background: linear-gradient(120deg, #fff 30%, var(--accent-2) 60%, var(--bg-grad-3) 95%);
+      -webkit-background-clip: text;
+              background-clip: text;
+      -webkit-text-fill-color: transparent;
+              color: transparent;
+    }
+
+    [data-theme="light"] .hero h1 {
+      background: linear-gradient(120deg, #1a1340 30%, var(--accent) 60%, var(--bg-grad-3) 95%);
+      -webkit-background-clip: text;
+              background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero p {
+      max-width: 640px;
+      margin: 0 auto 1.75rem;
+      color: var(--text-secondary);
+      font-size: clamp(1rem, 1.6vw, 1.15rem);
+    }
+
+    .hero-cta {
+      display: inline-flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    /* =========================================================
+       8) 按鈕
+       ========================================================= */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.7rem 1.25rem;
+      border-radius: var(--r-full);
+      border: 1px solid var(--glass-border);
+      background: var(--glass-bg);
+      backdrop-filter: blur(var(--blur-sm));
+      -webkit-backdrop-filter: blur(var(--blur-sm));
+      color: var(--text-primary);
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      user-select: none;
+      transition:
+        transform var(--t-fast) var(--ease-out),
+        background-color var(--t-fast) var(--ease-out),
+        box-shadow var(--t-fast) var(--ease-out),
+        border-color var(--t-fast) var(--ease-out);
+      will-change: transform;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+      background: var(--glass-bg-strong);
+      border-color: var(--glass-border-strong);
+    }
+
+    .btn:active {
+      transform: translateY(0) scale(0.98);
+    }
+
+    .btn:focus-visible {
+      outline: 2px solid var(--accent-2);
+      outline-offset: 3px;
+    }
+
+    .btn.primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      border-color: transparent;
+      box-shadow: 0 8px 24px rgba(124, 92, 255, 0.45);
+      color: #fff;
+    }
+
+    .btn.primary:hover {
+      box-shadow: 0 12px 30px rgba(124, 92, 255, 0.65);
+    }
+
+    .btn.ghost {
+      background: transparent;
+      border-color: var(--glass-border);
+    }
+
+    .btn .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 10px currentColor;
+    }
+
+    .btn-icon {
+      width: 38px;
+      height: 38px;
+      padding: 0;
+      justify-content: center;
+      border-radius: 50%;
+    }
+
+    /* =========================================================
+       9) 區塊標題
+       ========================================================= */
+    .section-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 1rem;
+      margin: 3rem 0 1.25rem;
+      flex-wrap: wrap;
+    }
+
+    .section-head h2 {
+      margin: 0;
+      font-size: clamp(1.4rem, 2.4vw, 1.85rem);
+      letter-spacing: -0.02em;
+    }
+
+    .section-head p {
+      margin: 0;
+      color: var(--text-secondary);
+      max-width: 540px;
+    }
+
+    /* =========================================================
+       10) 卡片網格
+       ========================================================= */
+    .card-grid {
+      display: grid;
+      gap: 1.25rem;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    }
+
+    .card {
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+      min-height: 200px;
+      content-visibility: auto;
+      contain-intrinsic-size: 0 200px;
+    }
+
+    .card .icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      box-shadow: 0 6px 20px rgba(124, 92, 255, 0.4);
+      font-weight: 700;
+      color: #fff;
+      font-size: 1.1rem;
+    }
+
+    .card h3 {
+      margin: 0;
+      font-size: 1.1rem;
+      letter-spacing: -0.01em;
+    }
+
+    .card p {
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 0.94rem;
+    }
+
+    .card .meta {
+      margin-top: auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+    }
+
+    .tag {
+      padding: 0.2rem 0.55rem;
+      border-radius: var(--r-full);
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid var(--glass-border);
+      font-size: 0.74rem;
+      letter-spacing: 0.02em;
+    }
+
+    .card[data-accent="success"] .icon { background: linear-gradient(135deg, var(--success), #00c4ff); }
+    .card[data-accent="danger"]  .icon { background: linear-gradient(135deg, var(--danger), var(--accent)); }
+    .card[data-accent="warning"] .icon { background: linear-gradient(135deg, var(--warning), var(--danger)); }
+
+    /* =========================================================
+       11) 表單組件
+       ========================================================= */
+    .form-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1rem;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .field label {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    .input,
+    .select,
+    .textarea {
+      width: 100%;
+      padding: 0.7rem 0.95rem;
+      border-radius: var(--r-md);
+      border: 1px solid var(--glass-border);
+      background: rgba(255, 255, 255, 0.06);
+      backdrop-filter: blur(var(--blur-sm));
+      -webkit-backdrop-filter: blur(var(--blur-sm));
+      color: var(--text-primary);
+      font: inherit;
+      transition: border-color var(--t-fast) var(--ease-out),
+                  background-color var(--t-fast) var(--ease-out),
+                  box-shadow var(--t-fast) var(--ease-out);
+    }
+
+    [data-theme="light"] .input,
+    [data-theme="light"] .select,
+    [data-theme="light"] .textarea {
+      background: rgba(255, 255, 255, 0.5);
+    }
+
+    .input::placeholder,
+    .textarea::placeholder {
+      color: var(--text-muted);
+    }
+
+    .input:focus-visible,
+    .select:focus-visible,
+    .textarea:focus-visible {
+      outline: none;
+      border-color: var(--accent-2);
+      background: rgba(255, 255, 255, 0.12);
+      box-shadow: 0 0 0 3px rgba(0, 224, 255, 0.25);
+    }
+
+    .textarea { min-height: 96px; resize: vertical; }
+
+    .switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .switch input { position: absolute; opacity: 0; pointer-events: none; }
+
+    .switch .track {
+      width: 44px;
+      height: 24px;
+      border-radius: var(--r-full);
+      background: rgba(255, 255, 255, 0.16);
+      border: 1px solid var(--glass-border);
+      position: relative;
+      transition: background-color var(--t-fast) var(--ease-out);
+    }
+
+    .switch .track::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+      transition: transform var(--t-base) var(--ease-spring);
+    }
+
+    .switch input:checked + .track {
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      border-color: transparent;
+    }
+
+    .switch input:checked + .track::after {
+      transform: translateX(20px);
+    }
+
+    .switch input:focus-visible + .track {
+      box-shadow: 0 0 0 3px rgba(0, 224, 255, 0.4);
+    }
+
+    /* =========================================================
+       12) 模態框
+       ========================================================= */
+    .modal-root {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+
+    .modal-root[data-open="true"] {
+      display: flex;
+      animation: fadeIn var(--t-base) var(--ease-out);
+    }
+
+    .modal-scrim {
+      position: absolute;
+      inset: 0;
+      background: rgba(8, 6, 30, 0.55);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+
+    .modal-dialog {
+      position: relative;
+      max-width: 480px;
+      width: 100%;
+      padding: 1.75rem;
+      border-radius: var(--r-xl);
+      animation: pop var(--t-base) var(--ease-spring);
+    }
+
+    .modal-dialog h3 {
+      margin: 0 0 0.5rem;
+      font-size: 1.25rem;
+    }
+
+    .modal-dialog p {
+      color: var(--text-secondary);
+      margin: 0 0 1.25rem;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 0.6rem;
+      justify-content: flex-end;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+
+    @keyframes pop {
+      from { opacity: 0; transform: translateY(12px) scale(0.96); }
+      to   { opacity: 1; transform: translateY(0)    scale(1); }
+    }
+
+    /* =========================================================
+       13) Toast
+       ========================================================= */
+    .toast-root {
+      position: fixed;
+      right: 1.25rem;
+      bottom: 1.25rem;
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      align-items: flex-end;
+      pointer-events: none;
+    }
+
+    .toast {
+      pointer-events: auto;
+      padding: 0.85rem 1.1rem;
+      border-radius: var(--r-md);
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      min-width: 240px;
+      max-width: 360px;
+      animation: slideIn var(--t-base) var(--ease-spring);
+    }
+
+    .toast.leaving {
+      animation: slideOut var(--t-base) var(--ease-out) forwards;
+    }
+
+    .toast .indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      box-shadow: 0 0 10px currentColor;
+    }
+
+    .toast[data-kind="success"] .indicator { background: var(--success); color: var(--success); }
+    .toast[data-kind="info"]    .indicator { background: var(--accent-2); color: var(--accent-2); }
+    .toast[data-kind="danger"]  .indicator { background: var(--danger);  color: var(--danger);  }
+    .toast[data-kind="warning"] .indicator { background: var(--warning); color: var(--warning); }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(20px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    @keyframes slideOut {
+      to { opacity: 0; transform: translateX(20px); }
+    }
+
+    /* =========================================================
+       14) 效能監控面板
+       ========================================================= */
+    .perf-panel {
+      padding: 1.25rem;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 1rem;
+    }
+
+    .perf-cell {
+      padding: 1rem;
+      border-radius: var(--r-md);
+      background: rgba(0, 0, 0, 0.18);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    [data-theme="light"] .perf-cell {
+      background: rgba(255, 255, 255, 0.45);
+    }
+
+    .perf-cell .label {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .perf-cell .value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+    }
+
+    .perf-cell .hint {
+      font-size: 0.78rem;
+      color: var(--text-secondary);
+    }
+
+    .perf-bar {
+      height: 6px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      overflow: hidden;
+      margin-top: 0.5rem;
+    }
+
+    .perf-bar > span {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--success), var(--accent-2));
+      transition: width 600ms var(--ease-out);
+    }
+
+    /* =========================================================
+       15) 頁尾
+       ========================================================= */
+    .footer {
+      margin: 4rem 0 2rem;
+      padding: 1.5rem;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      border-radius: var(--r-lg);
+    }
+
+    .footer a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      border-bottom: 1px dashed currentColor;
+    }
+
+    /* =========================================================
+       16) 減少動效偏好 (無障礙 + 性能)
+       ========================================================= */
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+      }
+
+      .blob { animation: none; }
+    }
+
+    /* =========================================================
+       17) 響應式微調
+       ========================================================= */
+    @media (max-width: 640px) {
+      .nav-links { display: none; }
+      .hero { padding: 2.25rem 1.25rem; }
+      .perf-panel { grid-template-columns: 1fr 1fr; }
+    }
+
+    /* 跳到主要內容 (無障礙) */
+    .skip-link {
+      position: absolute;
+      left: -9999px;
+      top: 1rem;
+      padding: 0.5rem 1rem;
+      background: var(--accent);
+      color: #fff;
+      border-radius: var(--r-md);
+      z-index: 999;
+    }
+
+    .skip-link:focus {
+      left: 1rem;
+    }
+  </style>
+</head>
+<body>
+
+  <a class="skip-link" href="#main">跳到主要內容</a>
+
+  <!-- 動態背景 -->
+  <div class="bg-stage" aria-hidden="true">
+    <div class="blob b1"></div>
+    <div class="blob b2"></div>
+    <div class="blob b3"></div>
+  </div>
+  <div class="noise" aria-hidden="true"></div>
+
+  <!-- 導航列 -->
+  <header class="container">
+    <nav class="nav glass" aria-label="主導航">
+      <a class="brand" href="#top">
+        <span class="brand-mark" aria-hidden="true"></span>
+        Glassify UI
+      </a>
+      <ul class="nav-links">
+        <li><a href="#components">組件</a></li>
+        <li><a href="#forms">表單</a></li>
+        <li><a href="#perf">性能</a></li>
+        <li><a href="#about">關於</a></li>
+      </ul>
+      <button class="btn btn-icon ghost" id="themeToggle" aria-label="切換主題">
+        <span id="themeIcon" aria-hidden="true">🌙</span>
+      </button>
+    </nav>
+  </header>
+
+  <main id="main" class="container">
+
+    <!-- Hero -->
+    <section class="hero glass strong stack" id="top" style="--stack: 1.5rem;">
+      <h1>Glassmorphism UI Kit</h1>
+      <p>單檔 HTML,展示 <strong>backdrop-filter</strong>、<strong>content-visibility</strong>、<strong>will-change</strong>、滑鼠追蹤高光、prefers-reduced-motion、無障礙焦點管理等現代前端技術。可離線運行,可在手機、平板、桌機順暢使用。</p>
+      <div class="hero-cta">
+        <button class="btn primary" id="openModalBtn">
+          <span class="dot" aria-hidden="true"></span>
+          開啟模態框
+        </button>
+        <button class="btn ghost" id="toastBtn">
+          <span class="dot" aria-hidden="true"></span>
+          顯示 Toast
+        </button>
+        <button class="btn ghost" id="addCardBtn">
+          <span class="dot" aria-hidden="true"></span>
+          新增卡片
+        </button>
+      </div>
+    </section>
+
+    <!-- 組件區 -->
+    <div class="section-head" id="components">
+      <div>
+        <h2>可重用玻璃組件</h2>
+        <p>每張卡片都是 .glass + content-visibility:auto 的實踐 — 離開視口時瀏覽器自動跳過渲染。</p>
+      </div>
+      <button class="btn ghost" id="shuffleBtn">
+        <span class="dot" aria-hidden="true"></span>
+        隨機配色
+      </button>
+    </div>
+
+    <div class="card-grid" id="cardGrid">
+      <article class="card glass" data-accent="default">
+        <div class="icon" aria-hidden="true">G</div>
+        <h3>Glass Surface</h3>
+        <p>半透明背景 + backdrop-filter:blur + 內陰影模擬玻璃厚度。可重複用於卡片、面板、導航列。</p>
+        <div class="meta"><span class="tag">Core</span><span>v1.0</span></div>
+      </article>
+
+      <article class="card glass" data-accent="success">
+        <div class="icon" aria-hidden="true">⚡</div>
+        <h3>GPU 加速動效</h3>
+        <p>所有過渡只用 transform / opacity,搭配 will-change 提示瀏覽器建立獨立圖層,維持 60fps。</p>
+        <div class="meta"><span class="tag">Perf</span><span>v1.0</span></div>
+      </article>
+
+      <article class="card glass" data-accent="warning">
+        <div class="icon" aria-hidden="true">👁</div>
+        <h3>content-visibility</h3>
+        <p>卡片元素啟用 content-visibility:auto 後,離開視口時瀏覽器跳過渲染,可省下 50%+ 渲染成本。</p>
+        <div class="meta"><span class="tag">Perf</span><span>v1.0</span></div>
+      </article>
+
+      <article class="card glass" data-accent="danger">
+        <div class="icon" aria-hidden="true">♿</div>
+        <h3>無障礙優先</h3>
+        <p>所有互動元素皆支援鍵盤 focus、ARIA 標籤、prefers-reduced-motion 自動停用動效。</p>
+        <div class="meta"><span class="tag">A11y</span><span>v1.0</span></div>
+      </article>
+
+      <article class="card glass" data-accent="default">
+        <div class="icon" aria-hidden="true">🌗</div>
+        <h3>深淺主題切換</h3>
+        <p>透過 [data-theme] 切換設計 token,所有組件自動跟隨,不需要重新撰寫組件樣式。</p>
+        <div class="meta"><span class="tag">Theme</span><span>v1.0</span></div>
+      </article>
+
+      <article class="card glass" data-accent="success">
+        <div class="icon" aria-hidden="true">📦</div>
+        <h3>單檔可離線</h3>
+        <p>無建置、無打包。CSS、JS、字體載入策略全部內聯,離線時仍能完整呈現 (字體降級到系統字)。</p>
+        <div class="meta"><span class="tag">Deploy</span><span>v1.0</span></div>
+      </article>
+    </div>
+
+    <!-- 表單區 -->
+    <div class="section-head" id="forms">
+      <div>
+        <h2>玻璃表單組件</h2>
+        <p>Input / Select / Textarea / Switch,使用半透明背景與 backdrop-filter,聚焦時呈現冷光暈。</p>
+      </div>
+    </div>
+
+    <section class="glass strong" style="padding: 1.5rem; border-radius: var(--r-xl);">
+      <form class="stack" style="--stack: 1rem;" onsubmit="event.preventDefault(); window.Glassify.toast('表單已送出 (Demo)', 'success');">
+        <div class="form-row">
+          <div class="field">
+            <label for="name">姓名</label>
+            <input class="input" id="name" name="name" type="text" placeholder="王小明" required />
+          </div>
+          <div class="field">
+            <label for="email">Email</label>
+            <input class="input" id="email" name="email" type="email" placeholder="you@example.com" required />
+          </div>
+          <div class="field">
+            <label for="role">角色</label>
+            <select class="select" id="role" name="role">
+              <option>Designer</option>
+              <option>Engineer</option>
+              <option>Product Manager</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="message">訊息</label>
+          <textarea class="textarea" id="message" name="message" placeholder="寫下你的想法..."></textarea>
+        </div>
+
+        <div class="form-row" style="align-items: center;">
+          <label class="switch">
+            <input type="checkbox" id="subscribe" checked />
+            <span class="track" aria-hidden="true"></span>
+            <span>訂閱電子報</span>
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="motion" />
+            <span class="track" aria-hidden="true"></span>
+            <span>啟用滑鼠追蹤高光</span>
+          </label>
+          <div style="margin-left: auto; display: flex; gap: 0.6rem;">
+            <button type="reset" class="btn ghost">重設</button>
+            <button type="submit" class="btn primary">送出</button>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <!-- 效能監控 -->
+    <div class="section-head" id="perf">
+      <div>
+        <h2>即時性能儀表板</h2>
+        <p>使用 PerformanceObserver + PerformanceNavigationTiming,只讀取真實數據,不寫死數字。</p>
+      </div>
+    </div>
+
+    <section class="perf-panel glass" aria-label="性能數據">
+      <div class="perf-cell">
+        <span class="label">FCP</span>
+        <span class="value" data-perf="fcp">—</span>
+        <span class="hint">First Contentful Paint</span>
+      </div>
+      <div class="perf-cell">
+        <span class="label">LCP</span>
+        <span class="value" data-perf="lcp">—</span>
+        <span class="hint">Largest Contentful Paint</span>
+        <div class="perf-bar" aria-hidden="true"><span data-perf-bar="lcp"></span></div>
+      </div>
+      <div class="perf-cell">
+        <span class="label">CLS</span>
+        <span class="value" data-perf="cls">—</span>
+        <span class="hint">Cumulative Layout Shift</span>
+      </div>
+      <div class="perf-cell">
+        <span class="label">Long Tasks</span>
+        <span class="value" data-perf="longTasks">0</span>
+        <span class="hint">主執行緒 &gt; 50ms</span>
+      </div>
+      <div class="perf-cell">
+        <span class="label">FPS</span>
+        <span class="value" data-perf="fps">60</span>
+        <span class="hint">即時畫面更新率</span>
+      </div>
+    </section>
+
+    <!-- 關於 -->
+    <div class="section-head" id="about">
+      <div>
+        <h2>關於這個 Demo</h2>
+        <p>本檔由赫米斯 (Hermes) 自主生成,融合了 advanced_ui_development + frontend_application_optimization + standalone_web_application_development 三個微技能的精神。</p>
+      </div>
+    </div>
+
+    <section class="glass" style="padding: 1.5rem;">
+      <ul style="margin: 0; padding-left: 1.1rem; color: var(--text-secondary); line-height: 1.85;">
+        <li><strong>backdrop-filter</strong> + <strong>mix-blend-mode</strong> 模擬真實玻璃質感</li>
+        <li><strong>content-visibility: auto</strong> 對離開視口的卡片跳過渲染</li>
+        <li><strong>will-change</strong> 提示瀏覽器把動畫元素提升到獨立圖層</li>
+        <li><strong>CSS @property / custom property</strong> 統一設計 token,主題切換零成本</li>
+        <li><strong>font-display: swap</strong> + 預連接,字體不阻塞首屏</li>
+        <li><strong>prefers-reduced-motion</strong> 自動停用動效,尊重無障礙偏好</li>
+        <li><strong>contain: layout paint</strong> 限制 blob 動畫的影響範圍</li>
+        <li><strong>PerformanceObserver</strong> 即時蒐集 Web Vitals,不寫假數字</li>
+      </ul>
+    </section>
+
+    <footer class="footer glass">
+      <p>© Glassify UI · 由 Hermes Agent 自主實作 · <a href="#top">回到頂部 ↑</a></p>
+    </footer>
+
+  </main>
+
+  <!-- 模態框 -->
+  <div class="modal-root" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-scrim" data-close></div>
+    <div class="modal-dialog glass strong">
+      <h3 id="modalTitle">確認動作</h3>
+      <p>這是玻璃模態框的展示。點擊背景、按 ESC、或按「取消」都能關閉。鍵盤焦點會被鎖在這個對話框內。</p>
+      <div class="modal-actions">
+        <button class="btn ghost" data-close>取消</button>
+        <button class="btn primary" data-close id="modalConfirm">確認</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast 容器 -->
+  <div class="toast-root" id="toastRoot" aria-live="polite" aria-atomic="false"></div>
+
+  <script>
+    /* =========================================================
+       Glassify — 玻璃組件庫 JS 控制器
+       命名空間化避免污染全域,所有功能可離線
+       ========================================================= */
+    (function () {
+      'use strict';
+
+      const Glassify = window.Glassify = {
+        theme: (function () {
+          try {
+            const saved = localStorage.getItem('glassify-theme');
+            if (saved === 'light' || saved === 'dark') return saved;
+          } catch (_) {}
+          return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        })(),
+
+        perf: {
+          fcp: null, lcp: null, cls: 0, longTasks: 0, fps: 60
+        },
+
+        init() {
+          this.applyTheme();
+          this.bindNavHighlight();
+          this.bindThemeToggle();
+          this.bindModal();
+          this.bindToast();
+          this.bindMouseGlow();
+          this.bindShuffle();
+          this.bindAddCard();
+          this.bindReducedMotionToggle();
+          this.startPerfMonitor();
+          this.startFPSMeter();
+
+          window.addEventListener('resize', () => this.throttle(this.bindMouseGlow.bind(this), 100)());
+        },
+
+        /* ---- 主題 ---- */
+        applyTheme() {
+          document.documentElement.setAttribute('data-theme', this.theme);
+          const icon = document.getElementById('themeIcon');
+          if (icon) icon.textContent = this.theme === 'dark' ? '🌙' : '☀️';
+        },
+
+        bindThemeToggle() {
+          const btn = document.getElementById('themeToggle');
+          if (!btn) return;
+          btn.addEventListener('click', () => {
+            this.theme = this.theme === 'dark' ? 'light' : 'dark';
+            try { localStorage.setItem('glassify-theme', this.theme); } catch (_) {}
+            this.applyTheme();
+            this.toast(`已切換到${this.theme === 'dark' ? '深色' : '淺色'}主題`, 'info');
+          });
+        },
+
+        /* ---- 導覽列高亮跟隨滾動 ---- */
+        bindNavHighlight() {
+          const links = document.querySelectorAll('.nav-links a');
+          if (!links.length || !('IntersectionObserver' in window)) return;
+
+          const map = new Map();
+          links.forEach(l => {
+            const id = l.getAttribute('href').replace('#', '');
+            const el = document.getElementById(id);
+            if (el) map.set(el, l);
+          });
+
+          const io = new IntersectionObserver(entries => {
+            entries.forEach(entry => {
+              const link = map.get(entry.target);
+              if (!link) return;
+              if (entry.isIntersecting) {
+                links.forEach(l => l.style.color = '');
+                link.style.color = 'var(--text-primary)';
+              }
+            });
+          }, { rootMargin: '-40% 0px -55% 0px' });
+
+          map.forEach((_, el) => io.observe(el));
+        },
+
+        /* ---- 模態框 ---- */
+        bindModal() {
+          const root = document.getElementById('modal');
+          if (!root) return;
+          let lastFocus = null;
+
+          const open = () => {
+            lastFocus = document.activeElement;
+            root.setAttribute('data-open', 'true');
+            const first = root.querySelector('.modal-dialog button, .modal-dialog [tabindex]');
+            if (first) first.focus();
+            document.body.style.overflow = 'hidden';
+          };
+
+          const close = () => {
+            root.setAttribute('data-open', 'false');
+            document.body.style.overflow = '';
+            if (lastFocus && lastFocus.focus) lastFocus.focus();
+          };
+
+          document.getElementById('openModalBtn').addEventListener('click', open);
+          document.getElementById('modalConfirm').addEventListener('click', () => {
+            close();
+            this.toast('已確認動作', 'success');
+          });
+
+          root.addEventListener('click', (e) => {
+            if (e.target.matches('[data-close]')) close();
+          });
+
+          root.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') close();
+            if (e.key === 'Tab') {
+              const focusables = root.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+              const visible = Array.from(focusables).filter(el => !el.disabled && el.offsetParent !== null);
+              if (!visible.length) return;
+              const first = visible[0];
+              const last = visible[visible.length - 1];
+              if (e.shiftKey && document.activeElement === first) {
+                last.focus(); e.preventDefault();
+              } else if (!e.shiftKey && document.activeElement === last) {
+                first.focus(); e.preventDefault();
+              }
+            }
+          });
+
+          window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && root.getAttribute('data-open') === 'true') close();
+          });
+        },
+
+        /* ---- Toast ---- */
+        bindToast() {
+          const btn = document.getElementById('toastBtn');
+          if (!btn) return;
+          btn.addEventListener('click', () => {
+            this.toast('這是 toast 通知的展示 ✨', 'info');
+          });
+        },
+
+        toast(message, kind) {
+          const root = document.getElementById('toastRoot');
+          if (!root) return;
+
+          const node = document.createElement('div');
+          node.className = 'glass toast';
+          node.setAttribute('data-kind', kind || 'info');
+          node.setAttribute('role', 'status');
+
+          node.innerHTML = `
+            <span class="indicator" aria-hidden="true"></span>
+            <span></span>
+          `;
+          node.lastElementChild.textContent = message;
+
+          root.appendChild(node);
+
+          const dismiss = () => {
+            node.classList.add('leaving');
+            node.addEventListener('animationend', () => node.remove(), { once: true });
+          };
+
+          const timer = setTimeout(dismiss, 3200);
+          node.addEventListener('click', () => { clearTimeout(timer); dismiss(); });
+        },
+
+        /* ---- 滑鼠追蹤高光 (CSS 變數驅動) ---- */
+        bindMouseGlow() {
+          if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+          const reduceMotion = () => {
+            try { return localStorage.getItem('glassify-motion') === 'off'; } catch (_) { return false; }
+          };
+
+          const cards = document.querySelectorAll('.glass');
+          cards.forEach(card => {
+            card.addEventListener('pointermove', (e) => {
+              if (reduceMotion()) return;
+              const r = card.getBoundingClientRect();
+              card.style.setProperty('--mx', ((e.clientX - r.left) / r.width * 100) + '%');
+              card.style.setProperty('--my', ((e.clientY - r.top) / r.height * 100) + '%');
+            });
+          });
+        },
+
+        bindReducedMotionToggle() {
+          const cb = document.getElementById('motion');
+          if (!cb) return;
+          let saved;
+          try { saved = localStorage.getItem('glassify-motion'); } catch (_) {}
+          cb.checked = saved !== 'off';
+          cb.addEventListener('change', () => {
+            try { localStorage.setItem('glassify-motion', cb.checked ? 'on' : 'off'); } catch (_) {}
+            this.toast(cb.checked ? '已啟用滑鼠追蹤高光' : '已停用滑鼠追蹤高光', 'info');
+          });
+        },
+
+        /* ---- 隨機配色 ---- */
+        bindShuffle() {
+          const btn = document.getElementById('shuffleBtn');
+          if (!btn) return;
+          const accents = ['default', 'success', 'warning', 'danger'];
+          btn.addEventListener('click', () => {
+            document.querySelectorAll('.card').forEach(c => {
+              c.dataset.accent = accents[Math.floor(Math.random() * accents.length)];
+            });
+            this.toast('已重新隨機配色 🎲', 'info');
+          });
+        },
+
+        /* ---- 新增卡片 ---- */
+        bindAddCard() {
+          const btn = document.getElementById('addCardBtn');
+          if (!btn) return;
+          const grid = document.getElementById('cardGrid');
+          if (!grid) return;
+          let seq = 7;
+          btn.addEventListener('click', () => {
+            const card = document.createElement('article');
+            card.className = 'card glass';
+            card.dataset.accent = 'success';
+            card.innerHTML = `
+              <div class="icon" aria-hidden="true">${seq}</div>
+              <h3>動態新增卡片 #${seq}</h3>
+              <p>這張卡片是透過 JS 動態建立的,證明組件結構可以被程式化生成,而不必寫死 HTML。</p>
+              <div class="meta"><span class="tag">Dynamic</span><span>just now</span></div>
+            `;
+            grid.appendChild(card);
+            seq += 1;
+            this.toast('已新增卡片', 'success');
+          });
+        },
+
+        /* ---- 性能監控 ---- */
+        startPerfMonitor() {
+          // FCP
+          try {
+            new PerformanceObserver((list) => {
+              for (const entry of list.getEntries()) {
+                if (entry.name === 'first-contentful-paint') {
+                  this.perf.fcp = entry.startTime;
+                  this.updatePerfCell('fcp', this.perf.fcp.toFixed(0) + 'ms');
+                }
+              }
+            }).observe({ type: 'paint', buffered: true });
+          } catch (_) {}
+
+          // LCP
+          try {
+            new PerformanceObserver((list) => {
+              const entries = list.getEntries();
+              const last = entries[entries.length - 1];
+              this.perf.lcp = last.startTime;
+              this.updatePerfCell('lcp', this.perf.lcp.toFixed(0) + 'ms');
+              const pct = Math.max(0, Math.min(100, 100 - (this.perf.lcp / 2500 * 100)));
+              this.updatePerfBar('lcp', pct);
+            }).observe({ type: 'largest-contentful-paint', buffered: true });
+          } catch (_) {}
+
+          // CLS
+          try {
+            new PerformanceObserver((list) => {
+              for (const entry of list.getEntries()) {
+                if (!entry.hadRecentInput) this.perf.cls += entry.value;
+              }
+              this.updatePerfCell('cls', this.perf.cls.toFixed(3));
+            }).observe({ type: 'layout-shift', buffered: true });
+          } catch (_) {}
+
+          // Long Tasks
+          try {
+            new PerformanceObserver((list) => {
+              this.perf.longTasks += list.getEntries().length;
+              this.updatePerfCell('longTasks', this.perf.longTasks);
+            }).observe({ type: 'longtask', buffered: true });
+          } catch (_) {}
+        },
+
+        updatePerfCell(key, text) {
+          const el = document.querySelector('[data-perf="' + key + '"]');
+          if (el) el.textContent = text;
+        },
+
+        updatePerfBar(key, pct) {
+          const el = document.querySelector('[data-perf-bar="' + key + '"]');
+          if (el) el.style.width = pct.toFixed(1) + '%';
+        },
+
+        /* ---- FPS 量測 (rAF) ---- */
+        startFPSMeter() {
+          let last = performance.now();
+          let frames = 0;
+          let acc = 0;
+
+          const tick = (now) => {
+            const dt = now - last;
+            last = now;
+            frames += 1;
+            acc += dt;
+            if (acc >= 500) {
+              const fps = Math.round(frames / (acc / 1000));
+              this.perf.fps = fps;
+              this.updatePerfCell('fps', fps);
+              frames = 0; acc = 0;
+            }
+            requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        },
+
+        throttle(fn, wait) {
+          let last = 0;
+          return function () {
+            const now = Date.now();
+            if (now - last >= wait) { last = now; fn(); }
+          };
+        }
+      };
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => Glassify.init());
+      } else {
+        Glassify.init();
+      }
+    })();
+  </script>
+</body>
+</html>

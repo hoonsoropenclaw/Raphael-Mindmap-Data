@@ -1,0 +1,1457 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Next.js RBAC + Dynamic Routes Demo · 基於角色的訪問控制與動態路由集成</title>
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          brand: {
+            50:  '#eef2ff', 100: '#e0e7ff', 500: '#6366f1',
+            600: '#4f46e5', 700: '#4338ca', 900: '#1e1b4b',
+          },
+          ok:    { 500: '#10b981', 600: '#059669' },
+          warn:  { 500: '#f59e0b', 600: '#d97706' },
+          deny:  { 500: '#ef4444', 600: '#dc2626' },
+        },
+        fontFamily: {
+          sans: ['ui-sans-serif', 'system-ui', '-apple-system', 'PingFang TC', 'Microsoft JhengHei', 'sans-serif'],
+          mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+        },
+      },
+    },
+  };
+</script>
+<style>
+  body { font-family: ui-sans-serif, system-ui, -apple-system, 'PingFang TC', 'Microsoft JhengHei', sans-serif; }
+  .glass {
+    background: rgba(255,255,255,0.72);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    border: 1px solid rgba(255,255,255,0.6);
+  }
+  .glass-dark {
+    background: rgba(15,23,42,0.65);
+    backdrop-filter: blur(16px) saturate(150%);
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .gradient-bg {
+    background:
+      radial-gradient(1200px 600px at -10% -10%, #c7d2fe 0%, transparent 60%),
+      radial-gradient(900px 500px at 110% 0%, #fbcfe8 0%, transparent 60%),
+      linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+  }
+  .pulse-dot { animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: .5; transform: scale(1.4); }
+  }
+  .fade-in { animation: fadeIn .35s ease-out both; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px);} to { opacity: 1; transform: translateY(0);} }
+  .mono-cell { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: rgba(99,102,241,.4); border-radius: 8px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(99,102,241,.6); }
+  .nav-active {
+    background: linear-gradient(90deg, rgba(99,102,241,0.15), rgba(99,102,241,0.05));
+    border-left: 3px solid #6366f1;
+  }
+  .lock-overlay {
+    position: relative;
+  }
+  .lock-overlay::before {
+    content: '🔒';
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    opacity: 0.18;
+    pointer-events: none;
+  }
+  pre.code-block {
+    background: #0f172a;
+    color: #e2e8f0;
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    overflow-x: auto;
+  }
+  pre.code-block .k { color: #c084fc; } /* keyword */
+  pre.code-block .s { color: #86efac; } /* string */
+  pre.code-block .c { color: #64748b; } /* comment */
+  pre.code-block .f { color: #fbbf24; } /* function */
+  pre.code-block .v { color: #93c5fd; } /* variable */
+  .badge { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:9999px; font-size:11px; font-weight:600; }
+  .badge-ok   { background:#d1fae5; color:#065f46; }
+  .badge-deny { background:#fee2e2; color:#991b1b; }
+  .badge-warn { background:#fef3c7; color:#92400e; }
+  .badge-info { background:#dbeafe; color:#1e40af; }
+  [data-tip] { position: relative; }
+  [data-tip]:hover::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    white-space: nowrap;
+    z-index: 50;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body class="gradient-bg min-h-screen text-slate-800">
+<div id="root"></div>
+
+<script>
+  // h must be declared at top, before any h() calls.
+  // CRITICAL: `const` in a <script> tag is NOT global — it stays in script
+  // scope. We must use `var` (function-scoped → window) OR redeclare in each
+  // script block. We use var to expose to window so the second script can use it.
+  var h = React.createElement;
+  window.h = h;
+</script>
+
+<!--
+  ============================================================
+  Next.js 14 App Router Simulation
+  Single-file React + Tailwind CDN demo (no build needed).
+
+  Project layout mirrors a real Next.js project:
+
+    ├── lib/
+    │   ├── rbac.js          ← rbac core (can/require/guardRoute)
+    │   └── dynamicRoutes.js ← route templates + generateStaticParams
+    ├── middleware.js        ← global route guard (path regex → perm)
+    ├── app/
+    │   ├── layout.jsx       ← RootLayout + SessionProvider + Sidebar
+    │   ├── (auth)/login/page.jsx
+    │   └── (dashboard)/
+    │       ├── page.jsx
+    │       ├── users/page.jsx
+    │       ├── roles/page.jsx
+    │       ├── audit/page.jsx
+    │       └── orgs/
+    │           ├── [orgId]/
+    │           │   ├── page.jsx
+    │           │   ├── projects/[projectId]/page.jsx
+    │           │   ├── users/[userId]/page.jsx
+    │           │   └── settings/[section]/page.jsx
+    │           └── _components/
+    │               └── ResourceOwnerCheck.jsx
+    └── components/
+        ├── Can.jsx
+        ├── ForbiddenPage.jsx
+        └── Sidebar.jsx
+  ============================================================
+-->
+
+<script>
+// ============================================================================
+// /lib/rbac.js — Role-Based Access Control core
+// ============================================================================
+//
+// DESIGN (real-world Next.js RBAC pattern)
+// -----------------------------------------
+// 1. PERMISSIONS are flat strings ("USER_READ", "ORG_ADMIN").
+// 2. ROLES are groups of permissions (admin / manager / org_admin / member / viewer).
+// 3. A user has ONE global role + an array of `memberships`:
+//      { orgId, role: "org_admin" | "member" | "viewer" }
+//    The effective permission at runtime is:
+//      GLOBAL role perms ∪ any matching org-scoped role perms.
+// 4. Ownership is a SEPARATE concept: even with the permission, if the resource
+//    lives in an org the user doesn't belong to, access is DENIED.
+//    This is what the dynamic route layer checks via `requireOrgAccess`.
+
+const PERMISSIONS = {
+  // user / org admin
+  USER_READ:         'USER_READ',
+  USER_WRITE:        'USER_WRITE',
+  USER_DELETE:       'USER_DELETE',
+  USER_INVITE:       'USER_INVITE',
+  // org admin
+  ORG_READ:          'ORG_READ',
+  ORG_WRITE:         'ORG_WRITE',
+  ORG_DELETE:        'ORG_DELETE',
+  ORG_ADMIN:         'ORG_ADMIN',
+  // project
+  PROJECT_READ:      'PROJECT_READ',
+  PROJECT_WRITE:     'PROJECT_WRITE',
+  PROJECT_DELETE:    'PROJECT_DELETE',
+  // settings
+  SETTINGS_READ:     'SETTINGS_READ',
+  SETTINGS_WRITE:    'SETTINGS_WRITE',
+  // audit
+  AUDIT_READ:        'AUDIT_READ',
+};
+
+const ROLE_MATRIX = {
+  admin: new Set([
+    PERMISSIONS.USER_READ, PERMISSIONS.USER_WRITE, PERMISSIONS.USER_DELETE, PERMISSIONS.USER_INVITE,
+    PERMISSIONS.ORG_READ,  PERMISSIONS.ORG_WRITE,  PERMISSIONS.ORG_DELETE,  PERMISSIONS.ORG_ADMIN,
+    PERMISSIONS.PROJECT_READ, PERMISSIONS.PROJECT_WRITE, PERMISSIONS.PROJECT_DELETE,
+    PERMISSIONS.SETTINGS_READ, PERMISSIONS.SETTINGS_WRITE,
+    PERMISSIONS.AUDIT_READ,
+  ]),
+  manager: new Set([
+    PERMISSIONS.USER_READ, PERMISSIONS.USER_INVITE,
+    PERMISSIONS.ORG_READ,
+    PERMISSIONS.PROJECT_READ, PERMISSIONS.PROJECT_WRITE, PERMISSIONS.PROJECT_DELETE,
+    PERMISSIONS.SETTINGS_READ, PERMISSIONS.SETTINGS_WRITE,
+    PERMISSIONS.AUDIT_READ,
+  ]),
+  org_admin: new Set([
+    PERMISSIONS.USER_READ, PERMISSIONS.USER_INVITE,
+    PERMISSIONS.ORG_READ, PERMISSIONS.ORG_WRITE, PERMISSIONS.ORG_ADMIN,
+    PERMISSIONS.PROJECT_READ, PERMISSIONS.PROJECT_WRITE, PERMISSIONS.PROJECT_DELETE,
+    PERMISSIONS.SETTINGS_READ, PERMISSIONS.SETTINGS_WRITE,
+  ]),
+  member: new Set([
+    PERMISSIONS.USER_READ,
+    PERMISSIONS.ORG_READ,
+    PERMISSIONS.PROJECT_READ, PERMISSIONS.PROJECT_WRITE,
+    PERMISSIONS.SETTINGS_READ,
+  ]),
+  viewer: new Set([
+    PERMISSIONS.USER_READ,
+    PERMISSIONS.ORG_READ,
+    PERMISSIONS.PROJECT_READ,
+    PERMISSIONS.SETTINGS_READ,
+  ]),
+};
+
+const ROLE_LABELS = {
+  admin:    '超級管理員',
+  manager:  '全域管理員',
+  org_admin:'組織管理員',
+  member:   '一般成員',
+  viewer:   '唯讀訪客',
+};
+
+const ROLE_COLORS = {
+  admin:     'bg-purple-100 text-purple-800 border-purple-300',
+  manager:   'bg-blue-100 text-blue-800 border-blue-300',
+  org_admin: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+  member:    'bg-amber-100 text-amber-800 border-amber-300',
+  viewer:    'bg-slate-100 text-slate-700 border-slate-300',
+};
+
+// --- Demo users -------------------------------------------------------------
+// `role` = global role. `memberships` = per-org role (the dynamic route layer
+// checks membership BEFORE falling through to global permissions).
+const USERS = [
+  {
+    id: 'u1', username: 'alice',  name: 'Alice Chen', email: 'alice@acme.dev',
+    role: 'admin',
+    memberships: [
+      { orgId: 'org-acme',    role: 'org_admin' },
+      { orgId: 'org-globex',  role: 'org_admin' },
+    ],
+  },
+  {
+    id: 'u2', username: 'bob',    name: 'Bob Lin',    email: 'bob@acme.dev',
+    role: 'manager',
+    memberships: [
+      { orgId: 'org-acme',    role: 'member' },
+      { orgId: 'org-globex',  role: 'org_admin' },
+    ],
+  },
+  {
+    id: 'u3', username: 'carol',  name: 'Carol Wu',   email: 'carol@acme.dev',
+    role: 'org_admin',
+    memberships: [
+      { orgId: 'org-acme',    role: 'org_admin' },
+    ],
+  },
+  {
+    id: 'u4', username: 'dave',   name: 'Dave Yang',  email: 'dave@acme.dev',
+    role: 'member',
+    memberships: [
+      { orgId: 'org-acme',    role: 'member' },
+    ],
+  },
+  {
+    id: 'u5', username: 'erin',   name: 'Erin Hsu',   email: 'erin@globex.dev',
+    role: 'viewer',
+    memberships: [
+      { orgId: 'org-globex',  role: 'viewer' },
+    ],
+  },
+];
+
+// --- Demo orgs & resources ---------------------------------------------------
+const ORGS = {
+  'org-acme':    { id: 'org-acme',    name: 'Acme Corp',     plan: 'enterprise', ownerId: 'u3' },
+  'org-globex':  { id: 'org-globex',  name: 'Globex Inc.',   plan: 'team',       ownerId: 'u2' },
+};
+
+// Projects (slug = projectId). For member-level permission, `assignees` matters
+// (e.g. only assignee OR org_admin can edit a project).
+const PROJECTS = {
+  'proj-apollo': { id: 'proj-apollo', orgId: 'org-acme',   name: 'Apollo Migration',     assignees: ['u4','u3'] },
+  'proj-zephyr': { id: 'proj-zephyr', orgId: 'org-acme',   name: 'Zephyr Analytics',     assignees: ['u4'] },
+  'proj-helios': { id: 'proj-helios', orgId: 'org-globex', name: 'Helios Growth Engine', assignees: ['u2'] },
+};
+
+// ============================================================================
+// rbac.can(user, perm, ctx?) — pure permission check
+// ============================================================================
+function hasGlobalPermission(user, perm) {
+  const perms = ROLE_MATRIX[user.role];
+  return perms ? perms.has(perm) : false;
+}
+
+function hasOrgPermission(user, perm, orgId) {
+  if (!orgId) return false;
+  const m = user.memberships.find(x => x.orgId === orgId);
+  if (!m) return false;
+  const perms = ROLE_MATRIX[m.role];
+  return perms ? perms.has(perm) : false;
+}
+
+const rbac = {
+  can(user, perm, ctx) {
+    if (!user) return false;
+    // 1. Global role shortcut (e.g. admin / manager bypass org scope)
+    if (hasGlobalPermission(user, perm)) return true;
+    // 2. Org-scoped role (the dynamic-route case)
+    if (ctx && ctx.orgId && hasOrgPermission(user, perm, ctx.orgId)) return true;
+    return false;
+  },
+
+  // require() — server-action / route-handler style throw-on-deny
+  require(user, perm, ctx) {
+    if (!this.can(user, perm, ctx)) {
+      const err = new Error('Forbidden');
+      err.code = 'FORBIDDEN';
+      err.required = perm;
+      err.ctx = ctx;
+      throw err;
+    }
+  },
+
+  // requireOrgMembership — used by dynamic [orgId]/page.jsx.
+  // Even if the user has the perm globally, they must be a member of the org
+  // to access any /orgs/[orgId]/* path.
+  requireOrgMembership(user, orgId) {
+    const isGlobal = user.role === 'admin' || user.role === 'manager';
+    const isMember = user.memberships.some(m => m.orgId === orgId);
+    if (!isGlobal && !isMember) {
+      const err = new Error('Not a member of this organization');
+      err.code = 'NOT_MEMBER';
+      err.required = 'ORG_READ';
+      err.ctx = { orgId };
+      throw err;
+    }
+  },
+
+  // guardRoute(path) — used by /middleware.js. Returns the permission(s) that
+  // the given path requires, OR null if the path is public.
+  // Dynamic segments [orgId] / [projectId] are matched literally here (the
+  // middleware doesn't know the concrete value yet — it only enforces the
+  // shape, the page does the membership check).
+  guardRoute(path) {
+    // Strip query / hash
+    const clean = path.split('?')[0].split('#')[0];
+    // Public routes
+    if (clean === '/login' || clean === '/' && false) return null;
+    if (clean === '/login') return null;
+
+    // Order matters: most specific first.
+    // dynamic [orgId]/settings/[section]
+    if (/^\/orgs\/[^/]+\/settings\/[^/]+$/.test(clean)) return { perm: 'SETTINGS_READ', dynamic: ['orgId','section'] };
+    // dynamic [orgId]/projects/[projectId]
+    if (/^\/orgs\/[^/]+\/projects\/[^/]+$/.test(clean)) return { perm: 'PROJECT_READ', dynamic: ['orgId','projectId'] };
+    // dynamic [orgId]/users/[userId]
+    if (/^\/orgs\/[^/]+\/users\/[^/]+$/.test(clean)) return { perm: 'USER_READ', dynamic: ['orgId','userId'] };
+    // dynamic [orgId]
+    if (/^\/orgs\/[^/]+$/.test(clean)) return { perm: 'ORG_READ', dynamic: ['orgId'] };
+
+    // Static pages
+    if (clean === '/users')       return { perm: 'USER_READ' };
+    if (clean === '/roles')       return { perm: 'AUDIT_READ' };
+    if (clean === '/audit')       return { perm: 'AUDIT_READ' };
+    if (clean === '/dashboard' || clean === '/') return null;
+
+    // API routes (would also be guarded here in real middleware)
+    return null;
+  },
+};
+
+// ============================================================================
+// /lib/dynamicRoutes.js — Next.js dynamic route templates
+// ============================================================================
+//
+// In Next.js 14 App Router, dynamic segments use the [bracket] convention:
+//   app/orgs/[orgId]/projects/[projectId]/page.jsx
+//
+// At build time, generateStaticParams() returns the concrete combinations
+// to pre-render. In our demo, we expose this so the UI can preview what
+// the route tree WOULD look like after build.
+
+const ROUTE_TEMPLATES = [
+  // Static
+  { pattern: '/login',                 file: 'app/(auth)/login/page.jsx',                            perm: null },
+  { pattern: '/dashboard',             file: 'app/(dashboard)/page.jsx',                             perm: null },
+  { pattern: '/users',                 file: 'app/(dashboard)/users/page.jsx',                       perm: 'USER_READ' },
+  { pattern: '/roles',                 file: 'app/(dashboard)/roles/page.jsx',                       perm: 'AUDIT_READ' },
+  { pattern: '/audit',                 file: 'app/(dashboard)/audit/page.jsx',                       perm: 'AUDIT_READ' },
+
+  // Dynamic: one segment
+  { pattern: '/orgs/[orgId]',          file: 'app/(dashboard)/orgs/[orgId]/page.jsx',                perm: 'ORG_READ', dynamic: ['orgId'] },
+
+  // Dynamic: two segments
+  { pattern: '/orgs/[orgId]/projects/[projectId]',  file: 'app/(dashboard)/orgs/[orgId]/projects/[projectId]/page.jsx',  perm: 'PROJECT_READ',  dynamic: ['orgId','projectId'] },
+  { pattern: '/orgs/[orgId]/users/[userId]',        file: 'app/(dashboard)/orgs/[orgId]/users/[userId]/page.jsx',        perm: 'USER_READ',     dynamic: ['orgId','userId'] },
+  { pattern: '/orgs/[orgId]/settings/[section]',    file: 'app/(dashboard)/orgs/[orgId]/settings/[section]/page.jsx',    perm: 'SETTINGS_READ', dynamic: ['orgId','section'] },
+
+  // Catch-all (Next.js [...slug] convention)
+  { pattern: '/orgs/[orgId]/files/[...path]',       file: 'app/(dashboard)/orgs/[orgId]/files/[...path]/page.jsx',       perm: 'PROJECT_READ',  dynamic: ['orgId','...path'] },
+];
+
+// generateStaticParams() — Next.js builds these concrete paths at build time
+function generateStaticParams() {
+  const out = [];
+  for (const tmpl of ROUTE_TEMPLATES) {
+    if (!tmpl.dynamic) { out.push({ template: tmpl.pattern, params: {} }); continue; }
+
+    if (tmpl.pattern === '/orgs/[orgId]') {
+      for (const orgId of Object.keys(ORGS)) {
+        out.push({ template: tmpl.pattern, params: { orgId } });
+      }
+    } else if (tmpl.pattern === '/orgs/[orgId]/projects/[projectId]') {
+      for (const proj of Object.values(PROJECTS)) {
+        out.push({ template: tmpl.pattern, params: { orgId: proj.orgId, projectId: proj.id } });
+      }
+    } else if (tmpl.pattern === '/orgs/[orgId]/users/[userId]') {
+      for (const u of USERS) {
+        for (const m of u.memberships) {
+          out.push({ template: tmpl.pattern, params: { orgId: m.orgId, userId: u.id } });
+        }
+      }
+    } else if (tmpl.pattern === '/orgs/[orgId]/settings/[section]') {
+      for (const orgId of Object.keys(ORGS)) {
+        for (const section of ['general', 'billing', 'security']) {
+          out.push({ template: tmpl.pattern, params: { orgId, section } });
+        }
+      }
+    } else if (tmpl.pattern === '/orgs/[orgId]/files/[...path]') {
+      out.push({ template: tmpl.pattern, params: { orgId: 'org-acme', path: ['reports','2026-q3.pdf'] } });
+    }
+  }
+  return out;
+}
+
+// Resolve a concrete path to its template + params
+function resolveDynamicParams(cleanPath) {
+  for (const tmpl of ROUTE_TEMPLATES) {
+    if (!tmpl.dynamic) continue;
+    const regexStr = '^' + tmpl.pattern.replace(/\[\.\.\.(\w+)\]/g, '(?:.+(?:/(?:.+))*)?')
+                                     .replace(/\[(\w+)\]/g, '([^/]+)') + '$';
+    const m = cleanPath.match(new RegExp(regexStr));
+    if (m) {
+      const params = {};
+      tmpl.dynamic.forEach((key, i) => {
+        const val = m[i + 1];
+        params[key.startsWith('...') ? key.slice(3) : key] = key.startsWith('...') && val ? val.split('/') : val;
+      });
+      return { template: tmpl.pattern, file: tmpl.file, perm: tmpl.perm, params };
+    }
+  }
+  return null;
+}
+
+// ============================================================================
+// /middleware.js — Next.js global request middleware
+// ============================================================================
+//
+// In a real Next.js 14 app, /middleware.js exports a `middleware(request)` and
+// `config.matcher` that runs BEFORE the page renders. Here we simulate it.
+const middleware = {
+  // Returns { allow: true } | { allow: false, reason, perm, path }
+  check(path, user) {
+    if (!user) {
+      const isPublic = (path === '/login' || path === '/');
+      if (isPublic) return { allow: true };
+      return { allow: false, reason: 'NOT_AUTHENTICATED', redirect: '/login', path };
+    }
+    const guarded = rbac.guardRoute(path);
+    if (!guarded) return { allow: true };
+    if (!guarded.dynamic) {
+      if (rbac.can(user, guarded.perm)) return { allow: true, perm: guarded.perm };
+      return { allow: false, reason: 'MISSING_PERM', perm: guarded.perm, path };
+    }
+    // Dynamic segment — middleware can't know membership yet (path params
+    // not resolved until the page). Middleware enforces the SHAPE only:
+    // e.g. /orgs/foo/bar is denied if /orgs/[orgId]/projects/[projectId] is
+    // the matching template AND user has no PROJECT_READ at all.
+    if (rbac.can(user, guarded.perm)) return { allow: true, perm: guarded.perm, dynamic: guarded.dynamic };
+    return { allow: false, reason: 'MISSING_PERM', perm: guarded.perm, path, dynamic: guarded.dynamic };
+  },
+};
+
+// ============================================================================
+// Audit log — append-only, root_cause annotated
+// ============================================================================
+const auditLog = [];
+function audit(kind, payload) {
+  auditLog.unshift({
+    id: 'a' + Math.random().toString(36).slice(2, 10),
+    ts: new Date().toISOString(),
+    kind,
+    ...payload,
+  });
+  if (auditLog.length > 80) auditLog.length = 80;
+}
+
+// ============================================================================
+// /components/Can.jsx — Component-level guard
+// ============================================================================
+//
+// Pattern:
+//   <Can perm="USER_DELETE" ctx={{ orgId }}>
+//     <DeleteButton />
+//   </Can>
+// If the user lacks the perm, returns null + optionally shows a lock indicator.
+function Can({ user, perm, ctx, fallback, children }) {
+  const allowed = rbac.can(user, perm, ctx);
+  if (allowed) return children;
+  if (fallback !== undefined) return fallback;
+  return null;
+}
+
+// ForbiddenPage — shown when middleware rejects the route
+function ForbiddenPage({ user, reason, perm, path }) {
+  const whoHasIt = [];
+  for (const [role, perms] of Object.entries(ROLE_MATRIX)) {
+    if (perms.has(perm)) whoHasIt.push(ROLE_LABELS[role]);
+  }
+  return h('div', { className: 'fade-in max-w-3xl mx-auto mt-12' },
+    h('div', { className: 'glass rounded-2xl p-8 shadow-xl border-2 border-deny-500' },
+      h('div', { className: 'flex items-center gap-3 mb-4' },
+        h('div', { className: 'text-4xl' }, '🚫'),
+        h('div', null,
+          h('h1', { className: 'text-2xl font-bold text-deny-600' }, '403 · 訪問被拒絕'),
+          h('p', { className: 'text-sm text-slate-500 mt-1' }, '你的角色沒有足夠權限存取此路徑'),
+        ),
+      ),
+      h('div', { className: 'grid grid-cols-2 gap-4 mt-6' },
+        h('div', { className: 'bg-slate-50 rounded-lg p-4 border border-slate-200' },
+          h('div', { className: 'text-xs uppercase tracking-wide text-slate-500 mb-1' }, '嘗試路徑'),
+          h('code', { className: 'mono-cell text-deny-600 font-semibold' }, path),
+        ),
+        h('div', { className: 'bg-slate-50 rounded-lg p-4 border border-slate-200' },
+          h('div', { className: 'text-xs uppercase tracking-wide text-slate-500 mb-1' }, '缺少權限'),
+          h('code', { className: 'mono-cell text-deny-600 font-semibold' }, perm),
+        ),
+        h('div', { className: 'bg-slate-50 rounded-lg p-4 border border-slate-200' },
+          h('div', { className: 'text-xs uppercase tracking-wide text-slate-500 mb-1' }, '你的角色'),
+          h('span', { className: `badge ${ROLE_COLORS[user.role]}` }, ROLE_LABELS[user.role]),
+        ),
+        h('div', { className: 'bg-slate-50 rounded-lg p-4 border border-slate-200' },
+          h('div', { className: 'text-xs uppercase tracking-wide text-slate-500 mb-1' }, '擁有此權限的角色'),
+          h('div', { className: 'flex flex-wrap gap-1 mt-1' },
+            whoHasIt.map(r => h('span', { key: r, className: 'badge badge-ok' }, r))
+          ),
+        ),
+      ),
+      h('div', { className: 'mt-6 flex gap-3' },
+        h('button', {
+          onClick: () => navigate('/dashboard'),
+          className: 'px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition',
+        }, '← 返回 Dashboard'),
+      ),
+    ),
+  );
+}
+
+// ============================================================================
+// /components/Sidebar.jsx — top-level nav, gated by rbac.can
+// ============================================================================
+const NAV = [
+  { path: '/dashboard', label: 'Dashboard', icon: '🏠', perm: null },
+  { path: '/users',     label: '使用者管理', icon: '👥', perm: 'USER_READ' },
+  { path: '/roles',     label: '角色權限矩陣', icon: '🛡️', perm: 'AUDIT_READ' },
+  { path: '/audit',     label: '稽核日誌', icon: '📜', perm: 'AUDIT_READ' },
+];
+function Sidebar({ user, currentPath }) {
+  return h('aside', { className: 'w-64 glass-dark min-h-screen p-5 flex flex-col text-slate-100' },
+    h('div', { className: 'flex items-center gap-2 mb-8' },
+      h('div', { className: 'w-9 h-9 rounded-lg bg-gradient-to-br from-brand-500 to-purple-600 flex items-center justify-center font-bold' }, 'R'),
+      h('div', null,
+        h('div', { className: 'font-bold text-sm' }, 'RBAC Demo'),
+        h('div', { className: 'text-[10px] text-slate-400' }, 'Next.js App Router'),
+      ),
+    ),
+    h('nav', { className: 'flex-1 space-y-1' },
+      h('div', { className: 'text-[10px] uppercase tracking-wider text-slate-500 px-3 mb-2' }, '靜態路由'),
+      NAV.filter(n => !n.path.startsWith('/orgs/')).map(n => navItem(user, n, currentPath)),
+      h('div', { className: 'text-[10px] uppercase tracking-wider text-slate-500 px-3 mb-2 mt-6' }, '動態路由範例'),
+      user.memberships.map(m =>
+        h('a', {
+          key: m.orgId,
+          href: '#',
+          onClick: (e) => { e.preventDefault(); navigate(`/orgs/${m.orgId}`); },
+          className: `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition ${
+            currentPath.startsWith(`/orgs/${m.orgId}`)
+              ? 'nav-active text-white'
+              : 'text-slate-300 hover:bg-white/5'
+          }`,
+        },
+          h('span', null, '🏢'),
+          h('span', { className: 'flex-1' }, ORGS[m.orgId]?.name || m.orgId),
+          h('span', { className: `badge ${ROLE_COLORS[m.role]}` }, ROLE_LABELS[m.role].slice(0, 2)),
+        )
+      ),
+    ),
+    h('div', { className: 'mt-6 pt-5 border-t border-white/10' },
+      h('div', { className: 'text-[10px] uppercase tracking-wider text-slate-500 mb-2' }, '已登入'),
+      h('div', { className: 'flex items-center gap-2 mb-2' },
+        h('div', { className: 'w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-pink-500 flex items-center justify-center font-bold text-sm' }, user.name[0]),
+        h('div', { className: 'flex-1 min-w-0' },
+          h('div', { className: 'text-sm font-medium truncate' }, user.name),
+          h('div', { className: 'text-[10px] text-slate-400 truncate' }, user.email),
+        ),
+      ),
+      h('div', { className: `badge ${ROLE_COLORS[user.role]} w-full justify-center` }, ROLE_LABELS[user.role]),
+      h('button', {
+        onClick: () => { window.__logout(); },
+        className: 'w-full mt-3 px-3 py-1.5 text-xs rounded-md bg-white/5 hover:bg-white/10 text-slate-300 transition',
+      }, '登出'),
+    ),
+  );
+}
+
+function navItem(user, n, currentPath) {
+  const allowed = !n.perm || rbac.can(user, n.perm);
+  if (!allowed) {
+    return h('div', {
+      key: n.path,
+      'data-tip': `需要 ${n.perm}`,
+      className: 'flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-500 cursor-not-allowed',
+    },
+      h('span', { className: 'opacity-50' }, n.icon),
+      h('span', { className: 'flex-1 opacity-50' }, n.label),
+      h('span', null, '🔒'),
+    );
+  }
+  return h('a', {
+    key: n.path,
+    href: '#',
+    onClick: (e) => { e.preventDefault(); navigate(n.path); },
+    className: `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition ${
+      currentPath === n.path ? 'nav-active text-white' : 'text-slate-300 hover:bg-white/5'
+    }`,
+  },
+    h('span', null, n.icon),
+    h('span', { className: 'flex-1' }, n.label),
+  );
+}
+
+// ============================================================================
+// Page: /login
+// ============================================================================
+function LoginPage({ onLogin }) {
+  return h('div', { className: 'fade-in max-w-4xl mx-auto mt-12' },
+    h('div', { className: 'glass rounded-2xl p-8 shadow-2xl' },
+      h('div', { className: 'flex items-center gap-3 mb-2' },
+        h('div', { className: 'text-3xl' }, '🔐'),
+        h('h1', { className: 'text-3xl font-bold' }, 'Next.js RBAC + 動態路由 Demo'),
+      ),
+      h('p', { className: 'text-slate-600 mb-2' }, '選擇一個示範帳號,體驗不同角色在靜態 + 動態路由下的存取控制。'),
+      h('p', { className: 'text-xs text-slate-500 mb-6 italic' }, '所有帳號皆為前端 mock,實際生產應使用 NextAuth/Clerk/自建 JWT。'),
+      h('div', { className: 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4' },
+        USERS.map(u =>
+          h('button', {
+            key: u.id,
+            onClick: () => onLogin(u),
+            className: 'text-left p-5 rounded-xl border-2 border-slate-200 hover:border-brand-500 hover:bg-brand-50/50 transition group',
+          },
+            h('div', { className: 'flex items-center gap-3 mb-3' },
+              h('div', { className: 'w-10 h-10 rounded-full bg-gradient-to-br from-brand-500 to-purple-600 flex items-center justify-center text-white font-bold' }, u.name[0]),
+              h('div', null,
+                h('div', { className: 'font-semibold' }, u.name),
+                h('div', { className: 'text-xs text-slate-500' }, '@' + u.username),
+              ),
+            ),
+            h('div', { className: 'flex flex-wrap gap-1 mb-2' },
+              h('span', { className: `badge ${ROLE_COLORS[u.role]}` }, ROLE_LABELS[u.role] + ' (全域)'),
+              ...u.memberships.map(m =>
+                h('span', { key: m.orgId, className: `badge ${ROLE_COLORS[m.role]}` }, `${ORGS[m.orgId]?.name}: ${ROLE_LABELS[m.role]}`)
+              ),
+            ),
+            h('div', { className: 'text-xs text-slate-500' }, `${ROLE_MATRIX[u.role].size} 全域權限 · ${u.memberships.length} 個組織成員資格`),
+          )
+        ),
+      ),
+    ),
+  );
+}
+
+// ============================================================================
+// Page: /dashboard
+// ============================================================================
+function DashboardPage({ user }) {
+  const myPerms = ROLE_MATRIX[user.role];
+  return h('div', { className: 'fade-in space-y-6' },
+    h('div', { className: 'glass rounded-2xl p-6 shadow-lg' },
+      h('h1', { className: 'text-2xl font-bold mb-1' }, '歡迎回來,' + user.name + ' 👋'),
+      h('p', { className: 'text-slate-600' }, '這是 Next.js App Router 模擬。點擊左側導航或動態路由連結觀察 RBAC 行為。'),
+      h('div', { className: 'mt-4 flex flex-wrap gap-2' },
+        h('div', { className: 'flex items-center gap-2 text-sm' },
+          h('span', null, '全域角色:'),
+          h('span', { className: `badge ${ROLE_COLORS[user.role]}` }, ROLE_LABELS[user.role]),
+        ),
+        h('div', { className: 'flex items-center gap-2 text-sm ml-4' },
+          h('span', null, '組織成員:'),
+          user.memberships.map(m =>
+            h('span', { key: m.orgId, className: `badge ${ROLE_COLORS[m.role]}` }, `${ORGS[m.orgId]?.name} · ${ROLE_LABELS[m.role]}`)
+          ),
+        ),
+      ),
+    ),
+    h('div', { className: 'grid grid-cols-1 md:grid-cols-3 gap-4' },
+      statCard('全域權限數', myPerms.size, '/'),
+      statCard('組織成員數', user.memberships.length, '/'),
+      statCard('可存取動態路由', countAccessibleDynamicRoutes(user), '/'),
+    ),
+    h('div', { className: 'glass rounded-2xl p-6 shadow-lg' },
+      h('h2', { className: 'font-bold mb-3 flex items-center gap-2' },
+        h('span', null, '🔐'), 'RBAC 核心代碼',
+      ),
+      h('pre', { className: 'code-block' },
+        h('span', { className: 'c' }, '// /lib/rbac.js — 純函式核心,可單元測試\n'),
+        h('span', { className: 'k' }, 'export const '), h('span', { className: 'v' }, 'rbac'), ' = {\n',
+        '  can(user, perm, ctx) {\n',
+        '    ', h('span', { className: 'k' }, 'if'), ' (hasGlobalPermission(user, perm)) ', h('span', { className: 'k' }, 'return'), ' true;\n',
+        '    ', h('span', { className: 'k' }, 'if'), ' (ctx?.orgId && hasOrgPermission(user, perm, ctx.orgId)) ', h('span', { className: 'k' }, 'return'), ' true;\n',
+        '    ', h('span', { className: 'k' }, 'return'), ' false;\n',
+        '  },\n',
+        '  require(user, perm, ctx) {\n',
+        '    ', h('span', { className: 'k' }, 'if'), ' (!', h('span', { className: 'v' }, 'this'), '.can(user, perm, ctx)) ', h('span', { className: 'k' }, 'throw'), ' ', h('span', { className: 'f' }, 'forbidden'), '(perm);\n',
+        '  },\n',
+        '  requireOrgMembership(user, orgId) { /* checks org scope */ },\n',
+        '  guardRoute(path) { /* path regex → perm */ },\n',
+        '};\n',
+      ),
+    ),
+    h('div', { className: 'glass rounded-2xl p-6 shadow-lg' },
+      h('h2', { className: 'font-bold mb-3 flex items-center gap-2' },
+        h('span', null, '🛣️'), '動態路由模板 (Next.js App Router)',
+      ),
+      h('p', { className: 'text-sm text-slate-600 mb-3' }, 'Next.js 用 [bracket] 標記動態段。generateStaticParams() 在 build time 預先生成所有組合路徑。'),
+      h('div', { className: 'overflow-x-auto' },
+        h('table', { className: 'w-full text-sm' },
+          h('thead', { className: 'text-xs uppercase tracking-wide text-slate-500 border-b-2 border-slate-200' },
+            h('tr', null,
+              h('th', { className: 'text-left py-2 px-3' }, '路由模板'),
+              h('th', { className: 'text-left py-2 px-3' }, '對應檔案'),
+              h('th', { className: 'text-left py-2 px-3' }, '所需權限'),
+              h('th', { className: 'text-left py-2 px-3' }, '動態段'),
+            ),
+          ),
+          h('tbody', null,
+            ROUTE_TEMPLATES.map(t =>
+              h('tr', { key: t.pattern, className: 'border-b border-slate-100 hover:bg-slate-50' },
+                h('td', { className: 'py-2 px-3 mono-cell text-brand-700 font-semibold' }, t.pattern),
+                h('td', { className: 'py-2 px-3 mono-cell text-slate-600' }, t.file),
+                h('td', { className: 'py-2 px-3' },
+                  t.perm
+                    ? h('code', { className: 'mono-cell px-2 py-0.5 rounded bg-amber-50 text-amber-800' }, t.perm)
+                    : h('span', { className: 'text-slate-400 text-xs' }, 'public'),
+                ),
+                h('td', { className: 'py-2 px-3 mono-cell text-purple-700' },
+                  t.dynamic ? t.dynamic.join(', ') : '—'),
+              )
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+function statCard(label, value, _unit) {
+  return h('div', { className: 'glass rounded-xl p-5 shadow' },
+    h('div', { className: 'text-3xl font-bold text-brand-700' }, value),
+    h('div', { className: 'text-xs text-slate-500 mt-1' }, label),
+  );
+}
+
+function countAccessibleDynamicRoutes(user) {
+  let count = 0;
+  for (const tmpl of ROUTE_TEMPLATES) {
+    if (!tmpl.dynamic || !tmpl.perm) continue;
+    if (rbac.can(user, tmpl.perm)) count++;
+  }
+  return count;
+}
+
+// ============================================================================
+// Page: /users
+// ============================================================================
+function UsersPage({ user }) {
+  if (!rbac.can(user, 'USER_READ')) {
+    return h(ForbiddenPage, { user, reason: 'MISSING_PERM', perm: 'USER_READ', path: '/users' });
+  }
+  return h('div', { className: 'fade-in space-y-6' },
+    h('div', { className: 'glass rounded-2xl p-6 shadow-lg' },
+      h('h1', { className: 'text-2xl font-bold mb-4' }, '使用者管理'),
+      h('p', { className: 'text-sm text-slate-600 mb-4' }, '5 個示範帳號 · 點擊按鈕體驗 <Can> 元件層級的權限檢查。'),
+      h('div', { className: 'overflow-x-auto' },
+        h('table', { className: 'w-full text-sm' },
+          h('thead', { className: 'text-xs uppercase tracking-wide text-slate-500 border-b-2 border-slate-200' },
+            h('tr', null,
+              ['帳號', '全域角色', '組織成員', '讀取', '編輯', '刪除', '動態路由'].map(label => h('th', { key: label, className: 'text-left py-2 px-3' }, label)),
+            ),
+          ),
+          h('tbody', null,
+            USERS.map(u =>
+              h('tr', { key: u.id, className: 'border-b border-slate-100 hover:bg-slate-50' },
+                h('td', { className: 'py-3 px-3' },
+                  h('div', { className: 'flex items-center gap-2' },
+                    h('div', { className: 'w-7 h-7 rounded-full bg-gradient-to-br from-brand-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold' }, u.name[0]),
+                    h('div', null,
+                      h('div', { className: 'font-semibold' }, u.name),
+                      h('div', { className: 'text-xs text-slate-500' }, u.email),
+                    ),
+                  ),
+                ),
+                h('td', { className: 'py-3 px-3' }, h('span', { className: `badge ${ROLE_COLORS[u.role]}` }, ROLE_LABELS[u.role])),
+                h('td', { className: 'py-3 px-3' },
+                  h('div', { className: 'flex flex-wrap gap-1' },
+                    u.memberships.map(m => h('span', { key: m.orgId, className: `badge ${ROLE_COLORS[m.role]}` }, `${ORGS[m.orgId]?.name}: ${ROLE_LABELS[m.role].slice(0,2)}`)),
+                  ),
+                ),
+                h('td', { className: 'py-3 px-3' },
+                  h(Can, { user, perm: 'USER_READ' }, h('span', { className: 'badge badge-ok' }, '✓ 可讀')),
+                ),
+                h('td', { className: 'py-3 px-3' },
+                  h(Can, { user, perm: 'USER_WRITE' },
+                    h('button', { className: 'px-2 py-1 text-xs bg-brand-600 text-white rounded hover:bg-brand-700' }, '編輯'),
+                    h('span', { className: 'badge badge-deny ml-1' }, '🔒 鎖定'),
+                  ),
+                ),
+                h('td', { className: 'py-3 px-3' },
+                  h(Can, { user, perm: 'USER_DELETE' },
+                    h('button', { onClick: () => audit('attempt', { user: user.username, action: 'USER_DELETE', target: u.username, result: 'OK' }), className: 'px-2 py-1 text-xs bg-deny-500 text-white rounded hover:bg-deny-600' }, '刪除'),
+                    h('span', { className: 'badge badge-deny ml-1' }, '🔒 鎖定'),
+                  ),
+                ),
+                h('td', { className: 'py-3 px-3' },
+                  h('a', {
+                    href: '#',
+                    onClick: (e) => { e.preventDefault(); navigate(`/orgs/${u.memberships[0]?.orgId}/users/${u.id}`); },
+                    className: 'text-brand-600 hover:underline text-xs mono-cell',
+                  }, `/orgs/.../users/${u.id}`),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+      h('div', { className: 'mt-4 text-xs text-slate-500' }, '🔒 鎖定 = <Can> 元件因權限不足返回 null'),
+    ),
+  );
+}
+
+// ============================================================================
+// Page: /roles — interactive role matrix
+// ============================================================================
+function RolesPage({ user }) {
+  if (!rbac.can(user, 'AUDIT_READ')) {
+    return h(ForbiddenPage, { user, reason: 'MISSING_PERM', perm: 'AUDIT_READ', path: '/roles' });
+  }
+  const allPerms = Object.values(PERMISSIONS);
+  const [overrides, setOverrides] = React.useState({}); // { perm: { role: bool } } — toggles for demo
+
+  function toggle(role, perm) {
+    const key = perm;
+    setOverrides(prev => ({
+      ...prev,
+      [key]: { ...(prev[key] || {}), [role]: !(prev[key]?.[role] ?? ROLE_MATRIX[role].has(perm)) },
+    }));
+  }
+  function effective(role, perm) {
+    const ov = overrides[perm]?.[role];
+    return ov !== undefined ? ov : ROLE_MATRIX[role].has(perm);
+  }
+
+  return h('div', { className: 'fade-in space-y-6' },
+    h('div', { className: 'glass rounded-2xl p-6 shadow-lg' },
+      h('h1', { className: 'text-2xl font-bold mb-2' }, '角色權限矩陣'),
+      h('p', { className: 'text-sm text-slate-600 mb-4' }, '點擊儲存格可即時切換權限。所有變更僅存在於前端狀態(重新整理後重置),用於演示 RBAC 對 UI 的即時影響。'),
+      h('div', { className: 'overflow-x-auto' },
+        h('table', { className: 'w-full text-sm border-collapse' },
+          h('thead', null,
+            h('tr', { className: 'border-b-2 border-slate-200' },
+              h('th', { className: 'text-left py-2 px-3' }, '權限 \\ 角色'),
+              ...Object.keys(ROLE_MATRIX).map(role =>
+                h('th', { key: role, className: 'text-left py-2 px-3' },
+                  h('span', { className: `badge ${ROLE_COLORS[role]}` }, ROLE_LABELS[role]),
+                ),
+              ),
+            ),
+          ),
+          h('tbody', null,
+            allPerms.map(perm =>
+              h('tr', { key: perm, className: 'border-b border-slate-100 hover:bg-slate-50' },
+                h('td', { className: 'py-2 px-3 mono-cell font-semibold text-slate-700' }, perm),
+                ...Object.keys(ROLE_MATRIX).map(role => {
+                  const ok = effective(role, perm);
+                  return h('td', {
+                    key: role,
+                    onClick: () => { toggle(role, perm); audit('perm_toggle', { actor: user.username, perm, role, newValue: !ok }); },
+                    className: `py-2 px-3 cursor-pointer text-center transition select-none ${ok ? 'bg-emerald-50 hover:bg-emerald-100' : 'bg-red-50 hover:bg-red-100'}`,
+                  },
+                    h('span', { className: ok ? 'badge badge-ok' : 'badge badge-deny' }, ok ? '✓' : '✗'),
+                  );
+                }),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+    h('div', { className: 'glass rounded-2xl p-6 shadow-lg' },
+      h('h2', { className: 'font-bold mb-3' }, '動態路由 × 角色 可達性矩陣'),
+      h('p', { className: 'text-sm text-slate-600 mb-3' }, '每個角色的有效權限下,能存取哪些動態路由模板。'),
+      h('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-4' },
+        Object.keys(ROLE_MATRIX).map(role => {
+          const accessible = ROUTE_TEMPLATES.filter(t => t.dynamic && t.perm && ROLE_MATRIX[role].has(t.perm));
+          const denied = ROUTE_TEMPLATES.filter(t => t.dynamic && t.perm && !ROLE_MATRIX[role].has(t.perm));
+          return h('div', { key: role, className: 'p-4 rounded-xl border-2 border-slate-200' },
+            h('div', { className: 'flex items-center gap-2 mb-3' },
+              h('span', { className: `badge ${ROLE_COLORS[role]}` }, ROLE_LABELS[role]),
+              h('span', { className: 'text-xs text-slate-500' }, `${accessible.length} 可存取 · ${denied.length} 拒絕`),
+            ),
+            h('div', { className: 'space-y-1' },
+              [...accessible, ...denied].map(t =>
+                h('div', { key: t.pattern, className: 'flex items-center gap-2 text-xs mono-cell' },
+                  h('span', { className: ROLE_MATRIX[role].has(t.perm) ? 'text-emerald-600' : 'text-red-400' },
+                    ROLE_MATRIX[role].has(t.perm) ? '✓' : '✗'),
+                  h('span', { className: ROLE_MATRIX[role].has(t.perm) ? '' : 'line-through text-slate-400' }, t.pattern),
+                ),
+              ),
+            ),
+          );
+        }),
+      ),
+    ),
+  );
+}
+
+// ============================================================================
+// Page: /audit
+// ============================================================================
+function AuditPage({ user }) {
+  if (!rbac.can(user, 'AUDIT_READ')) {
+    return h(ForbiddenPage, { user, reason: 'MISSING_PERM', perm: 'AUDIT_READ', path: '/audit' });
+  }
+  const [filter, setFilter] = React.useState('ALL');
+  const visible = auditLog.filter(e => filter === 'ALL' || e.kind === filter);
+
+  return h('div', { className: 'fade-in space-y-6' },
+    h('div', { className: 'glass rounded-2xl p-6 shadow-lg' },
+      h('div', { className: 'flex items-center justify-between mb-4' },
+        h('h1', { className: 'text-2xl font-bold' }, '稽核日誌'),
+        h('div', { className: 'flex gap-2' },
+          ['ALL', 'attempt', 'denied', 'perm_toggle', 'system'].map(k =>
+            h('button', {
+              key: k,
+              onClick: () => setFilter(k),
+              className: `px-3 py-1 text-xs rounded-full border transition ${
+                filter === k ? 'bg-brand-600 text-white border-brand-600' : 'bg-white border-slate-200 hover:bg-slate-50'
+              }`,
+            }, k),
+          ),
+        ),
+      ),
+      h('div', { className: 'space-y-1 max-h-[600px] overflow-y-auto' },
+        visible.length === 0
+          ? h('div', { className: 'text-center text-slate-400 py-12' }, '尚無稽核記錄 — 在其他頁面操作以觸發事件')
+          : visible.map(e =>
+              h('div', { key: e.id, className: 'flex items-start gap-3 p-3 rounded-lg hover:bg-slate-50 border border-slate-100' },
+                h('span', { className: 'mono-cell text-[10px] text-slate-400 mt-1' }, e.ts.slice(11, 19)),
+                h('span', {
+                  className: `badge text-[10px] mt-0.5 ${
+                    e.kind === 'denied' ? 'badge-deny'
+                    : e.kind === 'perm_toggle' ? 'badge-warn'
+                    : 'badge-info'
+                  }`,
+                }, e.kind),
+                h('div', { className: 'flex-1 text-xs mono-cell' },
+                  Object.entries(e).filter(([k]) => k !== 'id' && k !== 'ts' && k !== 'kind').map(([k, v]) =>
+                    h('div', { key: k },
+                      h('span', { className: 'text-slate-500' }, k + ': '),
+                      h('span', { className: 'text-slate-800' }, typeof v === 'object' ? JSON.stringify(v) : String(v)),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+      ),
+    ),
+  );
+}
+
+// ============================================================================
+// Page: /orgs/[orgId]  (dynamic segment — org home)
+// ============================================================================
+function OrgPage({ user, params }) {
+  const { orgId } = params;
+  try {
+    rbac.requireOrgMembership(user, orgId);
+  } catch (err) {
+    audit('denied', { user: user.username, path: `/orgs/${orgId}`, reason: err.code, required: err.required });
+    return h(ForbiddenPage, { user, reason: err.code, perm: err.required, path: `/orgs/${orgId}` });
+  }
+  if (!rbac.can(user, 'ORG_READ', { orgId })) {
+    audit('denied', { user: user.username, path: `/orgs/${orgId}`, reason: 'MISSING_PERM', required: 'ORG_READ' });
+    return h(ForbiddenPage, { user, reason: 'MISSING_PERM', perm: 'ORG_READ', path: `/orgs/${orgId}` });
+  }
+  const org = ORGS[orgId];
+  const orgProjects = Object.values(PROJECTS).filter(p => p.orgId === orgId);
+  const orgMembers = USERS.filter(u => u.memberships.some(m => m.orgId === orgId));
+  audit('attempt', { user: user.username, path: `/orgs/${orgId}`, result: 'OK' });
+
+  return h('div', { className: 'fade-in space-y-6' },
+    h('div', { className: 'glass rounded-2xl p-6 shadow-lg' },
+      h('div', { className: 'flex items-start justify-between mb-4' },
+        h('div', null,
+          h('h1', { className: 'text-3xl font-bold mb-1' }, org.name),
+          h('p', { className: 'text-sm text-slate-600 mono-cell' }, `params: { orgId: "${orgId}" } · owner: ${USERS.find(u => u.id === org.ownerId)?.name}`),
+        ),
+        h('span', { className: 'badge badge-info' }, org.plan.toUpperCase()),
+      ),
+      h('div', { className: 'grid grid-cols-1 md:grid-cols-3 gap-4 mt-4' },
+        statCard('成員數', orgMembers.length),
+        statCard('專案數', orgProjects.length),
+        statCard('動態子路由', 3),
+      ),
+    ),
+
+    h('div', { className: 'glass rounded-2xl p-6 shadow-lg' },
+      h('h2', { className: 'font-bold mb-3' }, '專案清單 (動態子路由入口)'),
+      h('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-3' },
+        orgProjects.map(p =>
+          h('a', {
+            key: p.id,
+            href: '#',
+            onClick: (e) => { e.preventDefault(); navigate(`/orgs/${orgId}/projects/${p.id}`); },
+            className: 'block p-4 rounded-xl border-2 border-slate-200 hover:border-brand-500 hover:bg-brand-50/30 transition',
+          },
+            h('div', { className: 'font-semibold text-brand-700' }, p.name),
+            h('div', { className: 'mono-cell text-xs text-slate-500 mt-1' }, `/orgs/${orgId}/projects/${p.id}`),
+          ),
+        ),
+      ),
+    ),
+
+    h('div', { className: 'glass rounded-2xl p-6 shadow-lg' },
+      h('h2', { className: 'font-bold mb-3' }, '動態操作 (org-scoped <Can>)'),
+      h('div', { className: 'flex flex-wrap gap-3' },
+        h(Can, { user, perm: 'PROJECT_WRITE', ctx: { orgId } },
+          h('button', { className: 'px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700' }, '+ 建立專案'),
+        ),
+        h(Can, { user, perm: 'USER_INVITE', ctx: { orgId } },
+          h('button', { className: 'px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700' }, '+ 邀請成員'),
+        ),
+        h(Can, { user, perm: 'SETTINGS_WRITE', ctx: { orgId } },
+          h('button', { className: 'px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700' }, '⚙ 編輯設定'),
+        ),
+        h(Can, { user, perm: 'ORG_DELETE', ctx: { orgId } },
+          h('button', { className: 'px-4 py-2 bg-deny-500 text-white rounded-lg hover:bg-deny-600' }, '🗑 刪除組織'),
+          h('div', { className: 'p-4 rounded-lg border-2 border-dashed border-slate-200 text-xs text-slate-500' }, '🔒 缺少 ORG_DELETE 權限'),
+        ),
+      ),
+    ),
+  );
+}
+
+// ============================================================================
+// Page: /orgs/[orgId]/projects/[projectId]
+// ============================================================================
+function ProjectPage({ user, params }) {
+  const { orgId, projectId } = params;
+  try {
+    rbac.requireOrgMembership(user, orgId);
+  } catch (err) {
+    audit('denied', { user: user.username, path: `/orgs/${orgId}/projects/${projectId}`, reason: err.code });
+    return h(ForbiddenPage, { user, reason: err.code, perm: err.required, path: `/orgs/${orgId}/projects/${projectId}` });
+  }
+  if (!rbac.can(user, 'PROJECT_READ', { orgId })) {
+    audit('denied', { user: user.username, path: `/orgs/${orgId}/projects/${projectId}`, reason: 'MISSING_PERM', required: 'PROJECT_READ' });
+    return h(ForbiddenPage, { user, reason: 'MISSING_PERM', perm: 'PROJECT_READ', path: `/orgs/${orgId}/projects/${projectId}` });
+  }
+  const proj = PROJECTS[projectId];
+  if (!proj || proj.orgId !== orgId) {
+    return h('div', { className: 'glass rounded-2xl p-8 text-center' },
+      h('h2', { className: 'text-xl font-bold text-deny-600' }, '404 · 專案不存在'),
+      h('p', { className: 'text-sm text-slate-500 mt-2' }, `projectId="${projectId}" 在 orgId="${orgId}" 找不到`),
+    );
+  }
+  const isAssignee = proj.assignees.includes(user.id);
+  audit('attempt', { user: user.username, path: `/orgs/${orgId}/projects/${projectId}`, result: 'OK' });
+
+  return h('div', { className: 'fade-in space-y-6' },
+    h('div', { className: 'glass rounded-2xl p-6 shadow-lg' },
+      h('div', { className: 'flex items-start justify-between mb-2' },
+        h('div', null,
+          h('div', { className: 'text-xs text-slate-500 mono-cell' }, `/orgs/${orgId}/projects/${projectId}`),
+          h('h1', { className: 'text-3xl font-bold' }, proj.name),
+        ),
+        h('span', { className: `badge ${isAssignee ? 'badge-ok' : 'badge-warn'}` }, isAssignee ? '✓ 您是 Assignee' : '非 Assignee'),
+      ),
+      h('p', { className: 'text-sm text-slate-600 mt-2' }, '此頁面展示「動態段 + 多層權限 + 資源歸屬」檢查。'),
+    ),
+
+    h('div', { className: 'glass rounded-2xl p-6 shadow-lg' },
+      h('h2', { className: 'font-bold mb-3' }, '資源歸屬檢查 (Resource Owner Check)'),
+      h('pre', { className: 'code-block' },
+        h('span', { className: 'c' }, '// app/orgs/[orgId]/projects/[projectId]/page.jsx\n'),
+        h('span', { className: 'k' }, 'export default async function '), h('span', { className: 'f' }, 'ProjectPage'), '({ params }) {\n',
+        '  ', h('span', { className: 'k' }, 'const'), ' { orgId, projectId } = ', h('span', { className: 'v' }, 'await'), ' params;\n',
+        '  ', h('span', { className: 'k' }, 'const'), ' user = ', h('span', { className: 'f' }, 'await'), ' ', h('span', { className: 'f' }, 'getCurrentUser'), '();\n',
+        '\n',
+        '  ', h('span', { className: 'c' }, '// Layer 1: org membership\n'),
+        '  ', h('span', { className: 'f' }, 'rbac.requireOrgMembership'), '(user, orgId);\n',
+        '\n',
+        '  ', h('span', { className: 'c' }, '// Layer 2: project-level perm (org-scoped)\n'),
+        '  ', h('span', { className: 'f' }, 'rbac.require'), '(user, ', h('span', { className: 's' }, "'PROJECT_READ'"), ', { orgId });\n',
+        '\n',
+        '  ', h('span', { className: 'c' }, '// Layer 3: ownership (assignee check)\n'),
+        '  ', h('span', { className: 'k' }, 'const'), ' proj = ', h('span', { className: 'f' }, 'await'), ' ', h('span', { className: 'f' }, 'getProject'), '(projectId);\n',
+        '  ', h('span', { className: 'k' }, 'if'), ' (!proj.assignees.', h('span', { className: 'f' }, 'includes'), '(user.id) && !', h('span', { className: 'f' }, 'isOrgAdmin'), '(user, orgId)) {\n',
+        '    ', h('span', { className: 'f' }, 'notFound'), '();  ', h('span', { className: 'c' }, '// Next.js notFound() helper\n'),
+        '  }\n',
+        '\n',
+        '  ', h('span', { className: 'k' }, 'return'), ' ', h('span', { className: 'f' }, 'lt'), 'ProjectView project={proj} />;\n',
+        '}',
+      ),
+      h('div', { className: 'mt-3 flex flex-wrap gap-2' },
+        h('div', { className: 'text-xs' }, '你的狀態: '),
+        h('span', { className: 'badge badge-info' }, `全域 ${ROLE_LABELS[user.role]}`),
+        ...user.memberships.filter(m => m.orgId === orgId).map(m =>
+          h('span', { key: m.orgId, className: `badge ${ROLE_COLORS[m.role]}` }, `在 ${ORGS[orgId].name} 為 ${ROLE_LABELS[m.role]}`),
+        ),
+        isAssignee
+          ? h('span', { className: 'badge badge-ok' }, 'Project Assignee ✓')
+          : h('span', { className: 'badge badge-warn' }, '非 Assignee'),
+      ),
+    ),
+
+    h('div', { className: 'glass rounded-2xl p-6 shadow-lg' },
+      h('h2', { className: 'font-bold mb-3' }, '頁面內動作 (有權限才顯示)'),
+      h('div', { className: 'flex flex-wrap gap-3' },
+        h(Can, { user, perm: 'PROJECT_WRITE', ctx: { orgId }, fallback: h('span', { className: 'text-xs text-slate-500' }, '🔒 缺少 PROJECT_WRITE') },
+          h('button', { className: 'px-4 py-2 bg-brand-600 text-white rounded-lg' }, '✏️ 編輯專案'),
+        ),
+        h(Can, { user, perm: 'PROJECT_DELETE', ctx: { orgId }, fallback: h('span', { className: 'text-xs text-slate-500' }, '🔒 缺少 PROJECT_DELETE') },
+          h('button', { className: 'px-4 py-2 bg-deny-500 text-white rounded-lg' }, '🗑 刪除專案'),
+        ),
+      ),
+    ),
+  );
+}
+
+// ============================================================================
+// Page: /orgs/[orgId]/users/[userId]
+// ============================================================================
+function OrgUserPage({ user, params }) {
+  const { orgId, userId } = params;
+  try {
+    rbac.requireOrgMembership(user, orgId);
+  } catch (err) {
+    return h(ForbiddenPage, { user, reason: err.code, perm: err.required, path: `/orgs/${orgId}/users/${userId}` });
+  }
+  if (!rbac.can(user, 'USER_READ', { orgId })) {
+    return h(ForbiddenPage, { user, reason: 'MISSING_PERM', perm: 'USER_READ', path: `/orgs/${orgId}/users/${userId}` });
+  }
+  const target = USERS.find(u => u.id === userId);
+  const membership = target?.memberships.find(m => m.orgId === orgId);
+  if (!target || !membership) {
+    return h('div', { className: 'glass rounded-2xl p-8 text-center' },
+      h('h2', { className: 'text-xl font-bold text-deny-600' }, '404 · 成員不存在'),
+    );
+  }
+  return h('div', { className: 'fade-in space-y-6' },
+    h('div', { className: 'glass rounded-2xl p-6 shadow-lg' },
+      h('div', { className: 'text-xs text-slate-500 mono-cell mb-2' }, `/orgs/${orgId}/users/${userId}`),
+      h('div', { className: 'flex items-center gap-4' },
+        h('div', { className: 'w-16 h-16 rounded-full bg-gradient-to-br from-brand-500 to-purple-600 flex items-center justify-center text-white text-2xl font-bold' }, target.name[0]),
+        h('div', null,
+          h('h1', { className: 'text-3xl font-bold' }, target.name),
+          h('p', { className: 'text-sm text-slate-600' }, target.email),
+          h('div', { className: 'flex gap-2 mt-2' },
+            h('span', { className: `badge ${ROLE_COLORS[target.role]}` }, `全域: ${ROLE_LABELS[target.role]}`),
+            h('span', { className: `badge ${ROLE_COLORS[membership.role]}` }, `此組織: ${ROLE_LABELS[membership.role]}`),
+          ),
+        ),
+      ),
+    ),
+    h('div', { className: 'glass rounded-2xl p-6 shadow-lg' },
+      h('h2', { className: 'font-bold mb-3' }, '組織內操作 (org-scoped)'),
+      h('div', { className: 'flex flex-wrap gap-3' },
+        h(Can, { user, perm: 'USER_WRITE', ctx: { orgId }, fallback: h('span', { className: 'text-xs text-slate-500' }, '🔒 缺少 USER_WRITE (org)') },
+          h('button', { className: 'px-4 py-2 bg-brand-600 text-white rounded-lg' }, '✏️ 修改此成員角色'),
+        ),
+        h(Can, { user, perm: 'USER_INVITE', ctx: { orgId }, fallback: h('span', { className: 'text-xs text-slate-500' }, '🔒 缺少 USER_INVITE') },
+          h('button', { className: 'px-4 py-2 bg-emerald-600 text-white rounded-lg' }, '+ 邀請其他成員'),
+        ),
+        h(Can, { user, perm: 'USER_DELETE', ctx: { orgId }, fallback: h('span', { className: 'text-xs text-slate-500' }, '🔒 缺少 USER_DELETE (org)') },
+          h('button', { className: 'px-4 py-2 bg-deny-500 text-white rounded-lg' }, '🗑 從組織移除'),
+        ),
+      ),
+    ),
+  );
+}
+
+// ============================================================================
+// Page: /orgs/[orgId]/settings/[section]
+// ============================================================================
+function SettingsPage({ user, params }) {
+  const { orgId, section } = params;
+  try {
+    rbac.requireOrgMembership(user, orgId);
+  } catch (err) {
+    return h(ForbiddenPage, { user, reason: err.code, perm: err.required, path: `/orgs/${orgId}/settings/${section}` });
+  }
+  if (!rbac.can(user, 'SETTINGS_READ', { orgId })) {
+    return h(ForbiddenPage, { user, reason: 'MISSING_PERM', perm: 'SETTINGS_READ', path: `/orgs/${orgId}/settings/${section}` });
+  }
+  const sections = ['general', 'billing', 'security'];
+  if (!sections.includes(section)) {
+    return h('div', { className: 'glass rounded-2xl p-8 text-center' },
+      h('h2', { className: 'text-xl font-bold text-deny-600' }, '404 · 未知設定區段'),
+      h('p', { className: 'text-sm text-slate-500 mt-2' }, `section="${section}" 不存在(可用: ${sections.join(', ')})`),
+    );
+  }
+  return h('div', { className: 'fade-in space-y-6' },
+    h('div', { className: 'glass rounded-2xl p-6 shadow-lg' },
+      h('div', { className: 'text-xs text-slate-500 mono-cell mb-2' }, `/orgs/${orgId}/settings/${section}`),
+      h('h1', { className: 'text-3xl font-bold capitalize' }, `${section} 設定`),
+      h('p', { className: 'text-sm text-slate-600 mt-1' }, `組織: ${ORGS[orgId]?.name}`),
+    ),
+    h('div', { className: 'glass rounded-2xl p-6 shadow-lg' },
+      h('h2', { className: 'font-bold mb-3' }, '此區段設定'),
+      h('div', { className: 'space-y-3' },
+        section === 'general' && h('div', null,
+          h('label', { className: 'block text-sm font-medium mb-1' }, '組織名稱'),
+          h('input', { defaultValue: ORGS[orgId]?.name, className: 'w-full px-3 py-2 border-2 border-slate-200 rounded-lg focus:border-brand-500 outline-none' }),
+        ),
+        section === 'billing' && h('div', null,
+          h('label', { className: 'block text-sm font-medium mb-1' }, '方案'),
+          h('select', { className: 'w-full px-3 py-2 border-2 border-slate-200 rounded-lg focus:border-brand-500 outline-none' },
+            h('option', null, 'Free'),
+            h('option', { selected: true }, 'Team'),
+            h('option', null, 'Enterprise'),
+          ),
+        ),
+        section === 'security' && h('div', null,
+          h('label', { className: 'flex items-center gap-2' },
+            h('input', { type: 'checkbox', defaultChecked: true }),
+            h('span', { className: 'text-sm' }, '強制 2FA'),
+          ),
+        ),
+      ),
+      h('div', { className: 'mt-4' },
+        h(Can, { user, perm: 'SETTINGS_WRITE', ctx: { orgId }, fallback: h('div', { className: 'p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm' }, '🔒 您是唯讀角色,無法儲存變更') },
+          h('button', { className: 'px-5 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700' }, '💾 儲存設定'),
+        ),
+      ),
+    ),
+    h('div', { className: 'glass rounded-2xl p-6 shadow-lg' },
+      h('h2', { className: 'font-bold mb-3' }, '切換其他設定區段 (驗證動態段 [section])'),
+      h('div', { className: 'flex gap-2' },
+        sections.map(s =>
+          h('a', {
+            key: s,
+            href: '#',
+            onClick: (e) => { e.preventDefault(); navigate(`/orgs/${orgId}/settings/${s}`); },
+            className: `px-3 py-1 rounded-full text-xs border transition ${
+              s === section ? 'bg-brand-600 text-white border-brand-600' : 'bg-white border-slate-200 hover:bg-slate-50'
+            }`,
+          }, s),
+        ),
+      ),
+    ),
+  );
+}
+
+// ============================================================================
+// Router (Next.js useRouter + useParams simulation)
+// ============================================================================
+function navigate(path, opts = {}) {
+  window.location.hash = '#' + path;
+  if (opts.audit !== false) {
+    // Defer audit to after path resolves (let middleware run)
+    setTimeout(() => {}, 0);
+  }
+}
+window.navigate = navigate; // expose for sidebar
+
+function useRouter() {
+  const [path, setPath] = React.useState(window.location.hash.replace(/^#/, '') || '/login');
+  React.useEffect(() => {
+    const onHash = () => setPath(window.location.hash.replace(/^#/, '') || '/login');
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  return path;
+}
+
+function useParams(path) {
+  // Match against ROUTE_TEMPLATES, extract concrete params from segments.
+  // Order matters: check MOST SPECIFIC first so catch-all doesn't eat
+  // concrete matches like /orgs/foo/projects/bar.
+  const ordered = [...ROUTE_TEMPLATES].sort((a, b) =>
+    (b.dynamic?.length || 0) - (a.dynamic?.length || 0)
+  );
+  for (const tmpl of ordered) {
+    if (!tmpl.dynamic) continue;
+    const regexStr = '^' + tmpl.pattern.replace(/\[\.\.\.(\w+)\]/g, '(?:.+(?:/.+)*)?')
+                                     .replace(/\[(\w+)\]/g, '([^/]+)') + '$';
+    const m = path.match(new RegExp(regexStr));
+    if (m) {
+      const params = {};
+      let captureIdx = 0;
+      tmpl.dynamic.forEach((key) => {
+        if (key.startsWith('...')) {
+          // Catch-all: capture the remainder (may contain slashes)
+          // But for hash-based routing we usually have no slashes here
+          params[key.slice(3)] = decodeURIComponent(path.split('/').slice(
+            tmpl.pattern.split('/').filter(s => !s.startsWith('[')).length
+          ).join('/'));
+        } else {
+          params[key] = decodeURIComponent(m[++captureIdx] || '');
+        }
+      });
+      return { template: tmpl, params };
+    }
+  }
+  return null;
+}
+
+// ============================================================================
+// App
+// ============================================================================
+function App() {
+  const [user, setUser] = React.useState(window.__user || null);
+  const path = useRouter();
+  const resolved = useParams(path);
+  const resolvedPath = path.split('?')[0].split('#')[0];
+
+  // Persist user across page reloads
+  React.useEffect(() => {
+    if (user) {
+      window.__user = user;
+      sessionStorage.setItem('rbac_user', JSON.stringify(user));
+    } else {
+      window.__user = null;
+      sessionStorage.removeItem('rbac_user');
+    }
+  }, [user]);
+  React.useEffect(() => {
+    const saved = sessionStorage.getItem('rbac_user');
+    if (saved && !user) setUser(JSON.parse(saved));
+  }, []);
+
+  window.__logout = () => { setUser(null); navigate('/login', { audit: false }); };
+
+  // ---- Middleware gate ----------------------------------------------------
+  if (!user && resolvedPath !== '/login') {
+    setTimeout(() => navigate('/login', { audit: false }), 0);
+    return h('div', { className: 'text-center mt-20 text-slate-500' }, '重新導向 /login ...');
+  }
+  if (user && resolvedPath === '/login') {
+    setTimeout(() => navigate('/dashboard', { audit: false }), 0);
+    return null;
+  }
+  const mwCheck = middleware.check(resolvedPath, user);
+  if (user && !mwCheck.allow) {
+    audit('denied', { user: user.username, path: resolvedPath, reason: mwCheck.reason, required: mwCheck.perm });
+    return h(Shell, { user, currentPath: resolvedPath },
+      h(ForbiddenPage, { user, reason: mwCheck.reason, perm: mwCheck.perm, path: resolvedPath }),
+    );
+  }
+
+  // ---- Page router --------------------------------------------------------
+  let page;
+  if (!user) {
+    page = h(LoginPage, { onLogin: (u) => { setUser(u); audit('system', { event: 'login', user: u.username }); navigate('/dashboard'); } });
+  } else if (resolvedPath === '/dashboard' || resolvedPath === '/') {
+    page = h(DashboardPage, { user });
+  } else if (resolvedPath === '/users') {
+    page = h(UsersPage, { user });
+  } else if (resolvedPath === '/roles') {
+    page = h(RolesPage, { user });
+  } else if (resolvedPath === '/audit') {
+    page = h(AuditPage, { user });
+  } else if (resolved) {
+    // Dynamic routes
+    if (resolved.template.pattern === '/orgs/[orgId]') {
+      page = h(OrgPage, { user, params: resolved.params });
+    } else if (resolved.template.pattern === '/orgs/[orgId]/projects/[projectId]') {
+      page = h(ProjectPage, { user, params: resolved.params });
+    } else if (resolved.template.pattern === '/orgs/[orgId]/users/[userId]') {
+      page = h(OrgUserPage, { user, params: resolved.params });
+    } else if (resolved.template.pattern === '/orgs/[orgId]/settings/[section]') {
+      page = h(SettingsPage, { user, params: resolved.params });
+    } else {
+      page = h(NotFoundPage, { path: resolvedPath });
+    }
+  } else if (resolvedPath === '/login') {
+    page = h(LoginPage, { onLogin: (u) => { setUser(u); audit('system', { event: 'login', user: u.username }); navigate('/dashboard'); } });
+  } else {
+    page = h(NotFoundPage, { path: resolvedPath });
+  }
+
+  return h(Shell, { user, currentPath: resolvedPath }, page);
+}
+
+function Shell({ user, currentPath, children }) {
+  if (!user) {
+    return h('div', { className: 'min-h-screen p-6' }, children);
+  }
+  return h('div', { className: 'flex min-h-screen' },
+    h(Sidebar, { user, currentPath }),
+    h('main', { className: 'flex-1 p-6 overflow-auto' }, children),
+  );
+}
+
+function NotFoundPage({ path }) {
+  return h('div', { className: 'fade-in glass rounded-2xl p-12 text-center max-w-2xl mx-auto mt-12 shadow-xl' },
+    h('div', { className: 'text-6xl mb-4' }, '🧭'),
+    h('h1', { className: 'text-3xl font-bold mb-2' }, '404 · 路徑不存在'),
+    h('p', { className: 'text-sm text-slate-500 mono-cell' }, path),
+    h('a', {
+      href: '#',
+      onClick: (e) => { e.preventDefault(); navigate('/dashboard'); },
+      className: 'inline-block mt-4 px-4 py-2 bg-brand-600 text-white rounded-lg',
+    }, '← 返回 Dashboard'),
+  );
+}
+
+// ============================================================================
+// React boot
+// ============================================================================
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(h(App));
+</script>
+</body>
+</html>
