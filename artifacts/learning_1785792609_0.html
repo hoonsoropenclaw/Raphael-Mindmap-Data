@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gemstone Glass · 跨瀏覽器視覺回歸 Demo</title>
+<style>
+  /* ----------------------------------------------------
+     Gemstone Glass — Demo page for cross-browser visual regression
+     Design rules(從 past lessons):
+       • backdrop-filter alpha <= 0.28(WebKit 雙重處理安全值)
+       • 顏色用 rgb+hsl,不用 color-mix(舊瀏覽器不支援)
+       • 固定不抖動字體,用 system-ui fallback
+       • 圖片統一 SVG,無外部資源載入 race
+     ---------------------------------------------------- */
+  :root {
+    --bg-1: #0b1437;
+    --bg-2: #421a8b;
+    --bg-3: #ff5fa2;
+    --accent-cyan: #67e8f9;
+    --accent-amber: #fbbf24;
+    --accent-emerald: #34d399;
+    --text-pri: #f8fafc;
+    --text-sec: rgba(248, 250, 252, 0.72);
+    --text-ter: rgba(248, 250, 252, 0.5);
+    --border-glass: rgba(255, 255, 255, 0.18);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; min-height: 100%; }
+  body {
+    /* 漸層背景 — 跨瀏覽器一致的標準 linear-gradient 語法 */
+    background:
+      radial-gradient(120% 80% at 15% 10%, var(--bg-2) 0%, transparent 55%),
+      radial-gradient(100% 80% at 90% 20%, var(--bg-3) 0%, transparent 50%),
+      linear-gradient(180deg, var(--bg-1) 0%, #1e1b4b 100%);
+    color: var(--text-pri);
+    font-family: system-ui, -apple-system, "Segoe UI", "Helvetica Neue", "Noto Sans TC", "PingFang TC", sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ---------------- Layout ---------------- */
+  .topbar {
+    position: sticky; top: 0; z-index: 10;
+    height: 64px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 28px;
+    background: rgba(11, 20, 55, 0.35);
+    border-bottom: 1px solid var(--border-glass);
+  }
+  .brand {
+    display: flex; align-items: center; gap: 12px;
+    font-weight: 700; font-size: 18px; letter-spacing: 0.4px;
+  }
+  .brand .logo {
+    width: 32px; height: 32px;
+    background: conic-gradient(from 90deg at 50% 50%,
+      var(--accent-cyan), var(--accent-emerald), var(--accent-amber), var(--accent-cyan));
+    border-radius: 8px;
+    box-shadow: 0 0 18px rgba(103, 232, 249, 0.45);
+  }
+  .nav { display: flex; gap: 6px; }
+  .nav a {
+    color: var(--text-sec); text-decoration: none;
+    padding: 8px 14px; border-radius: 8px;
+    font-size: 14px;
+  }
+  .nav a.active, .nav a:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-pri);
+  }
+
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 48px 28px 64px; }
+  h1 {
+    font-size: 40px; line-height: 1.15; margin: 0 0 12px;
+    letter-spacing: -0.5px;
+  }
+  h1 .gradient {
+    background: linear-gradient(90deg, var(--accent-cyan), var(--accent-emerald));
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent;
+  }
+  .lead {
+    font-size: 17px; color: var(--text-sec);
+    max-width: 720px; line-height: 1.55; margin: 0 0 32px;
+  }
+
+  /* ---------------- Glass panels ---------------- */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 18px;
+    margin-bottom: 36px;
+  }
+  .card {
+    position: relative;
+    padding: 22px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.07);              /* 玻璃底色 alpha < 0.28 */
+    border: 1px solid var(--border-glass);
+    /* backdrop-filter alpha 控在 0.28 以下,避免 WebKit 雙重處理破圖 */
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    box-shadow:
+      0 10px 30px rgba(0, 0, 0, 0.25),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  }
+  .card .tag {
+    display: inline-block; padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11px; letter-spacing: 0.4px; text-transform: uppercase;
+    background: rgba(103, 232, 249, 0.16);
+    color: var(--accent-cyan);
+    border: 1px solid rgba(103, 232, 249, 0.3);
+    margin-bottom: 12px;
+  }
+  .card h3 { font-size: 18px; margin: 0 0 6px; }
+  .card p { font-size: 14px; color: var(--text-sec); margin: 8px 0 14px; line-height: 1.5; }
+  .stat {
+    display: flex; align-items: baseline; gap: 6px;
+  }
+  .stat .num {
+    font-size: 30px; font-weight: 700;
+    background: linear-gradient(90deg, var(--accent-amber), var(--accent-cyan));
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent;
+  }
+  .stat .unit { color: var(--text-ter); font-size: 13px; }
+
+  /* ---------------- Chart (SVG, cross-browser safe) ---------------- */
+  .chart-card {
+    padding: 24px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border-glass);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+  .chart-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 16px;
+  }
+  .chart-head h3 { margin: 0; font-size: 16px; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-sec); }
+  .legend i {
+    display: inline-block; width: 10px; height: 10px;
+    border-radius: 2px; margin-right: 6px; vertical-align: middle;
+  }
+  .legend .a i { background: var(--accent-cyan); }
+  .legend .b i { background: var(--accent-amber); }
+  svg { display: block; width: 100%; height: 200px; }
+
+  /* ---------------- Form ---------------- */
+  .form-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+  }
+  .field label {
+    display: block; font-size: 12px; color: var(--text-sec);
+    margin-bottom: 6px; letter-spacing: 0.3px;
+  }
+  .field input, .field select {
+    width: 100%; padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border-glass);
+    color: var(--text-pri);
+    font-size: 14px;
+    outline: none;
+  }
+  .field input::placeholder { color: var(--text-ter); }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 11px 18px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, var(--accent-cyan), var(--accent-emerald));
+    color: #042f2e;
+    font-weight: 700; font-size: 14px;
+    border: none; cursor: pointer;
+    box-shadow: 0 6px 18px rgba(52, 211, 153, 0.28);
+  }
+  .btn.secondary {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-pri);
+    border: 1px solid var(--border-glass);
+    box-shadow: none;
+  }
+
+  /* ---------------- Footer ---------------- */
+  .footer {
+    text-align: center; color: var(--text-ter);
+    font-size: 12px; padding: 24px 0;
+    border-top: 1px solid var(--border-glass);
+    margin-top: 48px;
+  }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo" data-testid="logo"></div>
+      <span>Gemstone <span style="color:var(--accent-cyan)">Glass</span></span>
+    </div>
+    <nav class="nav" data-testid="primary-nav">
+      <a href="#" class="active">儀表板</a>
+      <a href="#">報表</a>
+      <a href="#">設定</a>
+      <a href="#">說明</a>
+    </nav>
+  </header>
+
+  <main class="wrap">
+    <h1>歡迎使用 <span class="gradient">Gemstone Glass</span></h1>
+    <p class="lead">
+      跨瀏覽器 × 視覺回歸測試 demo 頁面。本頁刻意使用標準 CSS(
+      <code>linear-gradient</code> / <code>backdrop-filter</code> / <code>clip-path</code>)、
+      三組 KPI 卡、一張 SVG 折線圖、以及一個玻璃面板表單,給 Chromium、Firefox、WebKit 三引擎各拍一張截圖比對。
+    </p>
+
+    <section class="grid" data-testid="kpi-grid">
+      <div class="card" data-testid="kpi-card">
+        <span class="tag">Sessions</span>
+        <h3>本月活躍工作階段</h3>
+        <div class="stat">
+          <span class="num">12,847</span>
+          <span class="unit">+18.2%</span>
+        </div>
+      </div>
+      <div class="card" data-testid="kpi-card">
+        <span class="tag">Latency</span>
+        <h3>P95 視覺回歸延遲</h3>
+        <div class="stat">
+          <span class="num">3.2</span>
+          <span class="unit">秒 / 比對</span>
+        </div>
+      </div>
+      <div class="card" data-testid="kpi-card">
+        <span class="tag">Coverage</span>
+        <h3>瀏覽器引擎覆蓋率</h3>
+        <div class="stat">
+          <span class="num">98</span>
+          <span class="unit">% · 3 engines</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="chart-card" data-testid="chart-card">
+      <div class="chart-head">
+        <h3>近七日跨瀏覽器命中差異率 (%)</h3>
+        <div class="legend" data-testid="chart-legend">
+          <span class="a"><i></i>Chromium</span>
+          <span class="b"><i></i>Firefox / WebKit</span>
+        </div>
+      </div>
+      <svg viewBox="0 0 600 200" preserveAspectRatio="none" data-testid="chart-svg">
+        <defs>
+          <linearGradient id="g-a" x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0%" stop-color="#67e8f9"/>
+            <stop offset="100%" stop-color="#34d399"/>
+          </linearGradient>
+        </defs>
+        <!-- 水平格線 -->
+        <g stroke="rgba(255,255,255,0.08)" stroke-width="1">
+          <line x1="0" y1="40"  x2="600" y2="40"/>
+          <line x1="0" y1="80"  x2="600" y2="80"/>
+          <line x1="0" y1="120" x2="600" y2="120"/>
+          <line x1="0" y1="160" x2="600" y2="160"/>
+        </g>
+        <!-- Chromium 折線 -->
+        <polyline fill="none" stroke="url(#g-a)" stroke-width="2.5"
+          points="0,140  80,128  160,118  240,108  320,98  400,86  480,76  560,68"/>
+        <!-- Firefox / WebKit 折線 -->
+        <polyline fill="none" stroke="#fbbf24" stroke-width="2.5" stroke-dasharray="6 4"
+          points="0,148  80,140  160,135  240,124  320,116  400,108  480,98  560,90"/>
+        <!-- 圓點標記 -->
+        <g fill="#67e8f9">
+          <circle cx="80"  cy="128" r="3"/>
+          <circle cx="160" cy="118" r="3"/>
+          <circle cx="240" cy="108" r="3"/>
+          <circle cx="320" cy="98"  r="3"/>
+          <circle cx="400" cy="86"  r="3"/>
+          <circle cx="480" cy="76"  r="3"/>
+          <circle cx="560" cy="68"  r="3"/>
+        </g>
+      </svg>
+    </section>
+
+    <section style="margin-top:24px" class="chart-card" data-testid="form-card">
+      <div class="chart-head">
+        <h3>新增監控頁面</h3>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label for="name">名稱</label>
+          <input id="name" type="text" placeholder="例如:login-flow" data-testid="name-input">
+        </div>
+        <div class="field">
+          <label for="viewport">預設視口</label>
+          <select id="viewport" data-testid="viewport-select">
+            <option>Desktop · 1280×800</option>
+            <option>Tablet · 768×1024</option>
+            <option>Mobile · 375×667</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:18px">
+        <button class="btn" data-testid="primary-button">建立</button>
+        <button class="btn secondary" data-testid="secondary-button">取消</button>
+      </div>
+    </section>
+
+    <div class="footer">© 2026 Gemstone Glass · cross-browser visual regression demo</div>
+  </main>
+</body>
+</html>

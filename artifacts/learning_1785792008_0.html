@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Playwright × React Flow 跨瀏覽器測試流程可視化</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --ink: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --good: #4ade80;
+    --warn: #facc15;
+    --bad: #f87171;
+    --purple: #a78bfa;
+    --border: #334155;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC",
+      "Noto Sans TC", "Microsoft JhengHei", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.5;
+  }
+  header {
+    padding: 28px 24px 14px;
+    background: linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%);
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: 0.5px; }
+  header p  { margin: 0; color: var(--muted); font-size: 13px; }
+  main { padding: 20px; display: grid; gap: 18px; max-width: 1400px; margin: 0 auto; }
+  section.panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+  }
+  section.panel h2 {
+    margin: 0 0 10px;
+    font-size: 17px;
+    color: var(--accent);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .badge {
+    font-size: 11px; padding: 2px 8px; border-radius: 999px;
+    background: rgba(56,189,248,0.15); color: var(--accent);
+    border: 1px solid rgba(56,189,248,0.35);
+  }
+  .badge.green { background: rgba(74,222,128,0.12); color: var(--good); border-color: rgba(74,222,128,0.4); }
+  .badge.red   { background: rgba(248,113,113,0.15); color: var(--bad); border-color: rgba(248,113,113,0.4); }
+  .badge.amber { background: rgba(250,204,21,0.12); color: var(--warn); border-color: rgba(250,204,21,0.4); }
+  .badge.purple{ background: rgba(167,139,250,0.15); color: var(--purple); border-color: rgba(167,139,250,0.4); }
+
+  /* Layout: 2 columns */
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  @media (max-width: 1024px) { .layout { grid-template-columns: 1fr; } }
+
+  /* DAG canvas */
+  #dag {
+    width: 100%;
+    height: 480px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #0b1220;
+  }
+
+  /* Stats grid */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 10px; }
+  .stat {
+    background: #0b1220; border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px;
+  }
+  .stat .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .stat .value { font-size: 22px; font-weight: 600; margin-top: 4px; color: var(--accent); }
+  .stat .value.good { color: var(--good); }
+  .stat .value.bad { color: var(--bad); }
+  .stat .value.warn { color: var(--warn); }
+
+  /* Sample buttons */
+  .btn-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 12px; }
+  .btn {
+    padding: 6px 12px; border-radius: 6px;
+    background: rgba(56,189,248,0.08); color: var(--ink);
+    border: 1px solid var(--border); cursor: pointer; font-size: 13px;
+    transition: all 0.15s;
+  }
+  .btn:hover { background: rgba(56,189,248,0.16); border-color: var(--accent); }
+  .btn.active { background: rgba(56,189,248,0.22); border-color: var(--accent); color: var(--accent); }
+  .btn.green { border-color: var(--good); }
+  .btn.red { border-color: var(--bad); }
+  .btn.amber { border-color: var(--warn); }
+  .btn.purple { border-color: var(--purple); }
+
+  /* Output (互動測試文字) */
+  .output {
+    min-height: 110px; padding: 14px; border-radius: 8px;
+    background: #0b1220; border: 1px dashed var(--border);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px; color: var(--ink); white-space: pre-wrap;
+  }
+
+  /* Live DAG log */
+  .dag-log {
+    background: #0b1220; border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px; color: var(--muted);
+    max-height: 160px; overflow-y: auto;
+    white-space: pre-wrap;
+  }
+  .dag-log .ok    { color: var(--good); }
+  .dag-log .bad   { color: var(--bad); }
+  .dag-log .amber { color: var(--warn); }
+  .dag-log .info  { color: var(--accent); }
+
+  /* Case table */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  tbody tr:hover td { background: rgba(56,189,248,0.06); }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; }
+  .pill.good { background: rgba(74,222,128,0.12); color: var(--good); border:1px solid rgba(74,222,128,0.4); }
+  .pill.bad  { background: rgba(248,113,113,0.15); color: var(--bad); border:1px solid rgba(248,113,113,0.4); }
+  .pill.warn { background: rgba(250,204,21,0.12); color: var(--warn); border:1px solid rgba(250,204,21,0.4); }
+
+  /* Pipeline progress */
+  .pipeline {
+    display: flex; align-items: center; gap: 6px;
+    flex-wrap: wrap; padding: 14px;
+    background: #0b1220; border: 1px solid var(--border);
+    border-radius: 8px; overflow-x: auto;
+  }
+  .step {
+    padding: 6px 12px; border-radius: 6px;
+    background: rgba(56,189,248,0.10); border: 1px solid var(--border);
+    color: var(--muted); font-size: 12px; min-width: 110px; text-align: center;
+    transition: all 0.25s;
+  }
+  .step.active  { background: rgba(56,189,248,0.25); border-color: var(--accent); color: var(--accent); }
+  .step.done    { background: rgba(74,222,128,0.15); border-color: var(--good); color: var(--good); }
+  .step.failed  { background: rgba(248,113,113,0.18); border-color: var(--bad); color: var(--bad); }
+  .step.new     { background: rgba(250,204,21,0.15); border-color: var(--warn); color: var(--warn); }
+  .step.branch  { background: rgba(167,139,250,0.18); border-color: var(--purple); color: var(--purple); }
+  .pipe-arrow { color: var(--muted); font-size: 16px; }
+
+  /* Form */
+  .form-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+  .form-row label { width: 90px; color: var(--muted); font-size: 13px; }
+  .form-row input, .form-row select {
+    flex: 1; min-width: 140px;
+    padding: 6px 10px; border-radius: 6px;
+    background: #0b1220; color: var(--ink);
+    border: 1px solid var(--border); font-size: 13px;
+  }
+
+  footer { text-align: center; padding: 20px; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🌐 Playwright × React Flow 跨瀏覽器測試流程可視化</h1>
+  <p>Playwright 跨瀏覽器 × React Flow DAG 視覺化 × 基線比對 × 步驟追蹤</p>
+</header>
+
+<main>
+
+  <!-- Section 1: 測試案例總覽 -->
+  <section class="panel">
+    <h2>① 測試矩陣總覽 <span class="badge">3 browsers × 3 viewports = 9 cases</span></h2>
+    <div class="stats">
+      <div class="stat"><div class="label">總案例</div><div class="value" id="stat-total">9</div></div>
+      <div class="stat"><div class="label">通過</div><div class="value good" id="stat-pass">9</div></div>
+      <div class="stat"><div class="label">失敗</div><div class="value bad" id="stat-fail">0</div></div>
+      <div class="stat"><div class="label">新建 Baseline</div><div class="value warn" id="stat-new">0</div></div>
+      <div class="stat"><div class="label">瀏覽器</div><div class="value">3</div></div>
+      <div class="stat"><div class="label">Viewport</div><div class="value">3</div></div>
+    </div>
+  </section>
+
+  <!-- Section 2: React Flow DAG 可視化 -->
+  <section class="panel">
+    <h2>② 測試步驟 DAG（React Flow 可視化） <span class="badge purple">DAG</span></h2>
+    <div class="form-row">
+      <label>模擬場景：</label>
+      <select id="scenario">
+        <option value="pass">✅ 全綠 PASS 路徑</option>
+        <option value="fail">❌ FAIL 路徑（DOM 沒出現）</option>
+        <option value="new">🆕 新建 Baseline 路徑</option>
+      </select>
+      <button class="btn" id="run-btn">▶ 執行測試（動畫）</button>
+    </div>
+    <div id="dag"></div>
+
+    <div style="margin-top:14px;color:var(--muted);font-size:12px">執行歷程（live log）：</div>
+    <div class="dag-log" id="dag-log">// 點擊「執行測試」開始模擬</div>
+  </section>
+
+  <!-- Section 3: 統計 + 表格 -->
+  <section class="panel">
+    <h2>③ 測試案例結果 <span class="badge">9 cases</span></h2>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th><th>瀏覽器</th><th>Viewport</th><th>狀態</th>
+          <th>像素差異</th><th>時間</th><th>路徑</th>
+        </tr>
+      </thead>
+      <tbody id="result-rows">
+        <!-- 由 JS 填入 -->
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Section 4: 互動測試元件（讓 Playwright 互動劇本有東西可點） -->
+  <section class="panel">
+    <h2>④ 互動測試元件 <span class="badge">interaction</span></h2>
+    <div class="btn-row">
+      <button class="btn green" data-sample="recipe">食譜範例</button>
+      <button class="btn amber" data-sample="poem">詩詞範例</button>
+      <button class="btn" data-sample="code">程式碼範例</button>
+      <button class="btn red" data-sample="summary">摘要範例</button>
+    </div>
+    <div class="output" id="output">[ 請選擇範例 ]</div>
+  </section>
+
+  <!-- Section 5: Playwright 互動劇本示意 -->
+  <section class="panel">
+    <h2>⑤ Playwright 互動劇本（pseudo code） <span class="badge">runner.js</span></h2>
+    <pre style="margin:0;background:#0b1220;border:1px solid var(--border);border-radius:8px;padding:14px;
+                font-size:12px;color:var(--muted);overflow-x:auto"><code>// test_framework/runner.py: 跨瀏覽器 + 跨 viewport 跑測試
+const INTERACTION_SCRIPT = `
+  // 1. 等 DOM ready
+  await new Promise(r =&gt; setTimeout(r, 50));
+  // 2. 點中文按鈕
+  document.querySelector('.lang-btn[data-lang="zh"]')?.click();
+  // 3. 點食譜範例
+  document.querySelector('.sample-btn[data-sample="recipe"]')?.click();
+  // 4. 確認 output 有內容
+  window.__testMarker = document.getElementById('output').textContent.length;
+`;
+
+// 對 9 個 case 各跑一次：
+for (const browser of ['chromium','firefox','webkit']) {
+  for (const vp of ['desktop','tablet','mobile']) {
+    const page = await playwright[browser].newPage({ viewport: vp });
+    await page.goto('file://web_output.html');
+    await page.evaluate(INTERACTION_SCRIPT);
+    await page.screenshot({ path: 'screenshots/' + browser + '_' + vp + '.png' });
+    // 比對 baseline + 記錄 traversal_path
+  }
+}</code></pre>
+  </section>
+
+</main>
+
+<footer>
+  React Flow DAG Flow Builder × Playwright Cross-browser Runner × Baseline Fingerprint
+</footer>
+
+<!-- React Flow + React (CDN UMD) -->
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/d3@7/dist/d3.min.js"></script>
+<!-- React Flow 結構透過純 SVG 渲染（@xyflow/react UMD 需 jsx-runtime 不相容） -->
+
+<script>
+'use strict';
+
+// ────────────────────────────────────────────────────────────
+// 1. 數據：DAG 結構（與 test_framework/config.py TEST_FLOW_NODES 對應）
+// ────────────────────────────────────────────────────────────
+const NODES = [
+  { id: 'start',    label: '▶ Start',                 kind: 'start',  x: 80,  y: 200, w: 140, h: 50,
+    desc: '初始化測試配置（瀏覽器×viewport 矩陣展開）' },
+  { id: 'launch',   label: 'Launch Browser',          kind: 'action', x: 280, y: 90,  w: 150, h: 50,
+    desc: 'Playwright 啟動瀏覽器 (Chromium / Firefox / WebKit)' },
+  { id: 'navigate', label: 'Navigate',                kind: 'action', x: 480, y: 90,  w: 150, h: 50,
+    desc: '開啟目標頁面 (file://web_output.html) 等 networkidle' },
+  { id: 'interact', label: 'Interact',                kind: 'action', x: 680, y: 90,  w: 150, h: 50,
+    desc: '執行互動劇本（點按鈕、填表單、觸發 hover）' },
+  { id: 'branch',   label: 'Assert & Visual Diff',    kind: 'branch', x: 880, y: 200, w: 180, h: 50,
+    desc: '截圖 → 與 baseline 比對 → 分流 PASS / FAIL / BASELINE_NEW' },
+  { id: 'pass_end', label: '✓ PASS',                  kind: 'end',    x: 1100, y: 60,  w: 130, h: 50,
+    desc: '測試通過，寫入報告' },
+  { id: 'fail_end', label: '✗ FAIL',                  kind: 'end',    x: 1100, y: 200, w: 130, h: 50,
+    desc: '差異超出閾值，產 diff image 並寫入報告' },
+  { id: 'new_end',  label: '＋ NEW BASELINE',         kind: 'end',    x: 1100, y: 340, w: 160, h: 50,
+    desc: '首次跑測無 baseline，建立新基線' },
+];
+
+const EDGES = [
+  { id: 'e1', source: 'start',    target: 'launch',    label: 'init',  color: '#94a3b8' },
+  { id: 'e2', source: 'launch',   target: 'navigate',  label: 'ready', color: '#94a3b8' },
+  { id: 'e3', source: 'navigate', target: 'interact',  label: 'loaded',color: '#94a3b8' },
+  { id: 'e4', source: 'interact', target: 'branch',    label: 'done',  color: '#94a3b8' },
+  { id: 'e5', source: 'branch',   target: 'pass_end',  label: 'PASS',  color: '#4ade80' },
+  { id: 'e6', source: 'branch',   target: 'fail_end',  label: 'FAIL',  color: '#f87171' },
+  { id: 'e7', source: 'branch',   target: 'new_end',   label: 'NEW',   color: '#facc15' },
+];
+
+const KIND_COLOR = {
+  start:  { bg: '#1e3a8a', border: '#38bdf8', text: '#e2e8f0' },
+  end:    { bg: '#1e293b', border: '#94a3b8', text: '#e2e8f0' },
+  action: { bg: '#0f172a', border: '#38bdf8', text: '#f1f5f9' },
+  branch: { bg: '#312e81', border: '#a78bfa', text: '#f1f5f9' },
+};
+
+// ────────────────────────────────────────────────────────────
+// 2. React Flow 渲染
+// ────────────────────────────────────────────────────────────
+let currentRunPath = new Set();
+let activeScenario = 'pass';
+
+function rfType(kind) {
+  if (kind === 'start') return 'input';
+  if (kind === 'end')   return 'output';
+  return 'default';
+}
+
+function buildFlow() {
+  const nodes = NODES.map(n => {
+    const c = KIND_COLOR[n.kind];
+    const traversed = currentRunPath.has(n.id);
+    return {
+      id: n.id,
+      type: rfType(n.kind),
+      position: { x: n.x, y: n.y },
+      data: {
+        label: n.label,
+        description: n.desc,
+        kind: n.kind,
+        color: c,
+      },
+      style: {
+        background: c.bg,
+        color: c.text,
+        border: `2px solid ${c.border}`,
+        borderRadius: 8,
+        padding: '8px 12px',
+        minWidth: n.w,
+        textAlign: 'center',
+        fontSize: 12,
+        fontWeight: 500,
+        opacity: traversed ? 1 : 0.45,
+        boxShadow: traversed ? `0 0 12px ${c.border}80` : 'none',
+      },
+    };
+  });
+  const edges = EDGES.map(e => {
+    const traversed = currentRunPath.has(e.source) && currentRunPath.has(e.target);
+    return {
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      label: e.label,
+      type: 'smoothstep',
+      animated: traversed,
+      style: {
+        stroke: e.color,
+        strokeWidth: traversed ? 3 : 1.5,
+        opacity: traversed ? 1 : 0.3,
+      },
+      labelStyle: { fill: '#e2e8f0', fontSize: 11 },
+      labelBgStyle: { fill: '#1e293b', fillOpacity: 0.85 },
+      labelBgPadding: [6, 4],
+    };
+  });
+  return { nodes, edges };
+}
+
+function renderDAG() {
+  // 純 SVG 渲染 React Flow 結構（@xyflow/react UMD 需 jsx-runtime 不相容）
+  // 保留 React Flow 的 nodes/edges JSON schema 與概念
+  const container = document.getElementById('dag');
+  const flow = buildFlow();
+
+  const maxX = Math.max(...flow.nodes.map(n => n.position.x + 200));
+  const maxY = Math.max(...flow.nodes.map(n => n.position.y + 80));
+  const W = Math.max(maxX + 60, 1100);
+  const H = Math.max(maxY + 60, 480);
+
+  const nodeMap = {};
+  flow.nodes.forEach(n => {
+    n.width = n.width || 160;
+    n.height = n.height || 50;
+    nodeMap[n.id] = {
+      ...n,
+      cx: n.position.x + n.width / 2,
+      cy: n.position.y + n.height / 2,
+    };
+  });
+
+  const edgeSvg = flow.edges.map(e => {
+    const src = nodeMap[e.source];
+    const tgt = nodeMap[e.target];
+    if (!src || !tgt) return '';
+    const x1 = src.position.x + src.width;
+    const y1 = src.position.y + src.height / 2;
+    const x2 = tgt.position.x;
+    const y2 = tgt.position.y + tgt.height / 2;
+    const midX = (x1 + x2) / 2;
+    const d = `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`;
+    const cx = midX;
+    const cy = (y1 + y2) / 2;
+    return `
+      <g class="edge-group">
+        <path d="${d}" fill="none" stroke="${e.style.stroke}"
+              stroke-width="${e.style.strokeWidth}" opacity="${e.style.opacity}"
+              ${e.animated ? 'stroke-dasharray="6,4"' : ''} />
+        <rect x="${cx - (e.label.length * 4 + 10)}" y="${cy - 11}" width="${e.label.length * 8 + 20}" height="20"
+              rx="4" fill="#1e293b" stroke="${e.style.stroke}" stroke-width="1" />
+        <text x="${cx}" y="${cy + 4}" text-anchor="middle"
+              fill="#e2e8f0" font-size="11" font-family="sans-serif">${e.label}</text>
+      </g>
+    `;
+  }).join('');
+
+  const nodeSvg = flow.nodes.map(n => {
+    const nm = nodeMap[n.id];
+    return `
+      <g class="node-group" transform="translate(${nm.position.x}, ${nm.position.y})" opacity="${n.style.opacity}">
+        ${n.style.boxShadow ? `<rect x="-3" y="-3" width="${n.width + 6}" height="${n.height + 6}" rx="11" fill="none" stroke="${n.style.border}" stroke-width="2" opacity="0.4" />` : ''}
+        <rect x="0" y="0" width="${n.width}" height="${n.height}" rx="8"
+              fill="${n.style.background}" stroke="${n.style.border}" stroke-width="2" />
+        <text x="${n.width / 2}" y="${n.height / 2 + 4}" text-anchor="middle"
+              fill="${n.style.color}" font-size="13" font-weight="600"
+              font-family="-apple-system, sans-serif">${n.data.label}</text>
+      </g>
+    `;
+  }).join('');
+
+  container.innerHTML = `
+    <svg width="100%" height="100%" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="display:block">
+      <defs>
+        <pattern id="dots" width="20" height="20" patternUnits="userSpaceOnUse">
+          <circle cx="2" cy="2" r="1" fill="#334155" />
+        </pattern>
+      </defs>
+      <rect width="${W}" height="${H}" fill="url(#dots)" />
+      ${edgeSvg}
+      ${nodeSvg}
+    </svg>
+  `;
+}
+
+// ────────────────────────────────────────────────────────────
+// 3. 場景模擬（動畫走過 DAG）
+// ────────────────────────────────────────────────────────────
+const SCENARIOS = {
+  pass: {
+    name: 'PASS 路徑',
+    path: ['start', 'launch', 'navigate', 'interact', 'branch', 'pass_end'],
+    log: [
+      { node: 'start',    msg: '▶ 配置載入，9 個 case 排隊',                 cls: 'info' },
+      { node: 'launch',   msg: 'Launch Browser  →  Chromium 啟動成功',         cls: 'info' },
+      { node: 'navigate', msg: 'Navigate  →  file://web_output.html loaded',  cls: 'info' },
+      { node: 'interact', msg: 'Interact  →  點擊 [中文] + [食譜範例]',        cls: 'info' },
+      { node: 'branch',   msg: 'Diff  →  mismatch=0/1024000 px (0.0000%)',    cls: 'ok'   },
+      { node: 'pass_end', msg: '✓ PASS  →  寫入 reports/latest.html',         cls: 'ok'   },
+    ],
+  },
+  fail: {
+    name: 'FAIL 路徑',
+    path: ['start', 'launch', 'navigate', 'interact', 'branch', 'fail_end'],
+    log: [
+      { node: 'start',    msg: '▶ 配置載入，9 個 case 排隊',                  cls: 'info' },
+      { node: 'launch',   msg: 'Launch Browser  →  Chromium 啟動成功',          cls: 'info' },
+      { node: 'navigate', msg: 'Navigate  →  file://web_output.html loaded',   cls: 'info' },
+      { node: 'interact', msg: 'Interact  →  DOM 沒出現 .sample-btn[recipe]',  cls: 'amber' },
+      { node: 'branch',   msg: 'Diff  →  mismatch=12800/1024000 px (1.25%)',  cls: 'bad'  },
+      { node: 'fail_end', msg: '✗ FAIL  →  diffs/diff_chromium_desktop.png',   cls: 'bad'  },
+    ],
+  },
+  new: {
+    name: 'NEW BASELINE 路徑',
+    path: ['start', 'launch', 'navigate', 'interact', 'branch', 'new_end'],
+    log: [
+      { node: 'start',    msg: '▶ 配置載入，9 個 case 排隊',                  cls: 'info' },
+      { node: 'launch',   msg: 'Launch Browser  →  Chromium 啟動成功',          cls: 'info' },
+      { node: 'navigate', msg: 'Navigate  →  file://web_output.html loaded',   cls: 'info' },
+      { node: 'interact', msg: 'Interact  →  首次跑無 baseline',               cls: 'amber' },
+      { node: 'branch',   msg: 'Diff  →  baseline 不存在，建立新基線',          cls: 'amber' },
+      { node: 'new_end',  msg: '＋ NEW BASELINE  →  baseline_chromium_desktop.png', cls: 'amber' },
+    ],
+  },
+};
+
+function appendLog(line) {
+  const log = document.getElementById('dag-log');
+  if (log.textContent === '// 點擊「執行測試」開始模擬') log.textContent = '';
+  const span = document.createElement('span');
+  span.className = line.cls || 'info';
+  span.textContent = '[' + line.node + '] ' + line.msg + '\n';
+  log.appendChild(span);
+  log.scrollTop = log.scrollHeight;
+}
+
+function clearLog() {
+  document.getElementById('dag-log').textContent = '';
+}
+
+let runTimer = null;
+function runScenario() {
+  if (runTimer) { clearInterval(runTimer); runTimer = null; }
+  currentRunPath = new Set();
+  renderDAG();
+  clearLog();
+  const sc = SCENARIOS[activeScenario];
+  let i = 0;
+  function next() {
+    if (i >= sc.path.length) { runTimer = null; return; }
+    const id = sc.path[i];
+    currentRunPath.add(id);
+    renderDAG();
+    // 找對應 log
+    const logEntry = sc.log.find(l => l.node === id);
+    if (logEntry) appendLog(logEntry);
+    i++;
+    runTimer = setTimeout(next, 320);
+  }
+  next();
+}
+
+document.getElementById('run-btn').addEventListener('click', runScenario);
+document.getElementById('scenario').addEventListener('change', (e) => {
+  activeScenario = e.target.value;
+  currentRunPath = new Set();
+  renderDAG();
+  clearLog();
+});
+
+// ────────────────────────────────────────────────────────────
+// 4. 9 個 case 結果（靜態展示）
+// ────────────────────────────────────────────────────────────
+const CASES = [
+  { browser: 'chromium', vp: 'desktop', w: 1280, h: 800,  status: 'PASS',  diff: '0 / 1024000 px (0.0000%)', dur: '1820ms', path: 'start→launch→navigate→interact→branch→pass_end' },
+  { browser: 'chromium', vp: 'tablet',  w: 768,  h: 1024, status: 'PASS',  diff: '0 / 786432 px (0.0000%)',  dur: '1610ms', path: 'start→launch→navigate→interact→branch→pass_end' },
+  { browser: 'chromium', vp: 'mobile',  w: 375,  h: 667,  status: 'PASS',  diff: '0 / 250125 px (0.0000%)',  dur: '1390ms', path: 'start→launch→navigate→interact→branch→pass_end' },
+  { browser: 'firefox',  vp: 'desktop', w: 1280, h: 800,  status: 'PASS',  diff: '0 / 1024000 px (0.0000%)', dur: '2050ms', path: 'start→launch→navigate→interact→branch→pass_end' },
+  { browser: 'firefox',  vp: 'tablet',  w: 768,  h: 1024, status: 'PASS',  diff: '0 / 786432 px (0.0000%)',  dur: '1820ms', path: 'start→launch→navigate→interact→branch→pass_end' },
+  { browser: 'firefox',  vp: 'mobile',  w: 375,  h: 667,  status: 'PASS',  diff: '0 / 250125 px (0.0000%)',  dur: '1540ms', path: 'start→launch→navigate→interact→branch→pass_end' },
+  { browser: 'webkit',   vp: 'desktop', w: 1280, h: 800,  status: 'PASS',  diff: '0 / 1024000 px (0.0000%)', dur: '2310ms', path: 'start→launch→navigate→interact→branch→pass_end' },
+  { browser: 'webkit',   vp: 'tablet',  w: 768,  h: 1024, status: 'PASS',  diff: '0 / 786432 px (0.0000%)',  dur: '2040ms', path: 'start→launch→navigate→interact→branch→pass_end' },
+  { browser: 'webkit',   vp: 'mobile',  w: 375,  h: 667,  status: 'PASS',  diff: '0 / 250125 px (0.0000%)',  dur: '1780ms', path: 'start→launch→navigate→interact→branch→pass_end' },
+];
+
+function renderCases() {
+  const tbody = document.getElementById('result-rows');
+  tbody.innerHTML = '';
+  CASES.forEach((c, i) => {
+    const pill_cls = c.status === 'PASS' ? 'good' : c.status.includes('NEW') ? 'warn' : 'bad';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${i+1}</td>
+      <td>${c.browser}</td>
+      <td>${c.vp} <span style="color:var(--muted);font-size:11px">${c.w}×${c.h}</span></td>
+      <td><span class="pill ${pill_cls}">${c.status}</span></td>
+      <td>${c.diff}</td>
+      <td>${c.dur}</td>
+      <td style="font-size:11px;color:var(--muted)">${c.path}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+renderCases();
+
+// ────────────────────────────────────────────────────────────
+// 5. 互動測試區（給 Playwright 互動劇本有東西可點）
+// ────────────────────────────────────────────────────────────
+const SAMPLES = {
+  recipe: "🍜 牛肉麵食譜\n────────────────\n• 牛腱 500g\n• 洋蔥 半顆\n• 醬油 3 大匙\n• 八角 2 顆\n\n做法:\n1. 牛腱切塊汆燙\n2. 加入醬油、八角燉煮 2 小時",
+  poem:   "🏔 山中\n────────────────\n空山新雨後\n天氣晚來秋\n明月松間照\n清泉石上流",
+  code:   "💻 Hello World\n────────────────\ndef greet(name):\n    return f'Hello, {name}!'\n\nprint(greet('World'))",
+  summary:"📝 摘要\n────────────────\n本文介紹如何使用 Playwright 跨瀏覽器整合 React Flow\n實現測試步驟 DAG 的可視化。",
+};
+document.querySelectorAll('[data-sample]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.getElementById('output').textContent = SAMPLES[btn.dataset.sample] || '';
+    document.getElementById('output').dataset.lang = 'zh';
+  });
+});
+// 預設觸發一次（讓初始截圖有內容）
+document.getElementById('output').textContent = SAMPLES.recipe;
+document.getElementById('output').dataset.lang = 'zh';
+
+// ────────────────────────────────────────────────────────────
+// 6. 首次渲染
+// ────────────────────────────────────────────────────────────
+renderDAG();
+</script>
+</body>
+</html>

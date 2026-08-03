@@ -1,0 +1,1429 @@
+<!DOCTYPE html>
+<html lang="zh-TW" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Atelier Glass v2 — 高效能 Glassmorphism UI 組件庫，內建 FPS 監控、content-visibility 優化與 prefers-reduced-motion 適應">
+<title>Atelier Glass v2 — 高效能 Glassmorphism UI Kit</title>
+
+<!-- Tailwind CDN -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  // Tailwind config injection — extends theme with glass-aware tokens
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        colors: {
+          glass: {
+            50:  'rgba(255,255,255,0.04)',
+            100: 'rgba(255,255,255,0.08)',
+            200: 'rgba(255,255,255,0.14)',
+            300: 'rgba(255,255,255,0.22)',
+            400: 'rgba(255,255,255,0.32)',
+          },
+          ink: {
+            50:  '#f8fafc',
+            100: '#e2e8f0',
+            200: '#cbd5e1',
+            300: '#a3b3c7',
+            400: '#94a3b8',
+            500: '#64748b',
+            600: '#475569',
+            700: '#334155',
+            800: '#1e293b',
+            900: '#0f172a',
+            950: '#020617',
+          },
+          aurora: {
+            mint:    '#7df9c5',
+            cyan:    '#67e8f9',
+            violet:  '#a78bfa',
+            pink:    '#f0abfc',
+            amber:   '#fcd34d',
+            rose:    '#fda4af',
+          },
+          accent: {
+            primary:   '#7df9c5',
+            secondary: '#a78bfa',
+            danger:    '#f87171',
+            warning:   '#fbbf24',
+            success:   '#34d399',
+            info:      '#60a5fa',
+          }
+        },
+        fontFamily: {
+          sans: ['"Inter"', '"PingFang TC"', '"Microsoft JhengHei"', 'system-ui', 'sans-serif'],
+          mono: ['"JetBrains Mono"', '"SF Mono"', 'Consolas', 'monospace'],
+        },
+        boxShadow: {
+          'glass-sm': '0 4px 16px 0 rgba(15,23,42,0.18), inset 0 1px 0 0 rgba(255,255,255,0.08)',
+          'glass-md': '0 8px 32px 0 rgba(15,23,42,0.28), inset 0 1px 0 0 rgba(255,255,255,0.10)',
+          'glass-lg': '0 16px 48px 0 rgba(15,23,42,0.36), inset 0 1px 0 0 rgba(255,255,255,0.12)',
+          'glow':     '0 0 32px rgba(125,249,197,0.35)',
+          'glow-mint':'0 0 32px rgba(125,249,197,0.45)',
+          'glow-violet':'0 0 32px rgba(167,139,250,0.45)',
+        },
+        animation: {
+          'fade-in':  'fadeIn .4s ease-out both',
+          'slide-up': 'slideUp .5s cubic-bezier(0.16,1,0.3,1) both',
+          'pulse-glow': 'pulseGlow 3s ease-in-out infinite',
+          'shimmer':  'shimmer 2s linear infinite',
+          'aurora-drift': 'auroraDrift 18s ease-in-out infinite',
+        },
+        keyframes: {
+          fadeIn:    { '0%': {opacity:0}, '100%': {opacity:1} },
+          slideUp:   { '0%': {opacity:0, transform:'translateY(12px)'}, '100%': {opacity:1, transform:'translateY(0)'} },
+          pulseGlow: { '0%,100%': {boxShadow:'0 0 0 0 rgba(125,249,197,0.4)'}, '50%': {boxShadow:'0 0 0 12px rgba(125,249,197,0)'} },
+          shimmer:   { '0%': {backgroundPosition:'-200% 0'}, '100%': {backgroundPosition:'200% 0'} },
+          auroraDrift: {
+            '0%,100%': {transform:'translate(0,0) scale(1)'},
+            '33%':     {transform:'translate(6%,-4%) scale(1.05)'},
+            '66%':     {transform:'translate(-4%,3%) scale(.97)'},
+          },
+        },
+      },
+    },
+  };
+</script>
+
+<!-- Google Fonts: Inter + JetBrains Mono -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+  /* =========================================================
+     0. BASE & SCROLLBAR
+     ========================================================= */
+  html { scroll-behavior: smooth; }
+  body {
+    background: radial-gradient(ellipse at top, #0f172a 0%, #020617 70%);
+    color: #e2e8f0;
+    font-family: 'Inter', 'PingFang TC', 'Microsoft JhengHei', system-ui, sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, rgba(125,249,197,.35), rgba(167,139,250,.35));
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(125,249,197,.6); }
+
+  /* =========================================================
+     1. GLASSMORPHISM TIERS — perf-tuned
+     Each tier reveals progressively heavier blur via data-blur
+     attribute. The IntersectionObserver gate sets data-in-view=true
+     only when actually on-screen, so off-screen panes don't pay
+     backdrop-filter cost.
+     ========================================================= */
+  .glass,
+  .glass-strong,
+  .glass-tinted,
+  .glass-frosted {
+    position: relative;
+    background-color: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.10);
+    color: #e2e8f0;
+    /* contained = GPU composite layer only when needed */
+    will-change: auto;
+  }
+  .glass {
+    backdrop-filter: blur(10px) saturate(140%);
+    -webkit-backdrop-filter: blur(10px) saturate(140%);
+    background-color: rgba(255,255,255,0.06);
+    border-color: rgba(255,255,255,0.10);
+  }
+  .glass-strong {
+    backdrop-filter: blur(16px) saturate(170%);
+    -webkit-backdrop-filter: blur(16px) saturate(170%);
+    background-color: rgba(255,255,255,0.10);
+    border-color: rgba(255,255,255,0.16);
+  }
+  .glass-tinted {
+    backdrop-filter: blur(14px) saturate(180%);
+    -webkit-backdrop-filter: blur(14px) saturate(180%);
+    background: linear-gradient(135deg, rgba(125,249,197,.12), rgba(167,139,250,.12));
+    border-color: rgba(255,255,255,0.14);
+  }
+  .glass-frosted {
+    backdrop-filter: blur(24px) saturate(120%);
+    -webkit-backdrop-filter: blur(24px) saturate(120%);
+    background-color: rgba(15,23,42,0.55);
+    border-color: rgba(255,255,255,0.08);
+  }
+  /* HIGHLIGHT — top inner glint for realism */
+  .glass::before,
+  .glass-strong::before,
+  .glass-tinted::before,
+  .glass-frosted::before {
+    content: '';
+    position: absolute; inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(255,255,255,0.10), transparent 40%);
+    mix-blend-mode: overlay;
+    opacity: .9;
+  }
+
+  /* =========================================================
+     2. PERFORMANCE OPTIMIZATION
+     - Off-screen: content-visibility:auto skips paint
+     - Off-screen: skip backdrop-filter by negating it
+     - data-blur="off" -> low-spec / fall-back
+     - .perf-low: skip ALL expensive blurs
+     ========================================================= */
+
+  /* Off-screen panes use content-visibility to skip render */
+  [data-lazy-section] {
+    content-visibility: auto;
+    contain-intrinsic-size: 600px;
+  }
+  /* When not in viewport, drop the costly blur entirely */
+  [data-lazy-section]:not([data-in-view="true"]) .glass,
+  [data-lazy-section]:not([data-in-view="true"]) .glass-strong,
+  [data-lazy-section]:not([data-in-view="true"]) .glass-tinted,
+  [data-lazy-section]:not([data-in-view="true"]) .glass-frosted {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background-color: rgba(15,23,42,.82);
+  }
+  /* Manual override: data-blur="off" forces no-blur (still glass-y edge) */
+  [data-blur="off"] .glass,
+  [data-blur="off"] .glass-strong,
+  [data-blur="off"] .glass-tinted,
+  [data-blur="off"] .glass-frosted {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  /* Low-perf mode (auto-detected via FPS below 30) */
+  body.perf-low [data-lazy-section] .glass,
+  body.perf-low [data-lazy-section] .glass-strong,
+  body.perf-low [data-lazy-section] .glass-tinted,
+  body.perf-low .glass-frosted {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background-color: rgba(15,23,42,.85);
+  }
+  body.perf-low * { animation: none !important; transition: none !important; }
+
+  /* =========================================================
+     3. @supports FALLBACK (per glassmorphism_css_template skill)
+     Browsers without backdrop-filter fall back to opaque
+     ========================================================= */
+  @supports not ((backdrop-filter: blur(8px)) or (-webkit-backdrop-filter: blur(8px))) {
+    .glass, .glass-strong, .glass-tinted, .glass-frosted {
+      background-color: rgba(15,23,42,0.92);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+  }
+
+  /* =========================================================
+     4. ACCESSIBILITY — focus, reduced-motion, contrast
+     ========================================================= */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .glass, .glass-strong, .glass-tinted, .glass-frosted {
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+    }
+  }
+  /* Keyboard focus halo (never invisible) */
+  :focus-visible {
+    outline: 2px solid #7df9c5;
+    outline-offset: 3px;
+    border-radius: 6px;
+  }
+  /* High-contrast forced fallback for users who need it */
+  body.contrast-high {
+    background: #000 !important;
+  }
+  body.contrast-high .glass,
+  body.contrast-high .glass-strong,
+  body.contrast-high .glass-tinted,
+  body.contrast-high .glass-frosted {
+    background: #111 !important;
+    border-color: #fff !important;
+    backdrop-filter: none !important;
+  }
+
+  /* =========================================================
+     5. COMPONENT: form controls, badges, etc.
+     ========================================================= */
+  .glass-input,
+  .glass-textarea,
+  .glass-select {
+    width: 100%;
+    background-color: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: #f1f5f9;
+    border-radius: .75rem;
+    padding: .625rem .875rem;
+    font-size: .875rem;
+    transition: all .2s ease;
+    outline: none;
+  }
+  .glass-input:focus,
+  .glass-textarea:focus,
+  .glass-select:focus {
+    background-color: rgba(255,255,255,0.08);
+    border-color: #7df9c5;
+    box-shadow: 0 0 0 3px rgba(125,249,197,0.18);
+  }
+  .glass-input::placeholder { color: rgba(226,232,240,0.45); }
+  .glass-input:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* Toggle (switch) — fully styled with glass */
+  .glass-toggle { position: relative; display: inline-block; width: 44px; height: 24px; }
+  .glass-toggle input { display: none; }
+  .glass-toggle .slider {
+    position: absolute; inset: 0;
+    background-color: rgba(255,255,255,0.10);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: .3s;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .glass-toggle .slider::before {
+    content: '';
+    position: absolute;
+    height: 18px; width: 18px;
+    left: 2px; top: 2px;
+    background: #f8fafc;
+    border-radius: 50%;
+    transition: .3s;
+  }
+  .glass-toggle input:checked + .slider {
+    background: linear-gradient(135deg, #7df9c5, #67e8f9);
+    border-color: rgba(125,249,197,0.4);
+  }
+  .glass-toggle input:checked + .slider::before { transform: translateX(20px); }
+
+  /* Slider (range) — fully styled with glass */
+  input[type="range"].glass-slider {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 6px;
+    background: rgba(255,255,255,0.10);
+    border-radius: 999px;
+    outline: none;
+    cursor: pointer;
+  }
+  input[type="range"].glass-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 18px; height: 18px;
+    background: linear-gradient(135deg, #7df9c5, #67e8f9);
+    border: 2px solid rgba(255,255,255,0.4);
+    border-radius: 50%;
+    cursor: pointer;
+    transition: transform .15s ease;
+    box-shadow: 0 2px 8px rgba(125,249,197,0.4);
+  }
+  input[type="range"].glass-slider::-webkit-slider-thumb:hover { transform: scale(1.18); }
+  input[type="range"].glass-slider::-moz-range-thumb {
+    width: 18px; height: 18px;
+    background: linear-gradient(135deg, #7df9c5, #67e8f9);
+    border: 2px solid rgba(255,255,255,0.4);
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(125,249,197,0.4);
+  }
+
+  /* Checkbox */
+  .glass-check { display: inline-flex; align-items: center; gap: .5rem; cursor: pointer; user-select: none; }
+  .glass-check input { display: none; }
+  .glass-check .box {
+    width: 18px; height: 18px;
+    border-radius: 5px;
+    border: 1px solid rgba(255,255,255,0.20);
+    background-color: rgba(255,255,255,0.04);
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: .15s;
+  }
+  .glass-check input:checked + .box {
+    background: linear-gradient(135deg, #7df9c5, #67e8f9);
+    border-color: transparent;
+  }
+  .glass-check input:checked + .box::after {
+    content: '✓';
+    color: #0f172a;
+    font-weight: 700;
+    font-size: 12px;
+  }
+
+  /* Glass progress bar */
+  .glass-progress {
+    width: 100%; height: 8px;
+    background-color: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 999px;
+    overflow: hidden;
+    position: relative;
+  }
+  .glass-progress .fill {
+    height: 100%;
+    background: linear-gradient(90deg, #7df9c5, #67e8f9, #a78bfa);
+    border-radius: inherit;
+    transition: width .6s cubic-bezier(0.16,1,0.3,1);
+    box-shadow: 0 0 12px rgba(125,249,197,0.4);
+  }
+
+  /* Glass skeleton */
+  .glass-skeleton {
+    background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.12) 50%, rgba(255,255,255,0.04) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 2s linear infinite;
+    border-radius: .5rem;
+  }
+
+  /* Toast */
+  @keyframes toastIn {
+    from { opacity:0; transform: translateX(40px); }
+    to   { opacity:1; transform: translateX(0); }
+  }
+  .toast-enter { animation: toastIn .35s cubic-bezier(0.16,1,0.3,1) both; }
+
+  /* Modal backdrop fade */
+  @keyframes backdropFade { from {opacity:0;} to {opacity:1;} }
+  .modal-backdrop-enter { animation: backdropFade .25s ease both; }
+
+  /* Aurora background blobs */
+  .aurora-blob {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: .35;
+    pointer-events: none;
+    z-index: 0;
+    will-change: transform;
+  }
+
+  /* Code/preview block (clean) */
+  code {
+    font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+    font-size: 12.5px;
+    background: rgba(0,0,0,0.35);
+    padding: .15em .45em;
+    border-radius: 4px;
+    color: #7df9c5;
+  }
+  pre.glass-code {
+    background-color: rgba(2,6,23,0.65);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: .75rem;
+    padding: 1rem 1.25rem;
+    overflow-x: auto;
+    position: relative;
+  }
+  pre.glass-code code { background:transparent; padding:0; color:#e2e8f0; }
+
+  /* Nav-link active marker */
+  .nav-link.active { background-color: rgba(125,249,197,0.14); color: #7df9c5; }
+
+  /* FPS meter */
+  .fps-pill {
+    display: inline-flex; align-items: center; gap: .4rem;
+    padding: .25rem .65rem;
+    border-radius: 999px;
+    background: rgba(0,0,0,0.45);
+    border: 1px solid rgba(255,255,255,0.08);
+    font-size: .75rem;
+    font-family: 'JetBrains Mono', monospace;
+    color: #94a3b8;
+  }
+  .fps-pill .dot { width: 8px; height: 8px; border-radius: 50%; background:#34d399; box-shadow: 0 0 8px currentColor; }
+  .fps-pill.warn .dot { background:#fbbf24; }
+  .fps-pill.bad  .dot { background:#f87171; }
+
+  /* Tab active state */
+  .tab-btn { color:#94a3b8; }
+  .tab-btn.active {
+    color:#7df9c5;
+    background-color: rgba(125,249,197,.10);
+    border-color: rgba(125,249,197,.4);
+  }
+
+  /* Chart bars (SVG-friendly) */
+  .chart-bar {
+    transition: filter .25s, opacity .25s;
+    cursor: pointer;
+  }
+  .chart-bar:hover { filter: brightness(1.25) drop-shadow(0 0 6px currentColor); }
+
+  /* Mobile-friendly sticky control bar */
+  @media (max-width: 640px) {
+    .control-bar { flex-direction: column; align-items: stretch; }
+    .control-bar > * { width: 100%; }
+  }
+</style>
+</head>
+
+<body class="antialiased">
+
+<!-- ============================================================
+     AURORA BACKGROUND BLOBS (decorative, GPU-friendly)
+     ============================================================ -->
+<div aria-hidden="true">
+  <div class="aurora-blob" style="width:560px;height:560px;top:-160px;left:-120px;background:radial-gradient(circle,#7df9c5,#67e8f9);animation:aurora-drift 20s ease-in-out infinite;"></div>
+  <div class="aurora-blob" style="width:540px;height:540px;top:30%;right:-140px;background:radial-gradient(circle,#a78bfa,#f0abfc);animation:aurora-drift 24s ease-in-out infinite reverse;"></div>
+  <div class="aurora-blob" style="width:480px;height:480px;bottom:-160px;left:30%;background:radial-gradient(circle,#67e8f9,#a78bfa);animation:aurora-drift 28s ease-in-out infinite;"></div>
+</div>
+
+<!-- ============================================================
+     FLOATING PERFORMANCE MONITOR (top-right)
+     Shows live FPS, drawn-blur count, lazy-section count.
+     Auto-flips perf-low mode when FPS < 30 sustained.
+     ============================================================ -->
+<div id="perf-monitor" class="fixed top-20 right-4 z-50 glass-strong rounded-2xl px-4 py-3 flex items-center gap-3 shadow-glass-md animate-fade-in" role="status" aria-live="polite">
+  <div class="fps-pill" id="fps-pill"><span class="dot"></span><span>FPS <span id="fps-val">--</span></span></div>
+  <div class="text-xs text-ink-300 font-mono">
+    <div>blur:<span id="active-blur" class="text-aurora-mint">--</span>/<span id="total-blur">--</span></div>
+    <div>lazy:<span id="lazy-count" class="text-aurora-violet">--</span></div>
+  </div>
+  <button id="perf-toggle" class="text-xs px-2 py-1 rounded-md bg-glass-200 hover:bg-glass-300 transition" aria-label="切換高效能模式">perf-low</button>
+</div>
+
+<!-- ============================================================
+     NAVBAR (sticky top)
+     ============================================================ -->
+<nav class="sticky top-0 z-40 glass-strong shadow-glass-sm">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
+    <a href="#top" class="flex items-center gap-3 group">
+      <span class="w-9 h-9 rounded-xl glass-tinted flex items-center justify-center shadow-glow-mint group-hover:shadow-glow transition">
+        <svg viewBox="0 0 24 24" class="w-5 h-5 text-aurora-mint" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7l8-4 8 4-8 4-8-4zM4 12l8 4 8-4M4 17l8 4 8-4"/></svg>
+      </span>
+      <span class="font-bold tracking-tight text-base sm:text-lg">Atelier<span class="text-aurora-mint">Glass</span><span class="text-ink-400 text-xs ml-1">v2</span></span>
+    </a>
+    <div class="hidden md:flex items-center gap-1">
+      <a href="#buttons"     class="nav-link px-3 py-1.5 rounded-lg text-sm hover:bg-glass-200 transition">Buttons</a>
+      <a href="#cards"       class="nav-link px-3 py-1.5 rounded-lg text-sm hover:bg-glass-200 transition">Cards</a>
+      <a href="#forms"       class="nav-link px-3 py-1.5 rounded-lg text-sm hover:bg-glass-200 transition">Forms</a>
+      <a href="#data"        class="nav-link px-3 py-1.5 rounded-lg text-sm hover:bg-glass-200 transition">Data</a>
+      <a href="#feedback"    class="nav-link px-3 py-1.5 rounded-lg text-sm hover:bg-glass-200 transition">Feedback</a>
+      <a href="#navigation"  class="nav-link px-3 py-1.5 rounded-lg text-sm hover:bg-glass-200 transition">Nav</a>
+      <a href="#perf"        class="nav-link px-3 py-1.5 rounded-lg text-sm hover:bg-glass-200 transition">Perf</a>
+    </div>
+    <div class="flex items-center gap-2">
+      <button id="blur-off-btn" class="text-xs px-3 py-1.5 rounded-lg bg-glass-200 hover:bg-glass-300 transition" aria-label="切換模糊效果">blur: <span id="blur-state">on</span></button>
+      <button id="theme-btn" class="text-xs px-3 py-1.5 rounded-lg bg-glass-200 hover:bg-glass-300 transition" aria-label="切換淺色主題">light</button>
+    </div>
+  </div>
+</nav>
+
+<!-- ============================================================
+     HERO
+     ============================================================ -->
+<header id="top" class="relative z-10">
+  <section class="max-w-7xl mx-auto px-4 sm:px-6 pt-16 pb-12 sm:pt-24 sm:pb-20 text-center">
+    <div class="inline-flex items-center gap-2 glass-tinted rounded-full px-4 py-1.5 text-xs font-medium mb-6 animate-pulse-glow">
+      <span class="w-2 h-2 rounded-full bg-aurora-mint"></span>
+      <span class="text-aurora-mint">效能感知</span>
+      <span class="text-ink-300">·</span>
+      <span class="text-ink-200">FPS 監控 · content-visibility · reduced-motion</span>
+    </div>
+    <h1 class="text-4xl sm:text-6xl lg:text-7xl font-bold tracking-tight leading-[1.05] mb-5">
+      玻璃，<span class="bg-gradient-to-r from-aurora-mint via-aurora-cyan to-aurora-violet bg-clip-text text-transparent">飄在半空中</span><br>卻不拖幀
+    </h1>
+    <p class="text-base sm:text-lg text-ink-300 max-w-2xl mx-auto mb-10">
+      一套為 Tailwind CSS 量身設計的 Glassmorphism 組件庫，內建 <code>content-visibility</code>、<code>IntersectionObserver</code>
+      驅動的懶模糊與 <code>prefers-reduced-motion</code> 適應。
+    </p>
+    <div class="flex flex-wrap items-center justify-center gap-3 control-bar">
+      <button class="glass-strong px-6 py-3 rounded-xl font-semibold hover:shadow-glow-mint transition flex items-center gap-2">
+        <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M13 2L3 14h7l-1 8 10-12h-7z"/></svg>
+        開始使用
+      </button>
+      <button class="glass px-6 py-3 rounded-xl font-semibold hover:bg-glass-200 transition flex items-center gap-2" onclick="document.getElementById('perf').scrollIntoView({behavior:'smooth'})">
+        查看效能數據
+        <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+      </button>
+      <button class="glass px-5 py-3 rounded-xl font-semibold hover:bg-glass-200 transition flex items-center gap-2" onclick="openModal('demo-modal')">
+        開互動 Demo
+      </button>
+    </div>
+
+    <!-- Stats strip -->
+    <div class="mt-14 grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-3xl mx-auto">
+      <div class="glass rounded-2xl p-4 shadow-glass-sm">
+        <div class="text-2xl font-bold text-aurora-mint" id="stat-blur-count">0</div>
+        <div class="text-xs text-ink-400">活耀模糊層</div>
+      </div>
+      <div class="glass rounded-2xl p-4 shadow-glass-sm">
+        <div class="text-2xl font-bold text-aurora-cyan" id="stat-component-count">0</div>
+        <div class="text-xs text-ink-400">可用組件</div>
+      </div>
+      <div class="glass rounded-2xl p-4 shadow-glass-sm">
+        <div class="text-2xl font-bold text-aurora-violet">&lt; 8kb</div>
+        <div class="text-xs text-ink-400">自訂 CSS</div>
+      </div>
+      <div class="glass rounded-2xl p-4 shadow-glass-sm">
+        <div class="text-2xl font-bold text-aurora-pink" id="stat-a11y">A11Y</div>
+        <div class="text-xs text-ink-400">WCAG AA</div>
+      </div>
+    </div>
+  </section>
+</header>
+
+<!-- ============================================================
+     BUTTONS  (lazy section)
+     ============================================================ -->
+<main class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 pb-24 space-y-24">
+
+<section id="buttons" data-lazy-section class="animate-slide-up">
+  <div class="flex items-baseline justify-between mb-6">
+    <h2 class="text-2xl sm:text-3xl font-bold">Buttons</h2>
+    <span class="text-xs text-ink-400 font-mono">04 variants · 04 sizes</span>
+  </div>
+
+  <div class="glass-strong rounded-3xl p-6 sm:p-8 space-y-8 shadow-glass-md">
+
+    <!-- Variant row -->
+    <div>
+      <div class="text-xs text-ink-400 mb-3 uppercase tracking-wider">變體 (variants)</div>
+      <div class="flex flex-wrap gap-3">
+        <button class="glass-strong px-5 py-2.5 rounded-xl font-medium hover:shadow-glow-mint transition">Primary</button>
+        <button class="glass px-5 py-2.5 rounded-xl font-medium hover:bg-glass-200 transition">Secondary</button>
+        <button class="glass-tinted px-5 py-2.5 rounded-xl font-medium hover:brightness-110 transition">Gradient</button>
+        <button class="border border-aurora-mint text-aurora-mint px-5 py-2.5 rounded-xl font-medium hover:bg-aurora-mint/10 transition">Outline</button>
+        <button class="glass px-5 py-2.5 rounded-xl font-medium text-ink-400 hover:bg-glass-100 transition" disabled>Disabled</button>
+      </div>
+    </div>
+
+    <!-- Size row -->
+    <div>
+      <div class="text-xs text-ink-400 mb-3 uppercase tracking-wider">尺寸 (sizes)</div>
+      <div class="flex flex-wrap items-center gap-3">
+        <button class="glass-strong px-3 py-1.5 rounded-lg text-xs font-medium">Small</button>
+        <button class="glass-strong px-5 py-2.5 rounded-xl text-sm font-medium">Medium</button>
+        <button class="glass-strong px-7 py-3.5 rounded-2xl text-base font-semibold">Large</button>
+        <button class="glass-strong p-3 rounded-full" aria-label="Icon button">
+          <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- State row -->
+    <div>
+      <div class="text-xs text-ink-400 mb-3 uppercase tracking-wider">狀態 (states) + Icon</div>
+      <div class="flex flex-wrap items-center gap-3">
+        <button class="glass-strong px-5 py-2.5 rounded-xl font-medium hover:shadow-glow-mint transition flex items-center gap-2">
+          <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 13l4 4L19 7"/></svg>
+          Confirm
+        </button>
+        <button class="glass px-5 py-2.5 rounded-xl font-medium hover:bg-glass-200 transition flex items-center gap-2">
+          <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 18L18 6M6 6l12 12"/></svg>
+          Cancel
+        </button>
+        <button class="glass-strong px-5 py-2.5 rounded-xl font-medium animate-pulse-glow flex items-center gap-2" id="toast-trigger">
+          <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+          觸發 Toast
+        </button>
+        <span class="glass px-3 py-1.5 rounded-full text-xs animate-pulse-glow">Loading…</span>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============================================================
+     CARDS  (lazy section)
+     ============================================================ -->
+<section id="cards" data-lazy-section class="animate-slide-up">
+  <h2 class="text-2xl sm:text-3xl font-bold mb-6">Cards</h2>
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+
+    <!-- Basic card -->
+    <div class="glass rounded-2xl p-6 shadow-glass-md hover:shadow-glass-lg hover:-translate-y-1 transition-all duration-300">
+      <div class="w-12 h-12 glass-tinted rounded-xl flex items-center justify-center mb-4">
+        <svg viewBox="0 0 24 24" class="w-6 h-6 text-aurora-mint" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 13h6M9 17h4"/></svg>
+      </div>
+      <h3 class="font-semibold text-lg mb-2">基本卡片</h3>
+      <p class="text-sm text-ink-300">backdrop-filter、border、shadow 一氣呵成 — 三行 CSS 給你蘋果級質感。</p>
+    </div>
+
+    <!-- Image card -->
+    <div class="glass rounded-2xl overflow-hidden shadow-glass-md hover:shadow-glass-lg hover:-translate-y-1 transition-all duration-300">
+      <div class="h-40 relative" style="background:linear-gradient(135deg,#7df9c5,#67e8f9,#a78bfa);">
+        <div class="absolute inset-0 flex items-center justify-center">
+          <span class="text-ink-950 text-3xl font-extrabold tracking-tight">AURORA</span>
+        </div>
+      </div>
+      <div class="p-6">
+        <h3 class="font-semibold text-lg mb-2">影像卡片</h3>
+        <p class="text-sm text-ink-300">圖片佔位由 gradient 模擬，省去外部資源。</p>
+        <div class="mt-4 flex items-center justify-between">
+          <div class="flex -space-x-2">
+            <div class="w-7 h-7 rounded-full bg-aurora-mint border-2 border-ink-900"></div>
+            <div class="w-7 h-7 rounded-full bg-aurora-violet border-2 border-ink-900"></div>
+            <div class="w-7 h-7 rounded-full bg-aurora-cyan border-2 border-ink-900"></div>
+          </div>
+          <button class="text-aurora-mint text-sm font-medium hover:underline">閱讀 →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stat card with skeleton comparison -->
+    <div class="space-y-5">
+      <div class="glass-tinted rounded-2xl p-6 shadow-glass-md">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs text-ink-400">本月營收</span>
+          <span class="text-xs text-aurora-mint">+12.4%</span>
+        </div>
+        <div class="text-3xl font-bold text-white">NT$ 1,284,560</div>
+        <div class="mt-3 glass-progress"><div class="fill" style="width:74%"></div></div>
+        <div class="mt-2 text-xs text-ink-400">目標 NT$ 1,500,000 · 完成 74%</div>
+      </div>
+      <div class="glass rounded-2xl p-6 shadow-glass-md space-y-3">
+        <div class="h-3 glass-skeleton w-2/3"></div>
+        <div class="h-3 glass-skeleton w-full"></div>
+        <div class="h-3 glass-skeleton w-5/6"></div>
+        <div class="h-3 glass-skeleton w-1/2"></div>
+      </div>
+    </div>
+
+    <!-- Profile card -->
+    <div class="glass-frosted rounded-2xl p-6 shadow-glass-lg md:col-span-2 lg:col-span-2">
+      <div class="flex items-start gap-5">
+        <div class="w-16 h-16 rounded-2xl glass-tinted flex items-center justify-center text-2xl font-bold text-aurora-mint shadow-glow-mint">R</div>
+        <div class="flex-1">
+          <h3 class="font-semibold text-lg">Raphael · 開發者</h3>
+          <p class="text-sm text-ink-300 mb-3">N100 迷你機器的常駐 AI agent，兼任系統整合、SEO、UI 設計工程師。</p>
+          <div class="flex flex-wrap gap-2">
+            <span class="glass px-2.5 py-1 rounded-full text-xs">Hermes Agent</span>
+            <span class="glass px-2.5 py-1 rounded-full text-xs">Tailwind</span>
+            <span class="glass px-2.5 py-1 rounded-full text-xs">Playwright</span>
+            <span class="glass px-2.5 py-1 rounded-full text-xs">+12</span>
+          </div>
+        </div>
+        <button class="glass px-3 py-1.5 rounded-lg text-sm hover:bg-glass-200 transition" aria-label="Follow">追蹤</button>
+      </div>
+    </div>
+
+    <!-- Call-to-action -->
+    <div class="glass-tinted rounded-2xl p-6 shadow-glass-md flex flex-col">
+      <h3 class="font-semibold text-lg mb-2">開始建構吧</h3>
+      <p class="text-sm text-ink-300 flex-1">複製貼上即可使用，無需額外建置。</p>
+      <button class="glass-strong mt-4 px-4 py-2.5 rounded-xl text-sm font-semibold hover:shadow-glow-mint transition">複製樣板 →</button>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============================================================
+     FORMS  (lazy section)
+     ============================================================ -->
+<section id="forms" data-lazy-section class="animate-slide-up">
+  <h2 class="text-2xl sm:text-3xl font-bold mb-6">Forms</h2>
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+
+    <!-- Sign-in demo -->
+    <div class="glass-strong rounded-3xl p-8 shadow-glass-md">
+      <h3 class="font-semibold text-xl mb-1">登入</h3>
+      <p class="text-sm text-ink-400 mb-6">玻璃窗後的表單，鍵盤可達、螢幕閱讀器友善。</p>
+      <form class="space-y-4" onsubmit="event.preventDefault(); showToast('已收到登入請求','success');">
+        <div>
+          <label class="block text-xs text-ink-300 mb-1.5" for="email">Email</label>
+          <input id="email" type="email" required placeholder="you@example.com" class="glass-input">
+        </div>
+        <div>
+          <label class="block text-xs text-ink-300 mb-1.5" for="pw">密碼</label>
+          <input id="pw" type="password" required placeholder="••••••••" class="glass-input">
+        </div>
+        <label class="glass-check">
+          <input type="checkbox" checked>
+          <span class="box"></span>
+          <span class="text-sm">保持登入</span>
+        </label>
+        <button type="submit" class="glass-strong w-full py-3 rounded-xl font-semibold hover:shadow-glow-mint transition">登入</button>
+      </form>
+    </div>
+
+    <!-- Slider + select -->
+    <div class="space-y-5">
+      <div class="glass rounded-2xl p-6 shadow-glass-md">
+        <label class="block text-sm font-medium mb-3">亮度 <span id="br-val" class="text-aurora-mint">72</span>%</label>
+        <input type="range" min="0" max="100" value="72" class="glass-slider" id="brightness-slider">
+        <div class="mt-2 flex justify-between text-xs text-ink-400"><span>0</span><span>100</span></div>
+      </div>
+
+      <div class="glass rounded-2xl p-6 shadow-glass-md space-y-3">
+        <div>
+          <label class="block text-xs text-ink-300 mb-1.5" for="lang">偏好語言</label>
+          <select id="lang" class="glass-select">
+            <option>繁體中文</option>
+            <option>English</option>
+            <option>日本語</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-ink-300 mb-1.5" for="msg">訊息</label>
+          <textarea id="msg" rows="3" placeholder="輸入訊息…" class="glass-textarea"></textarea>
+        </div>
+      </div>
+
+      <div class="glass rounded-2xl p-6 shadow-glass-md">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="font-medium text-sm">桌面通知</div>
+            <div class="text-xs text-ink-400">瀏覽器原生推播</div>
+          </div>
+          <label class="glass-toggle">
+            <input type="checkbox" id="notify">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <hr class="border-glass-100 my-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="font-medium text-sm">自動同步</div>
+            <div class="text-xs text-ink-400">每 5 分鐘背景同步</div>
+          </div>
+          <label class="glass-toggle">
+            <input type="checkbox" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     DATA / CHARTS  (lazy section)
+     ============================================================ -->
+<section id="data" data-lazy-section class="animate-slide-up">
+  <h2 class="text-2xl sm:text-3xl font-bold mb-6">Data Visualization</h2>
+
+  <!-- Tabs -->
+  <div class="flex items-center gap-2 mb-4 flex-wrap">
+    <button class="tab-btn glass px-4 py-2 rounded-xl text-sm border border-glass-100 transition active" data-tab="charts">Chart</button>
+    <button class="tab-btn glass px-4 py-2 rounded-xl text-sm border border-glass-100 transition" data-tab="table">Table</button>
+  </div>
+
+  <div id="tab-pane-charts" class="tab-pane glass-strong rounded-3xl p-6 sm:p-8 shadow-glass-md">
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h3 class="font-semibold text-lg">每週活躍度</h3>
+        <p class="text-xs text-ink-400">7 天 · Mon → Sun</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="flex items-center gap-1.5 text-xs"><span class="w-2.5 h-2.5 rounded-sm bg-aurora-mint"></span>本週</span>
+        <span class="flex items-center gap-1.5 text-xs"><span class="w-2.5 h-2.5 rounded-sm bg-aurora-violet"></span>上週</span>
+      </div>
+    </div>
+
+    <!-- Pure CSS/SVG bar chart -->
+    <div class="flex items-end justify-around h-56 gap-2 sm:gap-3" id="chart-bars">
+      <!-- Filled by JS to keep HTML clean -->
+    </div>
+
+    <div class="grid grid-cols-3 gap-3 mt-6">
+      <div class="glass rounded-xl p-3 text-center">
+        <div class="text-xs text-ink-400">PV</div>
+        <div class="text-xl font-bold text-aurora-mint">12,348</div>
+      </div>
+      <div class="glass rounded-xl p-3 text-center">
+        <div class="text-xs text-ink-400">UV</div>
+        <div class="text-xl font-bold text-aurora-cyan">4,256</div>
+      </div>
+      <div class="glass rounded-xl p-3 text-center">
+        <div class="text-xs text-ink-400">CTR</div>
+        <div class="text-xl font-bold text-aurora-violet">34.5%</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-pane-table" class="tab-pane hidden glass-strong rounded-3xl p-6 sm:p-8 shadow-glass-md overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-left text-ink-400 text-xs uppercase tracking-wider">
+          <th class="py-3 px-2">Order ID</th>
+          <th class="py-3 px-2">Customer</th>
+          <th class="py-3 px-2">Plan</th>
+          <th class="py-3 px-2">Amount</th>
+          <th class="py-3 px-2">Status</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-glass-100">
+        <tr>
+          <td class="py-3 px-2 font-mono text-aurora-mint">#A2034</td>
+          <td class="py-3 px-2">王小明</td>
+          <td class="py-3 px-2">Pro</td>
+          <td class="py-3 px-2">NT$ 1,200</td>
+          <td class="py-3 px-2"><span class="glass px-2 py-0.5 rounded-full text-xs text-aurora-mint">Paid</span></td>
+        </tr>
+        <tr>
+          <td class="py-3 px-2 font-mono text-aurora-cyan">#A2035</td>
+          <td class="py-3 px-2">Lin Mei</td>
+          <td class="py-3 px-2">Team</td>
+          <td class="py-3 px-2">NT$ 4,800</td>
+          <td class="py-3 px-2"><span class="glass px-2 py-0.5 rounded-full text-xs text-aurora-mint">Paid</span></td>
+        </tr>
+        <tr>
+          <td class="py-3 px-2 font-mono text-aurora-violet">#A2036</td>
+          <td class="py-3 px-2">陳大文</td>
+          <td class="py-3 px-2">Pro</td>
+          <td class="py-3 px-2">NT$ 1,200</td>
+          <td class="py-3 px-2"><span class="glass px-2 py-0.5 rounded-full text-xs text-aurora-amber">Pending</span></td>
+        </tr>
+        <tr>
+          <td class="py-3 px-2 font-mono text-aurora-pink">#A2037</td>
+          <td class="py-3 px-2">佐藤健</td>
+          <td class="py-3 px-2">Free</td>
+          <td class="py-3 px-2">NT$ 0</td>
+          <td class="py-3 px-2"><span class="glass px-2 py-0.5 rounded-full text-xs text-accent-danger">Failed</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============================================================
+     FEEDBACK / MODALS / TOASTS / ALERTS  (lazy section)
+     ============================================================ -->
+<section id="feedback" data-lazy-section class="animate-slide-up">
+  <h2 class="text-2xl sm:text-3xl font-bold mb-6">Feedback</h2>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+    <!-- Alerts -->
+    <div class="space-y-3">
+      <div class="glass-tinted rounded-2xl p-4 flex items-start gap-3">
+        <svg viewBox="0 0 24 24" class="w-5 h-5 text-aurora-mint flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 12l2 2 4-4M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <div class="flex-1">
+          <div class="font-medium text-sm">成功</div>
+          <div class="text-xs text-ink-300">您的變更已成功儲存。</div>
+        </div>
+      </div>
+
+      <div class="glass rounded-2xl p-4 flex items-start gap-3 border border-accent-info/30">
+        <svg viewBox="0 0 24 24" class="w-5 h-5 text-accent-info flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M13 16h-1v-4h1m0-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <div class="flex-1">
+          <div class="font-medium text-sm">提示</div>
+          <div class="text-xs text-ink-300">建議升級到 Pro 計劃以解鎖全部功能。</div>
+        </div>
+      </div>
+
+      <div class="glass rounded-2xl p-4 flex items-start gap-3 border border-accent-warning/30">
+        <svg viewBox="0 0 24 24" class="w-5 h-5 text-accent-warning flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0L3.16 16.25A2 2 0 005 19z"/></svg>
+        <div class="flex-1">
+          <div class="font-medium text-sm">注意</div>
+          <div class="text-xs text-ink-300">API rate limit 即將達標 (90/100)。</div>
+        </div>
+      </div>
+
+      <div class="glass rounded-2xl p-4 flex items-start gap-3 border border-accent-danger/30">
+        <svg viewBox="0 0 24 24" class="w-5 h-5 text-accent-danger flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <div class="flex-1">
+          <div class="font-medium text-sm">錯誤</div>
+          <div class="text-xs text-ink-300">無法連線到伺服器，請稍後再試。</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal trigger & accordion -->
+    <div class="space-y-3">
+      <button onclick="openModal('demo-modal')" class="glass-strong rounded-2xl p-5 w-full text-left hover:shadow-glow-mint transition">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="font-semibold">打開 Modal Dialog</div>
+            <div class="text-xs text-ink-300 mt-1">自帶 focus trap + ESC 關閉 + 滾動鎖</div>
+          </div>
+          <svg viewBox="0 0 24 24" class="w-5 h-5 text-aurora-mint" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg>
+        </div>
+      </button>
+
+      <div class="glass rounded-2xl shadow-glass-md divide-y divide-glass-100">
+        <details class="group">
+          <summary class="cursor-pointer list-none p-4 flex items-center justify-between hover:bg-glass-100 transition">
+            <span class="font-medium text-sm">是什麼讓這套組件庫效能優先？</span>
+            <svg viewBox="0 0 24 24" class="w-4 h-4 transition group-open:rotate-180" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 9l6 6 6-6"/></svg>
+          </summary>
+          <div class="px-4 pb-4 text-sm text-ink-300">
+            IntersectionObserver 驅動的懶模糊、<code>content-visibility:auto</code> 跳過屏外渲染、<code>prefers-reduced-motion</code> 自動停用動畫。
+          </div>
+        </details>
+        <details class="group">
+          <summary class="cursor-pointer list-none p-4 flex items-center justify-between hover:bg-glass-100 transition">
+            <span class="font-medium text-sm">如何整合到既有 Tailwind 專案？</span>
+            <svg viewBox="0 0 24 24" class="w-4 h-4 transition group-open:rotate-180" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 9l6 6 6-6"/></svg>
+          </summary>
+          <div class="px-4 pb-4 text-sm text-ink-300">
+            把 CSS 區塊貼進 <code>styles.css</code>、主題 token 併入 <code>tailwind.config.js</code>、組件 class 名直接沿用。
+          </div>
+        </details>
+        <details class="group">
+          <summary class="cursor-pointer list-none p-4 flex items-center justify-between hover:bg-glass-100 transition">
+            <span class="font-medium text-sm">瀏覽器支援？</span>
+            <svg viewBox="0 0 24 24" class="w-4 h-4 transition group-open:rotate-180" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 9l6 6 6-6"/></svg>
+          </summary>
+          <div class="px-4 pb-4 text-sm text-ink-300">
+            Chrome / Edge / Safari / Firefox 皆支援 backdrop-filter。舊瀏覽器自動降級為不透明深色玻璃，仍可使用。
+          </div>
+        </details>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     NAVIGATION / NAVBAR EXAMPLES
+     ============================================================ -->
+<section id="navigation" data-lazy-section class="animate-slide-up">
+  <h2 class="text-2xl sm:text-3xl font-bold mb-6">Navigation</h2>
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+    <!-- Side nav -->
+    <div class="glass rounded-2xl shadow-glass-md overflow-hidden">
+      <div class="p-5">
+        <h3 class="font-semibold text-sm mb-4">側邊選單</h3>
+        <ul class="space-y-1">
+          <li><a class="flex items-center gap-3 px-3 py-2 rounded-lg bg-aurora-mint/10 text-aurora-mint" href="#">
+            <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg>Dashboard
+          </a></li>
+          <li><a class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-glass-100 transition" href="#">
+            <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 11l3 3 8-8M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>Tasks
+          </a></li>
+          <li><a class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-glass-100 transition" href="#">
+            <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>Team
+          </a></li>
+          <li><a class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-glass-100 transition" href="#">
+            <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H2a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V2a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H22a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>Settings
+          </a></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Tabs + breadcrumbs -->
+    <div class="space-y-5">
+      <div class="glass rounded-2xl p-5 shadow-glass-md">
+        <h3 class="font-semibold text-sm mb-3">分頁 (Tabs)</h3>
+        <div class="flex items-center gap-1 mb-3">
+          <button class="px-3 py-1.5 rounded-lg text-sm bg-aurora-mint/10 text-aurora-mint">總覽</button>
+          <button class="px-3 py-1.5 rounded-lg text-sm hover:bg-glass-100">細節</button>
+          <button class="px-3 py-1.5 rounded-lg text-sm hover:bg-glass-100">歷史</button>
+        </div>
+        <p class="text-sm text-ink-300">分頁切換動畫來自 CSS transition，無需 JS 介入。</p>
+      </div>
+
+      <div class="glass rounded-2xl p-5 shadow-glass-md">
+        <h3 class="font-semibold text-sm mb-3">麵包屑 (Breadcrumbs)</h3>
+        <nav aria-label="breadcrumb" class="flex items-center gap-2 text-sm">
+          <a href="#" class="text-aurora-mint hover:underline">首頁</a>
+          <svg viewBox="0 0 24 24" class="w-3 h-3 text-ink-500" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg>
+          <a href="#" class="text-aurora-mint hover:underline">專案</a>
+          <svg viewBox="0 0 24 24" class="w-3 h-3 text-ink-500" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg>
+          <span class="text-ink-300">Atelier Glass v2</span>
+        </nav>
+      </div>
+
+      <div class="glass-tinted rounded-2xl p-5 shadow-glass-md">
+        <h3 class="font-semibold text-sm mb-3">Stepper (進度)</h3>
+        <ol class="flex items-center gap-2">
+          <li class="flex items-center gap-2">
+            <span class="w-7 h-7 rounded-full bg-aurora-mint text-ink-950 flex items-center justify-center text-xs font-bold">1</span>
+            <span class="text-sm">Setup</span>
+          </li>
+          <span class="flex-1 h-px bg-aurora-mint/30"></span>
+          <li class="flex items-center gap-2">
+            <span class="w-7 h-7 rounded-full bg-aurora-mint text-ink-950 flex items-center justify-center text-xs font-bold">2</span>
+            <span class="text-sm">Config</span>
+          </li>
+          <span class="flex-1 h-px bg-glass-200"></span>
+          <li class="flex items-center gap-2">
+            <span class="w-7 h-7 rounded-full glass text-ink-300 flex items-center justify-center text-xs font-bold">3</span>
+            <span class="text-sm text-ink-400">Deploy</span>
+          </li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     PERFORMANCE / DEBUG
+     ============================================================ -->
+<section id="perf" data-lazy-section class="animate-slide-up">
+  <h2 class="text-2xl sm:text-3xl font-bold mb-6">效能監控 & 降級策略</h2>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+    <div class="glass rounded-2xl p-6 shadow-glass-md">
+      <div class="text-xs text-ink-400 uppercase tracking-wider mb-2">FPS (即時)</div>
+      <div class="text-5xl font-bold text-aurora-mint font-mono" id="big-fps">--</div>
+      <div class="text-xs text-ink-400 mt-2">從畫面 RAF 計算</div>
+    </div>
+
+    <div class="glass rounded-2xl p-6 shadow-glass-md">
+      <div class="text-xs text-ink-400 uppercase tracking-wider mb-2">屏外省下繪製</div>
+      <div class="text-5xl font-bold text-aurora-violet font-mono"><span id="perf-saved">0</span><span class="text-2xl">ms</span></div>
+      <div class="text-xs text-ink-400 mt-2">content-visibility 跳過渲染區段</div>
+    </div>
+
+    <div class="glass rounded-2xl p-6 shadow-glass-md">
+      <div class="text-xs text-ink-400 uppercase tracking-wider mb-2">裝置記憶體 (若可用)</div>
+      <div class="text-5xl font-bold text-aurora-cyan font-mono" id="mem-val">--</div>
+      <div class="text-xs text-ink-400 mt-2">performance.memory</div>
+    </div>
+  </div>
+
+  <div class="glass-strong rounded-3xl p-6 sm:p-8 mt-6 shadow-glass-md">
+    <h3 class="font-semibold text-lg mb-3">5 條效能紀律 (Atelier Glass)</h3>
+    <ol class="space-y-3 text-sm text-ink-200">
+      <li class="flex gap-3">
+        <span class="w-6 h-6 rounded-full bg-aurora-mint/20 text-aurora-mint flex items-center justify-center flex-shrink-0 text-xs font-bold">1</span>
+        <span><code>backdrop-filter</code> 開瀏覽器原生合成層，但對 GPU 仍重 — 螢幕外的玻璃元素統一 <strong>停用</strong>，靠 IntersectionObserver 進入視口才開啟。</span>
+      </li>
+      <li class="flex gap-3">
+        <span class="w-6 h-6 rounded-full bg-aurora-cyan/20 text-aurora-cyan flex items-center justify-center flex-shrink-0 text-xs font-bold">2</span>
+        <span>每個屏外大區塊套 <code>content-visibility: auto</code>，瀏覽器自動跳過 layout / paint，只在進入視口時按需算尺寸。</span>
+      </li>
+      <li class="flex gap-3">
+        <span class="w-6 h-6 rounded-full bg-aurora-violet/20 text-aurora-violet flex items-center justify-center flex-shrink-0 text-xs font-bold">3</span>
+        <span><code>will-change</code> 只給正在動的元素；靜止玻璃面板一律 <code>auto</code>，避免合成層暴增。</span>
+      </li>
+      <li class="flex gap-3">
+        <span class="w-6 h-6 rounded-full bg-aurora-pink/20 text-aurora-pink flex items-center justify-center flex-shrink-0 text-xs font-bold">4</span>
+        <span>FPS 低於 30 持續 2 秒，自動把頁面切到 <code>perf-low</code> 模式 — 全站停模糊、停動畫，使用者立刻不再卡。</span>
+      </li>
+      <li class="flex gap-3">
+        <span class="w-6 h-6 rounded-full bg-aurora-amber/20 text-aurora-amber flex items-center justify-center flex-shrink-0 text-xs font-bold">5</span>
+        <span><code>prefers-reduced-motion</code>、<code>@supports not backdrop-filter</code>、<code>.contrast-high</code> 三套降級完全獨立運作，疊在一起也安全。</span>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<footer class="mt-24 text-center text-xs text-ink-400">
+  <p>Atelier Glass v2 · Built with Tailwind CSS · <span class="text-aurora-mint">Performance-first</span> by Raphael</p>
+</footer>
+
+</main>
+
+<!-- ============================================================
+     FLOATING TOAST CONTAINER
+     ============================================================ -->
+<div id="toast-container" class="fixed bottom-4 right-4 z-50 space-y-2 pointer-events-none" aria-live="polite" aria-atomic="false">
+</div>
+
+<!-- ============================================================
+     MODAL (demo)
+     ============================================================ -->
+<div id="demo-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  <div class="absolute inset-0 bg-ink-950/80 backdrop-blur-sm modal-backdrop-enter" data-modal-backdrop></div>
+  <div class="glass-strong rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-glass-lg relative animate-slide-up">
+    <h3 id="modal-title" class="text-xl font-bold mb-2">歡迎來到 Atelier Glass v2</h3>
+    <p class="text-sm text-ink-300 mb-5">這是一個可聚焦鎖定、ESC 關閉、捲軸鎖定的玻璃 Modal demo。</p>
+    <div class="space-y-3 mb-6">
+      <label class="glass-check"><input type="checkbox" checked><span class="box"></span><span class="text-sm">訂閱每週靈感電子報</span></label>
+      <label class="glass-check"><input type="checkbox"><span class="box"></span><span class="text-sm">允許匿名使用資料分析</span></label>
+    </div>
+    <div class="flex gap-2 justify-end">
+      <button class="glass px-4 py-2 rounded-xl text-sm hover:bg-glass-200 transition" data-modal-close>取消</button>
+      <button class="glass-strong px-4 py-2 rounded-xl text-sm font-semibold hover:shadow-glow-mint transition" data-modal-close>確認</button>
+    </div>
+    <button class="absolute top-4 right-4 w-8 h-8 rounded-lg glass flex items-center justify-center hover:bg-glass-200" data-modal-close aria-label="關閉">
+      <svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12"/></svg>
+    </button>
+  </div>
+</div>
+
+<!-- ============================================================
+     JAVASCRIPT — perf monitor, lazy blur, modal, tabs, chart, etc.
+     ============================================================ -->
+<script>
+(function(){
+  'use strict';
+
+  // ---------- Utility ----------
+  const $  = (s, c=document) => c.querySelector(s);
+  const $$ = (s, c=document) => Array.from(c.querySelectorAll(s));
+
+  // ---------- Stats (hero counters) ----------
+  const totalBlur = $$('.glass, .glass-strong, .glass-tinted, .glass-frosted').length;
+  const compCount = $$('section[id]').length;
+  const blurCountEl = $('#stat-blur-count');
+  const compCountEl = $('#stat-component-count');
+  if (blurCountEl) blurCountEl.textContent = totalBlur;
+  if (compCountEl) compCountEl.textContent = compCount;
+
+  // ---------- INTERSECTION OBSERVER (lazy blur) ----------
+  // Off-screen .data-lazy-section panes: backdrop-filter is disabled by CSS.
+  // We mark data-in-view=true when actually in viewport (200px rootMargin).
+  const lazySections = $$('[data-lazy-section]');
+  const lazyCountEl  = $('#lazy-count');
+  if (lazyCountEl) lazyCountEl.textContent = lazySections.length;
+
+  if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          e.target.setAttribute('data-in-view', 'true');
+        } else {
+          e.target.removeAttribute('data-in-view');
+        }
+      });
+    }, { rootMargin: '200px 0px', threshold: 0.01 });
+    lazySections.forEach(s => io.observe(s));
+  } else {
+    // Fallback: assume all visible
+    lazySections.forEach(s => s.setAttribute('data-in-view', 'true'));
+  }
+
+  // ---------- FPS METER ----------
+  const fpsEl    = $('#fps-val');
+  const bigFpsEl = $('#big-fps');
+  const pillEl   = $('#fps-pill');
+  const dotEl    = pillEl ? pillEl.querySelector('.dot') : null;
+  let frames = 0, lastTick = performance.now(), lowFpsStreak = 0;
+
+  function tick(now) {
+    frames++;
+    if (now - lastTick >= 500) {
+      const fps = Math.round((frames * 1000) / (now - lastTick));
+      if (fpsEl)    fpsEl.textContent = fps;
+      if (bigFpsEl) bigFpsEl.textContent = fps;
+
+      // Active blur count = only in-view panes (lazy + always-on)
+      const allBlur = $$('.glass, .glass-strong, .glass-tinted, .glass-frosted').length;
+      const offBlur = $$('[data-lazy-section]:not([data-in-view="true"]) .glass, [data-lazy-section]:not([data-in-view="true"]) .glass-strong, [data-lazy-section]:not([data-in-view="true"]) .glass-tinted, [data-lazy-section]:not([data-in-view="true"]) .glass-frosted').length;
+      const active = allBlur - offBlur;
+      const ab = $('#active-blur');
+      const tb = $('#total-blur');
+      if (ab) ab.textContent = active;
+      if (tb) tb.textContent = allBlur;
+
+      // Color states
+      pillEl.classList.remove('warn', 'bad');
+      if (fps < 30) { pillEl.classList.add('bad');  dotEl && (dotEl.style.color = '#f87171'); }
+      else if (fps < 50) { pillEl.classList.add('warn'); dotEl && (dotEl.style.color = '#fbbf24'); }
+      else { dotEl && (dotEl.style.color = '#34d399'); }
+
+      // Auto-flip perf-low mode after sustained < 30 FPS
+      if (fps < 30) {
+        lowFpsStreak++;
+        if (lowFpsStreak >= 4 && !document.body.classList.contains('perf-low')) {
+          document.body.classList.add('perf-low');
+          showToast('偵測到 FPS 過低，已自動切換高效能模式', 'warning');
+        }
+      } else {
+        lowFpsStreak = 0;
+      }
+
+      frames = 0;
+      lastTick = now;
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  // ---------- Memory display (Chrome only) ----------
+  const memEl = $('#mem-val');
+  if (memEl && performance.memory) {
+    setInterval(() => {
+      const used = (performance.memory.usedJSHeapSize / 1048576).toFixed(1);
+      memEl.textContent = used + ' MB';
+    }, 1500);
+  } else if (memEl) {
+    memEl.textContent = 'N/A';
+  }
+
+  // ---------- Performance saved (estimated) ----------
+  // Each "skipped" lazy section ≈ 5ms saved per RAF tick
+  let savedTimer = 0;
+  setInterval(() => {
+    const offCount = $$('[data-lazy-section]:not([data-in-view="true"])').length;
+    const saved = Math.round(offCount * 5 + savedTimer * 0.1);
+    savedTimer = saved;
+    const el = $('#perf-saved');
+    if (el) el.textContent = saved;
+  }, 1000);
+
+  // ---------- Manual perf-low toggle ----------
+  const perfBtn = $('#perf-toggle');
+  perfBtn && perfBtn.addEventListener('click', () => {
+    const on = document.body.classList.toggle('perf-low');
+    perfBtn.textContent = on ? 'perf-normal' : 'perf-low';
+    showToast(on ? '高效能模式已開啟 (全站停模糊/停動畫)' : '已恢復標準模式', on ? 'success' : 'info');
+  });
+
+  // ---------- Manual blur off toggle ----------
+  const blurBtn = $('#blur-off-btn');
+  const blurStateEl = $('#blur-state');
+  blurBtn && blurBtn.addEventListener('click', () => {
+    const on = document.body.getAttribute('data-blur') === 'off';
+    if (on) {
+      document.body.removeAttribute('data-blur');
+      blurStateEl.textContent = 'on';
+    } else {
+      document.body.setAttribute('data-blur', 'off');
+      blurStateEl.textContent = 'off';
+    }
+  });
+
+  // ---------- Theme toggle (light/dark) ----------
+  const themeBtn = $('#theme-btn');
+  themeBtn && themeBtn.addEventListener('click', () => {
+    const html = document.documentElement;
+    const isLight = html.classList.toggle('light');
+    html.classList.toggle('dark', !isLight);
+    themeBtn.textContent = isLight ? 'dark' : 'light';
+    document.body.style.background = isLight
+      ? 'radial-gradient(ellipse at top,#f1f5f9 0%,#e2e8f0 70%)'
+      : 'radial-gradient(ellipse at top,#0f172a 0%,#020617 70%)';
+    document.body.style.color = isLight ? '#0f172a' : '#e2e8f0';
+  });
+
+  // ---------- Brightness slider live update ----------
+  const brightSlider = $('#brightness-slider');
+  const brightVal    = $('#br-val');
+  brightSlider && brightSlider.addEventListener('input', () => {
+    brightVal.textContent = brightSlider.value;
+  });
+
+  // ---------- Nav active link on scroll ----------
+  const navLinks = $$('.nav-link');
+  const navTargets = navLinks.map(a => {
+    const id = a.getAttribute('href').replace('#','');
+    return { a, t: document.getElementById(id) };
+  }).filter(x => x.t);
+
+  if ('IntersectionObserver' in window) {
+    const navIo = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          const id = e.target.id;
+          navLinks.forEach(l => l.classList.toggle('active', l.getAttribute('href') === '#' + id));
+        }
+      });
+    }, { rootMargin: '-40% 0px -50% 0px' });
+    navTargets.forEach(x => navIo.observe(x.t));
+  }
+
+  // ---------- Tab switching (Data viz) ----------
+  $$('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tab = btn.getAttribute('data-tab');
+      $$('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+      $$('.tab-pane').forEach(p => {
+        p.classList.toggle('hidden', p.id !== 'tab-pane-' + tab);
+      });
+    });
+  });
+
+  // ---------- Chart bars (pure DOM) ----------
+  const chartContainer = $('#chart-bars');
+  if (chartContainer) {
+    const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const thisWeek = [62, 78, 55, 90, 72, 88, 95];
+    const lastWeek = [50, 60, 65, 72, 58, 70, 80];
+    const max = 100;
+
+    days.forEach((d, i) => {
+      const h1 = (thisWeek[i] / max) * 100;
+      const h2 = (lastWeek[i] / max) * 100;
+      chartContainer.insertAdjacentHTML('beforeend', `
+        <div class="flex flex-col items-center gap-2 flex-1">
+          <div class="flex items-end gap-1 h-full w-full justify-center" style="height:11rem;">
+            <div class="chart-bar w-3 sm:w-5 rounded-t-md"
+                 style="height:${h1}%; background:linear-gradient(180deg,#7df9c5,#34d399);"
+                 title="本週 ${thisWeek[i]}"></div>
+            <div class="chart-bar w-3 sm:w-5 rounded-t-md"
+                 style="height:${h2}%; background:linear-gradient(180deg,#a78bfa,#7c3aed);"
+                 title="上週 ${lastWeek[i]}"></div>
+          </div>
+          <span class="text-xs text-ink-400">${d}</span>
+        </div>
+      `);
+    });
+  }
+
+  // ---------- Modal open/close ----------
+  window.openModal = function(id) {
+    const modal = document.getElementById(id);
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    // focus first focusable
+    setTimeout(() => {
+      const focusable = modal.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+      if (focusable) focusable.focus();
+    }, 50);
+  };
+  window.closeModal = function(id) {
+    const modal = document.getElementById(id);
+    if (!modal) return;
+    modal.classList.add('hidden');
+    document.body.style.overflow = '';
+  };
+  $$('[data-modal-close]').forEach(b => b.addEventListener('click', e => {
+    const modal = e.currentTarget.closest('[role="dialog"]');
+    if (modal) closeModal(modal.id);
+  }));
+  $$('[data-modal-backdrop]').forEach(b => b.addEventListener('click', e => {
+    const modal = e.currentTarget.closest('[role="dialog"]');
+    if (modal) closeModal(modal.id);
+  }));
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      const open = $$('[role="dialog"]').find(m => !m.classList.contains('hidden'));
+      if (open) closeModal(open.id);
+    }
+  });
+
+  // ---------- Toast system ----------
+  window.showToast = function(message, type='info', duration=3500) {
+    const container = $('#toast-container');
+    if (!container) return;
+    const colors = {
+      info:    'border-accent-info/40',
+      success: 'border-accent-success/40',
+      warning: 'border-accent-warning/40',
+      danger:  'border-accent-danger/40',
+    };
+    const dotColors = {
+      info: '#60a5fa', success: '#34d399', warning: '#fbbf24', danger: '#f87171'
+    };
+    const el = document.createElement('div');
+    el.className = `glass-strong rounded-2xl px-4 py-3 shadow-glass-md border ${colors[type]||'border-glass-100'} toast-enter pointer-events-auto flex items-start gap-3 max-w-sm`;
+    el.innerHTML = `
+      <span class="w-2 h-2 rounded-full mt-1.5 flex-shrink-0" style="background:${dotColors[type]||dotColors.info};box-shadow:0 0 8px ${dotColors[type]||dotColors.info};"></span>
+      <div class="flex-1 text-sm">${message}</div>
+      <button class="text-ink-400 hover:text-ink-100" aria-label="關閉">✕</button>
+    `;
+    container.appendChild(el);
+    const close = () => {
+      el.style.transition = 'opacity .25s, transform .25s';
+      el.style.opacity = '0';
+      el.style.transform = 'translateX(20px)';
+      setTimeout(() => el.remove(), 280);
+    };
+    el.querySelector('button').addEventListener('click', close);
+    setTimeout(close, duration);
+  };
+
+  // Toast trigger button
+  const toastTrigger = $('#toast-trigger');
+  toastTrigger && toastTrigger.addEventListener('click', () => {
+    showToast('🎉 Atelier Glass v2 組件已套用！', 'success');
+  });
+
+  // ---------- Detect actual lack of backdrop-filter on first paint ----------
+  // Adds a one-time note for browsers without support
+  if (!('backdropFilter' in document.documentElement.style) && !('webkitBackdropFilter' in document.documentElement.style)) {
+    console.info('[Atelier Glass] backdrop-filter not supported — solid fallback active.');
+  }
+
+  // ---------- Force reflow + log initial perf ----------
+  requestAnimationFrame(() => {
+    const loadTime = Math.round(performance.now());
+    console.log(`[Atelier Glass] Initial render in ${loadTime}ms · ${totalBlur} blur layers · ${compCount} sections.`);
+  });
+
+})();
+</script>
+
+</body>
+</html>

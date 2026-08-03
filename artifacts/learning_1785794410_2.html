@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AsyncCrawler · framework overview</title>
+  <style>
+    :root{color-scheme:dark;--bg:#09111f;--panel:#101d31;--line:#223552;--text:#e8f0fb;--muted:#93a7c1;--cyan:#58d5e8;--green:#70e1a2;--amber:#ffc46b;--red:#ff7f8f}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 80% 0,#17345d 0,#09111f 44%);color:var(--text);font:15px/1.6 Inter,ui-sans-serif,system-ui,sans-serif}main{max-width:1120px;margin:auto;padding:56px 24px 80px}.eyebrow{color:var(--cyan);font-weight:700;letter-spacing:.12em;text-transform:uppercase;font-size:12px}h1{font-size:clamp(38px,7vw,76px);line-height:1.02;margin:14px 0 18px;max-width:850px}h1 span{color:var(--cyan)}.lede{color:var(--muted);font-size:18px;max-width:720px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:38px 0}.card,.flow,.code{background:rgba(16,29,49,.86);border:1px solid var(--line);border-radius:18px;padding:22px;box-shadow:0 18px 50px rgba(0,0,0,.16)}.card h2{font-size:18px;margin:0 0 8px}.card p{color:var(--muted);margin:0}.icon{font-size:25px;margin-bottom:12px}.section-title{margin:54px 0 14px;font-size:25px}.flow{display:flex;align-items:center;gap:12px;overflow:auto}.node{min-width:150px;padding:17px;border-radius:12px;background:#162944;border:1px solid #2c4d73}.node strong{display:block}.node small{color:var(--muted)}.arrow{color:var(--cyan);font-size:22px}.code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre;overflow:auto;color:#cde6ff;font-size:13px}.badge{display:inline-block;border-radius:999px;padding:3px 9px;margin-right:7px;font-size:12px;background:#183756;color:var(--cyan)}table{width:100%;border-collapse:collapse;background:rgba(16,29,49,.86);border:1px solid var(--line);border-radius:14px;overflow:hidden}th,td{text-align:left;padding:13px 15px;border-bottom:1px solid var(--line)}th{color:var(--cyan);font-size:12px;text-transform:uppercase;letter-spacing:.08em}td{color:var(--muted)}td:first-child{color:var(--text)}tr:last-child td{border-bottom:0}.footer{margin-top:45px;color:var(--muted);font-size:13px}@media(max-width:760px){main{padding:34px 16px 60px}.grid{grid-template-columns:1fr}.flow{align-items:stretch;flex-direction:column}.arrow{transform:rotate(90deg);align-self:center}}
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">AsyncCrawler / production-minded foundation</div>
+  <h1>Concurrent fetching.<br><span>Intelligent recovery.</span></h1>
+  <p class="lede">一個以 asyncio 為核心、以 bounded concurrency、per-host pacing 與 bounded exponential backoff 為骨架的網頁爬蟲框架。這不是無限重試器，而是可觀測、可測試、可停止的資料擷取元件。</p>
+  <section class="grid">
+    <article class="card"><div class="icon">⚡</div><h2>有界並發</h2><p>Queue + worker pool 控制同時工作的數量，避免 URL 數量直接膨脹成 task 數量。</p></article>
+    <article class="card"><div class="icon">↻</div><h2>智慧重試</h2><p>只重試暫時性 HTTP/網路故障；exponential backoff、full jitter、Retry-After 與最大嘗試次數。</p></article>
+    <article class="card"><div class="icon">◌</div><h2>可觀測與可測試</h2><p>Transport 可注入、統計可 snapshot、錯誤 domain 保留，核心測試不依賴外網。</p></article>
+  </section>
+  <h2 class="section-title">Request lifecycle</h2>
+  <div class="flow">
+    <div class="node"><strong>URL queue</strong><small>dedupe + validate</small></div><div class="arrow">→</div>
+    <div class="node"><strong>Rate limiter</strong><small>per host pacing</small></div><div class="arrow">→</div>
+    <div class="node"><strong>Transport</strong><small>urllib / aiohttp</small></div><div class="arrow">→</div>
+    <div class="node"><strong>Retry policy</strong><small>bounded jitter</small></div><div class="arrow">→</div>
+    <div class="node"><strong>Parser</strong><small>HTML / JSON / text</small></div>
+  </div>
+  <h2 class="section-title">Retry matrix</h2>
+  <table><thead><tr><th>Failure class</th><th>Default action</th><th>Reason</th></tr></thead><tbody>
+    <tr><td><span class="badge">408 · 425 · 429 · 5xx</span>temporary HTTP</td><td>Retry</td><td>可能由服務忙碌或限流造成，下一次有機會成功</td></tr>
+    <tr><td><span class="badge">timeout · DNS · connection</span>network</td><td>Retry</td><td>傳輸層短暫失敗，保留最後錯誤 domain</td></tr>
+    <tr><td><span class="badge">4xx</span>client/auth/policy</td><td>Stop</td><td>無法靠重發同一請求修復，避免浪費流量</td></tr>
+    <tr><td><span class="badge">cancelled</span>shutdown</td><td>Propagate</td><td>不吞掉 cancellation，讓上層可正常停止 worker</td></tr>
+  </tbody></table>
+  <h2 class="section-title">Minimal API</h2>
+  <div class="code">crawler = AsyncCrawler(
+    concurrency=16,
+    requests_per_second=5,
+    policy=RetryPolicy(max_attempts=4, base_delay=0.25, max_delay=8),
+)
+results = await crawler.crawl(["https://example.com"])</div>
+  <p class="footer">Generated deliverable · async_crawler.py · test_async_crawler.py · Python 3.12 · No CAPTCHA or access-control bypass.</p>
+</main>
+</body>
+</html>

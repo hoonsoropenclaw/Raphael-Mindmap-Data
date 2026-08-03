@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>smart_crawler · API Reverse-Engineering Workbench</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  /* ─── reset & tokens ─────────────────────────────────────────────── */
+  *,*::before,*::after { box-sizing: border-box; }
+  :root {
+    --bg: #0b0d12;
+    --bg-1: #11141b;
+    --bg-2: #181c25;
+    --bg-3: #1f2530;
+    --line: #2a313e;
+    --line-2: #353d4d;
+    --text: #e6e9ef;
+    --text-dim: #9aa3b2;
+    --text-soft: #6c7686;
+    --accent: #6cf0c2;
+    --accent-2: #ffb86b;
+    --accent-3: #ff7eb6;
+    --danger: #ff6b6b;
+    --ok: #79f2c0;
+    --warn: #ffd166;
+    --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", Roboto, sans-serif;
+  }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: radial-gradient(1200px 800px at 80% -20%, #1a2030 0%, #0b0d12 60%) fixed;
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre { font-family: var(--mono); }
+  button { font-family: inherit; }
+
+  /* ─── top bar ────────────────────────────────────────────────────── */
+  .topbar {
+    display: flex; align-items: center; gap: 16px;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(11,13,18,0.7);
+    backdrop-filter: blur(12px);
+    position: sticky; top: 0; z-index: 10;
+  }
+  .logo {
+    width: 28px; height: 28px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-3));
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; color: #0b0d12;
+    font-family: var(--mono);
+  }
+  .brand { font-weight: 700; font-size: 15px; }
+  .brand small { color: var(--text-dim); font-weight: 400; margin-left: 6px; font-size: 11px; }
+  .pill {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 3px 9px;
+    color: var(--text-dim);
+    font-size: 11px;
+    font-family: var(--mono);
+  }
+  .pill.ok { color: var(--ok); border-color: rgba(121,242,192,0.3); }
+  .pill.warn { color: var(--warn); border-color: rgba(255,209,102,0.3); }
+  .pill.err { color: var(--danger); border-color: rgba(255,107,107,0.3); }
+  .grow { flex: 1; }
+  .server-status { font-size: 12px; color: var(--text-dim); font-family: var(--mono); }
+
+  /* ─── layout ─────────────────────────────────────────────────────── */
+  .main {
+    display: grid;
+    grid-template-columns: 360px 1fr 380px;
+    height: calc(100vh - 53px);
+  }
+  @media (max-width: 1200px) {
+    .main { grid-template-columns: 1fr; height: auto; }
+    .pane { border-right: none !important; border-bottom: 1px solid var(--line); }
+  }
+  .pane { padding: 20px 22px; overflow: auto; border-right: 1px solid var(--line); }
+  .pane:last-child { border-right: none; }
+  .pane h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin: 0 0 12px 0;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .pane h2 .badge {
+    background: var(--bg-3); color: var(--text-dim);
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 11px;
+    letter-spacing: 0;
+  }
+
+  /* ─── form ───────────────────────────────────────────────────────── */
+  .field { margin-bottom: 12px; }
+  .field label {
+    display: block;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .field input, .field select, .field textarea {
+    width: 100%;
+    background: var(--bg-1);
+    border: 1px solid var(--line);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-family: inherit;
+    font-size: 13px;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    outline: none; border-color: var(--accent);
+    background: var(--bg-2);
+  }
+  .field textarea { font-family: var(--mono); min-height: 100px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .help { font-size: 11px; color: var(--text-soft); margin-top: 4px; font-family: var(--mono); }
+
+  .btn {
+    background: var(--bg-3);
+    color: var(--text);
+    border: 1px solid var(--line-2);
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all .15s ease;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn:hover { background: #252c3a; border-color: var(--accent); }
+  .btn.primary {
+    background: var(--accent);
+    color: #0b0d12;
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+  .btn.primary:hover { background: #85f5cb; }
+  .btn.ghost { background: transparent; }
+  .btn.danger { color: var(--danger); border-color: rgba(255,107,107,0.4); }
+  .btn-row { display: flex; gap: 8px; margin-top: 8px; }
+  .btn-row .btn { flex: 1; justify-content: center; }
+
+  .sep { height: 1px; background: var(--line); margin: 16px 0; }
+
+  /* ─── job list / endpoint list ──────────────────────────────────── */
+  .list { display: flex; flex-direction: column; gap: 8px; }
+  .item {
+    background: var(--bg-1);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: border-color .15s ease, transform .15s ease;
+  }
+  .item:hover { border-color: var(--accent); }
+  .item.selected { border-color: var(--accent); background: var(--bg-2); }
+  .item .url { font-family: var(--mono); font-size: 12px; word-break: break-all; color: var(--text); }
+  .item .meta {
+    display: flex; gap: 8px; margin-top: 6px;
+    font-size: 11px; color: var(--text-dim);
+    align-items: center;
+  }
+  .item .meta .verb {
+    font-family: var(--mono);
+    background: var(--bg-3);
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: var(--text);
+  }
+  .item .meta .verb.GET { color: var(--accent); }
+  .item .meta .verb.POST { color: var(--accent-2); }
+  .item .meta .verb.PUT, .item .meta .verb.PATCH { color: var(--accent-3); }
+  .item .meta .verb.DELETE { color: var(--danger); }
+
+  /* ─── result panes ─────────────────────────────────────────────── */
+  .kv {
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    gap: 4px 12px;
+    font-size: 12px;
+    margin-bottom: 10px;
+  }
+  .kv .k { color: var(--text-dim); }
+  .kv .v { font-family: var(--mono); word-break: break-all; color: var(--text); }
+
+  pre.json {
+    background: var(--bg-1);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+    overflow: auto;
+    font-size: 12px;
+    color: var(--text);
+    max-height: 50vh;
+  }
+
+  .schema {
+    background: var(--bg-1);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 12px;
+    max-height: 280px;
+    overflow: auto;
+  }
+  .schema .field-row {
+    display: flex; gap: 8px; padding: 2px 0;
+    border-bottom: 1px dashed transparent;
+  }
+  .schema .field-row:hover { background: var(--bg-2); }
+  .schema .name { color: var(--accent-2); font-family: var(--mono); }
+  .schema .type { color: var(--text-dim); font-family: var(--mono); font-size: 11px; }
+  .schema .ex { color: var(--text-soft); font-family: var(--mono); font-size: 11px; word-break: break-all; }
+
+  .tabs {
+    display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 12px;
+  }
+  .tab {
+    padding: 6px 12px; cursor: pointer;
+    color: var(--text-dim);
+    border-bottom: 2px solid transparent;
+    font-size: 12px;
+  }
+  .tab.active { color: var(--accent); border-color: var(--accent); }
+  .tab:hover { color: var(--text); }
+  .tab-body { display: none; }
+  .tab-body.active { display: block; }
+
+  /* ─── console / log ────────────────────────────────────────────── */
+  .console {
+    background: var(--bg-1);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    max-height: 280px;
+    overflow: auto;
+    color: var(--text);
+  }
+  .console .ts { color: var(--text-soft); margin-right: 8px; }
+  .console .info { color: var(--text); }
+  .console .warn { color: var(--warn); }
+  .console .err  { color: var(--danger); }
+  .console .ok   { color: var(--ok); }
+
+  /* ─── misc ─────────────────────────────────────────────────────── */
+  .empty { color: var(--text-soft); font-style: italic; font-size: 12px; padding: 14px 0; }
+  .copy {
+    position: absolute; top: 8px; right: 8px;
+    background: var(--bg-3); border: 1px solid var(--line-2);
+    color: var(--text-dim); border-radius: 4px; padding: 2px 8px;
+    font-size: 11px; cursor: pointer;
+  }
+  .copy:hover { color: var(--accent); border-color: var(--accent); }
+  .relative { position: relative; }
+  .small { font-size: 11px; color: var(--text-dim); }
+
+  .toolbar {
+    display: flex; gap: 6px; align-items: center;
+    margin-bottom: 10px;
+  }
+  .toolbar input {
+    flex: 1;
+    background: var(--bg-1);
+    border: 1px solid var(--line);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-family: var(--mono);
+  }
+  .toolbar input:focus { outline: none; border-color: var(--accent); }
+
+  details { margin-top: 6px; }
+  details summary { cursor: pointer; color: var(--text-dim); font-size: 12px; padding: 4px 0; }
+  details[open] summary { color: var(--accent); }
+
+  /* ─── footer ───────────────────────────────────────────────────── */
+  footer {
+    padding: 12px 24px; border-top: 1px solid var(--line);
+    color: var(--text-soft); font-size: 11px;
+    font-family: var(--mono);
+    display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="logo">⌘</div>
+  <div class="brand">smart_crawler <small>API reverse-engineering workbench</small></div>
+  <span class="pill" id="versionPill">v0.1.0</span>
+  <div class="grow"></div>
+  <span id="serverStatus" class="server-status">checking…</span>
+</header>
+
+<div class="main">
+
+  <!-- ─── LEFT: configuration ───────────────────────────────────── -->
+  <section class="pane">
+    <h2>1 · Crawl configuration</h2>
+
+    <div class="field">
+      <label>Target URL</label>
+      <input id="cfg-url" placeholder="https://example.com/articles" value="https://news.ycombinator.com/">
+      <div class="help">start URL — the engine fetches it, then parses per your selectors</div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>Fetcher</label>
+        <select id="cfg-fetcher">
+          <option value="http">http · fast (requests)</option>
+          <option value="browser">browser · JS-rendered (Selenium)</option>
+          <option value="api">api · replay discovered</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Parser</label>
+        <select id="cfg-parser">
+          <option value="bs4">bs4 · CSS selectors</option>
+          <option value="json">json · API responses</option>
+          <option value="regex">regex · legacy sites</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="field" id="cfg-selector-row">
+      <label>CSS item selector</label>
+      <input id="cfg-selector" placeholder="article.product" value="tr.athing">
+      <div class="help">one ParsedItem per matching node</div>
+    </div>
+
+    <div class="field" id="cfg-items-path-row" style="display:none;">
+      <label>JSON path to list</label>
+      <input id="cfg-items-path" placeholder="data.items" value="data.children">
+      <div class="help">dot-path; parser emits one item per element of the list</div>
+    </div>
+
+    <div class="field">
+      <label>Fields (BS4) — JSON map</label>
+      <textarea id="cfg-fields" spellcheck="false">{
+  "rank":   {"css": "span.rank",    "attr": "text", "regex": "(\\d+)"},
+  "title":  {"css": "a.storylink",  "attr": "text"},
+  "link":   {"css": "a.storylink",  "attr": "href"},
+  "score":  {"css": "span.score",   "attr": "text", "regex": "(\\d+)"}
+}</textarea>
+      <div class="help">attr ∈ {text, html, href, src, …} · regex captures group #1</div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn primary" id="btn-run">▶ Run crawl</button>
+      <button class="btn" id="btn-load-hn">Load HN sample</button>
+    </div>
+
+    <div class="sep"></div>
+    <h2>2 · API reverse-engineering</h2>
+
+    <div class="field">
+      <label>Source for discovery</label>
+      <select id="rev-source">
+        <option value="html-url">Fetch URL · scan HTML for XHR candidates</option>
+        <option value="har">HAR file (paste JSON)</option>
+        <option value="chrome-perf">Chrome performance log (paste JSON)</option>
+        <option value="inline-html">Inline HTML snippet</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label id="rev-input-label">HTML / HAR / perf-log payload</label>
+      <textarea id="rev-input" placeholder="paste here..." spellcheck="false"></textarea>
+      <div class="help" id="rev-help">all parsing is local — no network roundtrip needed</div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn primary" id="btn-reverse">⌕ Discover endpoints</button>
+      <button class="btn" id="btn-sample-har">Insert demo HAR</button>
+    </div>
+
+    <div class="sep"></div>
+    <details>
+      <summary>What this framework does</summary>
+      <div style="font-size:12px; color:var(--text-dim); line-height:1.6;">
+        <p><strong>smart_crawler</strong> is a modular framework — BeautifulSoup &amp; Selenium are the parsers and renderers, but the API reverse-engineering layer is what makes it useful on modern SPAs.</p>
+        <p>You give it a HAR file, a Chrome performance log, or just an HTML page; it walks every XHR/fetch candidate, infers a JSON schema per endpoint, and lets you <em>replay</em> the same call later with <code>requests</code> — no browser required.</p>
+      </div>
+    </details>
+  </section>
+
+  <!-- ─── CENTER: results ───────────────────────────────────────── -->
+  <section class="pane">
+    <h2>Endpoints <span class="badge" id="endpoints-count">0</span></h2>
+
+    <div class="toolbar">
+      <input id="filter" placeholder="filter endpoints (method / URL / status)…">
+      <button class="btn ghost" id="btn-clear-filter">×</button>
+    </div>
+
+    <div id="endpoints-list" class="list">
+      <div class="empty">No endpoints discovered yet. Run a crawl, or use the reverse-engineering panel on the left.</div>
+    </div>
+
+    <div class="sep"></div>
+    <h2>Live console</h2>
+    <div class="console" id="console">
+      <div><span class="ts">--:--:--</span><span class="info">ready. type a URL, click run.</span></div>
+    </div>
+  </section>
+
+  <!-- ─── RIGHT: inspector ──────────────────────────────────────── -->
+  <section class="pane">
+    <h2>Inspector</h2>
+
+    <div id="inspector-empty" class="empty">
+      Click an endpoint or item to inspect it here.
+    </div>
+
+    <div id="inspector" style="display:none;">
+      <div class="tabs">
+        <div class="tab active" data-tab="details">Details</div>
+        <div class="tab" data-tab="schema">Schema</div>
+        <div class="tab" data-tab="replay">Replay</div>
+        <div class="tab" data-tab="response">Response</div>
+      </div>
+
+      <div class="tab-body active" data-body="details" id="tab-details"></div>
+      <div class="tab-body" data-body="schema"   id="tab-schema"></div>
+      <div class="tab-body" data-body="replay"   id="tab-replay"></div>
+      <div class="tab-body" data-body="response" id="tab-response"></div>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  <div>smart_crawler · BeautifulSoup + Selenium + reverse-engineering · <a href="#" id="open-docs">docs</a></div>
+  <div id="status-line">idle</div>
+</footer>
+
+<script>
+/* ====================================================================
+   smart_crawler · web UI
+   --------------------------------------------------------------------
+   - All "smart" work happens in the Flask backend (`crawler/demo/app.py`).
+   - When the backend isn't reachable, we degrade gracefully into a fully
+     client-side demo with mock endpoints (so this file is always
+     inspectable as a deliverable).
+   ==================================================================== */
+
+const BACKEND = window.SC_BACKEND || `http://${location.hostname || '127.0.0.1'}:5057`;
+
+let state = {
+  endpoints: [],
+  selected: null,
+  filter: '',
+};
+
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+function ts() {
+  const d = new Date();
+  return d.toTimeString().slice(0,8);
+}
+function log(msg, kind = 'info') {
+  const c = $('#console');
+  const div = document.createElement('div');
+  div.innerHTML = `<span class="ts">${ts()}</span><span class="${kind}">${escapeHtml(msg)}</span>`;
+  c.appendChild(div);
+  c.scrollTop = c.scrollHeight;
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+/* ─── backend ping ──────────────────────────────────────────────── */
+async function pingBackend() {
+  try {
+    const r = await fetch(BACKEND + '/api/health', { cache: 'no-store' });
+    if (!r.ok) throw new Error('http ' + r.status);
+    const data = await r.json();
+    $('#serverStatus').innerHTML = `<span class="pill ok">● backend online · ${data.endpoints_registered.join(', ')}</span>`;
+    return true;
+  } catch (e) {
+    $('#serverStatus').innerHTML = `<span class="pill warn">● backend offline (running in client-only demo mode)</span>`;
+    return false;
+  }
+}
+
+/* ─── tabs ─────────────────────────────────────────────────────── */
+$$('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    $$('.tab').forEach(x => x.classList.remove('active'));
+    $$('.tab-body').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    $(`.tab-body[data-body="${t.dataset.tab}"]`).classList.add('active');
+  });
+});
+
+/* ─── source-type toggle ──────────────────────────────────────── */
+$('#rev-source').addEventListener('change', () => {
+  const v = $('#rev-source').value;
+  const ta = $('#rev-input');
+  const label = $('#rev-input-label');
+  const help = $('#rev-help');
+  if (v === 'html-url') {
+    label.textContent = 'URL to fetch and scan';
+    ta.placeholder = 'https://example.com/';
+    help.textContent = 'framework fetches the page, then static-analyzes it for API endpoints';
+  } else if (v === 'har') {
+    label.textContent = 'HAR JSON content';
+    ta.placeholder = '{ "log": { "entries": [...] } }';
+    help.textContent = 'export from Chrome DevTools → Network → "Save all as HAR with content"';
+  } else if (v === 'chrome-perf') {
+    label.textContent = 'Chrome performance log entries';
+    ta.placeholder = '[ { "message": "..." }, ... ]';
+    help.textContent = 'array of `performance` log entries from Chrome devtools protocol';
+  } else {
+    label.textContent = 'HTML snippet';
+    ta.placeholder = '<html>...</html>';
+    help.textContent = 'static analysis — finds URL candidates and verifies each';
+  }
+});
+
+$('#cfg-parser').addEventListener('change', () => {
+  const p = $('#cfg-parser').value;
+  $('#cfg-selector-row').style.display  = p === 'bs4' ? '' : 'none';
+  $('#cfg-items-path-row').style.display = p === 'json' ? '' : 'none';
+});
+
+/* ─── run crawl ────────────────────────────────────────────────── */
+$('#btn-run').addEventListener('click', async () => {
+  const payload = {
+    url: $('#cfg-url').value.trim(),
+    fetcher: $('#cfg-fetcher').value,
+    parser: $('#cfg-parser').value,
+    selector: $('#cfg-selector').value.trim(),
+    items_path: $('#cfg-items-path').value.trim() || null,
+    kind: 'item',
+  };
+  let fields = null;
+  try {
+    if ($('#cfg-fields').value.trim()) {
+      fields = JSON.parse($('#cfg-fields').value);
+      payload.fields = fields;
+    }
+  } catch (e) {
+    log('fields JSON invalid: ' + e.message, 'err');
+    return;
+  }
+  if (!payload.url) { log('URL is required', 'err'); return; }
+
+  log(`crawl → ${payload.fetcher} ${payload.url}`);
+  $('#status-line').textContent = 'crawling…';
+
+  let result;
+  try {
+    const r = await fetch(BACKEND + '/api/crawl', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) throw new Error('http ' + r.status);
+    result = await r.json();
+  } catch (e) {
+    log('backend offline; running in demo mode', 'warn');
+    result = mockCrawl(payload);
+  }
+
+  if (result.error) { log('crawl failed: ' + result.error, 'err'); return; }
+  log(`crawl done · ${result.items_count} items · status ${result.job.status_code} (${result.job.fetcher})`, 'ok');
+
+  // add items as endpoints/items in the right pane
+  result.items.forEach(it => {
+    state.endpoints.push({
+      url: it.source_url,
+      method: 'GET',
+      headers: {},
+      query_params: {},
+      status_codes: { [result.job.status_code]: 1 },
+      schema: { response: guessSchemaFromItem(it) },
+      occurrence: 1,
+      _demo_item: it,
+    });
+  });
+  renderEndpoints();
+  if (result.items.length) selectEndpoint(0);
+});
+
+function guessSchemaFromItem(it) {
+  const out = { type: 'object', fields: {} };
+  for (const [k, v] of Object.entries(it.data || {})) {
+    out.fields[k] = { type: typeof v === 'object' ? 'object' : typeof v, examples: [v] };
+  }
+  return out;
+}
+
+/* ─── reverse-engineer ─────────────────────────────────────────── */
+$('#btn-reverse').addEventListener('click', async () => {
+  const src = $('#rev-source').value;
+  const text = $('#rev-input').value.trim();
+  let payload = {};
+  if (src === 'html-url') {
+    if (!text) { log('URL required', 'err'); return; }
+    payload = { html_url: text };
+  } else if (src === 'har') {
+    try { payload = { har: JSON.parse(text) }; }
+    catch (e) { log('HAR JSON invalid: ' + e.message, 'err'); return; }
+  } else if (src === 'chrome-perf') {
+    try { payload = { perf_log: JSON.parse(text) }; }
+    catch (e) { log('perf-log JSON invalid: ' + e.message, 'err'); return; }
+  } else {
+    if (!text) { log('HTML required', 'err'); return; }
+    payload = { html: text, base_url: 'https://demo.local/' };
+  }
+
+  log(`reverse → ${src}`);
+  $('#status-line').textContent = 'discovering…';
+
+  let data;
+  try {
+    const r = await fetch(BACKEND + '/api/reverse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) throw new Error('http ' + r.status);
+    data = await r.json();
+  } catch (e) {
+    log('backend offline; running demo analysis locally', 'warn');
+    data = mockReverse(payload);
+  }
+
+  state.endpoints = data.endpoints || [];
+  log(`discovered ${data.count || state.endpoints.length} endpoints · ${(data.summary && data.summary.auth_required_count) || 0} need auth`, 'ok');
+  renderEndpoints();
+  if (state.endpoints.length) selectEndpoint(0);
+});
+
+/* ─── endpoint list ────────────────────────────────────────────── */
+function renderEndpoints() {
+  const list = $('#endpoints-list');
+  const filter = state.filter.toLowerCase();
+  const endpoints = state.endpoints.filter(e => {
+    if (!filter) return true;
+    const hay = (e.url + ' ' + e.method + ' ' + JSON.stringify(e.status_codes)).toLowerCase();
+    return hay.includes(filter);
+  });
+  $('#endpoints-count').textContent = state.endpoints.length;
+  if (!endpoints.length) {
+    list.innerHTML = '<div class="empty">No matching endpoints.</div>';
+    return;
+  }
+  list.innerHTML = endpoints.map((e, i) => {
+    const idx = state.endpoints.indexOf(e);
+    const status = Object.keys(e.status_codes || {})[0] || '—';
+    const ct = Object.keys(e.content_types || {})[0] || '';
+    return `
+      <div class="item ${state.selected === idx ? 'selected' : ''}" data-i="${idx}">
+        <div class="url">${escapeHtml(e.url.slice(0, 110))}</div>
+        <div class="meta">
+          <span class="verb ${e.method}">${escapeHtml(e.method)}</span>
+          <span class="pill ${status >= 200 && status < 400 ? 'ok' : 'warn'}">${status}</span>
+          ${ct ? `<span>${escapeHtml(ct.split(';')[0])}</span>` : ''}
+          <span>×${e.occurrence || 1}</span>
+        </div>
+      </div>`;
+  }).join('');
+  $$('#endpoints-list .item').forEach(el => {
+    el.addEventListener('click', () => selectEndpoint(parseInt(el.dataset.i, 10)));
+  });
+}
+
+$('#filter').addEventListener('input', e => {
+  state.filter = e.target.value;
+  renderEndpoints();
+});
+$('#btn-clear-filter').addEventListener('click', () => {
+  $('#filter').value = ''; state.filter = ''; renderEndpoints();
+});
+
+function selectEndpoint(i) {
+  state.selected = i;
+  const e = state.endpoints[i];
+  if (!e) return;
+  $$('#endpoints-list .item').forEach(el => el.classList.toggle('selected', parseInt(el.dataset.i, 10) === i));
+  $('#inspector-empty').style.display = 'none';
+  $('#inspector').style.display = '';
+  renderDetails(e);
+  renderSchema(e);
+  renderReplay(e);
+  renderResponse(e);
+}
+
+function renderDetails(e) {
+  const tb = $('#tab-details');
+  tb.innerHTML = `
+    <div class="kv">
+      <div class="k">method</div><div class="v">${escapeHtml(e.method)}</div>
+      <div class="k">url</div><div class="v">${escapeHtml(e.url)}</div>
+      <div class="k">occurrence</div><div class="v">${e.occurrence}</div>
+      <div class="k">status codes</div><div class="v">${escapeHtml(JSON.stringify(e.status_codes || {}))}</div>
+      <div class="k">content-types</div><div class="v">${escapeHtml(JSON.stringify(e.content_types || {}))}</div>
+      <div class="k">first seen</div><div class="v">${escapeHtml(e.first_seen || '—')}</div>
+      <div class="k">last seen</div><div class="v">${escapeHtml(e.last_seen || '—')}</div>
+    </div>
+    <h2 style="margin-top:16px;">Headers <span class="badge">${Object.keys(e.headers || {}).length}</span></h2>
+    <pre class="json relative"><button class="copy" data-copy="${escapeHtml(JSON.stringify(e.headers || {}, null, 2))}">copy</button>${escapeHtml(JSON.stringify(e.headers || {}, null, 2))}</pre>
+    ${e.query_params && Object.keys(e.query_params).length ? `
+      <h2 style="margin-top:16px;">Query params</h2>
+      <pre class="json relative"><button class="copy" data-copy="${escapeHtml(JSON.stringify(e.query_params, null, 2))}">copy</button>${escapeHtml(JSON.stringify(e.query_params, null, 2))}</pre>
+    ` : ''}
+    ${e.body_samples && e.body_samples.length ? `
+      <h2 style="margin-top:16px;">Body samples</h2>
+      <pre class="json relative"><button class="copy" data-copy="${escapeHtml(JSON.stringify(e.body_samples[0], null, 2))}">copy</button>${escapeHtml(JSON.stringify(e.body_samples[0], null, 2))}</pre>
+    ` : ''}
+  `;
+  bindCopy();
+}
+
+function renderSchema(e) {
+  const tb = $('#tab-schema');
+  const sch = (e.schema && e.schema.response) || { type: 'object', fields: {} };
+  tb.innerHTML = `<div class="schema">${renderSchemaNode(sch, '')}</div>`;
+}
+
+function renderSchemaNode(node, indent) {
+  const pad = 'padding-left:' + (indent * 12) + 'px';
+  if (!node || typeof node !== 'object') return `<div class="field-row" style="${pad}"><span class="ex">${escapeHtml(String(node))}</span></div>`;
+  if (node.type === 'object' && node.fields) {
+    let s = '';
+    for (const [k, sub] of Object.entries(node.fields)) {
+      s += `<div class="field-row" style="${pad}">
+              <span class="name">${escapeHtml(k)}</span>
+              <span class="type">${escapeHtml(sub.type || '?')}</span>
+              ${sub.examples && sub.examples.length ? `<span class="ex">= ${escapeHtml(JSON.stringify(sub.examples[0]).slice(0, 60))}</span>` : ''}
+            </div>`;
+      if (sub.type === 'object' || sub.type === 'array') {
+        s += renderSchemaNode(sub, indent + 1);
+      }
+    }
+    return s;
+  }
+  if (node.type === 'array') {
+    return `<div style="${pad}"><span class="type">[array]</span></div>` +
+           renderSchemaNode(node.items || { type: 'any' }, indent + 1);
+  }
+  return '';
+}
+
+function renderReplay(e) {
+  const tb = $('#tab-replay');
+  tb.innerHTML = `
+    <div class="field">
+      <label>Override query params (JSON)</label>
+      <textarea id="replay-params" spellcheck="false">{}</textarea>
+    </div>
+    <div class="field">
+      <label>Override body (JSON)</label>
+      <textarea id="replay-body" spellcheck="false">${escapeHtml(JSON.stringify((e.body_samples||[])[0] || {}, null, 2))}</textarea>
+    </div>
+    <div class="btn-row">
+      <button class="btn primary" id="btn-do-replay">↻ Replay via ${escapeHtml(e.method)}</button>
+    </div>
+    <div id="replay-out" style="margin-top:12px;"></div>
+  `;
+  $('#btn-do-replay').addEventListener('click', async () => {
+    let params = {};
+    try { params = JSON.parse($('#replay-params').value || '{}'); } catch {}
+    let body = null;
+    try { body = JSON.parse($('#replay-body').value || 'null'); } catch {}
+    log(`replay → ${e.method} ${e.url}`);
+    let resp;
+    try {
+      const r = await fetch(BACKEND + '/api/replay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: e.url, method: e.method,
+          headers: e.headers, query_params: e.query_params,
+          body, params,
+        }),
+      });
+      resp = await r.json();
+    } catch {
+      resp = mockReplay(e, params);
+    }
+    log(`replay ${resp.ok ? 'OK' : 'FAIL'} · ${resp.status} · ${resp.elapsed_ms}ms`, resp.ok ? 'ok' : 'err');
+    const out = $('#replay-out');
+    out.innerHTML = `
+      <div class="kv">
+        <div class="k">status</div><div class="v">${resp.status}</div>
+        <div class="k">elapsed</div><div class="v">${resp.elapsed_ms}ms</div>
+        <div class="k">content-type</div><div class="v">${escapeHtml(resp.content_type || '')}</div>
+      </div>
+      <h2>Body</h2>
+      <pre class="json relative"><button class="copy" data-copy="${escapeHtml(resp.body || '')}">copy</button>${escapeHtml(resp.body || '')}</pre>
+    `;
+    bindCopy();
+  });
+}
+
+function renderResponse(e) {
+  const tb = $('#tab-response');
+  if (e._demo_item) {
+    tb.innerHTML = `<pre class="json relative"><button class="copy" data-copy="${escapeHtml(JSON.stringify(e._demo_item, null, 2))}">copy</button>${escapeHtml(JSON.stringify(e._demo_item, null, 2))}</pre>`;
+    bindCopy();
+    return;
+  }
+  tb.innerHTML = '<div class="empty">No captured response body. Use the Replay tab to fetch a fresh copy.</div>';
+}
+
+function bindCopy() {
+  $$('.copy').forEach(b => {
+    b.onclick = () => {
+      navigator.clipboard?.writeText(b.dataset.copy);
+      b.textContent = 'copied!';
+      setTimeout(() => b.textContent = 'copy', 1200);
+    };
+  });
+}
+
+/* ─── demo buttons ─────────────────────────────────────────────── */
+$('#btn-load-hn').addEventListener('click', () => {
+  $('#cfg-url').value = 'https://news.ycombinator.com/';
+  $('#cfg-selector').value = 'tr.athing';
+  $('#cfg-parser').value = 'bs4';
+  $('#cfg-fetcher').value = 'http';
+  $('#cfg-fields').value = `{
+  "rank":   {"css": "span.rank",    "attr": "text", "regex": "(\\\\d+)"},
+  "title":  {"css": "a.storylink",  "attr": "text"},
+  "link":   {"css": "a.storylink",  "attr": "href"}
+}`;
+  log('loaded HN sample config');
+});
+
+$('#btn-sample-har').addEventListener('click', () => {
+  $('#rev-source').value = 'har';
+  $('#rev-source').dispatchEvent(new Event('change'));
+  $('#rev-input').value = JSON.stringify(SAMPLE_HAR, null, 2);
+  log('inserted demo HAR (Reddit-style endpoints)');
+});
+
+/* ─── mock fallbacks (so the page works without backend) ───────── */
+const SAMPLE_HAR = {
+  log: {
+    version: '1.2',
+    creator: { name: 'demo', version: '1.0' },
+    entries: [
+      {
+        request: { method: 'GET', url: 'https://api.reddit.com/r/python/hot?limit=10',
+                   headers: [{name: 'Authorization', value: 'Bearer demo'}, {name: 'Accept', value: 'application/json'}],
+                   queryString: [{name: 'limit', value: '10'}] },
+        response: { status: 200,
+                    content: { mimeType: 'application/json',
+                               text: JSON.stringify({ data: { children: [
+                                 { data: { id: 'abc', title: 'Hello', score: 42, url: 'https://example.com/a' } },
+                                 { data: { id: 'def', title: 'World', score: 7,  url: 'https://example.com/b' } },
+                               ]}})}},
+      },
+      {
+        request: { method: 'GET', url: 'https://api.reddit.com/r/python/about',
+                   headers: [{name: 'Accept', value: 'application/json'}] },
+        response: { status: 200, content: { mimeType: 'application/json',
+                                            text: JSON.stringify({ data: { display_name: 'python', subscribers: 1234567 } }) } },
+      },
+      {
+        request: { method: 'POST', url: 'https://oauth.reddit.com/api/v1/access_token',
+                   headers: [{name: 'Authorization', value: 'Basic xxx'}, {name: 'Content-Type', value: 'application/x-www-form-urlencoded'}],
+                   postData: { text: 'grant_type=client_credentials' } },
+        response: { status: 200, content: { mimeType: 'application/json', text: JSON.stringify({ access_token: '...', expires_in: 3600 }) } },
+      },
+    ],
+  },
+};
+
+function mockReverse(payload) {
+  if (payload.har) {
+    const endpoints = [];
+    const seen = new Set();
+    for (const ent of (payload.har.log?.entries || [])) {
+      const url = ent.request?.url;
+      const method = ent.request?.method || 'GET';
+      if (!url || seen.has(method+url)) continue;
+      seen.add(method+url);
+      let respGuess = { type: 'string' };
+      try {
+        const body = JSON.parse(ent.response?.content?.text || 'null');
+        respGuess = buildSchema(body);
+      } catch {}
+      const headers = {};
+      for (const h of ent.request?.headers || []) headers[h.name] = h.value;
+      const query_params = {};
+      for (const q of ent.request?.queryString || []) (query_params[q.name] ||= []).push(q.value);
+      endpoints.push({
+        url, method, headers, query_params,
+        status_codes: { [ent.response?.status || 200]: 1 },
+        content_types: { [ent.response?.content?.mimeType || 'application/json']: 1 },
+        schema: { response: respGuess },
+        body_samples: ent.request?.postData ? [{ text: ent.request.postData.text }] : [],
+        occurrence: 1,
+        first_seen: new Date().toISOString(),
+        last_seen: new Date().toISOString(),
+      });
+    }
+    return { count: endpoints.length, endpoints, summary: { total_endpoints: endpoints.length, by_method: {}, auth_required_count: endpoints.filter(e => Object.keys(e.headers).some(k => /auth|token/i.test(k))).length } };
+  }
+  return { count: 0, endpoints: [], summary: { total_endpoints: 0, auth_required_count: 0 } };
+}
+
+function buildSchema(value) {
+  if (Array.isArray(value)) {
+    return { type: 'array', items: value.length ? buildSchema(value[0]) : { type: 'any' } };
+  }
+  if (value && typeof value === 'object') {
+    const fields = {};
+    for (const [k, v] of Object.entries(value)) fields[k] = buildSchema(v);
+    return { type: 'object', fields };
+  }
+  return { type: value === null ? 'null' : typeof value, examples: [value] };
+}
+
+function mockCrawl(payload) {
+  const url = payload.url;
+  return {
+    job: { url, status: 'success', fetcher: payload.fetcher, status_code: 200 },
+    items_count: 3,
+    items: [
+      { source_url: url, kind: 'item', data: { rank: '1.', title: 'Demo item #1',  link: 'https://example.com/1' }, meta: { fetcher: payload.fetcher, status: 200 } },
+      { source_url: url, kind: 'item', data: { rank: '2.', title: 'Demo item #2',  link: 'https://example.com/2' }, meta: { fetcher: payload.fetcher, status: 200 } },
+      { source_url: url, kind: 'item', data: { rank: '3.', title: 'Demo item #3',  link: 'https://example.com/3' }, meta: { fetcher: payload.fetcher, status: 200 } },
+    ],
+  };
+}
+
+function mockReplay(e, params) {
+  return {
+    status: 200, ok: true, elapsed_ms: 12 + Math.floor(Math.random()*40),
+    content_type: 'application/json',
+    body: JSON.stringify({ mock: true, replayed_url: e.url, params }, null, 2),
+    headers: { 'content-type': 'application/json' },
+  };
+}
+
+/* ─── boot ─────────────────────────────────────────────────────── */
+pingBackend().then(online => {
+  log(online ? 'backend connected · ready' : 'running in demo mode · click "Insert demo HAR" to start');
+  $('#status-line').textContent = online ? 'online' : 'demo mode';
+});
+$('#open-docs').addEventListener('click', (e) => {
+  e.preventDefault();
+  alert('See /home/hoonsoropenclaw/.hermes/projects/learning_1785795009_4/README.md (or run `python -m crawler.cli --help` in the project directory).');
+});
+</script>
+</body>
+</html>
