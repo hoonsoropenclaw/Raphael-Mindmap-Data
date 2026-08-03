@@ -1,25 +1,27 @@
-# Graph Algorithm and Traversal
+# Advanced Data Structure and System Expansion
 
 ## Target Skill Name
-graph_algorithm_and_traversal
+advanced_data_structure_and_system_expansion
 
 ## Target Summary
-Implement and utilize graph algorithms and traversal strategies, including Breadth-First Search (BFS), Depth-First Search (DFS), Kahn's topological sorting, and cycle detection, to efficiently process data and solve problems related to graph structures.
+Implement and optimize graph algorithms and traversal techniques, and propose and implement strategies for system domain or feature expansion.
 
 ---
 
-## 1. Frontier Strategy (BFS/DFS)
+## 1. Graph Algorithm and Traversal
 
-### Description
-Control the traversal order of graph-based algorithms using BFS and DFS strategies. These strategies are fundamental for tasks like crawling, pathfinding, and data processing.
+### 1.1 Frontier Strategy (BFS/DFS)
 
-### BFS (Breadth-First Search) Frontier
+#### Description
+Control the traversal order of graph-based algorithms using Breadth-First Search (BFS) and Depth-First Search (DFS) strategies. These strategies are fundamental for tasks like crawling, pathfinding, and data processing.
 
-#### Key Concepts
+#### BFS (Breadth-First Search) Frontier
+
+##### Key Concepts
 - Utilizes a queue to explore neighbors level by level.
 - Suitable for finding the shortest path in unweighted graphs.
 
-#### Implementation (Python)
+##### Implementation (Python)
 ```python
 from asyncio import Queue
 
@@ -37,13 +39,13 @@ class BFSFrontier:
         await self._q.join()
 ```
 
-### DFS (Depth-First Search) Frontier
+#### DFS (Depth-First Search) Frontier
 
-#### Key Concepts
+##### Key Concepts
 - Utilizes a stack to explore as far as possible along each branch before backtracking.
 - Useful for tasks like topological sorting and cycle detection.
 
-#### Implementation (Python)
+##### Implementation (Python)
 ```python
 from asyncio import Queue
 
@@ -61,24 +63,21 @@ class DFSFrontier:
         pass
 ```
 
-### Common Errors and Prevention
-
+##### Common Errors and Prevention
 - **Error**: Improper stack management in DFS leading to infinite recursion or data loss.
   - **Solution**: Use a list to simulate a stack and ensure the last element is correctly popped in the `get` method.
   
 - **Error**: Improper queue handling in BFS causing tasks to remain incomplete.
   - **Solution**: Use `asyncio.Queue` and call `task_done()` upon task completion to ensure `join()` waits for all tasks to finish.
 
----
+### 1.2 Graph Algorithm Implementation
 
-## 2. Graph Algorithm Implementation
+#### 1.2.1 Kahn's Topological Sorting
 
-### 2.1 Kahn's Topological Sorting
-
-#### Description
+##### Description
 Kahn's algorithm is used to perform topological sorting on Directed Acyclic Graphs (DAGs). It detects cycles by ensuring all nodes are processed in a valid order.
 
-#### Steps
+##### Steps
 1. **Initialize In-Degree of Each Node**:
    - Create a data structure (e.g., array or hash map) to store the in-degree of each node.
    - Iterate through all edges to populate the in-degree values.
@@ -97,7 +96,7 @@ Kahn's algorithm is used to perform topological sorting on Directed Acyclic Grap
    - If the topological order includes all nodes, the graph is a DAG.
    - Otherwise, the graph contains at least one cycle.
 
-#### Code Snippet (Python)
+##### Code Snippet (Python)
 ```python
 from collections import defaultdict, deque
 
@@ -135,16 +134,16 @@ graph = {
 print(kahn_topological_sort(graph))
 ```
 
-#### Error Prevention
+##### Error Prevention
 - **Cycle Detection**: If the topological order does not include all nodes, a cycle exists in the graph.
 - **Graph Validation**: Ensure the input graph is a valid DAG before attempting to sort.
 
-### 2.2 DFS Cycle Detection
+#### 1.2.2 DFS Cycle Detection
 
-#### Description
+##### Description
 Depth First Search (DFS) is used to detect cycles in a graph. The algorithm uses a three-color marking method to identify nodes that are part of a cycle.
 
-#### Steps
+##### Steps
 1. **Initialize Color Array**:
    - Create a data structure (e.g., array or hash map) to store the color of each node.
    - Initially, all nodes are marked as "white" (unvisited).
@@ -160,7 +159,7 @@ Depth First Search (DFS) is used to detect cycles in a graph. The algorithm uses
 3. **Cycle Detection**:
    - If a "gray" node is encountered during traversal, a cycle exists.
 
-#### Code Snippet (Python)
+##### Code Snippet (Python)
 ```python
 from collections import defaultdict
 
@@ -197,13 +196,13 @@ graph = {
 print(dfs_cycle_detection(graph))
 ```
 
-#### Error Prevention
+##### Error Prevention
 - **Graph Validation**: Ensure the input graph is a valid directed graph.
 - **Handling Large Graphs**: For very large graphs, consider using iterative DFS to avoid stack overflow.
 
 ---
 
-## 3. Topological Sort with Cycle Detection
+## 2. Topological Sort with Cycle Detection
 
 ### Description
 In processing Directed Acyclic Graphs (DAGs), topological sorting is a crucial step. To ensure the graph is free of cycles, cycle detection must be performed during the sorting process.
@@ -245,5 +244,17 @@ function topologicalSort(nodes, edges) {
 
 ---
 
+## 3. System Domain or Feature Expansion
+
+### Description
+When the current task exceeds the authorized learning domain, propose strategies for expanding the learning domain.
+
+### Key Content
+- **Current Task**: Develop high-quality UI animations using Framer Motion and optimize performance.
+- **Proposed Expansion Domain**: UI/UX Aesthetics & Design Systems (Framer Motion belongs to this domain).
+- **Reason**: The current task involves UI animation and performance optimization, and it is recommended to include Framer Motion and related UI/UX design systems in the learning domain.
+
+---
+
 ## Conclusion
-By implementing BFS, DFS, Kahn's topological sorting, and DFS cycle detection, you can effectively manage and analyze graph data structures, ensuring they are free of cycles and can be processed in a valid order. These strategies are essential for efficient data processing and problem-solving in various applications, including network analysis, scheduling, and more.
+By implementing and optimizing graph algorithms and traversal techniques, and by proposing and implementing strategies for system domain or feature expansion, you can effectively manage and analyze complex data structures and systems, ensuring they are free of cycles and can be processed in a valid order. These strategies are essential for efficient data processing and problem-solving in various applications, including network analysis, scheduling, and UI/UX design systems.

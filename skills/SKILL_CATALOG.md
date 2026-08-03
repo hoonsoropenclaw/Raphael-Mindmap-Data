@@ -3,16 +3,17 @@
 
 # SKILL_CATALOG
 
-1. **trial_and_error** - Mastering the art of iterative problem-solving through experimentation and learning from failures.
-2. **advanced_dynamic_form_management** - Techniques for creating and managing highly dynamic and interactive forms in web applications.
-3. **advanced_testing_strategies** - Implementing sophisticated testing methodologies to ensure robust and reliable software.
-4. **glassmorphism_implementation** - Incorporating the glassmorphism design trend into user interfaces for a modern and visually appealing look.
-5. **anti_pattern_handling** - Identifying and mitigating common pitfalls and bad practices in software development.
-6. **advanced_web_ui_validation_and_integration** - Advanced techniques for validating and integrating user interfaces in web applications.
-7. **domain_expansion_proposal** - Strategies for proposing and implementing the expansion of system domains to accommodate new features or services.
-8. **fastapi_robust_integration_and_testing** - Ensuring seamless and reliable integration and testing of FastAPI applications.
-9. **enhanced_request_management** - Optimizing the handling and processing of requests in complex systems for improved performance and reliability.
-10. **system_stability_and_efficiency** - Techniques for maintaining and enhancing the stability and efficiency of software systems.
-11. **graph_algorithm_and_traversal** - Implementing and utilizing graph algorithms and traversal techniques for complex data structures.
-12. **media_and_data_management** - Efficiently managing and organizing media and data within applications for optimal performance and accessibility.
-13. **tailwind_config_injection** - Customizing and injecting Tailwind CSS configurations to streamline styling and design processes.
+1. **trial_and_error** - Implementing trial and error methodologies for problem-solving and optimization.
+2. **performance_monitoring_and_media_optimization** - Enhancing system performance through monitoring and media resource optimization.
+3. **playwright_visual_regression** - Utilizing Playwright for visual regression testing to ensure UI consistency.
+4. **playwright_testing_and_reporting** - Advanced testing and reporting using Playwright for comprehensive test coverage.
+5. **advanced_data_structure_and_system_expansion** - Designing and expanding systems with advanced data structures for improved efficiency.
+6. **advanced_asyncio_task_management** - Mastering asynchronous task management with advanced asyncio techniques.
+7. **media_and_system_optimization** - Optimizing media resources and system performance for better efficiency.
+8. **advanced_testing_with_conditional_skipping** - Implementing advanced testing strategies with conditional skipping for flexible test execution.
+9. **modern_ui_development** - Developing modern and responsive user interfaces using cutting-edge technologies.
+10. **fastapi_full_stack_architecture** - Building full-stack applications with FastAPI for high-performance and scalable solutions.
+11. **playwright_visual_regression_testing** - Conducting visual regression testing with Playwright to detect and fix UI discrepancies.
+12. **react_integration_advanced** - Advanced techniques for integrating React with other technologies and frameworks.
+13. **prompt_injection_fake_authority_detection** - Detecting and preventing prompt injection and fake authority attacks in applications.
+14. **modern_ui_integration_techniques** - Exploring modern techniques for seamless UI integration and interoperability.

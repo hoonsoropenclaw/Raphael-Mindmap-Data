@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>React Dynamic Form System · Tailwind + Glassmorphism</title>
+
+  <!-- React 18 UMD (production) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- Babel 7 for in-browser JSX (僅 demo 用; 生產環境請走 Vite/CRA) -->
+  <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // tailwind_config_injection 技能應用：自定義主題 + glassmorphism
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50:  '#eef2ff', 100: '#e0e7ff', 200: '#c7d2fe', 300: '#a5b4fc',
+              400: '#818cf8', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca',
+              800: '#3730a3', 900: '#312e81',
+            },
+            glass: {
+              50:  'rgba(255,255,255,0.55)',
+              100: 'rgba(255,255,255,0.30)',
+              200: 'rgba(255,255,255,0.18)',
+              300: 'rgba(255,255,255,0.10)',
+            },
+            ink: { 900: '#0b1020', 700: '#1f2540', 500: '#4b5470' },
+          },
+          backdropBlur: { xs: '2px' },
+          boxShadow: {
+            glass: '0 8px 32px 0 rgba(31, 38, 135, 0.18)',
+            'glass-lg': '0 16px 48px 0 rgba(31, 38, 135, 0.28)',
+            'inset-glass': 'inset 0 1px 0 0 rgba(255,255,255,0.25)',
+          },
+          fontFamily: {
+            sans: ['Inter', 'Noto Sans TC', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
+          },
+          animation: {
+            'aurora': 'aurora 18s ease infinite',
+            'fade-in': 'fadeIn 0.4s ease-out',
+            'slide-up': 'slideUp 0.4s ease-out',
+            'shake': 'shake 0.35s ease-in-out',
+            'pulse-soft': 'pulseSoft 2.4s ease-in-out infinite',
+          },
+          keyframes: {
+            aurora: {
+              '0%,100%': { backgroundPosition: '0% 50%' },
+              '50%':     { backgroundPosition: '100% 50%' },
+            },
+            fadeIn:   { '0%': { opacity: 0 }, '100%': { opacity: 1 } },
+            slideUp:  { '0%': { transform: 'translateY(8px)', opacity: 0 }, '100%': { transform: 'translateY(0)', opacity: 1 } },
+            shake:    { '0%,100%': { transform: 'translateX(0)' }, '25%': { transform: 'translateX(-4px)' }, '75%': { transform: 'translateX(4px)' } },
+            pulseSoft:{ '0%,100%': { opacity: 1 }, '50%': { opacity: 0.6 } },
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    /* glassmorphism_implementation 技能應用：@supports 回退 + CSS 變量 */
+    :root {
+      --glass-blur: 14px;
+      --glass-opacity: 0.18;
+    }
+    body {
+      background:
+        radial-gradient(1200px 600px at 10% -10%, rgba(99,102,241,0.55), transparent 60%),
+        radial-gradient(900px 600px at 110% 10%, rgba(236,72,153,0.40), transparent 55%),
+        radial-gradient(800px 500px at 50% 110%, rgba(34,211,238,0.40), transparent 60%),
+        linear-gradient(135deg, #0b1020 0%, #1a1b3a 50%, #0b1020 100%);
+      background-size: 200% 200%;
+      animation: aurora 18s ease infinite;
+      min-height: 100vh;
+      font-family: Inter, "Noto Sans TC", system-ui, sans-serif;
+      color: #e5e7eb;
+    }
+    .glass {
+      background: rgba(255,255,255, var(--glass-opacity));
+      -webkit-backdrop-filter: blur(var(--glass-blur));
+      backdrop-filter: blur(var(--glass-blur));
+      border: 1px solid rgba(255,255,255,0.22);
+      box-shadow: 0 8px 32px 0 rgba(31,38,135,0.28), inset 0 1px 0 rgba(255,255,255,0.25);
+    }
+    @supports not ((backdrop-filter: blur(8px)) or (-webkit-backdrop-filter: blur(8px))) {
+      .glass { background: rgba(20, 20, 40, 0.85); }
+    }
+    .field-input {
+      transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+    }
+    .field-input:focus {
+      outline: none;
+      border-color: rgba(165,180,252,0.85);
+      box-shadow: 0 0 0 3px rgba(99,102,241,0.30);
+    }
+    .field-input.is-invalid {
+      border-color: rgba(244,63,94,0.85);
+      box-shadow: 0 0 0 3px rgba(244,63,94,0.18);
+    }
+    .field-input.is-valid {
+      border-color: rgba(34,197,94,0.75);
+    }
+    /* progress bar shimmer */
+    .shimmer {
+      position: relative; overflow: hidden;
+    }
+    .shimmer::after {
+      content: ""; position: absolute; inset: 0;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.30), transparent);
+      transform: translateX(-100%);
+      animation: shimmer 1.6s infinite;
+    }
+    @keyframes shimmer {
+      100% { transform: translateX(100%); }
+    }
+    /* checkbox & radio 客製化 */
+    .check-box {
+      appearance: none; -webkit-appearance: none;
+      width: 1.1rem; height: 1.1rem;
+      border: 1.5px solid rgba(255,255,255,0.45);
+      border-radius: 0.30rem; background: rgba(255,255,255,0.08);
+      display: inline-block; position: relative; cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .check-box:checked {
+      background: linear-gradient(135deg,#6366f1,#ec4899);
+      border-color: transparent;
+    }
+    .check-box:checked::after {
+      content: ""; position: absolute; left: 4px; top: 1px;
+      width: 5px; height: 9px; border: solid #fff; border-width: 0 2px 2px 0;
+      transform: rotate(45deg);
+    }
+    .radio-dot {
+      appearance: none; -webkit-appearance: none;
+      width: 1.1rem; height: 1.1rem; border-radius: 50%;
+      border: 1.5px solid rgba(255,255,255,0.45);
+      background: rgba(255,255,255,0.08);
+      display: inline-block; position: relative; cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .radio-dot:checked {
+      border-color: transparent;
+      background: radial-gradient(circle, #fff 0 30%, transparent 32%), linear-gradient(135deg,#6366f1,#ec4899);
+    }
+    /* 捲軸 */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-thumb {
+      background: linear-gradient(180deg,#6366f1,#ec4899); border-radius: 10px;
+    }
+    ::-webkit-scrollbar-track { background: rgba(255,255,255,0.04); }
+  </style>
+</head>
+<body class="text-slate-100">
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="react">
+  // ============================================================
+  // React Dynamic Form System
+  // 採用微技能：
+  //   - advanced_dynamic_form_management (JSON schema 驅動 + localStorage)
+  //   - advanced_web_ui_validation_and_integration (Tailwind + UMD)
+  //   - tailwind_config_injection (自定義主題注入)
+  //   - glassmorphism_implementation (glass card 視覺)
+  //   - system_stability_and_efficiency (非阻塞 / 受控迴圈)
+  // ============================================================
+  const { useState, useEffect, useMemo, useCallback, useRef, createContext, useContext } = React;
+
+  // ------------------------------------------------------------
+  // 1. 驗證引擎（核心規則 + 自訂函式支援）
+  // ------------------------------------------------------------
+  const VALIDATORS = {
+    required: (v, params = true) => {
+      if (!params) return null;
+      if (v === undefined || v === null) return '此欄位為必填';
+      if (typeof v === 'string' && v.trim() === '') return '此欄位為必填';
+      if (Array.isArray(v) && v.length === 0) return '至少選擇一個項目';
+      return null;
+    },
+    email: (v) => {
+      if (!v) return null;
+      const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      return re.test(v) ? null : '請輸入有效的 Email 格式';
+    },
+    minLength: (v, n) => (!v || v.length >= n ? null : `至少需要 ${n} 個字元`),
+    maxLength: (v, n) => (!v || v.length <= n ? null : `不可超過 ${n} 個字元`),
+    pattern: (v, re) => {
+      if (!v) return null;
+      try {
+        const regex = (re instanceof RegExp) ? re : new RegExp(re);
+        return regex.test(v) ? null : '格式不符合規則';
+      } catch (e) { return '驗證規則錯誤'; }
+    },
+    number: (v) => {
+      if (v === '' || v == null) return null;
+      return Number.isFinite(Number(v)) ? null : '請輸入數字';
+    },
+    min: (v, n) => (v === '' || v == null || Number(v) >= n ? null : `不可小於 ${n}`),
+    max: (v, n) => (v === '' || v == null || Number(v) <= n ? null : `不可大於 ${n}`),
+    sameAs: (v, other, formValues) => (v === formValues?.[other] ? null : '兩次輸入不一致'),
+    strongPassword: (v) => {
+      if (!v) return null;
+      const tests = [
+        [v.length >= 8, '至少 8 個字元'],
+        [/[A-Z]/.test(v), '需包含大寫字母'],
+        [/[a-z]/.test(v), '需包含小寫字母'],
+        [/[0-9]/.test(v), '需包含數字'],
+        [/[^A-Za-z0-9]/.test(v), '需包含特殊字元'],
+      ];
+      const failed = tests.filter(([ok]) => !ok).map(([, msg]) => msg);
+      return failed.length === 0 ? null : failed.join(' / ');
+    },
+    custom: (v, fn, formValues) => {
+      try { return fn(v, formValues) || null; }
+      catch (e) { return '驗證函式執行錯誤'; }
+    },
+  };
+
+  function runValidation(field, value, allValues) {
+    const errors = [];
+    if (Array.isArray(field.validators)) {
+      for (const v of field.validators) {
+        const { type, params, message } = v;
+        const fn = VALIDATORS[type];
+        if (!fn) { if (message) errors.push(message); continue; }
+        let err;
+        if (type === 'sameAs')      err = fn(value, params, allValues);
+        else if (type === 'custom') err = fn(value, params, allValues);
+        else                        err = fn(value, params);
+        if (err) errors.push(message || err);
+      }
+    }
+    return errors;
+  }
+
+  function passwordStrength(v) {
+    if (!v) return { score: 0, label: '尚未輸入', color: 'bg-slate-500' };
+    let score = 0;
+    if (v.length >= 8) score++;
+    if (v.length >= 12) score++;
+    if (/[A-Z]/.test(v) && /[a-z]/.test(v)) score++;
+    if (/[0-9]/.test(v)) score++;
+    if (/[^A-Za-z0-9]/.test(v)) score++;
+    const levels = [
+      { label: '極弱', color: 'bg-rose-500' },
+      { label: '偏弱', color: 'bg-orange-500' },
+      { label: '中等', color: 'bg-amber-400' },
+      { label: '良好', color: 'bg-lime-400' },
+      { label: '強健', color: 'bg-emerald-400' },
+      { label: '極強', color: 'bg-emerald-500' },
+    ];
+    return { score, ...levels[score] };
+  }
+
+  // ------------------------------------------------------------
+  // 2. JSON Schema（動態表單配置）
+  // ------------------------------------------------------------
+  const FORM_SCHEMA = {
+    title: '🚀 智能動態表單系統',
+    subtitle: 'JSON Schema 驅動 · 即時驗證 · localStorage 自動保存 · 玻璃美學',
+    storageKey: 'react-dynamic-form-v1',
+    fields: [
+      {
+        name: 'username', label: '使用者名稱', type: 'text',
+        placeholder: '例如：rachel_chen',
+        colSpan: 2,
+        validators: [
+          { type: 'required' },
+          { type: 'minLength', params: 3, message: '使用者名稱至少 3 個字元' },
+          { type: 'maxLength', params: 20, message: '使用者名稱最長 20 個字元' },
+          { type: 'pattern', params: /^[a-zA-Z0-9_]+$/, message: '只能包含英文字母、數字、底線' },
+        ],
+      },
+      {
+        name: 'email', label: '電子郵件', type: 'email',
+        placeholder: 'rachel@example.com',
+        colSpan: 2,
+        validators: [
+          { type: 'required' },
+          { type: 'email' },
+        ],
+      },
+      {
+        name: 'age', label: '年齡', type: 'number',
+        placeholder: '18', colSpan: 1,
+        validators: [
+          { type: 'required' },
+          { type: 'number' },
+          { type: 'min', params: 18, message: '需年滿 18 歲' },
+          { type: 'max', params: 120 },
+        ],
+      },
+      {
+        name: 'role', label: '角色', type: 'select', colSpan: 1,
+        options: [
+          { value: '', label: '請選擇...' },
+          { value: 'developer', label: '工程師 Developer' },
+          { value: 'designer',  label: '設計師 Designer' },
+          { value: 'pm',        label: '產品經理 PM' },
+          { value: 'founder',   label: '創辦人 Founder' },
+        ],
+        validators: [
+          { type: 'required', message: '請選擇一個角色' },
+          { type: 'custom', params: (v) => v !== 'founder' ? null : '此測試環境不開放 founder 角色', message: '此測試環境不開放 founder 角色' },
+        ],
+      },
+      {
+        name: 'password', label: '密碼', type: 'password',
+        placeholder: '至少 8 字元，含大小寫、數字、特殊字元',
+        colSpan: 2,
+        validators: [
+          { type: 'required' },
+          { type: 'strongPassword' },
+        ],
+      },
+      {
+        name: 'confirmPassword', label: '確認密碼', type: 'password',
+        placeholder: '再次輸入密碼',
+        colSpan: 2,
+        dependsOn: 'password',
+        validators: [
+          { type: 'required' },
+          { type: 'sameAs', params: 'password' },
+        ],
+      },
+      {
+        name: 'bio', label: '自我介紹', type: 'textarea',
+        placeholder: '用一段話介紹你自己...',
+        colSpan: 4,
+        validators: [
+          { type: 'maxLength', params: 200, message: '最多 200 字' },
+        ],
+      },
+      {
+        name: 'gender', label: '性別', type: 'radio', colSpan: 2,
+        options: [
+          { value: 'female', label: '女性' },
+          { value: 'male',   label: '男性' },
+          { value: 'other',  label: '其他' },
+          { value: 'none',   label: '不便透露' },
+        ],
+      },
+      {
+        name: 'interests', label: '興趣領域（可複選）', type: 'checkbox-group', colSpan: 4,
+        options: [
+          { value: 'frontend', label: '前端開發' },
+          { value: 'backend',  label: '後端開發' },
+          { value: 'ai',       label: 'AI / ML' },
+          { value: 'design',   label: 'UI / UX 設計' },
+          { value: 'devops',   label: 'DevOps' },
+          { value: 'data',     label: '資料科學' },
+        ],
+        validators: [
+          { type: 'required', message: '至少選擇一個興趣' },
+        ],
+      },
+      {
+        name: 'agree', label: '我同意服務條款與隱私政策', type: 'checkbox',
+        colSpan: 4,
+        validators: [
+          { type: 'custom', params: (v) => v === true ? null : '需勾選同意才能繼續', message: '需勾選同意才能繼續' },
+        ],
+      },
+    ],
+  };
+
+  // ------------------------------------------------------------
+  // 3. Field 元件：依 type 渲染對應 input
+  // ------------------------------------------------------------
+  function Field({ field, value, error, onChange, onBlur, touched }) {
+    const id = `f-${field.name}`;
+    const isInvalid = touched && error && error.length > 0;
+    const isValid = touched && !error && (value !== '' && value != null && !(Array.isArray(value) && value.length === 0));
+    const baseInputCls = `field-input w-full px-3 py-2 rounded-lg bg-white/10 text-white placeholder-white/40 border ${
+      isInvalid ? 'is-invalid border-rose-400/70' :
+      isValid   ? 'is-valid border-emerald-400/60' :
+                  'border-white/20'
+    }`;
+
+    const labelEl = (
+      <label htmlFor={id} className="block text-sm font-medium text-white/85 mb-1">
+        {field.label} {field.validators?.some(v => v.type === 'required') && <span className="text-rose-400">*</span>}
+      </label>
+    );
+
+    const errorEl = isInvalid && (
+      <p className="mt-1 text-xs text-rose-300 animate-fade-in flex items-center gap-1">
+        <span>⚠</span><span>{error[0]}</span>
+        {error.length > 1 && <span className="text-white/40">(+{error.length - 1})</span>}
+      </p>
+    );
+
+    const helpEl = field.help && (
+      <p className="mt-1 text-xs text-white/50">{field.help}</p>
+    );
+
+    let inputEl = null;
+    switch (field.type) {
+      case 'text':
+      case 'email':
+        inputEl = (
+          <input id={id} type={field.type} name={field.name} value={value || ''}
+            placeholder={field.placeholder}
+            onChange={(e) => onChange(field.name, e.target.value)}
+            onBlur={() => onBlur(field.name)}
+            className={baseInputCls} />
+        );
+        break;
+      case 'password': {
+        const [show, setShow] = useState(false);
+        const strength = passwordStrength(value);
+        inputEl = (
+          <div>
+            <div className="relative">
+              <input id={id} type={show ? 'text' : 'password'} name={field.name} value={value || ''}
+                placeholder={field.placeholder}
+                onChange={(e) => onChange(field.name, e.target.value)}
+                onBlur={() => onBlur(field.name)}
+                className={baseInputCls + ' pr-16'} />
+              <button type="button" onClick={() => setShow(s => !s)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20 transition">
+                {show ? '隱藏' : '顯示'}
+              </button>
+            </div>
+            {value && (
+              <div className="mt-2">
+                <div className="flex gap-1 mb-1">
+                  {[1,2,3,4,5,6].map((i) => (
+                    <div key={i} className={`h-1.5 flex-1 rounded ${i <= strength.score ? strength.color : 'bg-white/10'} transition-all duration-300`}></div>
+                  ))}
+                </div>
+                <p className="text-xs text-white/60">密碼強度：<span className="font-semibold">{strength.label}</span></p>
+              </div>
+            )}
+          </div>
+        );
+        break;
+      }
+      case 'number':
+        inputEl = (
+          <input id={id} type="number" name={field.name} value={value ?? ''}
+            placeholder={field.placeholder}
+            onChange={(e) => onChange(field.name, e.target.value)}
+            onBlur={() => onBlur(field.name)}
+            className={baseInputCls} />
+        );
+        break;
+      case 'textarea':
+        inputEl = (
+          <div>
+            <textarea id={id} name={field.name} value={value || ''}
+              placeholder={field.placeholder} rows={3}
+              maxLength={field.validators?.find(v => v.type === 'maxLength')?.params || undefined}
+              onChange={(e) => onChange(field.name, e.target.value)}
+              onBlur={() => onBlur(field.name)}
+              className={baseInputCls + ' resize-y'} />
+            {field.validators?.find(v => v.type === 'maxLength') && (
+              <p className="mt-1 text-xs text-white/40 text-right">
+                {(value || '').length} / {field.validators.find(v => v.type === 'maxLength').params}
+              </p>
+            )}
+          </div>
+        );
+        break;
+      case 'select':
+        inputEl = (
+          <select id={id} name={field.name} value={value || ''}
+            onChange={(e) => onChange(field.name, e.target.value)}
+            onBlur={() => onBlur(field.name)}
+            className={baseInputCls + ' cursor-pointer'}>
+            {field.options.map((opt) => (
+              <option key={opt.value} value={opt.value} className="bg-ink-900">
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        );
+        break;
+      case 'radio':
+        inputEl = (
+          <div className="flex flex-wrap gap-x-5 gap-y-2 pt-2">
+            {field.options.map((opt) => (
+              <label key={opt.value} className="inline-flex items-center gap-2 cursor-pointer hover:text-white">
+                <input type="radio" name={field.name} value={opt.value}
+                  checked={value === opt.value}
+                  onChange={(e) => onChange(field.name, e.target.value)}
+                  onBlur={() => onBlur(field.name)}
+                  className="radio-dot" />
+                <span className="text-sm text-white/85">{opt.label}</span>
+              </label>
+            ))}
+          </div>
+        );
+        break;
+      case 'checkbox':
+        inputEl = (
+          <label className="flex items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-white/5 transition">
+            <input type="checkbox" name={field.name} checked={!!value}
+              onChange={(e) => onChange(field.name, e.target.checked)}
+              onBlur={() => onBlur(field.name)}
+              className="check-box" />
+            <span className="text-sm text-white/85">{field.placeholder || field.label}</span>
+          </label>
+        );
+        break;
+      case 'checkbox-group': {
+        const arr = Array.isArray(value) ? value : [];
+        inputEl = (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
+            {field.options.map((opt) => {
+              const checked = arr.includes(opt.value);
+              return (
+                <label key={opt.value}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition border ${
+                    checked
+                      ? 'bg-brand-500/30 border-brand-400/60 shadow-inset-glass'
+                      : 'bg-white/5 border-white/10 hover:bg-white/10'
+                  }`}>
+                  <input type="checkbox" name={field.name} value={opt.value}
+                    checked={checked}
+                    onChange={(e) => {
+                      const next = e.target.checked
+                        ? [...arr, opt.value]
+                        : arr.filter(v => v !== opt.value);
+                      onChange(field.name, next);
+                    }}
+                    onBlur={() => onBlur(field.name)}
+                    className="check-box" />
+                  <span className="text-sm text-white/90">{opt.label}</span>
+                </label>
+              );
+            })}
+          </div>
+        );
+        break;
+      }
+      default:
+        inputEl = <p className="text-rose-300 text-sm">不支援的欄位型別：{field.type}</p>;
+    }
+
+    const colSpanClass = {
+      1: 'md:col-span-1',
+      2: 'md:col-span-2',
+      3: 'md:col-span-3',
+      4: 'md:col-span-4',
+    }[field.colSpan || 4] || 'md:col-span-4';
+
+    return (
+      <div className={`col-span-4 ${colSpanClass} ${isInvalid ? 'animate-shake' : ''}`}>
+        {field.type !== 'checkbox' && labelEl}
+        {inputEl}
+        {helpEl}
+        {errorEl}
+      </div>
+    );
+  }
+
+  // ------------------------------------------------------------
+  // 4. 主表單元件
+  // ------------------------------------------------------------
+  function DynamicForm({ schema }) {
+    const initialValues = useMemo(() => {
+      const obj = {};
+      schema.fields.forEach((f) => {
+        if (f.type === 'checkbox-group') obj[f.name] = [];
+        else if (f.type === 'checkbox') obj[f.name] = false;
+        else obj[f.name] = '';
+      });
+      return obj;
+    }, [schema]);
+
+    // 嘗試從 localStorage 復原（advanced_dynamic_form_management 技能 §3）
+    const [values, setValues] = useState(() => {
+      try {
+        const stored = localStorage.getItem(schema.storageKey);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          return { ...initialValues, ...parsed.values };
+        }
+      } catch (e) { /* 略過 */ }
+      return initialValues;
+    });
+
+    const [errors, setErrors]   = useState({});
+    const [touched, setTouched] = useState({});
+    const [submitState, setSubmitState] = useState('idle'); // idle | submitting | success | error
+    const [savedAt, setSavedAt] = useState(null);
+    const debounceRef = useRef(null);
+
+    // localStorage 自動保存（debounced，避免阻塞 main thread）
+    useEffect(() => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        try {
+          localStorage.setItem(schema.storageKey, JSON.stringify({ values, savedAt: Date.now() }));
+          setSavedAt(new Date());
+        } catch (e) {
+          console.error('localStorage 儲存失敗', e);
+        }
+      }, 350);
+      return () => clearTimeout(debounceRef.current);
+    }, [values, schema.storageKey]);
+
+    // 即時驗證：值變動時驗證該欄位（不卡 UI）
+    const handleChange = useCallback((name, val) => {
+      setValues((prev) => {
+        const next = { ...prev, [name]: val };
+        // 立即驗證該欄位 + 所有 dependsOn 的欄位
+        const newErrors = { ...errors };
+        const field = schema.fields.find(f => f.name === name);
+        if (field) {
+          const errs = runValidation(field, val, next);
+          if (errs.length > 0) newErrors[name] = errs; else delete newErrors[name];
+        }
+        // 連動驗證：例如 confirmPassword 依賴 password
+        schema.fields.forEach((f) => {
+          if (f.dependsOn === name) {
+            const errs = runValidation(f, next[f.name], next);
+            if (errs.length > 0) newErrors[f.name] = errs; else delete newErrors[f.name];
+          }
+        });
+        setErrors(newErrors);
+        return next;
+      });
+      // 不立即標記為 touched，但若已有錯誤就更新
+    }, [errors, schema.fields]);
+
+    const handleBlur = useCallback((name) => {
+      setTouched((prev) => ({ ...prev, [name]: true }));
+    }, []);
+
+    // 全表單驗證（送出時）
+    const validateAll = useCallback(() => {
+      const allErrors = {};
+      const allTouched = {};
+      schema.fields.forEach((f) => {
+        const errs = runValidation(f, values[f.name], values);
+        if (errs.length > 0) allErrors[f.name] = errs;
+        allTouched[f.name] = true;
+      });
+      setErrors(allErrors);
+      setTouched(allTouched);
+      return Object.keys(allErrors).length === 0;
+    }, [values, schema.fields]);
+
+    // 完成度計算
+    const completion = useMemo(() => {
+      let filled = 0; let total = schema.fields.length;
+      schema.fields.forEach((f) => {
+        const v = values[f.name];
+        if (f.type === 'checkbox') { if (v === true) filled++; }
+        else if (f.type === 'checkbox-group') { if (Array.isArray(v) && v.length > 0) filled++; }
+        else { if (v !== '' && v != null) filled++; }
+      });
+      return Math.round((filled / total) * 100);
+    }, [values, schema.fields]);
+
+    const hasErrors = Object.keys(errors).length > 0;
+
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      if (!validateAll()) {
+        // 滾動到第一個錯誤欄位
+        const firstError = Object.keys(errors)[0];
+        const el = document.getElementById(`f-${firstError}`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setSubmitState('error');
+        return;
+      }
+      setSubmitState('submitting');
+      // 模擬非阻塞送出
+      await new Promise((r) => setTimeout(r, 900));
+      try {
+        const submission = {
+          id: 'sub_' + Date.now(),
+          values,
+          submittedAt: new Date().toISOString(),
+        };
+        console.log('🚀 送出表單：', submission);
+        localStorage.setItem(schema.storageKey + ':lastSubmission', JSON.stringify(submission));
+        setSubmitState('success');
+      } catch (err) {
+        setSubmitState('error');
+      }
+    };
+
+    const handleReset = () => {
+      if (!confirm('確定要清除所有資料嗎？此動作無法復原。')) return;
+      setValues(initialValues);
+      setErrors({});
+      setTouched({});
+      setSubmitState('idle');
+      try { localStorage.removeItem(schema.storageKey); } catch (e) {}
+    };
+
+    const handleClearStorage = () => {
+      try {
+        Object.keys(localStorage).filter(k => k.startsWith(schema.storageKey)).forEach(k => localStorage.removeItem(k));
+        setValues(initialValues);
+        setErrors({});
+        setTouched({});
+        alert('已清除 localStorage 中的表單資料');
+      } catch (e) {}
+    };
+
+    return (
+      <div className="w-full max-w-4xl mx-auto animate-slide-up">
+        {/* Title */}
+        <div className="text-center mb-6">
+          <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-brand-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent mb-2">
+            {schema.title}
+          </h1>
+          <p className="text-sm sm:text-base text-white/60">{schema.subtitle}</p>
+        </div>
+
+        {/* 玻璃卡片 */}
+        <form onSubmit={handleSubmit} noValidate className="glass rounded-2xl shadow-glass-lg p-5 sm:p-8 animate-fade-in">
+          {/* Progress + Stats */}
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex-1 min-w-[200px]">
+              <div className="flex items-center justify-between text-xs text-white/70 mb-1.5">
+                <span>完成度</span>
+                <span className="font-mono">{completion}%</span>
+              </div>
+              <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+                <div className={`h-full transition-all duration-500 ${completion === 100 ? 'bg-gradient-to-r from-emerald-400 to-cyan-400 shimmer' : 'bg-gradient-to-r from-brand-400 to-fuchsia-400'}`}
+                  style={{ width: `${completion}%` }}></div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-white/60">
+              {savedAt && <span title={savedAt.toISOString()}>✓ 自動儲存於 {savedAt.toLocaleTimeString()}</span>}
+              {hasErrors && <span className="text-rose-300">● {Object.keys(errors).length} 個錯誤待修正</span>}
+            </div>
+          </div>
+
+          {/* Form Grid：響應式 1/2/3 欄（advanced_dynamic_form_management §2） */}
+          <div className="grid grid-cols-4 gap-4 sm:gap-5">
+            {schema.fields.map((field) => (
+              <Field
+                key={field.name}
+                field={field}
+                value={values[field.name]}
+                error={errors[field.name]}
+                touched={touched[field.name]}
+                onChange={handleChange}
+                onBlur={handleBlur}
+              />
+            ))}
+          </div>
+
+          {/* Actions */}
+          <div className="mt-8 flex flex-wrap gap-3 justify-end items-center">
+            <button type="button" onClick={handleClearStorage}
+              className="px-4 py-2 rounded-lg text-sm bg-white/5 hover:bg-white/10 border border-white/10 transition">
+              🗑️ 清除儲存
+            </button>
+            <button type="button" onClick={handleReset}
+              className="px-4 py-2 rounded-lg text-sm bg-white/5 hover:bg-white/10 border border-white/10 transition">
+              ↺ 重設
+            </button>
+            <button type="submit" disabled={submitState === 'submitting'}
+              className={`px-6 py-2 rounded-lg font-semibold text-white shadow-glass transition-all ${
+                submitState === 'submitting'
+                  ? 'bg-white/20 cursor-wait'
+                  : 'bg-gradient-to-r from-brand-500 to-fuchsia-500 hover:from-brand-400 hover:to-fuchsia-400 hover:shadow-glass-lg'
+              }`}>
+              {submitState === 'submitting' ? '送出中…' : submitState === 'success' ? '✓ 已送出' : '🚀 送出表單'}
+            </button>
+          </div>
+
+          {/* Submit Status */}
+          {submitState === 'success' && (
+            <div className="mt-4 p-4 rounded-lg bg-emerald-500/15 border border-emerald-400/40 text-emerald-100 animate-fade-in">
+              <p className="font-semibold mb-1">✅ 表單送出成功！</p>
+              <p className="text-sm opacity-80">已收到您的資料，請查看 console 取得完整 payload。</p>
+              <button onClick={() => setSubmitState('idle')} className="mt-2 text-xs underline opacity-80 hover:opacity-100">
+                繼續編輯
+              </button>
+            </div>
+          )}
+          {submitState === 'error' && (
+            <div className="mt-4 p-4 rounded-lg bg-rose-500/15 border border-rose-400/40 text-rose-100 animate-shake">
+              <p className="font-semibold mb-1">❌ 還有 {Object.keys(errors).length} 個欄位需要修正</p>
+              <p className="text-sm opacity-80">請檢查上方標示紅色框線的欄位。</p>
+            </div>
+          )}
+        </form>
+
+        {/* Schema Debug Panel */}
+        <details className="mt-6 glass rounded-xl p-4 text-xs">
+          <summary className="cursor-pointer font-semibold text-white/85 select-none">
+            🛠️ 進階：檢視當前表單狀態（JSON）
+          </summary>
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <h4 className="font-semibold text-emerald-300 mb-1">values</h4>
+              <pre className="bg-black/40 p-3 rounded-lg overflow-auto max-h-60 text-emerald-200">{JSON.stringify(values, null, 2)}</pre>
+            </div>
+            <div>
+              <h4 className="font-semibold text-rose-300 mb-1">errors</h4>
+              <pre className="bg-black/40 p-3 rounded-lg overflow-auto max-h-60 text-rose-200">{JSON.stringify(errors, null, 2)}</pre>
+            </div>
+            <div className="md:col-span-2">
+              <h4 className="font-semibold text-cyan-300 mb-1">schema.fields（驅動整個表單的 JSON 配置）</h4>
+              <pre className="bg-black/40 p-3 rounded-lg overflow-auto max-h-60 text-cyan-200">{JSON.stringify(schema.fields.map(f => ({ name: f.name, type: f.type, validators: f.validators?.map(v => v.type) })), null, 2)}</pre>
+            </div>
+          </div>
+        </details>
+
+        {/* Footer */}
+        <p className="text-center text-xs text-white/40 mt-6">
+          採用 React 18 + Tailwind CSS CDN + 自定義玻璃美學 · localStorage 自動保存 · 即時驗證
+        </p>
+      </div>
+    );
+  }
+
+  // ------------------------------------------------------------
+  // 5. 啟動
+  // ------------------------------------------------------------
+  function isModuleReady(v) {
+    // 函式庫本體：React 是 object，ReactDOM 是 object，需檢查其核心 API 是否存在
+    if (!v) return false;
+    if (typeof v === 'function') return true;
+    if (typeof v === 'object') return true;  // 寬鬆通過：React/ReactDOM UMD 都是 object
+    return false;
+  }
+
+  function hasReactCore() {
+    return !!(window.React && window.React.createElement && window.React.useState) &&
+           !!(window.ReactDOM && window.ReactDOM.createRoot);
+  }
+
+  function bootstrap() {
+    if (!hasReactCore()) {
+      console.error('❌ React / ReactDOM UMD 模組尚未載入或核心 API 缺失');
+      window.__bootstrapError = 'React=' + typeof window.React + ' ReactDOM=' + typeof window.ReactDOM;
+      return;
+    }
+    try {
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      root.render(<DynamicForm schema={FORM_SCHEMA} />);
+      window.__bootstrapOK = true;
+    } catch (e) {
+      window.__bootstrapError = e.message + ' | ' + (e.stack || '').substring(0, 600);
+      console.error('Bootstrap render 失敗：', e);
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootstrap);
+  } else {
+    bootstrap();
+  }
+  </script>
+</body>
+</html>

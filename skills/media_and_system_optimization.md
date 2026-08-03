@@ -1,10 +1,10 @@
-# System Stability and Efficiency
+# Micro-Skill: Media and System Optimization
 
 ## Target Skill Name
-system_stability_and_efficiency
+media_and_system_optimization
 
 ## Summary
-This skill focuses on ensuring system stability and reliability by proactively monitoring system performance, efficiently allocating resources, and managing workflows to enhance efficiency and minimize errors. It integrates robust system management, workflow optimization, and change management techniques to create a resilient and high-performance system.
+This micro-skill focuses on optimizing system performance through efficient media and data management techniques. It integrates robust system management, workflow optimization, change management, and advanced request interception to create a resilient, high-performance system. The skill encompasses real-time media processing, asynchronous communication, secure web scraping, data deduplication, normalization, and adherence to Standard Operating Procedures (SOPs).
 
 ---
 
@@ -13,7 +13,7 @@ This skill focuses on ensuring system stability and reliability by proactively m
 ### 1.1 Robust I/O Handling and Error Optimization
 
 #### 1.1.1 Console Error Interception
-- **Overview**: Intercept and log browser console errors and warnings using Playwright's event listening capabilities to capture issues in test reports for better debugging.
+- **Overview**: Intercept and log browser console errors and warnings to capture issues in test reports for better debugging.
 - **Key Code Snippet**:
   ```python
   # Intercept console errors and warnings
@@ -87,7 +87,7 @@ This skill focuses on ensuring system stability and reliability by proactively m
               time.sleep(1)
       except KeyboardInterrupt:
           observer.stop()
-      observer.join()
+          observer.join()
   ```
 - **Common Errors and Prevention**:
   - **Watchdog-related errors**: Verify `watchdog` library version and consult documentation for adjustments.
@@ -238,6 +238,4 @@ This skill focuses on ensuring system stability and reliability by proactively m
         svg.setAttribute('width', '100%');
         svg.setAttribute('height', '100%');
 
-        // Render Edges
-        flow.edges.forEach(edge => {
-            const src = flow.nodes.find(n
+        // Render

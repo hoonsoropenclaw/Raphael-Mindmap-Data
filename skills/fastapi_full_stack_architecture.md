@@ -1,7 +1,7 @@
-# FastAPI Robust Integration and Testing
+# FastAPI Full Stack Architecture
 
 ## Overview
-This document provides a comprehensive guide to ensuring robust integration and testing of FastAPI applications for high-performance web services. It covers health check endpoints, in-memory provider testing, Playwright integration, route configuration, frontend monitoring dashboard setup, and integration with calendar services like Google Calendar. The document includes detailed steps, code snippets, and best practices to prevent common errors and ensure secure and efficient interactions.
+This document provides a comprehensive guide to developing a full-stack application using FastAPI, ensuring robust integration with other systems and services. It covers essential aspects such as database setup, CRUD operations, health check endpoints, in-memory provider testing, Playwright integration for end-to-end testing, route configuration, frontend dashboard setup with Jinja2, and integration with external services like Google Calendar. The document includes detailed steps, code snippets, and best practices to prevent common errors and ensure secure and efficient interactions.
 
 ---
 
@@ -29,14 +29,14 @@ def health_check():
 
 ---
 
-## 2. FastAPI Testing with InMemory Provider
+## 2. FastAPI Testing with In-Memory Provider
 
 ### 2.1 Description
 This section covers how to use FastAPI's TestClient in combination with an InMemoryCalendarProvider for rapid end-to-end testing. This approach ensures the application behaves correctly across different scenarios without relying on external dependencies.
 
 ### 2.2 Implementation Steps
 1. **Setup TestClient**: Initialize FastAPI's TestClient for making requests to the application.
-2. **InMemory Provider**: Use an in-memory provider to simulate external dependencies like databases or APIs.
+2. **In-Memory Provider**: Use an in-memory provider to simulate external dependencies like databases or APIs.
 3. **Test Cases**: Write test cases that cover various application functionalities.
 
 ### 2.3 Example Test Case
@@ -256,7 +256,4 @@ def get_credentials():
         token='stored_access_token',
         refresh_token='stored_refresh_token',
         token_uri='https://oauth2.googleapis.com/token',
-        client_id='your_client_id',
-        client_secret='your_client_secret',
-        scopes=SCOPES
-    )
+        client_id

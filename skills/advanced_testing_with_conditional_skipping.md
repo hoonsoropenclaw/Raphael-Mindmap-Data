@@ -1,16 +1,16 @@
-# Advanced Testing Strategies
+# Advanced Testing with Conditional Skipping
 
-## Target Skill Name: advanced_testing_strategies
+## Target Skill Name: advanced_testing_with_conditional_skipping
 
 ## Target Summary
-Implement flexible testing strategies, including visual regression testing and cross-browser smoke testing, to ensure system robustness and reliability.
+Implement advanced testing strategies that incorporate dynamic skip logic based on specific conditions to optimize test execution, enhance efficiency, and ensure system robustness and reliability.
 
 ---
 
-## 1. Comprehensive Visual Regression Testing
+## 1. Comprehensive Visual Regression Testing with Conditional Skipping
 
 ### 1.1 Purpose
-Provide a complete solution for visual regression testing, including full-page and element-level screenshot comparisons, and automatically generate difference images.
+Implement a visual regression testing framework that dynamically skips tests based on conditions such as browser type, device, or dynamic content, ensuring accurate and efficient visual comparisons.
 
 ### 1.2 Implementation
 
@@ -20,10 +20,10 @@ Provide a complete solution for visual regression testing, including full-page a
 export function diffPngBuffers(baselineBuf, actualBuf, opts = {}) {
   const threshold = opts.threshold ?? 0.1;
   const maxRatio = opts.maxRatio ?? 0.01;
-  // Compare two PNG buffers and return the difference result
   const baseline = PNG.sync.read(baselineBuf);
   const actual = PNG.sync.read(actualBuf);
-  // Check if dimensions match
+  
+  // Skip comparison if dimensions mismatch
   if (baseline.width !== actual.width || baseline.height !== actual.height) {
     return {
       ok: false,
@@ -34,7 +34,7 @@ export function diffPngBuffers(baselineBuf, actualBuf, opts = {}) {
       height: actual.height,
     };
   }
-  // Perform pixel comparison
+  
   const diff = new PNG({ width: baseline.width, height: baseline.height });
   const mismatch = pixelmatch(
     baseline.data,
@@ -46,6 +46,12 @@ export function diffPngBuffers(baselineBuf, actualBuf, opts = {}) {
   );
   const ratio = mismatch / (baseline.width * baseline.height);
   const ok = ratio <= maxRatio;
+  
+  // Dynamically skip based on mismatch ratio
+  if (!ok && opts.skipOnMismatch) {
+    return { ok: false, skipped: true, reason: 'Mismatch ratio exceeded threshold' };
+  }
+  
   return { ok, mismatch, ratio, width: baseline.width, height: baseline.height, diffBuf: PNG.sync.write(diff) };
 }
 ```
@@ -62,13 +68,14 @@ export function diffPngBuffers(baselineBuf, actualBuf, opts = {}) {
 - **Dynamic Content Handling:** Identify and manage dynamic content to ensure consistent screenshots.
 - **Threshold Tuning:** Set appropriate thresholds based on the type of comparison to balance sensitivity and accuracy.
 - **Baseline Management:** Implement a robust system for managing baseline images, including versioning and updating mechanisms.
+- **Conditional Skipping:** Use dynamic skip logic to skip tests when conditions are not met, such as when mismatch ratios exceed thresholds.
 
 ---
 
-## 2. Cross-Browser Smoke Testing
+## 2. Cross-Browser Smoke Testing with Conditional Skipping
 
 ### 2.1 Purpose
-Establish a cross-browser automation testing infrastructure that supports multiple browsers (Chromium, Firefox, WebKit) and different devices (desktop and mobile).
+Establish a cross-browser automation testing infrastructure that dynamically skips tests based on browser type or device, ensuring tests are only run when appropriate.
 
 ### 2.2 Implementation
 
@@ -101,6 +108,13 @@ module.exports = {
   ],
   /* Other configurations */
 };
+
+// Conditional test skipping based on browser
+test('Visual regression test', async ({ page, browserName }) => {
+  test.skip(browserName !== 'chromium', 'Visual regression limited to Chromium');
+  
+  // Test code
+});
 ```
 
 #### 2.2.2 Common Errors & Solutions
@@ -108,15 +122,18 @@ module.exports = {
   - **Solution:** Limit visual testing to a single browser (e.g., Chromium) and use cross-browser smoke tests to verify functional consistency.
 - **Error:** Device emulation settings are incorrect, leading to unstable tests.
   - **Solution:** Use Playwright's built-in device settings (e.g., `devices['iPhone 13']`) to ensure accurate device emulation.
+- **Error:** Incorrect conditional logic leads to tests being skipped when they should run.
+  - **Solution:** Carefully review and test the conditional logic to ensure tests are skipped only when necessary.
 
 ### 2.3 Best Practices
 - **Browser Diversity:** Test across a range of browsers and devices to ensure broad compatibility.
 - **Device Configuration:** Utilize reliable device emulation configurations to mimic real-world usage scenarios.
 - **Test Prioritization:** Focus on critical functionality during smoke testing to quickly identify major issues.
+- **Dynamic Skipping:** Use dynamic skip logic to adapt testing strategies based on the testing environment.
 
 ---
 
-## 3. Dynamic Testing and Error Handling
+## 3. Dynamic Testing and Error Handling with Conditional Skipping
 
 ### 3.1 Comprehensive Test Reporting
 - **HTML Report Generation:** Generate detailed HTML reports with screenshots, diff images, and assertion results for easy analysis.
@@ -128,31 +145,34 @@ module.exports = {
 - **Event Handlers:** Set up handlers for `console`, `pageerror`, and `requestfailed` events to capture relevant errors and logs.
 - **Error Filtering:** Implement filtering mechanisms to exclude known benign issues from logs.
 
-### 3.3 Rule Engine Integration for Dynamic Decision-Making
+### 3.3 Rule Engine Integration for Dynamic Decision-Making with Conditional Skipping
 - **Command Dispatch with Pure Functions:** Use pure functions for command handling to enhance modularity and testability.
-- **Rule Engine Dispatcher:** Utilize a rule engine to manage complex decision-making processes based on predefined rules.
+- **Rule Engine Dispatcher:** Utilize a rule engine to manage complex decision-making processes based on predefined rules, including conditional skipping.
 - **YAML-Based Rule Configuration:** Define rules in YAML for readability and ease of maintenance.
 
 ### 3.4 Best Practices
 - **Consistent Event Handling:** Apply event handlers uniformly across all test environments.
 - **Comprehensive Logging:** Implement detailed logging for all operations to facilitate easier debugging and analysis.
 - **YAML Syntax Validation:** Use tools like `yamllint` to validate YAML files and prevent formatting and syntax errors.
+- **Dynamic Skip Logic:** Integrate conditional skipping into the rule engine to allow for flexible and adaptive testing strategies.
 
 ---
 
-## 4. Unit Testing Framework
+## 4. Unit Testing Framework with Conditional Skipping
 
 ### 4.1 Purpose
-Ensure code quality and reliability through a comprehensive testing framework that includes unit tests, verifies function outputs and exception handling, and generates test coverage reports.
+Ensure code quality and reliability through a comprehensive testing framework that includes unit tests, verifies function outputs and exception handling, and generates test coverage reports, with the ability to skip tests based on conditions.
 
 ### 4.2 Implementation
 - **Test Coverage Reports:** Assess testing coverage and identify untested areas.
 - **Exception Handling Verification:** Ensure functions handle exceptions and invalid inputs correctly.
 - **CI Integration:** Automate testing as part of the development pipeline for rapid feedback and deployment.
+- **Conditional Skipping:** Use conditional skip logic to skip tests based on build configurations or other dynamic conditions.
 
 ### 4.3 Best Practices
 - **Modular Rule Files:** Organize rules into multiple YAML files based on functionality or domain to enhance maintainability.
 - **Documentation:** Include comments and documentation within YAML files to explain the purpose and logic of each rule.
+- **Skip Logic Documentation:** Clearly document the conditions under which tests are skipped to aid in understanding and maintenance.
 
 ---
 
@@ -162,6 +182,7 @@ Ensure code quality and reliability through a comprehensive testing framework th
 - **YAML Syntax Validation:** Use tools like `yamllint` to prevent formatting and syntax errors.
 - **Clear Condition Definitions:** Use logical operators and thorough testing to avoid ambiguity.
 - **Comprehensive Testing:** Test rules with diverse scenarios, including edge cases and invalid data.
+- **Skip Logic Validation:** Ensure that conditional skipping is correctly implemented and that tests are skipped only when necessary.
 
 ### 5.2 Performance Optimization
 - **Rule Ordering:** Arrange rules by priority or specificity to optimize performance.
@@ -183,12 +204,4 @@ Ensure code quality and reliability through a comprehensive testing framework th
 
 ### 5.6 Common Pitfalls & Solutions
 - **YAML Formatting Errors:** Use validation tools and consistent formatting practices.
-- **Ambiguous Rule Conditions:** Clearly specify conditions using logical operators and thorough testing.
-- **Rule Conflicts:** Review and organize rules to eliminate conflicts.
-- **Incorrect Rule Engine Integration:** Implement thorough testing of rule interactions.
-- **Inadequate Handling of Rule Conflicts:** Design a conflict resolution mechanism within the rule engine.
-
----
-
-## Conclusion
-By integrating pure functions with a rule engine and employing a robust unit testing framework, developers can create a command dispatch system that is both efficient and adaptable. This approach enhances flexibility, ensures consistent and maintainable decision-making, and supports comprehensive testing and error handling strategies.
+- **Ambiguous Rule Conditions:** Clearly specify conditions using
