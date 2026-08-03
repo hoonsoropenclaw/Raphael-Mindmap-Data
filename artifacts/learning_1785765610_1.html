@@ -1,0 +1,1211 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Design Flow — 動態設計系統 (Tailwind × React Flow)</title>
+
+  <!-- Fonts: editorial + monospace, avoid AI-defaults (no Inter / Roboto / Arial) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Fraunces:opsz,wght@9..144,300..900&family=JetBrains+Mono:wght@400;500;700&family=Manrope:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet">
+
+  <!-- Tailwind CDN (JIT) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Tailwind dynamic config (will be regenerated from JS) -->
+  <script>
+    /* injected at runtime — placeholder so Tailwind has a baseline */
+    window.tailwind = window.tailwind || {};
+    window.tailwind.config = {
+      theme: {
+        extend: {
+          colors: { brand: { DEFAULT: '#0EA5E9' } },
+          fontFamily: { display: ['Fraunces', 'serif'], body: ['Manrope', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] },
+        }
+      }
+    };
+  </script>
+
+  <!-- React 17 (UMD) -->
+  <script crossorigin src="https://unpkg.com/react@17/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js"></script>
+
+  <!-- React Flow v11.11.4 (UMD) -->
+  <script crossorigin src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css" />
+
+  <!-- Babel Standalone for inline JSX -->
+  <script src="https://unpkg.com/@babel/standalone@7.25.7/babel.min.js"></script>
+
+  <style>
+    :root {
+      /* defaults — overwritten by JS (applyTokensToDOM) */
+      --bg: #0a0e1a;
+      --bg-soft: #111726;
+      /* Panel uses a soft mix of bg-soft so light themes don't render dark glass.
+         Falls back to dark glass if color-mix isn't honored. */
+      --panel: color-mix(in oklab, var(--bg-soft) 70%, transparent);
+      --panel-solid: var(--bg-soft);
+      --panel-border: color-mix(in oklab, var(--text) 16%, transparent);
+      --text: #e7ecf6;
+      --text-dim: #8a93a8;
+      --accent: #ff5470;
+      --accent-2: #00d4ff;
+      --line: color-mix(in oklab, var(--text) 12%, transparent);
+      --grid: color-mix(in oklab, var(--text) 4%, transparent);
+      --font-display: 'Fraunces', 'DM Serif Display', serif;
+      --font-body: 'Manrope', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+      --radius: 14px;
+      --shadow-1: 0 1px 0 rgba(255,255,255,.04) inset, 0 12px 30px rgba(0,0,0,.45);
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      font-size: 14px;
+      letter-spacing: 0.01em;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Animated grid background — feels editorial-tech, not stock SaaS */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(1100px 600px at 80% -10%, color-mix(in oklab, var(--accent) 14%, transparent), transparent 60%),
+        radial-gradient(900px 700px at -10% 110%, color-mix(in oklab, var(--accent-2) 12%, transparent), transparent 60%),
+        linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 32px 32px,
+        linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 32px 32px;
+      z-index: -2;
+      pointer-events: none;
+    }
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background:
+        repeating-linear-gradient(115deg, transparent 0 12px, rgba(255,255,255,0.012) 12px 13px);
+      z-index: -1;
+      pointer-events: none;
+      mix-blend-mode: overlay;
+    }
+
+    /* Headlines use display serif — kills "default SaaS" feel */
+    .display { font-family: var(--font-display); font-weight: 400; letter-spacing: -0.02em; }
+    .mono    { font-family: var(--font-mono); }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-1);
+      backdrop-filter: blur(18px) saturate(140%);
+      -webkit-backdrop-filter: blur(18px) saturate(140%);
+    }
+
+    .chip {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--panel-border);
+      color: var(--text-dim);
+      background: color-mix(in oklab, var(--bg-soft) 60%, transparent);
+    }
+
+    .btn {
+      font-family: var(--font-body);
+      font-weight: 500;
+      font-size: 12.5px;
+      padding: 7px 13px;
+      border-radius: 8px;
+      border: 1px solid var(--panel-border);
+      background: color-mix(in oklab, var(--bg-soft) 70%, transparent);
+      color: var(--text);
+      cursor: pointer;
+      transition: transform .15s ease, background .15s ease, border-color .15s ease;
+    }
+    .btn:hover { transform: translateY(-1px); border-color: var(--accent); }
+    .btn:active { transform: translateY(0); }
+    .btn.primary {
+      background: linear-gradient(135deg, var(--accent), color-mix(in oklab, var(--accent) 40%, var(--accent-2)));
+      border-color: transparent;
+      color: #fff;
+    }
+
+    .preset-pill {
+      font-family: var(--font-body);
+      font-weight: 500;
+      font-size: 11.5px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--panel-border);
+      background: transparent;
+      color: var(--text-dim);
+      cursor: pointer;
+      transition: all .2s ease;
+      white-space: nowrap;
+    }
+    .preset-pill.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: transparent;
+      box-shadow: 0 4px 18px color-mix(in oklab, var(--accent) 45%, transparent);
+    }
+    .preset-pill:hover:not(.active) { color: var(--text); border-color: var(--accent-2); }
+
+    .swatch {
+      width: 28px; height: 28px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.18);
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .swatch input[type=color] {
+      position: absolute;
+      inset: -4px;
+      width: calc(100% + 8px);
+      height: calc(100% + 8px);
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      opacity: 0;
+    }
+
+    .slider-row { display: flex; align-items: center; gap: 8px; }
+    .slider-row input[type=range] {
+      flex: 1;
+      accent-color: var(--accent);
+      height: 2px;
+    }
+    .slider-row .val {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-dim);
+      width: 42px;
+      text-align: right;
+    }
+
+    /* React Flow custom node */
+    .rf-token-node {
+      font-family: var(--font-body);
+      font-size: 11px;
+      padding: 0;
+      border: none;
+      background: transparent;
+    }
+    .rf-token-card {
+      padding: 10px 12px;
+      border-radius: 12px;
+      min-width: 140px;
+      max-width: 200px;
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      box-shadow: 0 8px 24px rgba(0,0,0,.35);
+      color: var(--text);
+      transition: border-color .25s ease, transform .15s ease;
+    }
+    .rf-token-card:hover { transform: translateY(-1px); }
+    .rf-token-card.color { border-left: 3px solid var(--accent); }
+    .rf-token-card.type  { border-left: 3px solid var(--accent-2); }
+    .rf-token-card.space { border-left: 3px solid #a78bfa; }
+    .rf-token-card.radius { border-left: 3px solid #34d399; }
+    .rf-token-card.shadow { border-left: 3px solid #f59e0b; }
+    .rf-token-card.comp  { border-left: 3px solid #f472b6; background: color-mix(in oklab, var(--panel) 70%, var(--bg-soft)); }
+
+    .rf-token-card .label {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 4px;
+    }
+    .rf-token-card .name {
+      font-family: var(--font-body);
+      font-weight: 600;
+      font-size: 12px;
+    }
+    .rf-token-card .swatch-mini {
+      width: 100%;
+      height: 22px;
+      border-radius: 6px;
+      margin-top: 6px;
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+
+    /* React Flow edge animation override */
+    .react-flow__edge-path {
+      stroke: var(--accent-2);
+      stroke-width: 1.4;
+      opacity: 0.65;
+    }
+    .react-flow__edge.animated path {
+      stroke-dasharray: 5;
+      animation: dash 1.4s linear infinite;
+    }
+    @keyframes dash { to { stroke-dashoffset: -20; } }
+    .react-flow__handle {
+      background: var(--accent);
+      border: 1px solid color-mix(in oklab, var(--accent) 60%, white);
+      width: 8px; height: 8px;
+    }
+    .react-flow__controls {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      backdrop-filter: blur(12px);
+      box-shadow: none;
+    }
+    .react-flow__controls-button {
+      background: transparent;
+      border-bottom: 1px solid var(--panel-border);
+      color: var(--text);
+    }
+    .react-flow__controls-button svg { fill: currentColor; }
+    .react-flow__minimap {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+    }
+    .react-flow__attribution {
+      background: transparent !important;
+      color: var(--text-dim) !important;
+      font-size: 9px;
+    }
+    .react-flow__attribution a { color: var(--text-dim) !important; }
+
+    /* Live preview sample components */
+    .sample-card {
+      padding: 14px;
+      border-radius: 12px;
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      backdrop-filter: blur(14px);
+    }
+    .sample-btn-primary {
+      background: var(--accent);
+      color: #fff;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      box-shadow: 0 6px 20px color-mix(in oklab, var(--accent) 35%, transparent);
+    }
+    .sample-btn-ghost {
+      background: transparent;
+      color: var(--text);
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-weight: 500;
+      border: 1px solid var(--panel-border);
+      cursor: pointer;
+    }
+    .sample-input {
+      width: 100%;
+      padding: 8px 11px;
+      border-radius: 8px;
+      background: color-mix(in oklab, var(--bg-soft) 60%, transparent);
+      border: 1px solid var(--panel-border);
+      color: var(--text);
+      font-family: var(--font-body);
+      outline: none;
+    }
+    .sample-input:focus { border-color: var(--accent-2); box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-2) 22%, transparent); }
+    .sample-badge {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: color-mix(in oklab, var(--accent-2) 25%, transparent);
+      color: var(--accent-2);
+      border: 1px solid color-mix(in oklab, var(--accent-2) 35%, transparent);
+    }
+    .sample-alert {
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: color-mix(in oklab, var(--accent) 14%, var(--panel));
+      border: 1px solid color-mix(in oklab, var(--accent) 35%, var(--panel-border));
+      font-size: 12px;
+    }
+
+    /* Diff animation when switching preset */
+    @keyframes pulseRing {
+      0%   { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 50%, transparent); }
+      100% { box-shadow: 0 0 0 10px transparent; }
+    }
+    .changed { animation: pulseRing .8s ease-out 1; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: color-mix(in oklab, var(--accent-2) 30%, transparent); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent-2); }
+
+    /* Layout */
+    .shell {
+      display: grid;
+      grid-template-columns: 320px 1fr 360px;
+      gap: 14px;
+      padding: 14px;
+      min-height: 100vh;
+      max-width: 1700px;
+      margin: 0 auto;
+    }
+    @media (max-width: 1100px) {
+      .shell { grid-template-columns: 280px 1fr; }
+      .preview-col { grid-column: span 2; }
+    }
+    @media (max-width: 720px) {
+      .shell { grid-template-columns: 1fr; }
+      .preview-col { grid-column: span 1; }
+    }
+
+    /* Asymmetric — break the grid on purpose */
+    .header {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: end;
+      gap: 16px;
+      padding: 8px 6px 4px;
+    }
+    .header .brand {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+    .header .brand-mark {
+      width: 28px; height: 28px;
+      border-radius: 6px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      box-shadow: 0 6px 18px color-mix(in oklab, var(--accent) 35%, transparent);
+      transform: rotate(-6deg);
+    }
+    .header h1 {
+      font-family: var(--font-display);
+      font-weight: 400;
+      font-size: 30px;
+      margin: 0;
+      letter-spacing: -0.02em;
+    }
+    .header h1 em {
+      font-style: italic;
+      color: var(--accent);
+    }
+    .header .tagline {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-dim);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+    .header .actions { display: flex; gap: 8px; }
+
+    .col-title {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin: 0 0 10px 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .col-title::before {
+      content: "";
+      display: inline-block;
+      width: 14px; height: 1px;
+      background: var(--accent);
+    }
+
+    .editor-section { padding: 14px; margin-bottom: 10px; }
+    .editor-section h3 {
+      font-family: var(--font-body);
+      font-weight: 600;
+      font-size: 12px;
+      margin: 0 0 10px;
+      color: var(--text);
+      letter-spacing: 0.02em;
+    }
+    .editor-row {
+      display: grid;
+      grid-template-columns: 64px 1fr auto;
+      align-items: center;
+      column-gap: 10px;
+      margin-bottom: 9px;
+      min-width: 0;
+    }
+    .editor-row > * { min-width: 0; }
+    .editor-row .lbl {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      color: var(--text-dim);
+      letter-spacing: 0.04em;
+    }
+    .editor-row .val-text {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      color: var(--text);
+      min-width: 60px;
+      text-align: right;
+    }
+
+    .preset-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+
+    .flow-wrap { height: calc(100vh - 120px); min-height: 520px; padding: 0; overflow: hidden; position: relative; }
+    .flow-wrap .rf-flow { width: 100%; height: 100%; }
+
+    .preview-col { display: flex; flex-direction: column; }
+    .preview-grid { display: flex; flex-direction: column; gap: 10px; }
+    .preview-grid .sample-card { font-size: 12px; }
+    .preview-grid .sample-card .demo-title {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 8px;
+    }
+
+    /* Toast */
+    #toast-root {
+      position: fixed;
+      top: 18px;
+      right: 18px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: none;
+    }
+    .toast {
+      font-family: var(--font-body);
+      font-size: 12px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      backdrop-filter: blur(18px);
+      box-shadow: 0 10px 30px rgba(0,0,0,.5);
+      color: var(--text);
+      opacity: 0;
+      transform: translateY(-10px);
+      transition: opacity .25s ease, transform .25s ease;
+      pointer-events: auto;
+    }
+    .toast.in { opacity: 1; transform: translateY(0); }
+
+    /* Mobile: ReactFlow handles its own resize */
+  </style>
+</head>
+
+<body>
+  <!-- Top-level mount — single SPA root hosting all React (App with 3 columns via portal-like children) -->
+  <div id="root"></div>
+
+  <!-- Toast outlet (vanilla, not part of React) -->
+  <div id="toast-root"></div>
+
+  <!-- Application: JSX compiled in browser by Babel -->
+  <script type="text/babel" data-presets="react">
+  /* ============================================================
+   * Design Flow — Tailwind × React Flow dynamic design system
+   * Single-file React 17 (UMD) + React Flow 11 (UMD) + Babel Standalone.
+   * No build step. No bundler. Open file in browser → it runs.
+   * ============================================================ */
+
+  const { useState, useEffect, useMemo, useCallback, useRef } = React;
+  /* DO NOT destructure ReactFlow into a local named the same as the global —
+     "const { x } = ReactFlow" trips TDZ because Babel hoists the local before
+     the source initializes the global. Use a temporary alias instead. */
+  const RF = window.ReactFlow;
+  const {
+    ReactFlow,
+    ReactFlowProvider,
+    Background,
+    Controls,
+    MiniMap,
+    Handle,
+    Position,
+    applyNodeChanges,
+    applyEdgeChanges,
+    addEdge,
+  } = RF;
+
+  /* ---------- 1. Design-token presets ---------- */
+  /* Each preset is a complete design system. Switching re-themes everything. */
+  const PRESETS = {
+    cyber: {
+      label: "Cyber / Signal",
+      tokens: {
+        accent: "#ff2e63",
+        accent2: "#00e5ff",
+        bg: "#070912",
+        bgSoft: "#101425",
+        text: "#f1f5ff",
+        textDim: "#8b95b3",
+        displayFont: "Fraunces, serif",
+        bodyFont: "Manrope, sans-serif",
+        monoFont: "JetBrains Mono, monospace",
+        radius: 10,
+        shadow: 18,
+        spacing: 14,
+      }
+    },
+    editorial: {
+      label: "Editorial / Press",
+      tokens: {
+        accent: "#c2410c",
+        accent2: "#0e7490",
+        bg: "#f4f1ec",
+        bgSoft: "#e8e2d6",
+        text: "#1a1814",
+        textDim: "#6b6358",
+        displayFont: "DM Serif Display, serif",
+        bodyFont: "Fraunces, serif",
+        monoFont: "JetBrains Mono, monospace",
+        radius: 4,
+        shadow: 8,
+        spacing: 12,
+      }
+    },
+    glass: {
+      label: "Glass / Aurora",
+      tokens: {
+        accent: "#a78bfa",
+        accent2: "#22d3ee",
+        bg: "#0d1424",
+        bgSoft: "#161f3a",
+        text: "#f0f4ff",
+        textDim: "#8d99bb",
+        displayFont: "Fraunces, serif",
+        bodyFont: "Manrope, sans-serif",
+        monoFont: "JetBrains Mono, monospace",
+        radius: 18,
+        shadow: 28,
+        spacing: 16,
+      }
+    },
+  };
+
+  /* ---------- 2. Apply tokens to CSS variables + Tailwind config ---------- */
+  function applyTokensToDOM(t) {
+    const r = document.documentElement;
+    r.style.setProperty("--bg", t.bg);
+    r.style.setProperty("--bg-soft", t.bgSoft);
+    r.style.setProperty("--text", t.text);
+    r.style.setProperty("--text-dim", t.textDim);
+    r.style.setProperty("--accent", t.accent);
+    r.style.setProperty("--accent-2", t.accent2);
+    r.style.setProperty("--font-display", t.displayFont);
+    r.style.setProperty("--font-body", t.bodyFont);
+    r.style.setProperty("--font-mono", t.monoFont);
+    r.style.setProperty("--radius", t.radius + "px");
+    r.style.setProperty(
+      "--shadow-1",
+      `0 1px 0 rgba(255,255,255,.04) inset, 0 ${Math.round(t.shadow/2)}px ${t.shadow}px rgba(0,0,0,.45)`
+    );
+
+    /* Live-update Tailwind config so utility classes resolve from new tokens too */
+    if (window.tailwind && window.tailwind.config) {
+      window.tailwind.config.theme = window.tailwind.config.theme || {};
+      window.tailwind.config.theme.extend = {
+        ...window.tailwind.config.theme.extend,
+        colors: {
+          accent: t.accent,
+          "accent-2": t.accent2,
+          ink: t.text,
+          paper: t.bg,
+        },
+        fontFamily: {
+          display: t.displayFont.split(",").map(s => s.trim()),
+          body: t.bodyFont.split(",").map(s => s.trim()),
+          mono: t.monoFont.split(",").map(s => s.trim()),
+        },
+        borderRadius: { brand: t.radius + "px" },
+      };
+    }
+  }
+
+  /* ---------- 3. Toast helper (vanilla, lives outside React tree) ---------- */
+  function showToast(msg) {
+    const root = document.getElementById("toast-root");
+    if (!root) return;
+    const el = document.createElement("div");
+    el.className = "toast";
+    el.textContent = msg;
+    root.appendChild(el);
+    requestAnimationFrame(() => el.classList.add("in"));
+    setTimeout(() => {
+      el.classList.remove("in");
+      setTimeout(() => el.remove(), 260);
+    }, 2200);
+  }
+
+  /* ---------- 4. Build the React Flow graph from tokens ---------- */
+  /* Nodes = design tokens grouped by category; edges = "consumed by" relationships */
+  function buildGraph(t) {
+    const tokens = [
+      // Color tokens
+      { id: "c-accent",  cat: "color",  name: "Accent",     value: t.accent,  ref: "color" },
+      { id: "c-accent2", cat: "color",  name: "Accent-2",   value: t.accent2, ref: "color" },
+      { id: "c-text",    cat: "color",  name: "Text",       value: t.text,    ref: "color" },
+      { id: "c-dim",     cat: "color",  name: "Text-dim",   value: t.textDim, ref: "color" },
+      { id: "c-bg",      cat: "color",  name: "Surface",    value: t.bg,      ref: "color" },
+
+      // Typography
+      { id: "t-display", cat: "type", name: "Display", value: t.displayFont.split(",")[0], ref: "font" },
+      { id: "t-body",    cat: "type", name: "Body",    value: t.bodyFont.split(",")[0],    ref: "font" },
+      { id: "t-mono",    cat: "type", name: "Mono",    value: t.monoFont.split(",")[0],    ref: "font" },
+
+      // Spacing / Radius / Shadow
+      { id: "s-space",  cat: "space",  name: "Spacing", value: t.spacing + "px", ref: "px" },
+      { id: "s-radius", cat: "radius", name: "Radius",  value: t.radius + "px",  ref: "px" },
+      { id: "s-shadow", cat: "shadow", name: "Shadow",  value: t.shadow + "px",  ref: "px" },
+
+      // Components (consumers)
+      { id: "k-button", cat: "comp", name: "Button", value: "btn.primary" },
+      { id: "k-card",   cat: "comp", name: "Card",   value: "card" },
+      { id: "k-input",  cat: "comp", name: "Input",  value: "input" },
+      { id: "k-badge",  cat: "comp", name: "Badge",  value: "badge" },
+      { id: "k-alert",  cat: "comp", name: "Alert",  value: "alert" },
+    ];
+
+    // positions: rough manual layout (since we don't have dagre here)
+    const layout = {
+      "c-accent":  { x: 0,   y: 0 },
+      "c-accent2": { x: 220, y: 0 },
+      "c-text":    { x: 440, y: 0 },
+      "c-dim":     { x: 660, y: 0 },
+      "c-bg":      { x: 880, y: 0 },
+      "t-display": { x: 0,   y: 130 },
+      "t-body":    { x: 220, y: 130 },
+      "t-mono":    { x: 440, y: 130 },
+      "s-space":   { x: 660, y: 130 },
+      "s-radius":  { x: 880, y: 130 },
+      "s-shadow":  { x: 1100,y: 130 },
+      "k-button":  { x: 0,   y: 280 },
+      "k-card":    { x: 220, y: 280 },
+      "k-input":   { x: 440, y: 280 },
+      "k-badge":   { x: 660, y: 280 },
+      "k-alert":   { x: 880, y: 280 },
+    };
+
+    const nodes = tokens.map(tk => ({
+      id: tk.id,
+      type: "token",
+      position: layout[tk.id] || { x: 0, y: 0 },
+      data: tk,
+    }));
+
+    const edges = [
+      // colors → components
+      { id: "e1", source: "c-accent",  target: "k-button", animated: true },
+      { id: "e2", source: "c-accent2", target: "k-badge",  animated: true },
+      { id: "e3", source: "c-text",    target: "k-card",   animated: true },
+      { id: "e4", source: "c-dim",     target: "k-alert",  animated: true },
+      { id: "e5", source: "c-bg",      target: "k-card",   animated: true },
+      { id: "e6", source: "c-accent",  target: "k-alert",  animated: true },
+
+      // typography → components
+      { id: "e7", source: "t-body",    target: "k-card",   animated: true },
+      { id: "e8", source: "t-mono",    target: "k-badge",  animated: true },
+      { id: "e9", source: "t-display", target: "k-card",   animated: true },
+
+      // spacing / radius / shadow → components
+      { id: "e10", source: "s-radius", target: "k-button", animated: true },
+      { id: "e11", source: "s-radius", target: "k-card",   animated: true },
+      { id: "e12", source: "s-shadow", target: "k-card",   animated: true },
+      { id: "e13", source: "s-space",  target: "k-input",  animated: true },
+    ];
+
+    return { nodes, edges };
+  }
+
+  /* ---------- 5. Custom React Flow node ---------- */
+  function TokenNode({ data }) {
+    const tk = data;
+    const isColor = tk.cat === "color";
+    const isType  = tk.cat === "type";
+    return (
+      <div className={"rf-token-node"}>
+        <Handle type="target" position={Position.Left} />
+        <div className={"rf-token-card " + tk.cat}>
+          <div className="label">{tk.cat}</div>
+          <div className="name">{tk.name}</div>
+          {isColor && <div className="swatch-mini" style={{ background: tk.value }} />}
+          {isType  && <div style={{ fontFamily: tk.value, fontSize: 16, marginTop: 4 }}>Aa</div>}
+          {!isColor && !isType && (
+            <div className="mono" style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 4 }}>{tk.value}</div>
+          )}
+        </div>
+        <Handle type="source" position={Position.Right} />
+      </div>
+    );
+  }
+
+  const nodeTypes = { token: TokenNode };
+
+  /* ---------- 6. Token Editor (left column) ---------- */
+  function TokenEditor({ tokens, onChange, activePreset, onPreset, diffKeys }) {
+    const set = (k, v) => onChange({ ...tokens, [k]: v });
+
+    return (
+      <div>
+        <div className="editor-section">
+          <h3>Preset</h3>
+          <div className="preset-row">
+            {Object.entries(PRESETS).map(([key, p]) => (
+              <button
+                key={key}
+                className={"preset-pill " + (activePreset === key ? "active" : "")}
+                onClick={() => onPreset(key)}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <div className="chip">{(diffKeys?.length || 0)} tokens changed</div>
+        </div>
+
+        <div className={"editor-section " + ((diffKeys || []).includes("accent") ? "changed" : "")}>
+          <h3>Accent</h3>
+          <div className="editor-row">
+            <span className="lbl">primary</span>
+            <div className="slider-row">
+              <div className="swatch" style={{ background: tokens.accent }}>
+                <input type="color" value={tokens.accent} onChange={e => set("accent", e.target.value)} />
+              </div>
+            </div>
+            <span className="val-text">{tokens.accent}</span>
+          </div>
+          <div className="editor-row">
+            <span className="lbl">secondary</span>
+            <div className="slider-row">
+              <div className="swatch" style={{ background: tokens.accent2 }}>
+                <input type="color" value={tokens.accent2} onChange={e => set("accent2", e.target.value)} />
+              </div>
+            </div>
+            <span className="val-text">{tokens.accent2}</span>
+          </div>
+        </div>
+
+        <div className="editor-section">
+          <h3>Surface</h3>
+          <div className="editor-row">
+            <span className="lbl">bg</span>
+            <div className="slider-row">
+              <div className="swatch" style={{ background: tokens.bg }}>
+                <input type="color" value={tokens.bg} onChange={e => set("bg", e.target.value)} />
+              </div>
+            </div>
+            <span className="val-text">{tokens.bg}</span>
+          </div>
+          <div className="editor-row">
+            <span className="lbl">soft</span>
+            <div className="slider-row">
+              <div className="swatch" style={{ background: tokens.bgSoft }}>
+                <input type="color" value={tokens.bgSoft} onChange={e => set("bgSoft", e.target.value)} />
+              </div>
+            </div>
+            <span className="val-text">{tokens.bgSoft}</span>
+          </div>
+          <div className="editor-row">
+            <span className="lbl">text</span>
+            <div className="slider-row">
+              <div className="swatch" style={{ background: tokens.text, border: "1px solid var(--panel-border)" }}>
+                <input type="color" value={tokens.text} onChange={e => set("text", e.target.value)} />
+              </div>
+            </div>
+            <span className="val-text">{tokens.text}</span>
+          </div>
+          <div className="editor-row">
+            <span className="lbl">dim</span>
+            <div className="slider-row">
+              <div className="swatch" style={{ background: tokens.textDim }}>
+                <input type="color" value={tokens.textDim} onChange={e => set("textDim", e.target.value)} />
+              </div>
+            </div>
+            <span className="val-text">{tokens.textDim}</span>
+          </div>
+        </div>
+
+        <div className={"editor-section " + ((diffKeys || []).includes("radius") ? "changed" : "")}>
+          <h3>Geometry</h3>
+          <div className="editor-row">
+            <span className="lbl">radius</span>
+            <div className="slider-row">
+              <input type="range" min="0" max="32" value={tokens.radius}
+                     onChange={e => set("radius", parseInt(e.target.value, 10))} />
+              <span className="val">{tokens.radius}px</span>
+            </div>
+          </div>
+          <div className="editor-row">
+            <span className="lbl">shadow</span>
+            <div className="slider-row">
+              <input type="range" min="0" max="48" value={tokens.shadow}
+                     onChange={e => set("shadow", parseInt(e.target.value, 10))} />
+              <span className="val">{tokens.shadow}px</span>
+            </div>
+          </div>
+          <div className="editor-row">
+            <span className="lbl">spacing</span>
+            <div className="slider-row">
+              <input type="range" min="6" max="28" value={tokens.spacing}
+                     onChange={e => set("spacing", parseInt(e.target.value, 10))} />
+              <span className="val">{tokens.spacing}px</span>
+            </div>
+          </div>
+        </div>
+
+        <div className={"editor-section " + ((diffKeys || []).includes("displayFont") ? "changed" : "")}>
+          <h3>Typography</h3>
+          {[
+            ["displayFont", "Display"],
+            ["bodyFont",    "Body"],
+            ["monoFont",    "Mono"],
+          ].map(([k, label]) => (
+            <div key={k} className="editor-row">
+              <span className="lbl">{label.toLowerCase()}</span>
+              <select
+                value={tokens[k]}
+                onChange={e => set(k, e.target.value)}
+                style={{
+                  background: "color-mix(in oklab, var(--bg-soft) 70%, transparent)",
+                  color: "var(--text)",
+                  border: "1px solid var(--panel-border)",
+                  borderRadius: 8,
+                  padding: "4px 8px",
+                  fontFamily: tokens[k],
+                  fontSize: 11,
+                  width: "100%",
+                }}
+              >
+                {k === "displayFont" && (
+                  <>
+                    <option value="Fraunces, serif">Fraunces</option>
+                    <option value="DM Serif Display, serif">DM Serif Display</option>
+                  </>
+                )}
+                {k === "bodyFont" && (
+                  <>
+                    <option value="Manrope, sans-serif">Manrope</option>
+                    <option value="Fraunces, serif">Fraunces</option>
+                  </>
+                )}
+                {k === "monoFont" && (
+                  <>
+                    <option value="JetBrains Mono, monospace">JetBrains Mono</option>
+                  </>
+                )}
+              </select>
+              <span className="val-text">Aa</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  /* ---------- 7. React Flow pane (center column) ---------- */
+  function FlowPane({ tokens }) {
+    const initial = useMemo(() => buildGraph(tokens), []); // eslint-disable-line
+    const [nodes, setNodes] = useState(initial.nodes);
+    const [edges, setEdges] = useState(initial.edges);
+
+    /* Re-key on token change to force a fresh layout but keep user drags */
+    const tokenKeyRef = useRef(JSON.stringify(tokens));
+    useEffect(() => {
+      const next = JSON.stringify(tokens);
+      const changed = next !== tokenKeyRef.current;
+      tokenKeyRef.current = next;
+      if (!changed) return;
+      const g = buildGraph(tokens);
+      setNodes(prev => {
+        const map = new Map(prev.map(n => [n.id, n]));
+        return g.nodes.map(n => {
+          const old = map.get(n.id);
+          return old ? { ...n, position: old.position } : n;
+        });
+      });
+      setEdges(g.edges);
+    }, [tokens]);
+
+    const onNodesChange = useCallback(c => setNodes(nds => applyNodeChanges(c, nds)), []);
+    const onEdgesChange = useCallback(c => setEdges(eds => applyEdgeChanges(c, eds)), []);
+    const onConnect      = useCallback(c => setEdges(eds => addEdge({ ...c, animated: true }, eds)), []);
+
+    return (
+      <div className="rf-flow">
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          nodeTypes={nodeTypes}
+          fitView
+          fitViewOptions={{ padding: 0.18 }}
+          minZoom={0.35}
+          maxZoom={1.6}
+          proOptions={{ hideAttribution: false }}
+        >
+          <Background variant="dots" gap={14} size={1} color="rgba(255,255,255,0.06)" />
+          <Controls position="bottom-right" showInteractive={false} />
+          <MiniMap
+            pannable zoomable
+            nodeStrokeColor="var(--accent)"
+            nodeColor={(n) => {
+              const c = n.data?.cat;
+              if (c === "color") return "var(--accent)";
+              if (c === "type")  return "var(--accent-2)";
+              if (c === "space") return "#a78bfa";
+              if (c === "radius")return "#34d399";
+              if (c === "shadow")return "#f59e0b";
+              if (c === "comp")  return "#f472b6";
+              return "#888";
+            }}
+            maskColor="color-mix(in oklab, var(--bg) 60%, transparent)"
+            style={{ background: "var(--panel)" }}
+          />
+        </ReactFlow>
+      </div>
+    );
+  }
+
+  /* ---------- 8. Live preview cards (right column) ---------- */
+  function PreviewPane({ tokens }) {
+    return (
+      <div className="preview-grid">
+        <div className="sample-card">
+          <div className="demo-title">Button / Primary</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button className="sample-btn-primary">送出</button>
+            <button className="sample-btn-ghost">取消</button>
+            <button className="sample-btn-primary" disabled style={{ opacity: 0.5 }}>Disabled</button>
+          </div>
+        </div>
+
+        <div className="sample-card">
+          <div className="demo-title">Card</div>
+          <div className="display" style={{ fontSize: 22, lineHeight: 1.15, marginBottom: 6 }}>
+            動態<em style={{ color: "var(--accent)", fontStyle: "italic" }}>設計</em>系統
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 10 }}>
+            每一個 token 都會即時影響節點、邊、與右側預覽。
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <span className="sample-badge">v0.1</span>
+            <span className="sample-badge" style={{
+              background: "color-mix(in oklab, var(--accent) 25%, transparent)",
+              color: "var(--accent)",
+              borderColor: "color-mix(in oklab, var(--accent) 35%, transparent)",
+            }}>live</span>
+          </div>
+        </div>
+
+        <div className="sample-card">
+          <div className="demo-title">Input</div>
+          <input className="sample-input" placeholder="Type something…" defaultValue="Design tokens" />
+          <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 6 }} className="mono">
+            spacing = {tokens.spacing}px · radius = {tokens.radius}px
+          </div>
+        </div>
+
+        <div className="sample-card">
+          <div className="demo-title">Badge</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <span className="sample-badge">primary</span>
+            <span className="sample-badge" style={{
+              background: "color-mix(in oklab, var(--accent) 25%, transparent)",
+              color: "var(--accent)",
+              borderColor: "color-mix(in oklab, var(--accent) 35%, transparent)",
+            }}>accent</span>
+            <span className="sample-badge" style={{
+              background: "color-mix(in oklab, #34d399 25%, transparent)",
+              color: "#34d399",
+              borderColor: "color-mix(in oklab, #34d399 35%, transparent)",
+            }}>success</span>
+          </div>
+        </div>
+
+        <div className="sample-card">
+          <div className="demo-title">Alert</div>
+          <div className="sample-alert">
+            變更 token 後,React Flow 與 previews 會<span style={{ color: "var(--accent)", fontWeight: 600 }}> 自動同步 </span>重繪。
+          </div>
+        </div>
+
+        <div className="sample-card">
+          <div className="demo-title">Current tokens</div>
+          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 12px", fontSize: 11 }} className="mono">
+            <span style={{ color: "var(--text-dim)" }}>accent</span><span>{tokens.accent}</span>
+            <span style={{ color: "var(--text-dim)" }}>accent2</span><span>{tokens.accent2}</span>
+            <span style={{ color: "var(--text-dim)" }}>bg</span><span>{tokens.bg}</span>
+            <span style={{ color: "var(--text-dim)" }}>display</span><span>{tokens.displayFont.split(",")[0]}</span>
+            <span style={{ color: "var(--text-dim)" }}>body</span><span>{tokens.bodyFont.split(",")[0]}</span>
+            <span style={{ color: "var(--text-dim)" }}>radius</span><span>{tokens.radius}px</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ---------- 9. Root App ---------- */
+  function App() {
+    const [activePreset, setActivePreset] = useState("cyber");
+    const [tokens, setTokens] = useState(PRESETS.cyber.tokens);
+    const [diffKeys, setDiffKeys] = useState([]);
+
+    /* Apply tokens to DOM on every change */
+    useEffect(() => {
+      applyTokensToDOM(tokens);
+    }, [tokens]);
+
+    const handlePreset = (key) => {
+      const prev = tokens;
+      const next = PRESETS[key].tokens;
+      /* diff for animation cue */
+      const changed = Object.keys(next).filter(k => prev[k] !== next[k]);
+      setActivePreset(key);
+      setTokens(next);
+      setDiffKeys(changed);
+      showToast(`Switched → ${PRESETS[key].label}  (${changed.length} tokens updated)`);
+      /* clear animation class after a moment */
+      setTimeout(() => setDiffKeys([]), 1100);
+    };
+
+    const handleTokenChange = (next) => {
+      /* if user manually edits, drop preset binding */
+      const changed = Object.keys(next).filter(k => next[k] !== PRESETS[activePreset].tokens[k]);
+      if (changed.length > 0) setActivePreset(null);
+      setTokens(next);
+    };
+
+    const randomize = () => {
+      const r = () => '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
+      /* Smart palette: if bg is light, choose dark text; if dark, light text.
+         This avoids the "random but unreadable" failure mode. */
+      const bgIsLight = (hex) => {
+        const c = hex.replace('#','');
+        const rgb = [0,2,4].map(i => parseInt(c.slice(i,i+2), 16));
+        const lum = (0.2126*rgb[0] + 0.7152*rgb[1] + 0.0722*rgb[2]) / 255;
+        return lum > 0.55;
+      };
+      const pickBg = () => {
+        const hex = r();
+        return bgIsLight(hex) ? hex : hex; // accept either, decide text below
+      };
+      const bg = pickBg();
+      const light = bgIsLight(bg);
+      const next = {
+        ...tokens,
+        accent:  r(),
+        accent2: r(),
+        bg,
+        bgSoft: light ? '#ffffff' : '#000000',
+        text:    light ? '#1a1a1a' : '#f1f5ff',
+        textDim: light ? '#5a5a5a' : '#8d99bb',
+      };
+      setActivePreset(null);
+      setTokens(next);
+      setDiffKeys(["accent", "accent2", "bg", "bgSoft", "text", "textDim"]);
+      showToast(`Randomized palette (${light ? 'light' : 'dark'} mode)`);
+      setTimeout(() => setDiffKeys([]), 1100);
+    };
+
+    const exportJSON = () => {
+      const blob = new Blob([JSON.stringify(tokens, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "design-tokens.json"; a.click();
+      URL.revokeObjectURL(url);
+      showToast("Exported design-tokens.json");
+    };
+
+    return (
+      <ReactFlowProvider>
+        <div className="shell">
+          <div className="header">
+            <div className="brand">
+              <div className="brand-mark" />
+              <div>
+                <h1>Design<em>Flow</em></h1>
+                <div className="tagline">Tailwind × React Flow · dynamic design system</div>
+              </div>
+            </div>
+            <div className="actions">
+              <button className="btn" onClick={randomize}>Randomize</button>
+              <button className="btn primary" onClick={exportJSON}>Export tokens</button>
+            </div>
+          </div>
+
+          {/* LEFT — token editor */}
+          <section className="panel" style={{ padding: "10px" }}>
+            <h2 className="col-title">Token Editor</h2>
+            <TokenEditor
+              tokens={tokens}
+              onChange={handleTokenChange}
+              activePreset={activePreset}
+              onPreset={handlePreset}
+              diffKeys={diffKeys}
+            />
+          </section>
+
+          {/* CENTER — React Flow */}
+          <section className="panel flow-wrap">
+            <h2 className="col-title" style={{ position: "absolute", top: 14, left: 14, zIndex: 5, margin: 0, padding: "4px 10px", background: "var(--panel)", borderRadius: 8, border: "1px solid var(--panel-border)" }}>
+              Token Graph · {nodesCount(tokens)} nodes / {edgesCount(tokens)} edges
+            </h2>
+            <FlowPane tokens={tokens} />
+          </section>
+
+          {/* RIGHT — previews */}
+          <section className="panel preview-col" style={{ padding: "14px" }}>
+            <h2 className="col-title">Live Previews</h2>
+            <PreviewPane tokens={tokens} />
+          </section>
+        </div>
+      </ReactFlowProvider>
+    );
+  }
+
+  /* trivial helpers so header chip is real, not stale */
+  function nodesCount(t) { return 5 /*colors*/ + 3 /*type*/ + 3 /*space+radius+shadow*/ + 5 /*components*/; }
+  function edgesCount(t) { return 13; }
+
+  /* ---------- 10. Mount ---------- */
+  /* Initial apply so CSS vars reflect default preset before first paint flicker.
+     Use direct property assignment to the globalThis style API — the helper
+     applyTokensToDOM/PRESETS are defined inside this <script type="text/babel"> block,
+     but we can reference them here because Babel compiles the whole block as one IIFE-like
+     sequence before any top-level eval above runs. Actually safer: run it inside a useEffect
+     on first render — already done in App. So this trailing call is intentionally omitted. */
+  const rootEl = document.getElementById("root");
+  ReactDOM.render(<App />, rootEl);
+  </script>
+</body>
+</html>

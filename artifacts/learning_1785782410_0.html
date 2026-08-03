@@ -1,0 +1,1403 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RBAC 工作流編輯器 — React Flow 動態權限控制</title>
+<!-- React 18 + ReactDOM UMD -->
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<!-- React Flow 11 UMD + 樣式 -->
+<script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+<link href="https://unpkg.com/reactflow@11.11.4/dist/style.css" rel="stylesheet" />
+<!-- Babel Standalone -->
+<script src="https://unpkg.com/@babel/standalone@7.25.7/babel.min.js"></script>
+<style>
+  :root {
+    --bg: #0b1020;
+    --panel: #111a2e;
+    --panel-2: #1c2943;
+    --line: #263653;
+    --text: #d9e4ff;
+    --muted: #8ca0c5;
+    --accent: #75a7ff;
+    --accent-2: #a78bfa;
+    --ok: #5ee6a8;
+    --warn: #ffc857;
+    --err: #ff6b81;
+    --deny: #ff5470;
+    --allow: #5ee6a8;
+    --admin: #f59e0b;
+    --manager: #8b5cf6;
+    --editor: #3b82f6;
+    --viewer: #64748b;
+    --guest: #475569;
+    --gate-locked: #2a1a2e;
+    --gate-passed: #133c2e;
+  }
+  * { box-sizing: border-box; }
+  html, body, #root { height: 100%; margin: 0; }
+  body {
+    background: radial-gradient(circle at top right, #1c2b50 0, #0b1020 50%);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", Roboto, sans-serif;
+    overflow: hidden;
+  }
+  .app {
+    display: grid;
+    grid-template-columns: 280px 1fr 340px;
+    grid-template-rows: 56px 1fr 220px;
+    grid-template-areas:
+      "topbar topbar topbar"
+      "palette canvas inspector"
+      "audit audit audit";
+    height: 100vh;
+  }
+  header.topbar {
+    grid-area: topbar;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 14px;
+  }
+  header.topbar h1 {
+    font-size: 16px;
+    margin: 0;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+  header.topbar h1 .accent { color: var(--accent); }
+  .role-switcher {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+  }
+  .role-switcher label { font-size: 11px; color: var(--muted); }
+  .role-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--muted);
+  }
+  .role-chip.active {
+    color: #0c1426;
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .role-chip[data-role="admin"].active { background: var(--admin); border-color: var(--admin); }
+  .role-chip[data-role="manager"].active { background: var(--manager); border-color: var(--manager); color: #fff; }
+  .role-chip[data-role="editor"].active { background: var(--editor); border-color: var(--editor); color: #fff; }
+  .role-chip[data-role="viewer"].active { background: var(--viewer); border-color: var(--viewer); color: #fff; }
+  .role-chip[data-role="guest"].active { background: var(--guest); border-color: var(--guest); color: #fff; }
+
+  .topbar-stats {
+    margin-left: auto;
+    display: flex;
+    gap: 16px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .topbar-stats strong { color: var(--text); }
+  .topbar-actions { display: flex; gap: 6px; }
+  button.btn {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px 11px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  button.btn:hover:not(:disabled) { background: var(--accent); color: #0c1426; border-color: var(--accent); }
+  button.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.btn.primary { background: var(--accent); color: #0c1426; border-color: var(--accent); font-weight: 600; }
+  button.btn.danger { background: transparent; color: var(--err); border-color: var(--err); }
+  button.btn.danger:hover { background: var(--err); color: white; }
+  button.btn.deny { background: transparent; color: var(--deny); border-color: var(--deny); }
+  button.btn.deny:hover { background: var(--deny); color: #fff; }
+
+  /* Sidebar */
+  aside.sidebar {
+    background: var(--panel);
+    overflow-y: auto;
+    padding: 14px;
+  }
+  aside.sidebar.palette { grid-area: palette; border-right: 1px solid var(--line); }
+  aside.sidebar.inspector { grid-area: inspector; border-left: 1px solid var(--line); }
+  aside.sidebar h2 {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 10px;
+    letter-spacing: 1px;
+    font-weight: 600;
+  }
+  .palette-section { margin-bottom: 18px; }
+  .palette-item {
+    background: var(--panel-2);
+    border: 1px dashed var(--line);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    cursor: grab;
+    user-select: none;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.12s;
+  }
+  .palette-item:hover { border-color: var(--accent); border-style: solid; transform: translateX(3px); }
+  .palette-item .icon { font-size: 16px; width: 22px; text-align: center; }
+  .palette-item .text { flex: 1; }
+  .palette-item .badge-mini { font-size: 9px; padding: 1px 5px; border-radius: 3px; }
+  .badge-mini.lock { background: #3d1e31; color: var(--deny); }
+  .badge-mini.unlock { background: #133c2e; color: var(--allow); }
+
+  /* Canvas area */
+  .canvas-area {
+    grid-area: canvas;
+    position: relative;
+    background: linear-gradient(180deg, #0a1024, #0b1020);
+    overflow: hidden;
+  }
+  .canvas-banner {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 12px;
+    z-index: 10;
+    pointer-events: none;
+    font-weight: 600;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+  }
+  .canvas-banner.locked { background: var(--gate-locked); color: var(--deny); border: 1px solid var(--deny); }
+  .canvas-banner.granted { background: var(--gate-passed); color: var(--allow); border: 1px solid var(--allow); }
+
+  /* Audit panel */
+  .audit-panel {
+    grid-area: audit;
+    background: var(--panel);
+    border-top: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    overflow: hidden;
+  }
+  .audit-section { padding: 12px 16px; overflow: auto; }
+  .audit-section h2 { font-size: 11px; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; font-weight: 600; letter-spacing: 1px; }
+  .audit-list { display: flex; flex-direction: column; gap: 4px; }
+  .audit-entry {
+    font-family: ui-monospace, "JetBrains Mono", Consolas, monospace;
+    font-size: 11px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.04);
+    border-left: 3px solid var(--line);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .audit-entry.allow { border-left-color: var(--allow); color: #b6f3d6; }
+  .audit-entry.deny { border-left-color: var(--deny); color: #f9c0c8; }
+  .audit-entry .ts { color: var(--muted); flex-shrink: 0; min-width: 64px; }
+  .audit-entry .who { font-weight: 600; }
+  .audit-entry .what { flex: 1; }
+
+  /* Permission matrix table */
+  .matrix-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .matrix-table th, .matrix-table td { padding: 4px 6px; text-align: center; border: 1px solid var(--line); }
+  .matrix-table th { background: var(--panel-2); color: var(--muted); font-weight: 600; }
+  .matrix-table td.role-name { text-align: left; font-weight: 600; }
+  .matrix-table td.role-admin { color: var(--admin); }
+  .matrix-table td.role-manager { color: var(--manager); }
+  .matrix-table td.role-editor { color: var(--editor); }
+  .matrix-table td.role-viewer { color: var(--viewer); }
+  .matrix-table td.role-guest { color: var(--guest); }
+  .matrix-table .cell-yes { background: rgba(94, 230, 168, 0.2); color: var(--allow); font-weight: 600; }
+  .matrix-table .cell-no { background: rgba(255, 107, 129, 0.15); color: var(--deny); }
+
+  /* React Flow customizations */
+  .react-flow__node {
+    border-radius: 8px;
+    border: 2px solid;
+    padding: 10px 14px;
+    background: var(--panel);
+    color: var(--text);
+    min-width: 160px;
+    font-size: 12px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+  }
+  .react-flow__node .locked { opacity: 0.55; filter: grayscale(60%); pointer-events: none; }
+  .react-flow__node.draggable { cursor: grab; }
+  .node-content { display: flex; flex-direction: column; gap: 4px; }
+  .node-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    align-self: flex-start;
+  }
+  .node-title { font-weight: 700; font-size: 13px; line-height: 1.3; }
+  .node-sub { font-size: 11px; opacity: 0.75; }
+  .node-role-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 600;
+    margin-right: 3px;
+    margin-top: 3px;
+  }
+  .node-role-tag.admin { background: var(--admin); color: #0c1426; }
+  .node-role-tag.manager { background: var(--manager); color: #fff; }
+  .node-role-tag.editor { background: var(--editor); color: #fff; }
+  .node-role-tag.viewer { background: var(--viewer); color: #fff; }
+  .node-role-tag.guest { background: var(--guest); color: #fff; }
+  .node-locked-badge {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    background: var(--deny);
+    color: white;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+  }
+  .react-flow__node { position: relative; }
+  .react-flow__handle { width: 9px !important; height: 9px !important; background: var(--accent) !important; border: 2px solid var(--bg) !important; }
+  .react-flow__edge-path { stroke: var(--muted); stroke-width: 2; }
+  .react-flow__edge.selected .react-flow__edge-path { stroke: var(--accent); stroke-width: 3; }
+  .react-flow__edge.edge-deny .react-flow__edge-path { stroke: var(--deny); stroke-dasharray: 4 4; }
+  .react-flow__attribution { background: rgba(15,23,42,0.6) !important; color: var(--muted) !important; }
+
+  /* Inspector form */
+  .inspector-section { margin-bottom: 14px; }
+  .inspector-label { display: block; font-size: 10px; color: var(--muted); margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+  .inspector-input {
+    width: 100%;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 5px 8px;
+    font-size: 12px;
+    font-family: inherit;
+  }
+  .inspector-input:focus { outline: none; border-color: var(--accent); }
+  textarea.inspector-input { font-family: ui-monospace, Consolas, monospace; font-size: 11px; resize: vertical; min-height: 60px; }
+  .role-checkbox-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 4px;
+    margin-top: 4px;
+  }
+  .role-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 6px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+  }
+  .role-checkbox input { cursor: pointer; }
+  .role-checkbox.checked { border-color: var(--accent); background: rgba(117, 167, 255, 0.12); }
+  .perm-effect-toggle {
+    display: flex;
+    gap: 4px;
+    margin-top: 4px;
+  }
+  .perm-effect-toggle button {
+    flex: 1;
+    padding: 5px;
+    border-radius: 4px;
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    color: var(--muted);
+    font-size: 11px;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .perm-effect-toggle button.active.allow { background: var(--allow); color: #0c1426; border-color: var(--allow); }
+  .perm-effect-toggle button.active.deny { background: var(--deny); color: #fff; border-color: var(--deny); }
+  .status-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .status-pill.locked { background: var(--gate-locked); color: var(--deny); }
+  .status-pill.granted { background: var(--gate-passed); color: var(--allow); }
+  .status-pill.neutral { background: var(--panel-2); color: var(--muted); }
+
+  /* Empty state */
+  .empty { color: var(--muted); font-size: 12px; padding: 20px; text-align: center; font-style: italic; }
+
+  @media (max-width: 1100px) {
+    .app { grid-template-columns: 240px 1fr 300px; }
+    .topbar-stats { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useCallback, useMemo, useRef, useEffect } = React;
+const {
+  ReactFlow,
+  ReactFlowProvider,
+  Background,
+  Controls,
+  MiniMap,
+  Handle,
+  Position,
+  applyNodeChanges,
+  applyEdgeChanges,
+  addEdge,
+  useReactFlow,
+} = window.ReactFlow;
+
+// ============================================================================
+// 1. 角色定義 (Role definitions) — RBAC 核心
+// ============================================================================
+const ROLES = {
+  admin:   { name: '系統管理員', color: '#f59e0b', priority: 5, icon: '⚡' },
+  manager: { name: '業務主管',   color: '#8b5cf6', priority: 4, icon: '👔' },
+  editor:  { name: '編輯者',     color: '#3b82f6', priority: 3, icon: '✏️' },
+  viewer:  { name: '檢視者',     color: '#64748b', priority: 2, icon: '👁️' },
+  guest:   { name: '訪客',       color: '#475569', priority: 1, icon: '🚶' },
+};
+
+const PERMISSIONS = ['view', 'edit', 'execute', 'approve', 'admin'];
+
+// 權限預設矩陣：哪個角色能做什麼
+const DEFAULT_PERMISSIONS = {
+  admin:   { view: true,  edit: true,  execute: true,  approve: true,  admin: true  },
+  manager: { view: true,  edit: true,  execute: true,  approve: true,  admin: false },
+  editor:  { view: true,  edit: true,  execute: false, approve: false, admin: false },
+  viewer:  { view: true,  edit: false, execute: false, approve: false, admin: false },
+  guest:   { view: false, edit: false, execute: false, approve: false, admin: false },
+};
+
+// ============================================================================
+// 2. 節點類型定義 — 內含 RBAC 屬性
+// ============================================================================
+const NODE_TYPES = [
+  // --- 工作流節點 ---
+  {
+    category: 'workflow',
+    type: 'start',
+    label: '流程起點',
+    icon: '▶',
+    desc: '工作流入口',
+    color: '#5ee6a8',
+    defaultPerms: { admin: true, manager: true, editor: true, viewer: true, guest: false },
+  },
+  {
+    category: 'workflow',
+    type: 'task',
+    label: '任務節點',
+    icon: '⚙',
+    desc: '執行任務',
+    color: '#3b82f6',
+    defaultPerms: { admin: true, manager: true, editor: true, viewer: false, guest: false },
+  },
+  {
+    category: 'workflow',
+    type: 'decision',
+    label: '決策節點',
+    icon: '◆',
+    desc: '條件分支',
+    color: '#ffc857',
+    defaultPerms: { admin: true, manager: true, editor: true, viewer: false, guest: false },
+  },
+  {
+    category: 'workflow',
+    type: 'end',
+    label: '流程終點',
+    icon: '■',
+    desc: '結束',
+    color: '#ff6b81',
+    defaultPerms: { admin: true, manager: true, editor: true, viewer: true, guest: false },
+  },
+
+  // --- 權限節點 ---
+  {
+    category: 'permission',
+    type: 'role',
+    label: '角色節點',
+    icon: '👤',
+    desc: '定義可存取的成員身份',
+    color: '#f59e0b',
+    defaultPerms: { admin: true, manager: true, editor: false, viewer: false, guest: false },
+  },
+  {
+    category: 'permission',
+    type: 'gate',
+    label: '權限閘門',
+    icon: '🚧',
+    desc: '依角色擋住後續流程',
+    color: '#ff5470',
+    defaultPerms: { admin: true, manager: true, editor: false, viewer: false, guest: false },
+  },
+  {
+    category: 'permission',
+    type: 'approval',
+    label: '審核節點',
+    icon: '✓',
+    desc: '需主管或管理員核准',
+    color: '#a78bfa',
+    defaultPerms: { admin: true, manager: true, editor: false, viewer: false, guest: false },
+  },
+  {
+    category: 'permission',
+    type: 'audit',
+    label: '稽核記錄',
+    icon: '📝',
+    desc: '觸發稽核事件',
+    color: '#75a7ff',
+    defaultPerms: { admin: true, manager: true, editor: true, viewer: false, guest: false },
+  },
+];
+
+const TYPE_BY_KEY = Object.fromEntries(NODE_TYPES.map(n => [n.type, n]));
+
+// ============================================================================
+// 3. 權限運算核心 — 純函式
+// ============================================================================
+
+// 檢查某角色對某節點是否有特定權限 (view/edit/execute/admin)
+function checkRoleOnNode(role, perm, node) {
+  const data = node.data || {};
+  // 1) 節點 ACL
+  const nodeRoles = data.allowedRoles || TYPE_BY_KEY[node.type]?.defaultPerms || {};
+  if (nodeRoles[role] === true) return { allow: true, reason: 'node_acl' };
+
+  // 2) admin 永遠可 view (但不一定可 edit)
+  if (role === 'admin' && perm === 'view') return { allow: true, reason: 'admin_view_override' };
+
+  // 3) 預設角色權限矩陣
+  const rolePerms = DEFAULT_PERMISSIONS[role] || {};
+  if (rolePerms[perm]) return { allow: true, reason: 'role_matrix' };
+
+  return { allow: false, reason: 'deny_by_default' };
+}
+
+// 檢查邊上的權限 (哪個角色可沿這條邊走)
+function checkEdgeForRole(role, edge) {
+  const data = edge.data || {};
+  const effect = data.effect || 'allow';
+  const requiredRoles = data.allowedRoles || ['admin', 'manager', 'editor', 'viewer'];
+  if (effect === 'deny') return { allow: false, reason: 'edge_explicit_deny' };
+  if (requiredRoles.includes(role)) return { allow: true, reason: 'edge_role_match' };
+  return { allow: false, reason: 'edge_role_mismatch' };
+}
+
+// 整個工作流對當前角色的「可見性快照」
+function getRoleSnapshot(role, nodes, edges) {
+  const visibleNodes = nodes.filter(n => checkRoleOnNode(role, 'view', n).allow);
+  const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
+  const visibleEdges = edges.filter(e =>
+    visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target) && checkEdgeForRole(role, e).allow
+  );
+  const editableNodes = visibleNodes.filter(n => checkRoleOnNode(role, 'edit', n).allow);
+  return {
+    role,
+    visibleNodes: visibleNodes.length,
+    visibleEdges: visibleEdges.length,
+    editableNodes: editableNodes.length,
+    totalNodes: nodes.length,
+    totalEdges: edges.length,
+    hiddenNodes: nodes.length - visibleNodes.length,
+  };
+}
+
+// ============================================================================
+// 4. 自訂節點組件 — 顯示 RBAC 狀態
+// ============================================================================
+function BaseNode({ data, type, selected }) {
+  const cfg = TYPE_BY_KEY[type] || { label: type, color: '#6b7280', icon: '?' };
+  const isLocked = data._locked === true;
+  const allowedRoles = data.allowedRoles || cfg.defaultPerms || {};
+  return (
+    <div
+      className={isLocked ? 'locked' : ''}
+      style={{
+        borderColor: cfg.color,
+        outline: selected ? `2px solid ${cfg.color}` : 'none',
+        outlineOffset: '2px',
+      }}
+    >
+      {isLocked && <div className="node-locked-badge">🔒</div>}
+      <Handle type="target" position={Position.Top} style={{ background: cfg.color }} />
+      <div className="node-content">
+        <div className="node-pill" style={{ background: cfg.color + '40', color: cfg.color }}>
+          {cfg.icon} {cfg.label}
+        </div>
+        <div className="node-title">{data.label || cfg.label}</div>
+        {data.subtitle && <div className="node-sub">{data.subtitle}</div>}
+        <div style={{marginTop:4}}>
+          {Object.entries(allowedRoles).filter(([r,v]) => v).map(([r]) => (
+            <span key={r} className={`node-role-tag ${r}`} title={ROLES[r].name}>
+              {ROLES[r].icon} {ROLES[r].name.slice(0,2)}
+            </span>
+          ))}
+          {Object.values(allowedRoles).every(v => !v) && (
+            <span className="node-role-tag guest" style={{background:'#3d1e31',color:'#ff6b81'}}>
+              🔒 無人可存取
+            </span>
+          )}
+        </div>
+      </div>
+      <Handle type="source" position={Position.Bottom} style={{ background: cfg.color }} />
+    </div>
+  );
+}
+
+const nodeTypes = {
+  start: BaseNode, task: BaseNode, decision: BaseNode, end: BaseNode,
+  role: BaseNode, gate: BaseNode, approval: BaseNode, audit: BaseNode,
+};
+
+// ============================================================================
+// 5. 主要 App
+// ============================================================================
+
+const STORAGE_KEY = 'rbac_workflow_editor_v1';
+
+const initialNodes = [
+  { id: 'n1', type: 'start', position: { x: 250, y: 30 },
+    data: { label: '使用者提交申請', subtitle: '客戶服務系統入口',
+      allowedRoles: { admin: true, manager: true, editor: true, viewer: true, guest: true } } },
+  { id: 'n2', type: 'role', position: { x: 50, y: 180 },
+    data: { label: '身份驗證', subtitle: '確認申請者身份',
+      allowedRoles: { admin: true, manager: true, editor: true, viewer: false, guest: false } } },
+  { id: 'n3', type: 'gate', position: { x: 250, y: 180 },
+    data: { label: '角色權限檢查', subtitle: '依角色分流',
+      allowedRoles: { admin: true, manager: true, editor: false, viewer: false, guest: false } } },
+  { id: 'n4', type: 'task', position: { x: 100, y: 340 },
+    data: { label: '處理申請', subtitle: '業務流程',
+      allowedRoles: { admin: true, manager: true, editor: true, viewer: false, guest: false } } },
+  { id: 'n5', type: 'approval', position: { x: 350, y: 340 },
+    data: { label: '主管審核', subtitle: '需 manager 以上',
+      allowedRoles: { admin: true, manager: true, editor: false, viewer: false, guest: false } } },
+  { id: 'n6', type: 'decision', position: { x: 220, y: 480 },
+    data: { label: '金額審查', subtitle: '>=10萬需管理員',
+      allowedRoles: { admin: true, manager: true, editor: false, viewer: false, guest: false } } },
+  { id: 'n7', type: 'audit', position: { x: 50, y: 620 },
+    data: { label: '記錄稽核日誌', subtitle: '所有事件留存',
+      allowedRoles: { admin: true, manager: true, editor: true, viewer: false, guest: false } } },
+  { id: 'n8', type: 'end', position: { x: 400, y: 620 },
+    data: { label: '流程完成', subtitle: '通知申請者',
+      allowedRoles: { admin: true, manager: true, editor: true, viewer: true, guest: false } } },
+];
+
+const initialEdges = [
+  { id: 'e1-2', source: 'n1', target: 'n2', data: { effect: 'allow', allowedRoles: ['admin','manager','editor','viewer'] } },
+  { id: 'e1-3', source: 'n1', target: 'n3', data: { effect: 'allow', allowedRoles: ['admin','manager','editor','viewer'] } },
+  { id: 'e2-4', source: 'n2', target: 'n4', data: { effect: 'allow', allowedRoles: ['admin','manager','editor'] } },
+  { id: 'e3-5', source: 'n3', target: 'n5', data: { effect: 'allow', allowedRoles: ['admin','manager'] } },
+  { id: 'e4-6', source: 'n4', target: 'n6', data: { effect: 'allow', allowedRoles: ['admin','manager','editor'] } },
+  { id: 'e5-6', source: 'n5', target: 'n6', data: { effect: 'allow', allowedRoles: ['admin','manager'] } },
+  { id: 'e6-7', source: 'n6', target: 'n7', data: { effect: 'allow', allowedRoles: ['admin','manager','editor'] } },
+  { id: 'e6-8', source: 'n6', target: 'n8', data: { effect: 'allow', allowedRoles: ['admin','manager'] } },
+  // 示範 deny edge：guest 走 n1→n2 直接被擋
+  { id: 'e-guest-deny', source: 'n2', target: 'n7', data: { effect: 'deny', allowedRoles: [] } },
+];
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { nodes: initialNodes, edges: initialEdges };
+    const s = JSON.parse(raw);
+    if (!s.nodes || !s.edges) return { nodes: initialNodes, edges: initialEdges };
+    return s;
+  } catch {
+    return { nodes: initialNodes, edges: initialEdges };
+  }
+}
+
+function App() {
+  const wfRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const [{ nodes, edges }, setState] = useState(loadState);
+  const [currentRole, setCurrentRole] = useState('manager');
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [selectedEdge, setSelectedEdge] = useState(null);
+  const [audit, setAudit] = useState([]);
+  const [showHelp, setShowHelp] = useState(false);
+
+  // 持久化
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ nodes, edges })); } catch {}
+  }, [nodes, edges]);
+
+  const setNodes = useCallback((updater) => {
+    setState(prev => ({ ...prev, nodes: typeof updater === 'function' ? updater(prev.nodes) : updater }));
+  }, []);
+  const setEdges = useCallback((updater) => {
+    setState(prev => ({ ...prev, edges: typeof updater === 'function' ? updater(prev.edges) : updater }));
+  }, []);
+
+  const onNodesChange = useCallback((changes) => setNodes(nds => applyNodeChanges(changes, nds)), [setNodes]);
+  const onEdgesChange = useCallback((changes) => setEdges(eds => applyEdgeChanges(changes, eds)), [setEdges]);
+
+  const onConnect = useCallback((params) => {
+    setEdges(eds => addEdge({
+      ...params,
+      data: { effect: 'allow', allowedRoles: ['admin','manager','editor','viewer'] },
+    }, eds));
+    addAudit(currentRole, '建立連線', `${params.source} → ${params.target}`, 'allow');
+  }, [setEdges, currentRole]);
+
+  const onNodeClick = useCallback((_e, node) => {
+    setSelectedNode(node);
+    setSelectedEdge(null);
+  }, []);
+
+  const onEdgeClick = useCallback((_e, edge) => {
+    setSelectedEdge(edge);
+    setSelectedNode(null);
+  }, []);
+
+  const onPaneClick = useCallback(() => {
+    setSelectedNode(null);
+    setSelectedEdge(null);
+  }, []);
+
+  // 從拖曳加入節點
+  const onDragOver = useCallback((event) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const onDrop = useCallback((event) => {
+    event.preventDefault();
+    const type = event.dataTransfer.getData('application/reactflow');
+    if (!type || !TYPE_BY_KEY[type]) return;
+    const position = wfRef.current?.screenToFlowPosition?.({ x: event.clientX, y: event.clientY })
+      || { x: event.clientX - 200, y: event.clientY - 100 };
+    const cfg = TYPE_BY_KEY[type];
+    const newNode = {
+      id: `${type}-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+      type,
+      position,
+      data: {
+        label: cfg.label,
+        subtitle: cfg.desc,
+        allowedRoles: { ...cfg.defaultPerms },
+      },
+    };
+    setNodes(nds => nds.concat(newNode));
+    addAudit(currentRole, '新增節點', `${cfg.icon} ${cfg.label} (${type})`, 'allow');
+  }, [setNodes, currentRole]);
+
+  // === 權限判定：哪些節點對當前角色 locked ===
+  const nodesWithLockState = useMemo(() => {
+    return nodes.map(n => {
+      const check = checkRoleOnNode(currentRole, 'view', n);
+      return {
+        ...n,
+        data: { ...n.data, _locked: !check.allow, _lockReason: check.reason },
+      };
+    });
+  }, [nodes, currentRole]);
+
+  const edgesWithDenyClass = useMemo(() => {
+    return edges.map(e => {
+      const check = checkEdgeForRole(currentRole, e);
+      return {
+        ...e,
+        className: !check.allow ? 'edge-deny' : '',
+        animated: !check.allow,
+      };
+    });
+  }, [edges, currentRole]);
+
+  const snapshot = useMemo(() => getRoleSnapshot(currentRole, nodes, edges), [currentRole, nodes, edges]);
+
+  function addAudit(role, action, detail, effect) {
+    setAudit(a => [{
+      id: `a-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
+      ts: new Date().toLocaleTimeString('en-GB'),
+      role, action, detail, effect,
+    }, ...a].slice(0, 200));
+  }
+
+  // === Inspector callbacks ===
+  const updateNodeData = useCallback((id, newData) => {
+    setNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, ...newData } } : n));
+    if (selectedNode?.id === id) setSelectedNode(s => s ? { ...s, data: { ...s.data, ...newData } } : s);
+  }, [setNodes, selectedNode]);
+
+  const toggleNodeRole = useCallback((nodeId, role) => {
+    const node = nodes.find(n => n.id === nodeId);
+    if (!node) return;
+    const allowed = { ...(node.data.allowedRoles || {}) };
+    const was = !!allowed[role];
+    allowed[role] = !was;
+    const effect = !was ? 'allow' : 'deny';
+    const check = checkRoleOnNode(role, 'view', { ...node, data: { ...node.data, allowedRoles: allowed } });
+    updateNodeData(nodeId, { allowedRoles: allowed });
+    addAudit(currentRole, `角色存取權 ${effect === 'allow' ? '授予' : '撤銷'}`, `${ROLES[role].name} → ${node.data.label || node.type} (${check.reason})`, effect);
+  }, [nodes, updateNodeData, currentRole]);
+
+  const updateEdgeData = useCallback((id, newData) => {
+    setEdges(eds => eds.map(e => e.id === id ? { ...e, data: { ...(e.data || {}), ...newData } } : e));
+    if (selectedEdge?.id === id) setSelectedEdge(s => s ? { ...s, data: { ...(s.data||{}), ...newData } } : s);
+  }, [setEdges, selectedEdge]);
+
+  const toggleEdgeRole = useCallback((edgeId, role) => {
+    const edge = edges.find(e => e.id === edgeId);
+    if (!edge) return;
+    const data = { ...(edge.data || {}) };
+    const arr = new Set(data.allowedRoles || []);
+    const effect = data.effect || 'allow';
+    if (arr.has(role)) arr.delete(role); else arr.add(role);
+    data.allowedRoles = Array.from(arr);
+    updateEdgeData(edgeId, data);
+    addAudit(currentRole, '修改邊的角色清單', `${edge.source}→${edge.target} +${ROLES[role].name}`, arr.has(role) ? 'allow' : 'deny');
+  }, [edges, updateEdgeData, currentRole]);
+
+  const setEdgeEffect = useCallback((edgeId, effect) => {
+    const edge = edges.find(e => e.id === edgeId);
+    if (!edge) return;
+    updateEdgeData(edgeId, { effect });
+    addAudit(currentRole, '修改邊的效果', `${edge.source}→${edge.target} = ${effect}`, effect === 'allow' ? 'allow' : 'deny');
+  }, [edges, updateEdgeData, currentRole]);
+
+  const deleteSelected = useCallback(() => {
+    if (selectedNode) {
+      const check = checkRoleOnNode(currentRole, 'edit', selectedNode);
+      if (!check.allow) {
+        addAudit(currentRole, '嘗試刪除節點', `${selectedNode.data.label || selectedNode.type} — 被拒 (${check.reason})`, 'deny');
+        return;
+      }
+      const id = selectedNode.id;
+      setNodes(nds => nds.filter(n => n.id !== id));
+      setEdges(eds => eds.filter(e => e.source !== id && e.target !== id));
+      addAudit(currentRole, '刪除節點', `${selectedNode.data.label || selectedNode.type}`, 'allow');
+      setSelectedNode(null);
+    } else if (selectedEdge) {
+      const id = selectedEdge.id;
+      setEdges(eds => eds.filter(e => e.id !== id));
+      addAudit(currentRole, '刪除連線', `${selectedEdge.source}→${selectedEdge.target}`, 'allow');
+      setSelectedEdge(null);
+    }
+  }, [selectedNode, selectedEdge, currentRole, setNodes, setEdges]);
+
+  const exportWorkflow = useCallback(() => {
+    const data = { version: 1, exportedAt: new Date().toISOString(), nodes, edges };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'rbac-workflow.json'; a.click();
+    URL.revokeObjectURL(url);
+    addAudit(currentRole, '匯出工作流', `${nodes.length} 節點 / ${edges.length} 連線`, 'allow');
+  }, [nodes, edges, currentRole]);
+
+  const importWorkflow = useCallback((file) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        if (Array.isArray(data.nodes) && Array.isArray(data.edges)) {
+          setState({ nodes: data.nodes, edges: data.edges });
+          addAudit(currentRole, '匯入工作流', `${data.nodes.length} 節點 / ${data.edges.length} 連線`, 'allow');
+        }
+      } catch (err) {
+        addAudit('system', '匯入失敗', String(err), 'deny');
+      }
+    };
+    reader.readAsText(file);
+  }, [currentRole]);
+
+  const resetWorkflow = useCallback(() => {
+    if (currentRole !== 'admin') {
+      addAudit(currentRole, '嘗試重置工作流', '需 admin 權限', 'deny');
+      return;
+    }
+    setState({ nodes: initialNodes, edges: initialEdges });
+    addAudit(currentRole, '重置工作流', '回到預設範例', 'allow');
+  }, [currentRole]);
+
+  // Auto-add audit when role changes
+  useEffect(() => {
+    addAudit(currentRole, '切換角色', `→ ${ROLES[currentRole].name}`, 'allow');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentRole]);
+
+  return (
+    <ReactFlowProvider>
+      <div className="app">
+        {/* ===== TOPBAR ===== */}
+        <header className="topbar">
+          <h1>🔐 <span className="accent">RBAC</span> 工作流編輯器</h1>
+
+          <div className="role-switcher">
+            <label>當前角色:</label>
+            {Object.entries(ROLES).map(([key, r]) => (
+              <button
+                key={key}
+                data-role={key}
+                className={`role-chip ${currentRole === key ? 'active' : ''}`}
+                onClick={() => setCurrentRole(key)}
+                title={r.name}
+              >
+                {r.icon} {r.name}
+              </button>
+            ))}
+          </div>
+
+          <div className="topbar-stats">
+            <span>可見節點: <strong>{snapshot.visibleNodes}/{snapshot.totalNodes}</strong></span>
+            <span>可編輯: <strong>{snapshot.editableNodes}</strong></span>
+            <span>隱藏: <strong>{snapshot.hiddenNodes}</strong></span>
+          </div>
+
+          <div className="topbar-actions">
+            <button className="btn" onClick={exportWorkflow} title="下載 JSON">📥 匯出</button>
+            <button className="btn" onClick={() => fileInputRef.current?.click()} title="從 JSON 載入">📤 匯入</button>
+            <input ref={fileInputRef} type="file" accept=".json" style={{display:'none'}}
+              onChange={(e) => e.target.files?.[0] && importWorkflow(e.target.files[0])} />
+            <button className="btn danger" onClick={resetWorkflow} disabled={currentRole !== 'admin'}
+              title={currentRole !== 'admin' ? '僅 admin 可重置' : '回到預設範例'}>↺ 重置</button>
+            <button className="btn primary" onClick={() => setShowHelp(s => !s)}>{showHelp ? '✕' : '?'} 說明</button>
+          </div>
+        </header>
+
+        {/* ===== PALETTE ===== */}
+        <aside className="sidebar palette">
+          <div className="palette-section">
+            <h2>工作流節點</h2>
+            {NODE_TYPES.filter(n => n.category === 'workflow').map(n => {
+              const canDrop = checkRoleOnNode(currentRole, 'create', { type: n.type, data: {} }).allow || currentRole === 'admin';
+              return (
+                <div
+                  key={n.type}
+                  className="palette-item"
+                  draggable
+                  onDragStart={(e) => e.dataTransfer.setData('application/reactflow', n.type)}
+                  style={{ borderLeft: `3px solid ${n.color}` }}
+                >
+                  <span className="icon">{n.icon}</span>
+                  <div className="text">
+                    <div style={{fontWeight:600}}>{n.label}</div>
+                    <div style={{fontSize:10, color:'var(--muted)'}}>{n.desc}</div>
+                  </div>
+                  <span className={`badge-mini ${canDrop ? 'unlock' : 'lock'}`}>
+                    {canDrop ? '✓' : '🔒'}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="palette-section">
+            <h2>權限節點</h2>
+            {NODE_TYPES.filter(n => n.category === 'permission').map(n => (
+              <div
+                key={n.type}
+                className="palette-item"
+                draggable
+                onDragStart={(e) => e.dataTransfer.setData('application/reactflow', n.type)}
+                style={{ borderLeft: `3px solid ${n.color}` }}
+              >
+                <span className="icon">{n.icon}</span>
+                <div className="text">
+                  <div style={{fontWeight:600}}>{n.label}</div>
+                  <div style={{fontSize:10, color:'var(--muted)'}}>{n.desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="palette-section">
+            <h2>權限矩陣 ({ROLES[currentRole].name})</h2>
+            <table className="matrix-table">
+              <thead>
+                <tr>
+                  <th>角色 \ 權限</th>
+                  {PERMISSIONS.map(p => <th key={p}>{p}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(ROLES).map(([rk, rv]) => (
+                  <tr key={rk} style={{ opacity: rk === currentRole ? 1 : 0.5 }}>
+                    <td className={`role-name role-${rk}`}>{rv.icon} {rv.name}</td>
+                    {PERMISSIONS.map(p => (
+                      <td key={p} className={DEFAULT_PERMISSIONS[rk]?.[p] ? 'cell-yes' : 'cell-no'}>
+                        {DEFAULT_PERMISSIONS[rk]?.[p] ? '✓' : '✗'}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </aside>
+
+        {/* ===== CANVAS ===== */}
+        <div className="canvas-area">
+          <div className={`canvas-banner ${snapshot.hiddenNodes > 0 ? 'locked' : 'granted'}`}>
+            {snapshot.hiddenNodes > 0
+              ? `🔒 以 ${ROLES[currentRole].icon} ${ROLES[currentRole].name} 身分檢視 — ${snapshot.hiddenNodes} 個節點被隱藏 / ${snapshot.totalEdges - snapshot.visibleEdges} 條邊被擋`
+              : `✓ 以 ${ROLES[currentRole].icon} ${ROLES[currentRole].name} 身分 — 所有節點可見`}
+          </div>
+
+          <FlowCanvas
+            nodes={nodesWithLockState}
+            edges={edgesWithDenyClass}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onNodeClick={onNodeClick}
+            onEdgeClick={onEdgeClick}
+            onPaneClick={onPaneClick}
+            onDrop={onDrop}
+            onDragOver={onDragOver}
+            currentRole={currentRole}
+            wfRef={wfRef}
+          />
+        </div>
+
+        {/* ===== INSPECTOR ===== */}
+        <aside className="sidebar inspector">
+          {showHelp ? (
+            <HelpPanel onClose={() => setShowHelp(false)} />
+          ) : selectedNode ? (
+            <NodeInspector
+              key={selectedNode.id}
+              node={selectedNode}
+              currentRole={currentRole}
+              onChange={updateNodeData}
+              onDelete={deleteSelected}
+              onToggleRole={toggleNodeRole}
+            />
+          ) : selectedEdge ? (
+            <EdgeInspector
+              key={selectedEdge.id}
+              edge={selectedEdge}
+              currentRole={currentRole}
+              onChange={updateEdgeData}
+              onDelete={deleteSelected}
+              onToggleRole={toggleEdgeRole}
+              onSetEffect={setEdgeEffect}
+            />
+          ) : (
+            <div>
+              <h2>屬性編輯器</h2>
+              <div className="empty">點選畫布上任一節點或連線以編輯權限屬性。</div>
+              <div className="inspector-section" style={{marginTop:16}}>
+                <h2>當前角色能力</h2>
+                <div style={{fontSize:11, color:'var(--muted)', marginBottom:6}}>
+                  {ROLES[currentRole].icon} <strong style={{color:ROLES[currentRole].color}}>{ROLES[currentRole].name}</strong> (優先權 {ROLES[currentRole].priority})
+                </div>
+                <div style={{fontSize:11, lineHeight:1.8}}>
+                  {PERMISSIONS.map(p => (
+                    <div key={p}>
+                      {p}: {DEFAULT_PERMISSIONS[currentRole][p]
+                        ? <span className="status-pill granted">✓ 可執行</span>
+                        : <span className="status-pill locked">✗ 禁止</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="inspector-section">
+                <h2>工作流摘要</h2>
+                <div style={{fontSize:11, lineHeight:1.7}}>
+                  <div>節點總數: <strong>{nodes.length}</strong></div>
+                  <div>連線總數: <strong>{edges.length}</strong></div>
+                  <div>當前可見: <strong style={{color:'var(--allow)'}}>{snapshot.visibleNodes}</strong></div>
+                  <div>當前可編輯: <strong style={{color:'var(--accent)'}}>{snapshot.editableNodes}</strong></div>
+                  <div>對當前角色隱藏: <strong style={{color:'var(--deny)'}}>{snapshot.hiddenNodes}</strong></div>
+                </div>
+              </div>
+            </div>
+          )}
+        </aside>
+
+        {/* ===== AUDIT PANEL ===== */}
+        <div className="audit-panel">
+          <div className="audit-section">
+            <h2>稽核紀錄 (最新 {audit.length} 筆)</h2>
+            <div className="audit-list">
+              {audit.length === 0 && <div className="empty">尚無稽核事件</div>}
+              {audit.slice(0, 80).map(e => (
+                <div key={e.id} className={`audit-entry ${e.effect}`}>
+                  <span className="ts">{e.ts}</span>
+                  <span className="who" style={{color: ROLES[e.role]?.color || 'var(--muted)'}}>
+                    {ROLES[e.role]?.icon || '·'} {ROLES[e.role]?.name || e.role}
+                  </span>
+                  <span className="what">{e.action}: <em>{e.detail}</em></span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="audit-section">
+            <h2>當前角色存取範圍 ({ROLES[currentRole].name})</h2>
+            <div style={{fontSize:11, lineHeight:1.7}}>
+              <div style={{marginBottom:8}}>
+                <span className="status-pill granted">可讀取</span> 的節點 ({snapshot.visibleNodes}):
+                <div style={{marginTop:4, display:'flex', flexWrap:'wrap', gap:4}}>
+                  {nodesWithLockState.filter(n => !n.data._locked).map(n => (
+                    <span key={n.id} className="node-role-tag" style={{background: ROLES[currentRole].color, color: '#fff'}}>
+                      {TYPE_BY_KEY[n.type]?.icon} {n.data.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div style={{marginTop:10}}>
+                <span className="status-pill locked">被擋住</span> 的節點 ({snapshot.hiddenNodes}):
+                <div style={{marginTop:4, display:'flex', flexWrap:'wrap', gap:4}}>
+                  {nodesWithLockState.filter(n => n.data._locked).map(n => (
+                    <span key={n.id} className="node-role-tag" style={{background:'var(--panel-2)', color:'var(--muted)'}}>
+                      🔒 {TYPE_BY_KEY[n.type]?.icon} {n.data.label}
+                    </span>
+                  ))}
+                  {snapshot.hiddenNodes === 0 && <span style={{color:'var(--muted)'}}>— 全部可見</span>}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </ReactFlowProvider>
+  );
+}
+
+// ============================================================================
+// 6. FlowCanvas — 包裝 React Flow + ref forwarding
+// ============================================================================
+function FlowCanvas({ nodes, edges, onNodesChange, onEdgesChange, onConnect, onNodeClick, onEdgeClick, onPaneClick, onDrop, onDragOver, currentRole, wfRef }) {
+  const rfWrapper = useRef(null);
+  const rfInstance = useReactFlow();
+
+  useEffect(() => {
+    wfRef.current = rfInstance;
+  }, [rfInstance, wfRef]);
+
+  return (
+    <div ref={rfWrapper} style={{ width: '100%', height: '100%' }} onDrop={onDrop} onDragOver={onDragOver}>
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        onNodeClick={onNodeClick}
+        onEdgeClick={onEdgeClick}
+        onPaneClick={onPaneClick}
+        nodeTypes={nodeTypes}
+        nodesDraggable={currentRole !== 'guest'}
+        nodesConnectable={currentRole !== 'guest' && currentRole !== 'viewer'}
+        elementsSelectable={true}
+        deleteKeyCode={null}
+        fitView
+        attributionPosition="bottom-left"
+        minZoom={0.3}
+        maxZoom={1.8}
+      >
+        <Background color="#263653" gap={18} size={1} />
+        <Controls position="bottom-right" />
+        <MiniMap
+          pannable zoomable
+          nodeColor={(n) => TYPE_BY_KEY[n.type]?.color || '#6b7280'}
+          nodeStrokeWidth={2}
+          style={{ background: 'rgba(17,26,46,0.85)' }}
+          maskColor="rgba(11,16,32,0.6)"
+        />
+      </ReactFlow>
+    </div>
+  );
+}
+
+// ============================================================================
+// 7. Node Inspector — 含 RBAC 編輯
+// ============================================================================
+function NodeInspector({ node, currentRole, onChange, onDelete, onToggleRole }) {
+  const cfg = TYPE_BY_KEY[node.type] || { label: node.type, color: '#6b7280', icon: '?', category: 'unknown' };
+  const data = node.data || {};
+  const allowedRoles = data.allowedRoles || cfg.defaultPerms || {};
+  const checkView = checkRoleOnNode(currentRole, 'view', node);
+  const checkEdit = checkRoleOnNode(currentRole, 'edit', node);
+  const checkExecute = checkRoleOnNode(currentRole, 'execute', node);
+
+  return (
+    <div>
+      <h2>{cfg.icon} {cfg.label}</h2>
+
+      {!checkView.allow && (
+        <div style={{padding:8, background:'var(--gate-locked)', border:'1px solid var(--deny)', borderRadius:6, marginBottom:10, fontSize:11, color:'var(--deny)'}}>
+          🔒 您沒有檢視權限（{checkView.reason}）
+        </div>
+      )}
+
+      <div className="inspector-section">
+        <label className="inspector-label">節點 ID</label>
+        <div className="inspector-input" style={{fontFamily:'monospace', fontSize:10}}>{node.id}</div>
+      </div>
+
+      <div className="inspector-section">
+        <label className="inspector-label">顯示名稱</label>
+        <input
+          className="inspector-input"
+          value={data.label || ''}
+          disabled={!checkEdit.allow}
+          onChange={(e) => onChange(node.id, { label: e.target.value })}
+        />
+      </div>
+
+      <div className="inspector-section">
+        <label className="inspector-label">副標題</label>
+        <input
+          className="inspector-input"
+          value={data.subtitle || ''}
+          disabled={!checkEdit.allow}
+          placeholder="選填說明"
+          onChange={(e) => onChange(node.id, { subtitle: e.target.value })}
+        />
+      </div>
+
+      <div className="inspector-section">
+        <label className="inspector-label">節點類型</label>
+        <div className="inspector-input" style={{background:'var(--panel-2)'}}>
+          <span style={{color:cfg.color}}>{cfg.icon}</span> {cfg.label}
+          <span style={{marginLeft:6, fontSize:9, padding:'1px 6px', background:cfg.color+'30', borderRadius:3, color:cfg.color}}>{cfg.category}</span>
+        </div>
+      </div>
+
+      <hr style={{border:'none', borderTop:'1px solid var(--line)', margin:'12px 0'}} />
+
+      <div className="inspector-section">
+        <label className="inspector-label">
+          🔐 存取角色 (誰能看見/編輯此節點)
+        </label>
+        <div className="role-checkbox-grid">
+          {Object.entries(ROLES).map(([rk, rv]) => (
+            <label
+              key={rk}
+              className={`role-checkbox ${allowedRoles[rk] ? 'checked' : ''}`}
+              style={allowedRoles[rk] ? {borderColor: rv.color, background: rv.color + '20'} : {}}
+            >
+              <input
+                type="checkbox"
+                checked={!!allowedRoles[rk]}
+                disabled={!checkEdit.allow}
+                onChange={() => onToggleRole(node.id, rk)}
+              />
+              <span style={{color: rv.color, fontWeight:600}}>{rv.icon}</span>
+              <span>{rv.name}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <hr style={{border:'none', borderTop:'1px solid var(--line)', margin:'12px 0'}} />
+
+      <div className="inspector-section">
+        <label className="inspector-label">當前角色對此節點的權限</label>
+        <div style={{display:'flex', flexDirection:'column', gap:4, fontSize:11}}>
+          {['view', 'edit', 'execute', 'approve', 'admin'].map(p => {
+            const c = checkRoleOnNode(currentRole, p, node);
+            return (
+              <div key={p} style={{display:'flex', justifyContent:'space-between'}}>
+                <span>{p}</span>
+                <span className={`status-pill ${c.allow ? 'granted' : 'locked'}`}>
+                  {c.allow ? `✓ ${c.reason}` : `✗ ${c.reason}`}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <button
+        className="btn danger"
+        style={{width:'100%', marginTop:10}}
+        onClick={onDelete}
+        disabled={!checkEdit.allow}
+      >
+        🗑 刪除節點 {!checkEdit.allow && '(權限不足)'}
+      </button>
+    </div>
+  );
+}
+
+// ============================================================================
+// 8. Edge Inspector — 含角色清單編輯
+// ============================================================================
+function EdgeInspector({ edge, currentRole, onChange, onDelete, onToggleRole, onSetEffect }) {
+  const data = edge.data || {};
+  const allowedRoles = new Set(data.allowedRoles || ['admin','manager','editor','viewer']);
+  const effect = data.effect || 'allow';
+  const check = checkEdgeForRole(currentRole, edge);
+
+  return (
+    <div>
+      <h2>連線權限設定</h2>
+
+      <div className="inspector-section">
+        <label className="inspector-label">邊 ID</label>
+        <div className="inspector-input" style={{fontFamily:'monospace', fontSize:10}}>{edge.id}</div>
+      </div>
+
+      <div className="inspector-section">
+        <label className="inspector-label">來源 → 目標</label>
+        <div className="inspector-input" style={{background:'var(--panel-2)'}}>
+          {edge.source} → {edge.target}
+        </div>
+      </div>
+
+      <div className="inspector-section">
+        <label className="inspector-label">效果 (Effect)</label>
+        <div className="perm-effect-toggle">
+          <button className={effect === 'allow' ? 'active allow' : ''} onClick={() => onSetEffect(edge.id, 'allow')}>
+            ✓ Allow
+          </button>
+          <button className={effect === 'deny' ? 'active deny' : ''} onClick={() => onSetEffect(edge.id, 'deny')}>
+            ✗ Deny
+          </button>
+        </div>
+      </div>
+
+      {effect === 'allow' && (
+        <div className="inspector-section">
+          <label className="inspector-label">允許通過的角色</label>
+          <div className="role-checkbox-grid">
+            {Object.entries(ROLES).map(([rk, rv]) => (
+              <label
+                key={rk}
+                className={`role-checkbox ${allowedRoles.has(rk) ? 'checked' : ''}`}
+                style={allowedRoles.has(rk) ? {borderColor: rv.color, background: rv.color + '20'} : {}}
+              >
+                <input
+                  type="checkbox"
+                  checked={allowedRoles.has(rk)}
+                  onChange={() => onToggleRole(edge.id, rk)}
+                />
+                <span style={{color: rv.color}}>{rv.icon}</span>
+                <span>{rv.name}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {effect === 'deny' && (
+        <div className="inspector-section" style={{padding:8, background:'var(--gate-locked)', border:'1px solid var(--deny)', borderRadius:6, fontSize:11, color:'var(--deny)'}}>
+          ⚠ 此連線設定為 <strong>Deny</strong>，所有角色皆無法通過（即使在角色清單中）。
+        </div>
+      )}
+
+      <div className="inspector-section" style={{marginTop:10}}>
+        <label className="inspector-label">當前角色 ({ROLES[currentRole].name}) 對此連線</label>
+        <span className={`status-pill ${check.allow ? 'granted' : 'locked'}`}>
+          {check.allow ? `✓ 可通行 (${check.reason})` : `✗ 阻擋 (${check.reason})`}
+        </span>
+      </div>
+
+      <button className="btn danger" style={{width:'100%', marginTop:10}} onClick={onDelete}>
+        🗑 刪除連線
+      </button>
+    </div>
+  );
+}
+
+// ============================================================================
+// 9. Help panel
+// ============================================================================
+function HelpPanel({ onClose }) {
+  return (
+    <div>
+      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+        <h2>使用說明</h2>
+        <button className="btn" onClick={onClose}>✕</button>
+      </div>
+
+      <div style={{fontSize:11, lineHeight:1.7}}>
+        <p><strong>🔐 RBAC 工作流編輯器</strong> — 結合 React Flow 節點編輯與角色權限控制。</p>
+
+        <h3 style={{fontSize:12, color:'var(--accent)', marginTop:14, marginBottom:6}}>🎯 核心功能</h3>
+        <ul style={{paddingLeft:16, margin:0}}>
+          <li><strong>節點編輯</strong>: 從左側調色盤拖曳節點到畫布,連接形成工作流</li>
+          <li><strong>角色切換</strong>: 頂部選擇當前角色,UI 動態調整可見/可編輯範圍</li>
+          <li><strong>節點 ACL</strong>: 點選節點,在右側面板設定哪些角色可存取</li>
+          <li><strong>邊權限</strong>: 點選連線,設定 allow/deny 與允許通過的角色清單</li>
+          <li><strong>稽核紀錄</strong>: 所有變更自動記錄 (誰、何時、做什麼)</li>
+          <li><strong>權限矩陣</strong>: 內建 5 種角色 × 5 種權限的預設矩陣</li>
+          <li><strong>匯出/匯入</strong>: JSON 格式保存工作流設計</li>
+        </ul>
+
+        <h3 style={{fontSize:12, color:'var(--accent)', marginTop:14, marginBottom:6}}>👥 角色優先權</h3>
+        <div style={{fontSize:11}}>
+          {Object.entries(ROLES).map(([k, r]) => (
+            <div key={k} style={{display:'flex', justifyContent:'space-between', padding:'2px 0'}}>
+              <span style={{color:r.color}}>{r.icon} {r.name}</span>
+              <span style={{color:'var(--muted)'}}>P{r.priority}</span>
+            </div>
+          ))}
+        </div>
+
+        <h3 style={{fontSize:12, color:'var(--accent)', marginTop:14, marginBottom:6}}>⚡ 權限判定規則</h3>
+        <ol style={{paddingLeft:16, fontSize:10}}>
+          <li>節點的 <code>allowedRoles</code> 為白名單</li>
+          <li>未列為白名單 → deny by default</li>
+          <li>admin 永遠可 view (覆寫規則)</li>
+          <li>邊的 <code>effect=deny</code> 永遠阻擋</li>
+          <li>邊的 <code>effect=allow</code> 需當前角色在 <code>allowedRoles</code> 中</li>
+        </ol>
+
+        <h3 style={{fontSize:12, color:'var(--accent)', marginTop:14, marginBottom:6}}>🎮 互動操作</h3>
+        <ul style={{paddingLeft:16, fontSize:10, margin:0}}>
+          <li>拖曳節點 → 移動位置</li>
+          <li>節點連線點 → 拖曳到另一節點</li>
+          <li>點選節點/邊 → 右側檢視器</li>
+          <li>滾輪 → 縮放</li>
+          <li>空白處拖曳 → 平移</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Mount
+// ============================================================================
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+</body>
+</html>

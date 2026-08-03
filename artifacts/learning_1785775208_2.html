@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" data-theme="aurora" data-color-scheme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="color-scheme" content="light dark" />
+<meta name="description" content="基於 CSS 變數的動態主題切換範例：light / dark / aurora / mono，並含效能優化技巧。" />
+<title>Dynamic Theme Switching / 動態主題切換</title>
+<style>
+/* =========================================================================
+   1. DESIGN TOKENS - 全部用 CSS 變數，主題切換只改 :root[data-theme] 區塊
+   ========================================================================= */
+:root {
+  /* 基礎排版（不隨主題變）*/
+  --font-display: "Inter", "Helvetica Neue", "Noto Sans TC", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+
+  /* 動效曲線與時長 */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 120ms;
+  --dur-base: 240ms;
+  --dur-slow: 480ms;
+
+  /* 形狀系統：只一套圓角，禁止混搭 */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 20px;
+  --r-pill: 999px;
+
+  /* spacing scale */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 64px;
+  --s-9: 96px;
+
+  /* 層級 */
+  --z-base: 1;
+  --z-sticky: 50;
+  --z-modal: 100;
+}
+
+/* 1.1 LIGHT THEME ----------------------------------------------------- */
+:root[data-theme="light"],
+:root[data-theme="light"][data-color-scheme="light"] {
+  color-scheme: light;
+  --bg-base: #f7f7f5;
+  --bg-elev-1: #ffffff;
+  --bg-elev-2: #fbfbf9;
+  --bg-overlay: rgba(255, 255, 255, 0.72);
+
+  --text-primary: #1a1814;
+  --text-secondary: #5a5754;
+  --text-muted: #8a8780;
+  --text-inverse: #ffffff;
+
+  --border-subtle: rgba(20, 20, 20, 0.08);
+  --border-strong: rgba(20, 20, 20, 0.18);
+
+  --accent: #2f6b4a;          /* forest */
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(47, 107, 74, 0.12);
+
+  --shadow-sm: 0 1px 2px rgba(20, 20, 20, 0.06);
+  --shadow-md: 0 6px 18px -4px rgba(20, 20, 20, 0.10), 0 2px 4px rgba(20, 20, 20, 0.04);
+  --shadow-lg: 0 24px 48px -12px rgba(20, 20, 20, 0.16);
+
+  --glass-blur: 0px;          /* light 不模糊：避免白底上糊 */
+  --glass-sat: 100%;
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-border: rgba(20, 20, 20, 0.10);
+  --glass-hl: rgba(255, 255, 255, 0.85);
+
+  --gradient-bg: linear-gradient(180deg, #f7f7f5 0%, #efece6 100%);
+  --grid-line: rgba(20, 20, 20, 0.04);
+  --noise-opacity: 0.0;
+  --code-bg: #1a1814;
+  --code-fg: #e9e6e0;
+}
+
+/* 1.2 DARK THEME ------------------------------------------------------ */
+:root[data-theme="light"][data-color-scheme="dark"],
+:root[data-theme="dark"],
+:root:not([data-theme])[data-color-scheme="dark"] {
+  color-scheme: dark;
+  --bg-base: #0e0f12;
+  --bg-elev-1: #16181d;
+  --bg-elev-2: #1c1f25;
+  --bg-overlay: rgba(20, 22, 28, 0.66);
+
+  --text-primary: #ecebe7;
+  --text-secondary: #a8a7a0;
+  --text-muted: #6b6a64;
+  --text-inverse: #0e0f12;
+
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.18);
+
+  --accent: #5eea9a;          /* electric mint */
+  --accent-fg: #0e0f12;
+  --accent-soft: rgba(94, 234, 154, 0.16);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 8px 24px -6px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 32px 64px -16px rgba(0, 0, 0, 0.65);
+
+  --glass-blur: 18px;
+  --glass-sat: 160%;
+  --glass-bg: rgba(22, 24, 29, 0.55);
+  --glass-border: rgba(255, 255, 255, 0.10);
+  --glass-hl: rgba(255, 255, 255, 0.22);
+
+  --gradient-bg: linear-gradient(180deg, #0e0f12 0%, #0a0b0e 100%);
+  --grid-line: rgba(255, 255, 255, 0.04);
+  --noise-opacity: 0.0;
+  --code-bg: #1c1f25;
+  --code-fg: #ecebe7;
+}
+
+/* 1.3 AURORA THEME - 漸層+雜訊+玻璃擬態(本任務主軸) ------------------- */
+:root[data-theme="aurora"] {
+  color-scheme: dark;
+  --bg-base: #0a0d18;
+  --bg-elev-1: rgba(20, 24, 38, 0.55);
+  --bg-elev-2: rgba(28, 32, 50, 0.7);
+  --bg-overlay: rgba(10, 13, 24, 0.5);
+
+  --text-primary: #f3f1ff;
+  --text-secondary: #b9b6d0;
+  --text-muted: #77739a;
+  --text-inverse: #0a0d18;
+
+  --border-subtle: rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.22);
+
+  --accent: #b89cff;          /* aurora violet */
+  --accent-fg: #0a0d18;
+  --accent-soft: rgba(184, 156, 255, 0.20);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 12px 32px -8px rgba(78, 56, 184, 0.32), 0 2px 6px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 40px 80px -20px rgba(78, 56, 184, 0.45);
+
+  --glass-blur: 24px;
+  --glass-sat: 180%;
+  --glass-bg: rgba(20, 24, 38, 0.42);
+  --glass-border: rgba(255, 255, 255, 0.14);
+  --glass-hl: rgba(255, 255, 255, 0.28);
+
+  --gradient-bg:
+    radial-gradient(ellipse 80% 60% at 20% 0%, rgba(120, 80, 220, 0.32) 0%, transparent 60%),
+    radial-gradient(ellipse 70% 60% at 80% 30%, rgba(40, 180, 220, 0.26) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 50% 100%, rgba(220, 80, 180, 0.20) 0%, transparent 60%),
+    linear-gradient(180deg, #0a0d18 0%, #060810 100%);
+  --grid-line: rgba(255, 255, 255, 0.04);
+  --noise-opacity: 0.035;
+  --code-bg: rgba(20, 24, 38, 0.85);
+  --code-fg: #e8e6ff;
+}
+
+/* 1.4 MONO THEME - 純黑白灰，印刷感 ----------------------------------- */
+:root[data-theme="mono"] {
+  color-scheme: light;
+  --bg-base: #ededed;
+  --bg-elev-1: #fafafa;
+  --bg-elev-2: #ffffff;
+  --bg-overlay: rgba(245, 245, 245, 0.85);
+
+  --text-primary: #0a0a0a;
+  --text-secondary: #4a4a4a;
+  --text-muted: #8c8c8c;
+  --text-inverse: #fafafa;
+
+  --border-subtle: rgba(0, 0, 0, 0.10);
+  --border-strong: rgba(0, 0, 0, 0.30);
+
+  --accent: #0a0a0a;
+  --accent-fg: #fafafa;
+  --accent-soft: rgba(0, 0, 0, 0.08);
+
+  --shadow-sm: 0 1px 0 rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 2px 0 rgba(0, 0, 0, 0.10);
+  --shadow-lg: 0 4px 0 rgba(0, 0, 0, 0.14);
+
+  --glass-blur: 0px;
+  --glass-sat: 100%;
+  --glass-bg: #fafafa;
+  --glass-border: rgba(0, 0, 0, 0.20);
+  --glass-hl: rgba(0, 0, 0, 0.04);
+
+  --gradient-bg: linear-gradient(180deg, #ededed 0%, #e0e0e0 100%);
+  --grid-line: rgba(0, 0, 0, 0.06);
+  --noise-opacity: 0.0;
+  --code-bg: #0a0a0a;
+  --code-fg: #fafafa;
+}
+
+/* 1.5 ACCENT OVERRIDE - 用戶在 4 主題上選 accent ------------------ */
+/* Light: deep saturated on white, ink contrast */
+:root[data-accent="violet"][data-theme="light"],
+:root[data-theme="light"] { --accent: #2f6b4a; --accent-fg: #ffffff; }  /* default = forest per light base */
+:root[data-accent="violet"][data-theme="light"] { --accent: #5b3aa6; --accent-fg: #ffffff; --accent-soft: rgba(91, 58, 166, 0.12); }
+:root[data-accent="rose"][data-theme="light"]    { --accent: #b3294c; --accent-fg: #ffffff; --accent-soft: rgba(179, 41, 76, 0.12); }
+:root[data-accent="amber"][data-theme="light"]   { --accent: #9a5510; --accent-fg: #ffffff; --accent-soft: rgba(154, 85, 16, 0.12); }
+:root[data-accent="ocean"][data-theme="light"]   { --accent: #155670; --accent-fg: #ffffff; --accent-soft: rgba(21, 86, 112, 0.12); }
+
+/* Dark + aurora: lifted, luminous on dark bg */
+:root[data-accent="violet"][data-theme="dark"],
+:root[data-accent="violet"][data-theme="aurora"] { --accent: #b89cff; --accent-fg: #0a0d18; --accent-soft: rgba(184, 156, 255, 0.20); }
+:root[data-accent="rose"][data-theme="dark"],
+:root[data-accent="rose"][data-theme="aurora"]   { --accent: #ff6b8a; --accent-fg: #0a0d18; --accent-soft: rgba(255, 107, 138, 0.18); }
+:root[data-accent="amber"][data-theme="dark"],
+:root[data-accent="amber"][data-theme="aurora"]  { --accent: #ffb24d; --accent-fg: #0a0d18; --accent-soft: rgba(255, 178, 77, 0.18); }
+:root[data-accent="ocean"][data-theme="dark"],
+:root[data-accent="ocean"][data-theme="aurora"]  { --accent: #5fd1ff; --accent-fg: #0a0d18; --accent-soft: rgba(95, 209, 255, 0.18); }
+
+/* Mono: ink-on-paper rule = NO color. Lock accent to black across all 4 accents. */
+:root[data-theme="mono"] { --accent: #0a0a0a; --accent-fg: #fafafa; --accent-soft: rgba(0, 0, 0, 0.08); }
+
+
+/* =========================================================================
+   2. RESET + BASE
+   ========================================================================= */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  font-family: var(--font-display);
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--text-primary);
+  background: var(--bg-base);
+  /* 用 background-image 套漸層 + 用 background-color 當後備；兩者分開寫避免合成 bug */
+  background-image: var(--gradient-bg);
+  background-attachment: fixed;     /* 注意：scroll screenshot 時可能白屏 -> 提供 prefers-reduced 退回 */
+  background-color: var(--bg-base);
+  min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition:
+    color var(--dur-base) var(--ease-out),
+    background-color var(--dur-base) var(--ease-out);
+}
+
+/* 2.1 prefers-reduced-transparency / prefers-reduced-motion (a11y) ------- */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass-blur: 0px;
+    --glass-sat: 100%;
+    --glass-bg: var(--bg-elev-1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  body { background-attachment: scroll; }   /* 防白屏 */
+}
+
+/* 2.2 雜訊 overlay - 固定層、pointer-events:none、不觸發 repaint ------- */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.5 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  opacity: var(--noise-opacity);
+  mix-blend-mode: overlay;
+  will-change: auto;            /* 不會動 -> 不要 will-change */
+}
+
+/* 2.3 網格背景 (極淡裝飾) ----------------------------------------------- */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black 30%, transparent 80%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 30%, black 30%, transparent 80%);
+}
+
+/* =========================================================================
+   3. LAYOUT PRIMITIVES
+   ========================================================================= */
+.container {
+  position: relative;
+  z-index: var(--z-base);
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 var(--s-5);
+}
+
+.stack > * + * { margin-top: var(--s-4); }
+.stack-lg > * + * { margin-top: var(--s-6); }
+
+.grid {
+  display: grid;
+  gap: var(--s-4);
+}
+.grid-2 { grid-template-columns: 1fr; }
+.grid-3 { grid-template-columns: 1fr; }
+@media (min-width: 720px) {
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* =========================================================================
+   4. HEADER / NAV (sticky, glass on aurora, solid on others)
+   ========================================================================= */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  margin: 0;
+  padding: var(--s-3) 0;
+  background: var(--bg-overlay);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  border-bottom: 1px solid var(--border-subtle);
+  transition: background var(--dur-base) var(--ease-out), border-color var(--dur-base) var(--ease-out);
+}
+
+.app-header__inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+}
+.brand-mark {
+  width: 28px; height: 28px;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--accent-fg);
+  display: grid; place-items: center;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+/* =========================================================================
+   5. CONTROLS - theme / accent / scheme / system sync
+   ========================================================================= */
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: center;
+}
+.btn-group {
+  display: inline-flex;
+  padding: 3px;
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-pill);
+}
+.btn-group button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 0.82rem;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.btn-group button:hover { color: var(--text-primary); }
+.btn-group button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+.btn-group button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.icon-btn {
+  width: 36px; height: 36px;
+  display: inline-grid; place-items: center;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-elev-1);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.icon-btn:hover { background: var(--bg-elev-2); }
+.icon-btn:active { transform: translateY(1px) scale(0.98); }
+.icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.icon-btn svg { width: 18px; height: 18px; }
+
+/* =========================================================================
+   6. HERO + DISPLAY TYPE
+   ========================================================================= */
+.hero {
+  padding: clamp(var(--s-7), 12vw, var(--s-9)) 0 var(--s-7);
+}
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.eyebrow::before {
+  content: "";
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+h1.display {
+  font-size: clamp(2.2rem, 6vw, 4rem);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+  margin: var(--s-4) 0 var(--s-4);
+  max-width: 18ch;
+}
+h1.display em {
+  font-style: normal;
+  color: var(--accent);
+}
+.lede {
+  font-size: 1.1rem;
+  color: var(--text-secondary);
+  max-width: 56ch;
+  line-height: 1.55;
+}
+
+/* =========================================================================
+   7. CARDS / GLASS PANELS - 統一圓角 + 玻璃擬態（aurora 觸發）
+   ========================================================================= */
+.card {
+  position: relative;
+  background: var(--bg-elev-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-lg);
+  padding: var(--s-5);
+  box-shadow: var(--shadow-sm);
+  transition:
+    transform var(--dur-base) var(--ease-out),
+    background var(--dur-base) var(--ease-out),
+    border-color var(--dur-base) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+  overflow: hidden;       /* 給 highlight overlay 留邊界 */
+  isolation: isolate;
+}
+.card:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
+}
+.card h3 {
+  margin: 0 0 var(--s-2);
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+}
+.card p { margin: 0; color: var(--text-secondary); }
+
+/* 玻璃卡片：aurora 主題下自啟用；其他主題下也安全降級 */
+.card--glass {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  border-color: var(--glass-border);
+  box-shadow:
+    inset 0 1px 0 var(--glass-hl),
+    var(--shadow-md);
+}
+.card--glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 25% 0%, var(--glass-hl), transparent 35%),
+    linear-gradient(180deg, var(--glass-hl) 0%, transparent 18%);
+  opacity: 0.6;
+  z-index: -1;
+}
+
+/* 變體：outlined / elevated / accent */
+.card--outlined { background: transparent; box-shadow: none; }
+.card--elevated { box-shadow: var(--shadow-lg); }
+.card--accent {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+/* =========================================================================
+   8. SWATCH SHOWCASE - 主題預覽
+   ========================================================================= */
+.swatch-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--s-3);
+}
+.swatch {
+  border-radius: var(--r-md);
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  background: var(--bg-elev-1);
+}
+.swatch__chip {
+  height: 72px;
+  display: grid;
+  place-items: end start;
+  padding: var(--s-3);
+  color: white;
+  background: var(--c, var(--accent));
+  text-shadow: 0 1px 0 rgba(0,0,0,0.25);
+}
+.swatch__meta { padding: var(--s-3); }
+.swatch__meta b { display: block; color: var(--text-primary); margin-bottom: 2px; font-family: var(--font-display); font-size: 0.85rem; }
+
+/* =========================================================================
+   9. METRICS - 用 transform 動（避免 layout thrash）
+   ========================================================================= */
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--s-4);
+}
+.metric {
+  padding: var(--s-5);
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-elev-1);
+}
+.metric__num {
+  font-family: var(--font-mono);
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  display: inline-block;
+  /* 只動 transform（硬體加速） */
+  will-change: transform;
+}
+.metric__label {
+  margin-top: var(--s-1);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* =========================================================================
+   10. CODE BLOCK
+   ========================================================================= */
+pre.code {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  line-height: 1.6;
+  background: var(--code-bg);
+  color: var(--code-fg);
+  padding: var(--s-5);
+  border-radius: var(--r-md);
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+}
+
+/* =========================================================================
+   11. FOOTER
+   ========================================================================= */
+footer.app-footer {
+  margin-top: var(--s-9);
+  padding: var(--s-7) 0;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+/* =========================================================================
+   12. THEME TRANSITION - 只 transition 顏色類屬性；非 class 整體動
+   ========================================================================= */
+:root {
+  /* 觸發 view transition 支援的瀏覽器使用原生 API 提升切換流暢度 */
+  --theme-transition: background-color var(--dur-slow) var(--ease-out),
+                      color var(--dur-slow) var(--ease-out),
+                      border-color var(--dur-slow) var(--ease-out),
+                      box-shadow var(--dur-slow) var(--ease-out);
+}
+body, .app-header, .card, .swatch, .metric, .btn-group, .icon-btn {
+  transition: var(--theme-transition);
+}
+
+/* 12.1 支援 View Transition API 時，做 cross-fade ------------------- */
+@supports (view-transition-name: theme-fade) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: var(--dur-slow);
+    animation-timing-function: var(--ease-out);
+    mix-blend-mode: normal;
+  }
+  ::view-transition-old(root) {
+    animation-name: vt-fade-out;
+  }
+  ::view-transition-new(root) {
+    animation-name: vt-fade-in;
+  }
+  @keyframes vt-fade-out { to { opacity: 0; } }
+  @keyframes vt-fade-in  { from { opacity: 0; } }
+}
+
+/* =========================================================================
+   13. ACCESSIBILITY: focus + skip-link
+   ========================================================================= */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  padding: 8px 12px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-radius: var(--r-sm);
+  z-index: 9999;
+}
+.skip-link:focus { left: 12px; top: 12px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<a class="skip-link" href="#main">跳至主內容</a>
+
+<header class="app-header" role="banner">
+  <div class="container app-header__inner">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">/T</span>
+      <span>Theme Lab</span>
+    </div>
+
+    <nav class="controls" aria-label="主題與色彩控制">
+      <div class="btn-group" role="group" aria-label="主題切換">
+        <button type="button" data-theme-set="light"  aria-pressed="false">Light</button>
+        <button type="button" data-theme-set="dark"   aria-pressed="false">Dark</button>
+        <button type="button" data-theme-set="aurora" aria-pressed="true">Aurora</button>
+        <button type="button" data-theme-set="mono"   aria-pressed="false">Mono</button>
+      </div>
+
+      <div class="btn-group" role="group" aria-label="強調色">
+        <button type="button" data-accent="violet" aria-pressed="true" title="Violet" style="--c:#7c5cff">V</button>
+        <button type="button" data-accent="rose"   aria-pressed="false" title="Rose"   style="--c:#c2395a">R</button>
+        <button type="button" data-accent="amber"  aria-pressed="false" title="Amber"  style="--c:#b4651a">A</button>
+        <button type="button" data-accent="ocean"  aria-pressed="false" title="Ocean"  style="--c:#1f6e8c">O</button>
+      </div>
+
+      <button type="button" id="schemeToggle" class="icon-btn" aria-label="切換跟隨系統 / 手動">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+        </svg>
+      </button>
+    </nav>
+  </div>
+</header>
+
+<main id="main" class="container">
+
+  <!-- HERO -->
+  <section class="hero stack" aria-labelledby="hero-title">
+    <span class="eyebrow">Dynamic theming · CSS variables</span>
+    <h1 class="display" id="hero-title">
+      換主題，不必<em>重畫</em>整個畫面。
+    </h1>
+    <p class="lede">
+      一個 HTML、零 JS framework、四套完整主題 + 四種 accent 配色。
+      切換透過 CSS 變數與 <code>:root[data-...]</code> selector；過場用原生
+      <code>View Transition API</code> 提升流暢度。所有 token 都集中定義，
+      元件只引用變數，沒有 hard-coded 顏色。
+    </p>
+
+    <div class="metrics" id="metrics" aria-label="效能指標">
+      <div class="metric">
+        <span class="metric__num" data-counter data-to="4" data-suffix="">4</span>
+        <div class="metric__label">完整主題</div>
+      </div>
+      <div class="metric">
+        <span class="metric__num" data-counter data-to="4" data-suffix="">4</span>
+        <div class="metric__label">強調色覆寫</div>
+      </div>
+      <div class="metric">
+        <span class="metric__num" data-counter data-to="0" data-suffix=" KB">0 KB</span>
+        <div class="metric__label">JS 框架依賴</div>
+      </div>
+      <div class="metric">
+        <span class="metric__num" data-counter data-to="60" data-suffix=" fps">60 fps</span>
+        <div class="metric__label">目標影格率</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TOKEN DEMO -->
+  <section class="stack-lg" aria-labelledby="token-title">
+    <h2 id="token-title" style="margin:0; font-size:1.4rem; letter-spacing:-0.01em;">Token showcase</h2>
+    <p class="lede" style="margin-top:-8px;">每張卡只用 <code>var(--bg-elev-1)</code>、<code>var(--border-subtle)</code>、<code>var(--accent)</code> 等 token；切換主題時 token 全部跟著變，元件樣式不動。</p>
+
+    <div class="grid grid-3">
+      <article class="card card--glass">
+        <h3>Glass panel</h3>
+        <p>aurora 主題啟用 backdrop-filter。reduced-transparency 自動退回實心背景。</p>
+      </article>
+      <article class="card card--elevated">
+        <h3>Elevated card</h3>
+        <p>用 <code>--shadow-lg</code> 呈現層級。陰影色 token 跟著主題色相，不死黑。</p>
+      </article>
+      <article class="card card--accent">
+        <h3>Accent surface</h3>
+        <p>用 <code>--accent-soft</code> 當背景、<code>--accent</code> 當邊框，做強調 CTA 區。</p>
+      </article>
+      <article class="card card--outlined">
+        <h3>Outlined</h3>
+        <p>無陰影、用 border 區隔，極簡 Mono 主題的標準呈現。</p>
+      </article>
+      <article class="card">
+        <h3>Default</h3>
+        <p>基本卡片。Hover 時只動 <code>transform: translateY(-2px)</code> + shadow，硬體加速。</p>
+      </article>
+      <article class="card">
+        <h3>Same component, new vibe</h3>
+        <p>換到 mono 主題 → 全部變印刷黑白報紙感。<em>沒有任何 hardcoded 顏色</em>。</p>
+      </article>
+    </div>
+  </section>
+
+  <!-- SWATCH GRID -->
+  <section class="stack-lg" aria-labelledby="swatch-title" style="margin-top: var(--s-7);">
+    <h2 id="swatch-title" style="margin:0; font-size:1.4rem; letter-spacing:-0.01em;">Token swatches (live)</h2>
+    <p class="lede" style="margin-top:-8px;">以下色塊的值是直接從 CSS 變數用 JS 讀出，會跟著主題變動。</p>
+    <div class="swatch-row" id="swatchRow"></div>
+  </section>
+
+  <!-- CODE PREVIEW -->
+  <section class="stack-lg" aria-labelledby="code-title" style="margin-top: var(--s-7);">
+    <h2 id="code-title" style="margin:0; font-size:1.4rem; letter-spacing:-0.01em;">How it works</h2>
+<pre class="code"><code>/* 1. 定義 token（每個主題一段，獨立、易讀） */
+:root[data-theme="aurora"] {
+  --bg-base: #0a0d18;
+  --accent: #b89cff;
+  --glass-blur: 24px;
+  --gradient-bg: radial-gradient(...), linear-gradient(...);
+}
+
+/* 2. 元件只引用變數，不寫顏色 */
+.card { background: var(--bg-elev-1); border: 1px solid var(--border-subtle); }
+
+/* 3. 切換：JS 改 :root 的 data-* 即可 */
+document.documentElement.dataset.theme = 'aurora';
+
+/* 4. 過場：View Transition API（支援時） */
+document.startViewTransition(() => { document.documentElement.dataset.theme = next; });</code></pre>
+  </section>
+
+</main>
+
+<footer class="app-footer">
+  <p>Theme Lab · 單檔、零依賴、CSS 變數驅動 · 2026</p>
+</footer>
+
+<script>
+/* =========================================================================
+   THEME LAB / JS（無 framework、極小、單檔）
+   --------------------------------------------------------------------------
+   設計原則：
+   1. 無狀態管理：所有狀態透過 :root 的 data-* 反映，JS 只是 setter
+   2. localStorage 持久化：theme / accent / colorScheme / followSystem
+   3. prefers-color-scheme 偵測 + 跟隨系統
+   4. View Transition API：支援時加 cross-fade
+   5. event delegation：每個 click 走一個 listener（不綁 N 個）
+   6. IntersectionObserver：metrics 數字才進場才跑（不浪費 LCP / INP）
+   7. 用 requestAnimationFrame 跑數字動畫；只用 transform / opacity 動
+   ========================================================================= */
+(() => {
+  "use strict";
+
+  const root = document.documentElement;
+  const STORAGE_KEY = "theme-lab-v1";
+  const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+  const prefersReducedTransparency = window.matchMedia("(prefers-reduced-transparency: reduce)");
+  const mqlDark = window.matchMedia("(prefers-color-scheme: dark)");
+
+  /* --- 1. State load --- */
+  const loadState = () => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch (_) {}
+    return {};
+  };
+  const saveState = (s) => {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch (_) {}
+  };
+  const state = Object.assign({
+    theme: "aurora",
+    accent: "violet",
+    followSystem: true,
+  }, loadState());
+
+  /* --- 2. Apply theme (用 startViewTransition 過場) --- */
+  const supportsVT = typeof document.startViewTransition === "function";
+  const applyTheme = (next) => {
+    state.theme = next;
+    if (supportsVT && !prefersReducedMotion.matches) {
+      document.startViewTransition(() => { root.dataset.theme = next; });
+    } else {
+      root.dataset.theme = next;
+    }
+    saveState(state);
+    refreshActive();
+  };
+
+  const applyAccent = (next) => {
+    state.accent = next;
+    root.dataset.accent = next;
+    saveState(state);
+    refreshActive();
+  };
+
+  const applyColorScheme = (scheme) => {
+    root.dataset.colorScheme = scheme;
+  };
+
+  /* --- 3. System sync --- */
+  const syncWithSystem = () => {
+    if (!state.followSystem) return;
+    const dark = mqlDark.matches;
+    // 將 system 暗 / 亮映射到我們的 scheme
+    applyColorScheme(dark ? "dark" : "light");
+  };
+
+  /* --- 4. 同步按鈕 aria-pressed --- */
+  const refreshActive = () => {
+    document.querySelectorAll("[data-theme-set]").forEach(b => {
+      b.setAttribute("aria-pressed", String(b.dataset.themeSet === state.theme));
+    });
+    document.querySelectorAll("[data-accent]").forEach(b => {
+      b.setAttribute("aria-pressed", String(b.dataset.accent === state.accent));
+    });
+  };
+
+  /* --- 5. Event delegation --- */
+  document.addEventListener("click", (e) => {
+    const themeBtn = e.target.closest("[data-theme-set]");
+    if (themeBtn) { applyTheme(themeBtn.dataset.themeSet); return; }
+    const accentBtn = e.target.closest("[data-accent]");
+    if (accentBtn) { applyAccent(accentBtn.dataset.accent); return; }
+    const schemeBtn = e.target.closest("#schemeToggle");
+    if (schemeBtn) {
+      state.followSystem = !state.followSystem;
+      saveState(state);
+      if (state.followSystem) syncWithSystem();
+      else applyColorScheme("light");      // fallback
+      return;
+    }
+  });
+
+  /* --- 6. 數字進場（IntersectionObserver） --- */
+  const animateCount = (el) => {
+    const to = parseFloat(el.dataset.to || "0");
+    const suffix = el.dataset.suffix || "";
+    if (prefersReducedMotion.matches || to === 0) {
+      el.textContent = to + suffix;
+      return;
+    }
+    const dur = 800;
+    const t0 = performance.now();
+    const step = (t) => {
+      const k = Math.min(1, (t - t0) / dur);
+      // easeOutExpo
+      const eased = k === 1 ? 1 : 1 - Math.pow(2, -10 * k);
+      el.textContent = Math.round(to * eased) + suffix;
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  };
+  const numObserver = new IntersectionObserver((entries) => {
+    entries.forEach(en => {
+      if (en.isIntersecting) {
+        animateCount(en.target);
+        numObserver.unobserve(en.target);
+      }
+    });
+  }, { threshold: 0.4 });
+  document.querySelectorAll("[data-counter]").forEach(el => numObserver.observe(el));
+
+  /* --- 7. Swatch 從 CSS 變數讀 live 值 --- */
+  const swatchTokens = [
+    { name: "bg-base",        v: "--bg-base" },
+    { name: "bg-elev-1",      v: "--bg-elev-1" },
+    { name: "text-primary",   v: "--text-primary" },
+    { name: "accent",         v: "--accent" },
+    { name: "accent-soft",    v: "--accent-soft" },
+    { name: "border-subtle",  v: "--border-subtle" },
+  ];
+  const rgbToHex = (rgb) => {
+    // css computed value 對某些顏色會回 'oklch(...)' 等等；簡化：只處理 rgb/rgba
+    const m = rgb.match(/rgba?\(([^)]+)\)/);
+    if (!m) return rgb;
+    const parts = m[1].split(",").map(s => parseFloat(s.trim()));
+    if (parts.length < 3) return rgb;
+    const [r, g, b] = parts;
+    const a = parts[3];
+    const to = (n) => n.toString(16).padStart(2, "0");
+    const base = "#" + to(r) + to(g) + to(b);
+    return a != null && a < 1 ? base + to(Math.round(a * 255)) : base;
+  };
+  const renderSwatches = () => {
+    const cs = getComputedStyle(root);
+    const row = document.getElementById("swatchRow");
+    row.innerHTML = swatchTokens.map(t => {
+      const raw = cs.getPropertyValue(t.v).trim();
+      const display = rgbToHex(raw) || raw;
+      return `<div class="swatch">
+        <div class="swatch__chip" style="background:${raw};">${t.v}</div>
+        <div class="swatch__meta"><b>${t.name}</b><code>${display}</code></div>
+      </div>`;
+    }).join("");
+  };
+  // 初次進場 + 主題切換後重畫
+  renderSwatches();
+  // 主題切換過場結束後（VT API 觸發）
+  document.addEventListener("transitionend", (e) => {
+    if (e.target === document.documentElement || e.propertyName === "background-color") {
+      renderSwatches();
+    }
+  });
+
+  /* --- 8. 初始狀態套用 --- */
+  root.dataset.theme = state.theme;
+  root.dataset.accent = state.accent;
+  if (state.followSystem) syncWithSystem();
+  else root.dataset.colorScheme = root.dataset.colorScheme || "light";
+  refreshActive();
+
+  /* --- 9. 監聽 system 變化 --- */
+  mqlDark.addEventListener?.("change", () => { if (state.followSystem) syncWithSystem(); });
+  prefersReducedMotion.addEventListener?.("change", () => {/* reactive via media query */});
+  prefersReducedTransparency.addEventListener?.("change", () => {/* reactive */});
+
+  /* --- 10. 鍵盤：方向鍵切換主題；數字 1-4 快速選 --- */
+  document.addEventListener("keydown", (e) => {
+    if (e.target.matches("input,textarea")) return;
+    const order = ["light", "dark", "aurora", "mono"];
+    const idx = order.indexOf(state.theme);
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      e.preventDefault();
+      applyTheme(order[(idx + 1) % order.length]);
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      e.preventDefault();
+      applyTheme(order[(idx - 1 + order.length) % order.length]);
+    } else if (["1","2","3","4"].includes(e.key)) {
+      applyTheme(order[parseInt(e.key, 10) - 1]);
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1516 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>React Flow 動態工作流程可視化編輯器</title>
+
+  <!-- React Flow 官方樣式 -->
+  <link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css" />
+
+  <!-- React 18 UMD + ReactDOM 18 UMD -->
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+
+  <!-- React Flow 11.11.4 UMD（暴露 window.ReactFlow） -->
+  <script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+
+  <!-- Babel Standalone -->
+  <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+
+  <style>
+    /* ===== 全域 ===== */
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: #0b1220;
+      color: #e2e8f0;
+      overflow: hidden;
+    }
+    * { box-sizing: border-box; }
+
+    /* ===== 應用骨架（由 React 內部 div 套 grid） ===== */
+    .app-shell {
+      display: grid;
+      grid-template-rows: 56px 1fr 36px;
+      grid-template-columns: 220px 1fr 320px;
+      grid-template-areas:
+        "header header header"
+        "left   main   right"
+        "footer footer footer";
+      height: 100vh;
+      width: 100vw;
+    }
+    .header-bar {
+      grid-area: header;
+      padding: 0 20px;
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      border-bottom: 1px solid #334155;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      z-index: 10;
+    }
+    .header-bar h1 {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: 0.4px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .header-bar h1 .logo {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(135deg, #0ea5e9, #6366f1);
+      border-radius: 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+    .header-bar .badge {
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(14,165,233,0.15);
+      color: #7dd3fc;
+      font-weight: 600;
+      border: 1px solid rgba(14,165,233,0.3);
+    }
+    .toolbar {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .toolbar button {
+      background: #334155;
+      color: #e2e8f0;
+      border: 1px solid #475569;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      transition: all 0.15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-family: inherit;
+    }
+    .toolbar button:hover:not(:disabled) {
+      background: #475569;
+      border-color: #64748b;
+    }
+    .toolbar button.primary {
+      background: linear-gradient(135deg, #0ea5e9, #0284c7);
+      color: #fff;
+      border-color: #0284c7;
+    }
+    .toolbar button.primary:hover:not(:disabled) {
+      filter: brightness(1.1);
+    }
+    .toolbar button.danger {
+      background: #7f1d1d;
+      color: #fee2e2;
+      border-color: #991b1b;
+    }
+    .toolbar button.danger:hover:not(:disabled) {
+      background: #991b1b;
+    }
+    .toolbar button.success {
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: #fff;
+      border-color: #059669;
+    }
+    .toolbar button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .toolbar button.warn {
+      background: #78350f;
+      color: #fcd34d;
+      border-color: #92400e;
+    }
+
+    /* ===== 左側：節點庫 ===== */
+    .sidebar-left {
+      grid-area: left;
+      background: #0f172a;
+      border-right: 1px solid #1e293b;
+      padding: 16px 12px;
+      overflow-y: auto;
+    }
+    .sidebar-left h3 {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.2px;
+      color: #94a3b8;
+      text-transform: uppercase;
+      margin: 0 0 12px;
+    }
+    .node-template {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      border-radius: 8px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      cursor: grab;
+      transition: all 0.15s;
+      font-size: 13px;
+      user-select: none;
+    }
+    .node-template:hover {
+      border-color: #0ea5e9;
+      transform: translateX(2px);
+      box-shadow: 0 4px 12px rgba(14,165,233,0.15);
+    }
+    .node-template:active {
+      cursor: grabbing;
+    }
+    .node-template .icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 700;
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .node-template .meta {
+      font-size: 10px;
+      color: #64748b;
+      margin-top: 2px;
+    }
+    .node-template.input .icon   { background: linear-gradient(135deg,#10b981,#059669); }
+    .node-template.process .icon { background: linear-gradient(135deg,#0ea5e9,#0284c7); }
+    .node-template.decision .icon{ background: linear-gradient(135deg,#f59e0b,#d97706); }
+    .node-template.output .icon  { background: linear-gradient(135deg,#ef4444,#dc2626); }
+    .node-template.action .icon  { background: linear-gradient(135deg,#a855f7,#9333ea); }
+
+    .sidebar-hint {
+      margin-top: 16px;
+      padding: 10px;
+      background: rgba(14,165,233,0.08);
+      border: 1px solid rgba(14,165,233,0.2);
+      border-radius: 6px;
+      font-size: 11px;
+      color: #7dd3fc;
+      line-height: 1.5;
+    }
+
+    /* ===== 中央：畫布 ===== */
+    .canvas-area {
+      grid-area: main;
+      position: relative;
+      background: #0b1220;
+      overflow: hidden;
+    }
+    .canvas-area.drop-target::before {
+      content: '📥 放開以新增節點';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(14,165,233,0.95);
+      color: #fff;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      z-index: 100;
+      pointer-events: none;
+      box-shadow: 0 8px 24px rgba(14,165,233,0.4);
+    }
+    .canvas-area.drop-target::after {
+      content: '';
+      position: absolute;
+      inset: 8px;
+      border: 2px dashed #0ea5e9;
+      border-radius: 12px;
+      pointer-events: none;
+      background: rgba(14,165,233,0.05);
+      z-index: 99;
+    }
+
+    /* React Flow 主題覆寫 */
+    .react-flow__background { background-color: #0b1220; }
+    .react-flow__attribution {
+      background: rgba(15, 23, 42, 0.7) !important;
+      color: #64748b !important;
+      font-size: 10px;
+    }
+    .react-flow__attribution a { color: #64748b !important; }
+    .react-flow__handle {
+      width: 10px;
+      height: 10px;
+      background: #0ea5e9;
+      border: 2px solid #0c4a6e;
+    }
+    .react-flow__edge-path { stroke-width: 2; }
+    .react-flow__edge.selected .react-flow__edge-path {
+      stroke: #f59e0b;
+      stroke-width: 3;
+    }
+
+    /* 節點動畫 */
+    @keyframes pulse-running {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0.7); }
+      50%      { box-shadow: 0 0 0 10px rgba(245,158,11,0); }
+    }
+    .wf-node.running {
+      animation: pulse-running 1.4s ease-out infinite;
+    }
+    @keyframes flash-done {
+      0%   { box-shadow: 0 0 0 0 rgba(16,185,129,0.9); }
+      100% { box-shadow: 0 0 0 16px rgba(16,185,129,0); }
+    }
+    .wf-node.done {
+      animation: flash-done 0.8s ease-out 1;
+    }
+
+    /* ===== 自訂節點樣式 ===== */
+    .wf-node {
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 2px solid #475569;
+      background: #1e293b;
+      color: #e2e8f0;
+      font-size: 13px;
+      font-weight: 600;
+      min-width: 140px;
+      max-width: 220px;
+      text-align: center;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      position: relative;
+    }
+    .wf-node .node-title {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 2px;
+      word-break: break-word;
+    }
+    .wf-node .node-desc {
+      font-size: 10px;
+      font-weight: 400;
+      opacity: 0.7;
+      line-height: 1.3;
+      max-height: 32px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+    .wf-node .node-type-badge {
+      position: absolute;
+      top: -10px;
+      right: -10px;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: #fff;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+    }
+    .wf-node.input    { background: linear-gradient(135deg,#064e3b,#065f46); border-color:#10b981; }
+    .wf-node.process  { background: linear-gradient(135deg,#0c4a6e,#075985); border-color:#0ea5e9; }
+    .wf-node.decision { background: linear-gradient(135deg,#78350f,#92400e); border-color:#f59e0b; }
+    .wf-node.output   { background: linear-gradient(135deg,#7f1d1d,#991b1b); border-color:#ef4444; }
+    .wf-node.action   { background: linear-gradient(135deg,#581c87,#6b21a8); border-color:#a855f7; }
+    .wf-node.selected {
+      box-shadow: 0 0 0 3px rgba(245,158,11,0.5), 0 4px 12px rgba(0,0,0,0.4);
+    }
+    .wf-node.running { border-color: #f59e0b; }
+    .wf-node.done    { border-color: #10b981; }
+
+    /* ===== 右側：屬性編輯面板 ===== */
+    .sidebar-right {
+      grid-area: right;
+      background: #0f172a;
+      border-left: 1px solid #1e293b;
+      padding: 16px;
+      overflow-y: auto;
+    }
+    .sidebar-right h3 {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.2px;
+      color: #94a3b8;
+      text-transform: uppercase;
+      margin: 0 0 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .panel-section {
+      margin-bottom: 18px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid #1e293b;
+    }
+    .panel-section:last-child {
+      border-bottom: none;
+    }
+    .form-row {
+      margin-bottom: 10px;
+    }
+    .form-row label {
+      display: block;
+      font-size: 11px;
+      color: #94a3b8;
+      margin-bottom: 4px;
+      font-weight: 500;
+    }
+    .form-row input,
+    .form-row select,
+    .form-row textarea {
+      width: 100%;
+      padding: 7px 10px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      color: #e2e8f0;
+      font-size: 13px;
+      font-family: inherit;
+    }
+    .form-row textarea {
+      resize: vertical;
+      min-height: 50px;
+    }
+    .form-row input:focus,
+    .form-row select:focus,
+    .form-row textarea:focus {
+      outline: none;
+      border-color: #0ea5e9;
+      box-shadow: 0 0 0 2px rgba(14,165,233,0.2);
+    }
+    .form-row .meta {
+      font-size: 10px;
+      color: #64748b;
+      margin-top: 4px;
+    }
+    .form-row .id-box {
+      font-family: monospace;
+      font-size: 11px;
+      padding: 6px 8px;
+      background: #1e293b;
+      border-radius: 4px;
+      border: 1px solid #334155;
+    }
+    .btn-danger-full {
+      width: 100%;
+      padding: 8px;
+      border-radius: 6px;
+      background: #7f1d1d;
+      color: #fee2e2;
+      border: 1px solid #991b1b;
+      cursor: pointer;
+      font-size: 12px;
+      font-family: inherit;
+    }
+    .btn-danger-full:hover { background: #991b1b; }
+
+    .empty-state {
+      padding: 30px 10px;
+      text-align: center;
+      color: #64748b;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    .empty-state .icon {
+      font-size: 32px;
+      margin-bottom: 8px;
+      opacity: 0.6;
+    }
+
+    .analysis-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      font-size: 11px;
+      line-height: 1.7;
+      color: #cbd5e1;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .analysis-list li {
+      padding: 3px 8px;
+      border-radius: 4px;
+      margin-bottom: 2px;
+      background: rgba(255,255,255,0.04);
+      font-family: monospace;
+    }
+    .analysis-list li.invalid {
+      background: rgba(239,68,68,0.15);
+      color: #fca5a5;
+    }
+
+    /* ===== 底部狀態列 ===== */
+    .footer-bar {
+      grid-area: footer;
+      background: #1e293b;
+      border-top: 1px solid #334155;
+      padding: 0 16px;
+      font-size: 11px;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      color: #cbd5e1;
+    }
+    .footer-bar .item {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .footer-bar strong { color: #f1f5f9; font-weight: 600; }
+    .footer-bar .spacer { flex: 1; }
+    .pill {
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+    .pill.ok { background: rgba(16,185,129,0.2); color: #6ee7b7; }
+    .pill.warn { background: rgba(245,158,11,0.2); color: #fcd34d; }
+    .pill.err { background: rgba(239,68,68,0.2); color: #fca5a5; }
+    .pill.info { background: rgba(14,165,233,0.2); color: #7dd3fc; }
+    .pill.muted { background: rgba(100,116,139,0.2); color: #94a3b8; }
+
+    .error-overlay {
+      background: #7f1d1d;
+      color: #fee2e2;
+      padding: 12px;
+      margin: 12px;
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 13px;
+      white-space: pre-wrap;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 60px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e293b;
+      border: 1px solid #334155;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+      z-index: 1000;
+      animation: toast-in 0.25s ease-out;
+    }
+    @keyframes toast-in {
+      from { opacity: 0; transform: translate(-50%, 12px); }
+      to   { opacity: 1; transform: translate(-50%, 0); }
+    }
+
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+    #import-file { display: none; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <input type="file" id="import-file" accept="application/json,.json" />
+  <div id="error-root"></div>
+  <div id="toast-root"></div>
+
+  <script type="text/babel" data-presets="react">
+    (function () {
+      // ===== 0. 失敗保護 + toast =====
+      function fatal(msg, err) {
+        const el = document.createElement('div');
+        el.className = 'error-overlay';
+        el.textContent = '[致命錯誤] ' + msg + '\n' +
+          (err && err.stack ? err.stack : String(err || ''));
+        document.getElementById('error-root').appendChild(el);
+        console.error(msg, err);
+      }
+      function toast(msg, kind) {
+        const t = document.createElement('div');
+        t.className = 'toast';
+        t.style.borderColor = (kind === 'err') ? '#ef4444' :
+                              (kind === 'ok')  ? '#10b981' :
+                              (kind === 'warn')? '#f59e0b' : '#0ea5e9';
+        t.textContent = msg;
+        document.getElementById('toast-root').appendChild(t);
+        setTimeout(function () { t.remove(); }, 2200);
+      }
+      window.addEventListener('error', function (e) {
+        fatal('window.onerror: ' + e.message, e.error);
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        fatal('unhandledrejection', e.reason);
+      });
+
+      try {
+        // ===== 1. UMD 解構（用 var alias 避 Babel TDZ 陷阱）=====
+        if (typeof window.ReactFlow === 'undefined') {
+          throw new Error('window.ReactFlow 不存在');
+        }
+        if (typeof window.React === 'undefined' || typeof window.ReactDOM === 'undefined') {
+          throw new Error('React / ReactDOM UMD 未載入');
+        }
+        var ReactFlowNS = window.ReactFlow;
+        var ReactNS = window.React;
+        var ReactDOMNS = window.ReactDOM;
+        var RF = ReactFlowNS;
+        var {
+          ReactFlow, Background, Controls, MiniMap, Handle, Position,
+          applyNodeChanges, applyEdgeChanges, addEdge, ReactFlowProvider,
+          MarkerType,
+        } = RF;
+        var useState = ReactNS.useState;
+        var useCallback = ReactNS.useCallback;
+        var useMemo = ReactNS.useMemo;
+        var useEffect = ReactNS.useEffect;
+        var useRef = ReactNS.useRef;
+        var createElement = ReactNS.createElement;
+
+        // ===== 2. 工具常數 =====
+        var NODE_TYPE_META = {
+          input:    { label: '起點',  color: '#10b981', icon: '▶', desc: '流程起點' },
+          process:  { label: '處理',  color: '#0ea5e9', icon: '⚙', desc: '一般處理' },
+          decision: { label: '決策',  color: '#f59e0b', icon: '◆', desc: '分支判斷' },
+          action:   { label: '動作',  color: '#a855f7', icon: '⚡', desc: '外部動作' },
+          output:   { label: '終點',  color: '#ef4444', icon: '■', desc: '流程終點' },
+        };
+        var STORAGE_KEY = 'wf_editor_state_v1';
+
+        // ===== 3. 自訂節點元件 =====
+        function WfNode(props) {
+          var data = props.data || {};
+          var id = props.id;
+          var selected = props.selected;
+          var nodeType = data.nodeType || 'process';
+          var meta = NODE_TYPE_META[nodeType] || NODE_TYPE_META.process;
+          var label = data.label || id;
+          var desc = data.description || '';
+          var cls = 'wf-node ' + nodeType +
+                    (selected ? ' selected' : '') +
+                    (data.running ? ' running' : '') +
+                    (data.done    ? ' done'    : '');
+          return (
+            <div className={cls}>
+              <div className="node-type-badge" style={{ background: meta.color }}>
+                {meta.icon}
+              </div>
+              <div className="node-title">{label}</div>
+              {desc ? <div className="node-desc">{desc}</div> : null}
+              <Handle type="target" position={Position.Left}
+                      style={{ background: meta.color, borderColor: '#0f172a' }} />
+              <Handle type="source" position={Position.Right}
+                      style={{ background: meta.color, borderColor: '#0f172a' }} />
+            </div>
+          );
+        }
+        var nodeTypes = { workflow: WfNode };
+
+        // ===== 4. DAG 演算法（Kahn's algorithm + 上下游 BFS）=====
+        function analyzeDag(nodes, edges) {
+          var inDegree = {};
+          var outAdj = {};
+          nodes.forEach(function (n) {
+            inDegree[n.id] = 0;
+            outAdj[n.id] = [];
+          });
+          edges.forEach(function (e) {
+            if (inDegree[e.source] === undefined) inDegree[e.source] = 0;
+            if (inDegree[e.target] === undefined) inDegree[e.target] = 0;
+            if (outAdj[e.source] === undefined) outAdj[e.source] = [];
+            if (outAdj[e.target] === undefined) outAdj[e.target] = [];
+            inDegree[e.target] = inDegree[e.target] + 1;
+            outAdj[e.source].push(e.target);
+          });
+
+          var roots = nodes.filter(function (n) { return inDegree[n.id] === 0; })
+                           .map(function (n) { return n.id; });
+          var leaves = nodes.filter(function (n) { return (outAdj[n.id] || []).length === 0; })
+                            .map(function (n) { return n.id; });
+
+          var workIn = Object.assign({}, inDegree);
+          var queue = roots.slice();
+          var order = [];
+          var visited = {};
+          while (queue.length) {
+            var cur = queue.shift();
+            if (visited[cur]) continue;
+            visited[cur] = true;
+            order.push(cur);
+            (outAdj[cur] || []).forEach(function (nxt) {
+              workIn[nxt] = workIn[nxt] - 1;
+              if (workIn[nxt] === 0) queue.push(nxt);
+            });
+          }
+          var hasCycle = order.length !== nodes.length;
+          var cycleNodes = nodes.filter(function (n) { return !visited[n.id]; })
+                                .map(function (n) { return n.id; });
+
+          var downstream = {};
+          nodes.forEach(function (n) { downstream[n.id] = []; });
+          leaves.forEach(function (leaf) {
+            var revQ = [leaf];
+            var revVisited = {};
+            while (revQ.length) {
+              var cur = revQ.shift();
+              if (revVisited[cur]) continue;
+              revVisited[cur] = true;
+              edges.filter(function (e) { return e.target === cur; })
+                   .forEach(function (e) {
+                     var s = e.source;
+                     var merged = (downstream[s] || []).concat([leaf]).concat(downstream[leaf] || []);
+                     downstream[s] = Array.from(new Set(merged));
+                     revQ.push(s);
+                   });
+            }
+          });
+
+          var upstream = {};
+          nodes.forEach(function (n) { upstream[n.id] = []; });
+          roots.forEach(function (root) {
+            var fwdQ = [root];
+            var fwdVisited = {};
+            while (fwdQ.length) {
+              var cur = fwdQ.shift();
+              if (fwdVisited[cur]) continue;
+              fwdVisited[cur] = true;
+              edges.filter(function (e) { return e.source === cur; })
+                   .forEach(function (e) {
+                     var t = e.target;
+                     var merged = (upstream[t] || []).concat([root]).concat(upstream[root] || []);
+                     upstream[t] = Array.from(new Set(merged));
+                     fwdQ.push(t);
+                   });
+            }
+          });
+
+          return {
+            order: order, hasCycle: hasCycle, cycleNodes: cycleNodes,
+            roots: roots, leaves: leaves, inDegree: inDegree, outAdj: outAdj,
+            upstream: upstream, downstream: downstream,
+          };
+        }
+
+        // ===== 5. 拓樸分層（用於自動布局）=====
+        function topologicalLayers(nodes, edges) {
+          var inDeg = {};
+          var outAdj = {};
+          nodes.forEach(function (n) {
+            inDeg[n.id] = 0;
+            outAdj[n.id] = [];
+          });
+          edges.forEach(function (e) {
+            if (inDeg[e.target] === undefined) inDeg[e.target] = 0;
+            if (outAdj[e.source] === undefined) outAdj[e.source] = [];
+            inDeg[e.target] += 1;
+            outAdj[e.source].push(e.target);
+          });
+          var layer = {};
+          var queue = nodes.filter(function (n) { return inDeg[n.id] === 0; }).map(function (n) { return n.id; });
+          if (queue.length === 0 && nodes.length) queue.push(nodes[0].id);
+          queue.forEach(function (id) { layer[id] = 0; });
+          var head = 0;
+          while (head < queue.length) {
+            var cur = queue[head++];
+            (outAdj[cur] || []).forEach(function (nxt) {
+              inDeg[nxt] -= 1;
+              if (inDeg[nxt] === 0) {
+                layer[nxt] = (layer[cur] || 0) + 1;
+                queue.push(nxt);
+              }
+            });
+          }
+          nodes.forEach(function (n) { if (layer[n.id] === undefined) layer[n.id] = 0; });
+          return layer;
+        }
+
+        // ===== 6. 預設範例 =====
+        var sampleNodes = [
+          { id: 'n1', type: 'workflow', position: { x: 60,   y: 200 },
+            data: { label: '收到訂單', nodeType: 'input',    description: '客戶下單觸發' } },
+          { id: 'n2', type: 'workflow', position: { x: 320,  y: 120 },
+            data: { label: '驗證庫存', nodeType: 'process',  description: '查詢庫存系統' } },
+          { id: 'n3', type: 'workflow', position: { x: 320,  y: 300 },
+            data: { label: '驗證付款', nodeType: 'process',  description: '金流 API 驗證' } },
+          { id: 'n4', type: 'workflow', position: { x: 600,  y: 200 },
+            data: { label: '庫存足夠？', nodeType: 'decision', description: '分支判斷' } },
+          { id: 'n5', type: 'workflow', position: { x: 880,  y: 80  },
+            data: { label: '備貨出貨', nodeType: 'action',   description: '通知倉儲系統' } },
+          { id: 'n6', type: 'workflow', position: { x: 880,  y: 220 },
+            data: { label: '產生發票', nodeType: 'process',  description: 'ERP 開立發票' } },
+          { id: 'n7', type: 'workflow', position: { x: 880,  y: 360 },
+            data: { label: '通知缺貨', nodeType: 'action',   description: '通知客戶' } },
+          { id: 'n8', type: 'workflow', position: { x: 1160, y: 140 },
+            data: { label: '完成訂單', nodeType: 'output',   description: '關閉工單' } },
+        ];
+        var sampleEdges = [
+          { id: 'e12', source: 'n1', target: 'n2', animated: true,
+            style: { stroke: '#0ea5e9' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#0ea5e9' } },
+          { id: 'e13', source: 'n1', target: 'n3', animated: true,
+            style: { stroke: '#0ea5e9' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#0ea5e9' } },
+          { id: 'e24', source: 'n2', target: 'n4', animated: true,
+            style: { stroke: '#0ea5e9' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#0ea5e9' } },
+          { id: 'e34', source: 'n3', target: 'n4', animated: true,
+            style: { stroke: '#0ea5e9' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#0ea5e9' } },
+          { id: 'e45', source: 'n4', target: 'n5', label: '是', animated: true,
+            style: { stroke: '#10b981' },
+            labelStyle: { fill: '#10b981', fontWeight: 700, fontSize: 11 },
+            labelBgStyle: { fill: '#0f172a' },
+            markerEnd: { type: MarkerType.ArrowClosed, color: '#10b981' } },
+          { id: 'e46', source: 'n4', target: 'n6', animated: true,
+            style: { stroke: '#0ea5e9' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#0ea5e9' } },
+          { id: 'e47', source: 'n4', target: 'n7', label: '否', animated: true,
+            style: { stroke: '#ef4444' },
+            labelStyle: { fill: '#ef4444', fontWeight: 700, fontSize: 11 },
+            labelBgStyle: { fill: '#0f172a' },
+            markerEnd: { type: MarkerType.ArrowClosed, color: '#ef4444' } },
+          { id: 'e58', source: 'n5', target: 'n8', animated: true,
+            style: { stroke: '#0ea5e9' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#0ea5e9' } },
+          { id: 'e68', source: 'n6', target: 'n8', animated: true,
+            style: { stroke: '#0ea5e9' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#0ea5e9' } },
+        ];
+
+        // ===== 7. LocalStorage =====
+        function loadFromStorage() {
+          try {
+            var raw = localStorage.getItem(STORAGE_KEY);
+            if (!raw) return null;
+            var data = JSON.parse(raw);
+            if (!data || !Array.isArray(data.nodes) || !Array.isArray(data.edges)) return null;
+            return data;
+          } catch (e) { return null; }
+        }
+        function saveToStorage(state) {
+          try {
+            var clean = {
+              nodes: state.nodes.map(function (n) {
+                var d = Object.assign({}, n.data);
+                delete d.running; delete d.done;
+                return { id: n.id, type: n.type, position: n.position, data: d };
+              }),
+              edges: state.edges,
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(clean));
+          } catch (e) { console.warn('LocalStorage 存檔失敗', e); }
+        }
+
+        // ===== 8. 拖放節點庫 → 畫布（DOM 層）=====
+        var dragState = { type: null };
+        document.addEventListener('dragstart', function (e) {
+          var t = e.target.closest && e.target.closest('.node-template');
+          if (t) {
+            dragState.type = t.getAttribute('data-node-type');
+            try { e.dataTransfer.setData('text/plain', dragState.type); } catch (_) {}
+            e.dataTransfer.effectAllowed = 'copy';
+          }
+        });
+        document.addEventListener('dragend', function () {
+          dragState.type = null;
+        });
+
+        // ===== 9. 主元件 App =====
+        function App() {
+          var initialFromStorage = loadFromStorage();
+          var initial = initialFromStorage || { nodes: sampleNodes, edges: sampleEdges };
+
+          var _nodes = useState(initial.nodes);
+          var nodes = _nodes[0]; var setNodes = _nodes[1];
+          var _edges = useState(initial.edges);
+          var edges = _edges[0]; var setEdges = _edges[1];
+
+          var _selectedNodeId = useState(null);
+          var selectedNodeId = _selectedNodeId[0]; var setSelectedNodeId = _selectedNodeId[1];
+          var _selectedEdgeId = useState(null);
+          var selectedEdgeId = _selectedEdgeId[0]; var setSelectedEdgeId = _selectedEdgeId[1];
+
+          var _rfInstance = useState(null);
+          var rfInstance = _rfInstance[0]; var setRfInstance = _rfInstance[1];
+
+          var _history = useState([initial]);
+          var history = _history[0]; var setHistory = _history[1];
+          var _historyIdx = useState(0);
+          var historyIdx = _historyIdx[0]; var setHistoryIdx = _historyIdx[1];
+
+          var _isRunning = useState(false);
+          var isRunning = _isRunning[0]; var setIsRunning = _isRunning[1];
+
+          var wrapperRef = useRef(null);
+          var canvasRef = useRef(null);
+
+          // DAG 分析
+          var analysis = useMemo(function () {
+            return analyzeDag(nodes, edges);
+          }, [nodes, edges]);
+
+          // 自動存檔（debounce）
+          useEffect(function () {
+            var t = setTimeout(function () {
+              saveToStorage({ nodes: nodes, edges: edges });
+            }, 500);
+            return function () { clearTimeout(t); };
+          }, [nodes, edges]);
+
+          // 同步 selectedNodeId 到實際節點物件
+          var selectedNode = useMemo(function () {
+            if (!selectedNodeId) return null;
+            return nodes.find(function (n) { return n.id === selectedNodeId; }) || null;
+          }, [selectedNodeId, nodes]);
+
+          // 歷史快照
+          function pushHistory(next) {
+            var snap = { nodes: next.nodes || nodes, edges: next.edges || edges };
+            var newHist = history.slice(0, historyIdx + 1);
+            newHist.push(snap);
+            if (newHist.length > 30) newHist = newHist.slice(newHist.length - 30);
+            setHistory(newHist);
+            setHistoryIdx(newHist.length - 1);
+          }
+          function doUndo() {
+            if (historyIdx <= 0) return;
+            var idx = historyIdx - 1;
+            var snap = history[idx];
+            setNodes(snap.nodes); setEdges(snap.edges);
+            setHistoryIdx(idx);
+            toast('↶ 已 Undo');
+          }
+          function doRedo() {
+            if (historyIdx >= history.length - 1) return;
+            var idx = historyIdx + 1;
+            var snap = history[idx];
+            setNodes(snap.nodes); setEdges(snap.edges);
+            setHistoryIdx(idx);
+            toast('↷ 已 Redo');
+          }
+
+          // React Flow callbacks
+          function wouldCreateCycle(sourceId, targetId) {
+            if (sourceId === targetId) return true;
+            var visited = {};
+            var queue = [sourceId];
+            while (queue.length) {
+              var cur = queue.shift();
+              if (visited[cur]) continue;
+              visited[cur] = true;
+              if (cur === targetId) return true;
+              edges.forEach(function (e) {
+                if (e.source === cur && !visited[e.target]) queue.push(e.target);
+              });
+            }
+            return false;
+          }
+
+          var onNodesChange = useCallback(function (changes) {
+            setNodes(function (nds) { return applyNodeChanges(changes, nds); });
+            changes.forEach(function (c) {
+              if (c.type === 'select' && c.selected) {
+                setSelectedNodeId(c.id);
+                setSelectedEdgeId(null);
+              } else if (c.type === 'select' && !c.selected && c.id === selectedNodeId) {
+                setSelectedNodeId(null);
+              }
+              if (c.type === 'remove' && selectedNodeId === c.id) setSelectedNodeId(null);
+            });
+          }, [selectedNodeId]);
+
+          var onEdgesChange = useCallback(function (changes) {
+            setEdges(function (eds) { return applyEdgeChanges(changes, eds); });
+            changes.forEach(function (c) {
+              if (c.type === 'select' && c.selected) {
+                setSelectedEdgeId(c.id);
+                setSelectedNodeId(null);
+              } else if (c.type === 'select' && !c.selected && c.id === selectedEdgeId) {
+                setSelectedEdgeId(null);
+              }
+              if (c.type === 'remove' && selectedEdgeId === c.id) setSelectedEdgeId(null);
+            });
+          }, [selectedEdgeId]);
+
+          var onConnect = useCallback(function (params) {
+            if (!params.source || !params.target) return;
+            if (params.source === params.target) { toast('不允許自連線', 'warn'); return; }
+            if (wouldCreateCycle(params.source, params.target)) {
+              toast('⚠ 此連線會造成循環，已拒絕', 'err');
+              return;
+            }
+            var newEdge = Object.assign({}, params, {
+              id: 'e' + Date.now().toString(36) + Math.floor(Math.random() * 1000).toString(36),
+              animated: true,
+              style: { stroke: '#0ea5e9', strokeWidth: 2 },
+              markerEnd: { type: MarkerType.ArrowClosed, color: '#0ea5e9' },
+            });
+            setEdges(function (eds) { return eds.concat([newEdge]); });
+            pushHistory({});
+          }, [edges]);
+
+          // 新增節點
+          function genId() {
+            return 'n' + Date.now().toString(36) + Math.floor(Math.random() * 10000).toString(36);
+          }
+          function createNode(nodeType, position) {
+            var meta = NODE_TYPE_META[nodeType] || NODE_TYPE_META.process;
+            var pos = position || { x: 240 + Math.random() * 200, y: 200 + Math.random() * 80 };
+            return {
+              id: genId(),
+              type: 'workflow',
+              position: pos,
+              data: { label: meta.label + ' 節點', nodeType: nodeType, description: meta.desc },
+            };
+          }
+
+          var onPaneDoubleClick = useCallback(function (event) {
+            if (!rfInstance) return;
+            var pos = rfInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+            var n = createNode('process', pos);
+            setNodes(function (nds) { return nds.concat([n]); });
+            pushHistory({});
+            toast('已新增處理節點', 'ok');
+          }, [rfInstance]);
+
+          var onDrop = useCallback(function (event) {
+            event.preventDefault();
+            if (canvasRef.current) canvasRef.current.classList.remove('drop-target');
+            var nodeType = (event.dataTransfer && event.dataTransfer.getData('text/plain')) || dragState.type;
+            if (!nodeType || !NODE_TYPE_META[nodeType]) return;
+            if (!rfInstance) return;
+            var pos = rfInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+            var n = createNode(nodeType, pos);
+            setNodes(function (nds) { return nds.concat([n]); });
+            pushHistory({});
+            toast('已新增 ' + NODE_TYPE_META[nodeType].label + ' 節點', 'ok');
+          }, [rfInstance]);
+          var onDragOver = useCallback(function (event) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+            if (canvasRef.current) canvasRef.current.classList.add('drop-target');
+          }, []);
+          var onDragLeave = useCallback(function (event) {
+            if (event.target === canvasRef.current && canvasRef.current) {
+              canvasRef.current.classList.remove('drop-target');
+            }
+          }, []);
+
+          var autoLayout = useCallback(function () {
+            if (analysis.hasCycle) { toast('存在循環，無法自動布局', 'err'); return; }
+            if (nodes.length === 0) { toast('沒有節點', 'warn'); return; }
+            var layer = topologicalLayers(nodes, edges);
+            var buckets = {};
+            Object.keys(layer).forEach(function (id) {
+              var l = layer[id];
+              buckets[l] = buckets[l] || [];
+              buckets[l].push(id);
+            });
+            var positioned = nodes.map(function (n) {
+              var l = layer[n.id] || 0;
+              var bucket = buckets[l] || [n.id];
+              var idx = bucket.indexOf(n.id);
+              var yCount = bucket.length;
+              return Object.assign({}, n, {
+                position: {
+                  x: 60 + l * 240,
+                  y: 80 + idx * (yCount > 1 ? 360 / (yCount - 1) : 60),
+                },
+              });
+            });
+            setNodes(positioned);
+            pushHistory({});
+            setTimeout(function () {
+              if (rfInstance) rfInstance.fitView({ padding: 0.2, duration: 400 });
+            }, 60);
+            toast('⚙ 已自動布局', 'ok');
+          }, [nodes, edges, analysis.hasCycle, rfInstance]);
+
+          var loadSample = useCallback(function () {
+            setNodes(sampleNodes);
+            setEdges(sampleEdges);
+            setSelectedNodeId(null); setSelectedEdgeId(null);
+            pushHistory({});
+            toast('↺ 已載入範例', 'ok');
+            setTimeout(function () {
+              if (rfInstance) rfInstance.fitView({ padding: 0.15, duration: 400 });
+            }, 60);
+          }, [rfInstance]);
+
+          var clearAll = useCallback(function () {
+            if (nodes.length === 0 && edges.length === 0) return;
+            if (!window.confirm('確定要清空所有節點與連線？')) return;
+            setNodes([]); setEdges([]);
+            setSelectedNodeId(null); setSelectedEdgeId(null);
+            pushHistory({});
+            toast('已清空', 'warn');
+          }, [nodes.length, edges.length]);
+
+          var exportJson = useCallback(function () {
+            var data = JSON.stringify({ nodes: nodes, edges: edges, exportedAt: new Date().toISOString() }, null, 2);
+            var blob = new Blob([data], { type: 'application/json' });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = 'workflow-' + Date.now() + '.json';
+            document.body.appendChild(a); a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            toast('⬇ 已匯出 JSON', 'ok');
+          }, [nodes, edges]);
+
+          function importJson(file) {
+            var reader = new FileReader();
+            reader.onload = function (e) {
+              try {
+                var data = JSON.parse(e.target.result);
+                if (!Array.isArray(data.nodes) || !Array.isArray(data.edges)) throw new Error('格式錯誤');
+                setNodes(data.nodes);
+                setEdges(data.edges);
+                setSelectedNodeId(null); setSelectedEdgeId(null);
+                pushHistory({});
+                toast('⬆ 已匯入 ' + data.nodes.length + ' 節點', 'ok');
+                setTimeout(function () {
+                  if (rfInstance) rfInstance.fitView({ padding: 0.15, duration: 400 });
+                }, 60);
+              } catch (err) { toast('匯入失敗：' + err.message, 'err'); }
+            };
+            reader.readAsText(file);
+          }
+          var triggerImport = useCallback(function () {
+            var input = document.getElementById('import-file');
+            if (!input) return;
+            input.value = '';
+            input.onchange = function (ev) {
+              var f = ev.target.files && ev.target.files[0];
+              if (f) importJson(f);
+            };
+            input.click();
+          }, [rfInstance]);
+
+          var runSimulation = useCallback(function () {
+            if (isRunning) return;
+            if (analysis.hasCycle) { toast('存在循環，無法執行', 'err'); return; }
+            if (analysis.order.length === 0) { toast('沒有可執行的節點', 'warn'); return; }
+            setIsRunning(true);
+            setNodes(function (nds) {
+              return nds.map(function (n) {
+                return Object.assign({}, n, { data: Object.assign({}, n.data, { running: false, done: false }) });
+              });
+            });
+            var i = 0;
+            function tick() {
+              if (i >= analysis.order.length) {
+                setIsRunning(false);
+                toast('✓ 模擬執行完成', 'ok');
+                return;
+              }
+              var id = analysis.order[i];
+              setNodes(function (nds) {
+                return nds.map(function (n) {
+                  if (n.id === id) return Object.assign({}, n, { data: Object.assign({}, n.data, { running: true, done: false }) });
+                  return n;
+                });
+              });
+              setTimeout(function () {
+                setNodes(function (nds) {
+                  return nds.map(function (n) {
+                    if (n.id === id) return Object.assign({}, n, { data: Object.assign({}, n.data, { running: false, done: true }) });
+                    return n;
+                  });
+                });
+                i++;
+                tick();
+              }, 700);
+            }
+            tick();
+          }, [isRunning, analysis]);
+
+          var stopSimulation = useCallback(function () {
+            setIsRunning(false);
+            setNodes(function (nds) {
+              return nds.map(function (n) {
+                return Object.assign({}, n, { data: Object.assign({}, n.data, { running: false, done: false }) });
+              });
+            });
+          }, []);
+
+          function updateNodeData(id, patch) {
+            setNodes(function (nds) {
+              return nds.map(function (n) {
+                if (n.id !== id) return n;
+                return Object.assign({}, n, { data: Object.assign({}, n.data, patch) });
+              });
+            });
+          }
+          function deleteNode(id) {
+            setNodes(function (nds) { return nds.filter(function (n) { return n.id !== id; }); });
+            setEdges(function (eds) { return eds.filter(function (e) { return e.source !== id && e.target !== id; }); });
+            if (selectedNodeId === id) setSelectedNodeId(null);
+            pushHistory({});
+          }
+          function deleteEdge(id) {
+            setEdges(function (eds) { return eds.filter(function (e) { return e.id !== id; }); });
+            if (selectedEdgeId === id) setSelectedEdgeId(null);
+            pushHistory({});
+          }
+
+          // 鍵盤快捷鍵
+          useEffect(function () {
+            function onKey(e) {
+              var tag = (e.target && e.target.tagName) || '';
+              if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+              if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                saveToStorage({ nodes: nodes, edges: edges });
+                toast('💾 已存檔', 'ok');
+              } else if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+                e.preventDefault(); doUndo();
+              } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'Z'))) {
+                e.preventDefault(); doRedo();
+              } else if (e.key === 'Delete' || e.key === 'Backspace') {
+                if (selectedNodeId) { e.preventDefault(); deleteNode(selectedNodeId); }
+                else if (selectedEdgeId) { e.preventDefault(); deleteEdge(selectedEdgeId); }
+              } else if (e.key === 'Escape') {
+                setSelectedNodeId(null); setSelectedEdgeId(null);
+              }
+            }
+            window.addEventListener('keydown', onKey);
+            return function () { window.removeEventListener('keydown', onKey); };
+          }, [nodes, edges, selectedNodeId, selectedEdgeId, historyIdx, history]);
+
+          // ===== 子元件：Toolbar =====
+          function Toolbar() {
+            function addCenter() {
+              if (!rfInstance) return;
+              var rect = wrapperRef.current ? wrapperRef.current.getBoundingClientRect() : { left: 0, top: 0, clientWidth: 600, clientHeight: 400 };
+              var pos = rfInstance.screenToFlowPosition({
+                x: rect.left + rect.clientWidth / 2,
+                y: rect.top + 100,
+              });
+              var n = createNode('process', pos);
+              setNodes(function (nds) { return nds.concat([n]); });
+              pushHistory({});
+              toast('已新增處理節點', 'ok');
+            }
+            return (
+              <div className="toolbar">
+                <button className="primary" onClick={addCenter}>+ 新增節點</button>
+                <button onClick={autoLayout}
+                        disabled={analysis.hasCycle || nodes.length === 0}
+                        title="依拓樸層級水平排列">⚙ 自動布局</button>
+                {!isRunning
+                  ? <button className="success" onClick={runSimulation}
+                             disabled={analysis.hasCycle || analysis.order.length === 0}
+                             title="依拓樸序執行（視覺化）">▶ 執行模擬</button>
+                  : <button className="warn" onClick={stopSimulation}>⏹ 停止</button>
+                }
+                <button onClick={exportJson} disabled={nodes.length === 0}>⬇ 匯出 JSON</button>
+                <button onClick={triggerImport}>⬆ 匯入 JSON</button>
+                <button onClick={doUndo} disabled={historyIdx <= 0} title="Ctrl+Z">↶ Undo</button>
+                <button onClick={doRedo} disabled={historyIdx >= history.length - 1} title="Ctrl+Y">↷ Redo</button>
+                <button onClick={loadSample}>↺ 範例</button>
+                <button className="danger" onClick={clearAll}
+                        disabled={nodes.length === 0 && edges.length === 0}>✕ 清空</button>
+              </div>
+            );
+          }
+
+          // ===== 子元件：LeftSidebar =====
+          function LeftSidebar() {
+            var types = ['input', 'process', 'decision', 'action', 'output'];
+            return (
+              <aside className="sidebar-left">
+                <h3>節點庫</h3>
+                {types.map(function (t) {
+                  var meta = NODE_TYPE_META[t];
+                  return (
+                    <div key={t} className={'node-template ' + t} draggable="true" data-node-type={t}>
+                      <div className="icon">{meta.icon}</div>
+                      <div>
+                        <div>{meta.label}</div>
+                        <div className="meta">{meta.desc}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div className="sidebar-hint">
+                  💡 <b>提示</b><br/>
+                  • 拖曳節點到畫布<br/>
+                  • 雙擊空白處新增<br/>
+                  • 拖曳右側 handle 連線<br/>
+                  • 點擊節點 / 連線 編輯<br/>
+                  • Delete 鍵刪除<br/>
+                  • Ctrl+S 強制存檔<br/>
+                  • Ctrl+Z / Ctrl+Y undo
+                </div>
+              </aside>
+            );
+          }
+
+          // ===== 子元件：RightSidebar =====
+          function RightSidebar() {
+            return (
+              <aside className="sidebar-right">
+                <div className="panel-section">
+                  <h3>
+                    節點屬性
+                    {selectedNode ? <span style={{color:'#0ea5e9'}}>· 已選</span> : null}
+                  </h3>
+                  {selectedNode ? (
+                    <div>
+                      <div className="form-row">
+                        <label>名稱</label>
+                        <input type="text"
+                          value={selectedNode.data.label || ''}
+                          onChange={function (e) { updateNodeData(selectedNode.id, { label: e.target.value }); }}
+                          onBlur={function () { pushHistory({}); }} />
+                      </div>
+                      <div className="form-row">
+                        <label>類型</label>
+                        <select value={selectedNode.data.nodeType || 'process'}
+                          onChange={function (e) {
+                            updateNodeData(selectedNode.id, { nodeType: e.target.value });
+                            pushHistory({});
+                          }}>
+                          {Object.keys(NODE_TYPE_META).map(function (k) {
+                            return <option key={k} value={k}>{NODE_TYPE_META[k].label}（{k}）</option>;
+                          })}
+                        </select>
+                      </div>
+                      <div className="form-row">
+                        <label>描述</label>
+                        <textarea
+                          value={selectedNode.data.description || ''}
+                          placeholder="說明這個節點的用途..."
+                          onChange={function (e) { updateNodeData(selectedNode.id, { description: e.target.value }); }}
+                          onBlur={function () { pushHistory({}); }} />
+                      </div>
+                      <div className="form-row">
+                        <label>節點 ID</label>
+                        <div className="id-box">{selectedNode.id}</div>
+                        <div className="meta">
+                          位置 ({Math.round(selectedNode.position.x)}, {Math.round(selectedNode.position.y)}) ·
+                          上游 {(analysis.upstream[selectedNode.id] || []).length} 個 ·
+                          下游 {(analysis.downstream[selectedNode.id] || []).length} 個
+                        </div>
+                      </div>
+                      <div className="form-row">
+                        <button className="btn-danger-full"
+                          onClick={function () {
+                            if (window.confirm('刪除此節點及其連線？')) deleteNode(selectedNode.id);
+                          }}>🗑 刪除節點 (Delete)</button>
+                      </div>
+                    </div>
+                  ) : selectedEdgeId ? (
+                    <div>
+                      <div className="form-row">
+                        <label>連線 ID</label>
+                        <div className="id-box">{selectedEdgeId}</div>
+                      </div>
+                      <div className="form-row">
+                        <label>連線標籤</label>
+                        <input type="text"
+                          value={(() => {
+                            var e = edges.find(function (x) { return x.id === selectedEdgeId; });
+                            return (e && e.label) ? e.label : '';
+                          })()}
+                          placeholder="例如：是 / 否"
+                          onChange={function (ev) {
+                            var val = ev.target.value;
+                            setEdges(function (eds) {
+                              return eds.map(function (e) {
+                                if (e.id !== selectedEdgeId) return e;
+                                if (val) {
+                                  return Object.assign({}, e, {
+                                    label: val,
+                                    labelStyle: { fill: '#0ea5e9', fontWeight: 700, fontSize: 11 },
+                                    labelBgStyle: { fill: '#0f172a' },
+                                  });
+                                }
+                                var copy = Object.assign({}, e);
+                                delete copy.label; delete copy.labelStyle; delete copy.labelBgStyle;
+                                return copy;
+                              });
+                            });
+                          }}
+                          onBlur={function () { pushHistory({}); }} />
+                      </div>
+                      <div className="form-row">
+                        <button className="btn-danger-full"
+                          onClick={function () { deleteEdge(selectedEdgeId); }}>🗑 刪除連線 (Delete)</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="empty-state">
+                      <div className="icon">👆</div>
+                      <div>點擊畫布上的<br/>節點或連線<br/>以編輯屬性</div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="panel-section">
+                  <h3>DAG 分析</h3>
+                  <div style={{fontSize:'11px', color:'#94a3b8', lineHeight:'1.6', marginBottom:'8px'}}>
+                    節點 <strong style={{color:'#e2e8f0'}}>{nodes.length}</strong> ·
+                    連線 <strong style={{color:'#e2e8f0'}}>{edges.length}</strong> ·
+                    起點 <strong style={{color:'#10b981'}}>{analysis.roots.length}</strong> ·
+                    終點 <strong style={{color:'#ef4444'}}>{analysis.leaves.length}</strong>
+                  </div>
+                  {analysis.hasCycle ? (
+                    <div>
+                      <div style={{color:'#fca5a5', fontSize:'11px', fontWeight:600, marginBottom:'6px'}}>
+                        ⚠ 偵測到循環（{analysis.cycleNodes.length} 個節點被困）
+                      </div>
+                      <ul className="analysis-list">
+                        {analysis.cycleNodes.map(function (id) {
+                          return <li key={id} className="invalid">⛔ {id}</li>;
+                        })}
+                      </ul>
+                    </div>
+                  ) : analysis.order.length > 0 ? (
+                    <div>
+                      <div style={{color:'#6ee7b7', fontSize:'11px', fontWeight:600, marginBottom:'6px'}}>
+                        ✓ 有效 DAG（拓樸序 {analysis.order.length} 步）
+                      </div>
+                      <ul className="analysis-list">
+                        {analysis.order.map(function (id, idx) {
+                          var node = nodes.find(function (n) { return n.id === id; });
+                          var lbl = node ? node.data.label : id;
+                          return <li key={id}>{idx + 1}. {lbl} <span style={{opacity:0.5}}>· {id}</span></li>;
+                        })}
+                      </ul>
+                    </div>
+                  ) : (
+                    <div className="empty-state">
+                      <div className="icon">📭</div>
+                      <div>尚無節點</div>
+                    </div>
+                  )}
+                </div>
+              </aside>
+            );
+          }
+
+          // ===== 子元件：FooterBar =====
+          function FooterBar() {
+            var statusPill;
+            if (analysis.hasCycle) {
+              statusPill = <span className="pill err">⚠ 有循環</span>;
+            } else if (nodes.length === 0) {
+              statusPill = <span className="pill muted">空白</span>;
+            } else {
+              statusPill = <span className="pill ok">✓ 有效 DAG</span>;
+            }
+            var topoPreview = analysis.order.length
+              ? analysis.order.slice(0, 6).map(function (id) {
+                  var node = nodes.find(function (n) { return n.id === id; });
+                  return node ? node.data.label : id;
+                }).join(' → ') + (analysis.order.length > 6 ? ' …' : '')
+              : '—';
+            return (
+              <footer className="footer-bar">
+                <div className="item">節點 <strong>{nodes.length}</strong></div>
+                <div className="item">連線 <strong>{edges.length}</strong></div>
+                <div className="item">起點 <strong style={{color:'#10b981'}}>{analysis.roots.length}</strong></div>
+                <div className="item">終點 <strong style={{color:'#ef4444'}}>{analysis.leaves.length}</strong></div>
+                <div className="item">{statusPill}</div>
+                {isRunning ? <div className="item"><span className="pill warn">▶ 執行中</span></div> : null}
+                <div className="spacer"></div>
+                <div className="item" style={{fontFamily:'monospace', fontSize:'10px'}}>拓樸序：{topoPreview}</div>
+                <div className="item">Undo <strong>{historyIdx + 1}/{history.length}</strong></div>
+              </footer>
+            );
+          }
+
+          // ===== 子元件：CanvasArea（React Flow）=====
+          function CanvasArea() {
+            return (
+              <main className="canvas-area" ref={canvasRef}
+                    onDrop={onDrop}
+                    onDragOver={onDragOver}
+                    onDragLeave={onDragLeave}>
+                <div ref={wrapperRef} style={{position:'absolute', inset:0}}>
+                  <ReactFlow
+                    nodes={nodes}
+                    edges={edges}
+                    onNodesChange={onNodesChange}
+                    onEdgesChange={onEdgesChange}
+                    onConnect={onConnect}
+                    onInit={setRfInstance}
+                    onDoubleClick={onPaneDoubleClick}
+                    nodeTypes={nodeTypes}
+                    fitView
+                    minZoom={0.2}
+                    maxZoom={2}
+                    proOptions={{ hideAttribution: true }}
+                    defaultEdgeOptions={{
+                      animated: true,
+                      style: { stroke: '#0ea5e9', strokeWidth: 2 },
+                      markerEnd: { type: MarkerType.ArrowClosed, color: '#0ea5e9' },
+                    }}
+                  >
+                    <Background variant="dots" gap={16} size={1.2} color="#1e293b" />
+                    <Controls position="bottom-right" showInteractive={false}
+                              style={{ background:'#1e293b', border:'1px solid #334155', borderRadius:'8px' }} />
+                    <MiniMap
+                      pannable
+                      zoomable
+                      position="top-right"
+                      maskColor="rgba(11,18,32,0.7)"
+                      nodeColor={function (n) {
+                        var t = n.data && n.data.nodeType;
+                        return NODE_TYPE_META[t] ? NODE_TYPE_META[t].color : '#0ea5e9';
+                      }}
+                      style={{ background:'#0f172a', border:'1px solid #334155', borderRadius:'8px' }}
+                    />
+                  </ReactFlow>
+                </div>
+              </main>
+            );
+          }
+
+          // ===== 主 layout =====
+          return (
+            <ReactFlowProvider>
+              <div className="app-shell">
+                <header className="header-bar">
+                  <h1>
+                    <span className="logo">⚡</span>
+                    <span>工作流程可視化編輯器</span>
+                    <span className="badge">React Flow 11.11.4 · DAG Engine</span>
+                  </h1>
+                  <Toolbar />
+                </header>
+                <LeftSidebar />
+                <CanvasArea />
+                <RightSidebar />
+                <FooterBar />
+              </div>
+            </ReactFlowProvider>
+          );
+        }
+
+        // ===== 10. 掛載 =====
+        var root = ReactDOMNS.createRoot(document.getElementById('root'));
+        root.render(<App />);
+
+      } catch (err) {
+        fatal('初始化失敗', err);
+      }
+    })();
+  </script>
+</body>
+</html>

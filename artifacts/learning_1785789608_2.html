@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Recon Engine — Asyncio API Reverse-Engineering Workbench</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-2: #161b22;
+    --bg-3: #1c232c;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --accent-2: #79c0ff;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --err: #f85149;
+    --graphql: #a371f7;
+    --ws: #ec5990;
+    --jsonrpc: #ff7b72;
+    --rest: #58a6ff;
+    --unknown: #8b949e;
+    --shadow: 0 8px 24px rgba(1, 4, 9, 0.6);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif; font-size: 14px; line-height: 1.5; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre { font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
+  pre { margin: 0; }
+
+  /* ---------- layout ---------- */
+  header { display: flex; align-items: center; gap: 14px; padding: 14px 20px; background: var(--bg-2); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10; }
+  header .logo { width: 28px; height: 28px; border-radius: 6px; background: linear-gradient(135deg, #58a6ff 0%, #a371f7 100%); display: grid; place-items: center; font-weight: 800; color: #0d1117; font-family: monospace; }
+  header h1 { font-size: 15px; font-weight: 600; margin: 0; }
+  header .sub { color: var(--text-dim); font-size: 12px; margin-left: 4px; }
+  header .grow { flex: 1; }
+  header .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; background: var(--bg-3); border: 1px solid var(--border); color: var(--text-dim); }
+
+  main { display: grid; grid-template-columns: 1fr 380px; gap: 0; min-height: calc(100vh - 57px); }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+
+  /* ---------- main column ---------- */
+  .col-main { padding: 20px; min-width: 0; }
+  .toolbar { display: flex; gap: 8px; align-items: center; background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .toolbar input[type=url] { flex: 1; min-width: 220px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; color: var(--text); font-family: monospace; font-size: 13px; }
+  .toolbar input[type=url]:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  .toolbar label { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-dim); }
+  .toolbar input[type=checkbox] { accent-color: var(--accent); }
+  .btn { background: var(--bg-3); border: 1px solid var(--border); color: var(--text); padding: 7px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.12s; }
+  .btn:hover { background: #2d333b; border-color: #444c56; }
+  .btn.primary { background: linear-gradient(180deg, #1f6feb 0%, #1158c7 100%); border-color: #1158c7; }
+  .btn.primary:hover { background: linear-gradient(180deg, #388bfd 0%, #1f6feb 100%); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ---------- stats ---------- */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 16px; }
+  .stat { background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+  .stat .v { font-size: 22px; font-weight: 600; color: var(--text); }
+  .stat .k { font-size: 11.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 2px; }
+
+  /* ---------- sections ---------- */
+  section { background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; overflow: hidden; }
+  section > header { background: transparent; border-bottom: 1px solid var(--border); padding: 10px 14px; position: static; }
+  section > header h2 { font-size: 13px; font-weight: 600; margin: 0; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); }
+  section > .body { padding: 12px 14px; }
+
+  /* ---------- endpoint table ---------- */
+  table.endpoints { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.endpoints th { text-align: left; padding: 8px 10px; background: var(--bg-3); color: var(--text-dim); font-weight: 500; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); position: sticky; top: 0; }
+  table.endpoints td { padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.endpoints tr { cursor: pointer; transition: background 0.08s; }
+  table.endpoints tr:hover { background: #1c2128; }
+  table.endpoints tr.selected { background: #1f2a3a !important; }
+  table.endpoints tr td.url { font-family: monospace; word-break: break-all; }
+  .score-bar { display: inline-block; width: 60px; height: 6px; background: var(--bg-3); border-radius: 3px; overflow: hidden; vertical-align: middle; margin-right: 6px; }
+  .score-bar > div { height: 100%; background: linear-gradient(90deg, #3fb950 0%, #d29922 50%, #f85149 100%); }
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+  .badge.rest { background: rgba(88, 166, 255, 0.15); color: var(--rest); border: 1px solid rgba(88, 166, 255, 0.3); }
+  .badge.graphql { background: rgba(163, 113, 247, 0.15); color: var(--graphql); border: 1px solid rgba(163, 113, 247, 0.3); }
+  .badge.websocket { background: rgba(236, 89, 144, 0.15); color: var(--ws); border: 1px solid rgba(236, 89, 144, 0.3); }
+  .badge.jsonrpc { background: rgba(255, 123, 114, 0.15); color: var(--jsonrpc); border: 1px solid rgba(255, 123, 114, 0.3); }
+  .badge.unknown { background: rgba(139, 148, 158, 0.15); color: var(--unknown); border: 1px solid rgba(139, 148, 158, 0.3); }
+  .status { font-family: monospace; font-weight: 600; }
+  .status.s2 { color: var(--ok); }
+  .status.s3 { color: var(--accent); }
+  .status.s4 { color: var(--warn); }
+  .status.s5 { color: var(--err); }
+  .status.s0 { color: var(--text-dim); }
+
+  /* ---------- side panel ---------- */
+  .col-side { background: var(--bg-2); border-left: 1px solid var(--border); padding: 16px; overflow-y: auto; max-height: calc(100vh - 57px); position: sticky; top: 57px; display: flex; flex-direction: column; }
+  .col-side h3 { font-size: 12.5px; margin: 0 0 10px 0; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .tabs button { background: none; border: none; color: var(--text-dim); padding: 8px 12px; cursor: pointer; font-size: 12.5px; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tabs button:hover { color: var(--text); }
+  .tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-content { display: none; flex: 1; min-height: 0; }
+  .tab-content.active { display: flex; flex-direction: column; }
+  .code-block { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; flex: 1; min-height: 300px; overflow: auto; white-space: pre; color: var(--text); font-size: 12px; line-height: 1.5; }
+  .empty { color: var(--text-dim); text-align: center; padding: 40px 20px; font-size: 13px; }
+  .meta-grid { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; font-size: 12.5px; }
+  .meta-grid .k { color: var(--text-dim); }
+  .meta-grid .v { font-family: monospace; word-break: break-all; }
+
+  /* ---------- waterfall ---------- */
+  .waterfall { font-family: monospace; font-size: 12px; }
+  .wf-row { display: grid; grid-template-columns: 110px 60px 1fr; gap: 8px; align-items: center; padding: 3px 0; }
+  .wf-bar { background: var(--bg-3); border-radius: 3px; height: 14px; position: relative; overflow: hidden; }
+  .wf-bar .seg { position: absolute; top: 0; bottom: 0; }
+  .wf-bar .seg.wait { background: #58a6ff; }
+  .wf-bar .seg.recv { background: #3fb950; }
+  .wf-bar .seg.fail { background: #f85149; }
+  .wf-row .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ---------- classification cards ---------- */
+  .class-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .class-card { background: var(--bg-3); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  .class-card .count { font-size: 24px; font-weight: 600; }
+  .class-card .name { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+
+  /* ---------- spinner / loading ---------- */
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---------- copy button ---------- */
+  .copy-btn { float: right; background: var(--bg-3); border: 1px solid var(--border); color: var(--text-dim); padding: 3px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; }
+  .copy-btn:hover { color: var(--text); }
+  .copy-btn.copied { color: var(--ok); border-color: var(--ok); }
+
+  footer { padding: 16px 20px; color: var(--text-dim); font-size: 12px; text-align: center; border-top: 1px solid var(--border); }
+  footer code { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">R</div>
+  <h1>Recon Engine</h1>
+  <span class="sub">asyncio-driven API reverse-engineering workbench</span>
+  <span class="grow"></span>
+  <span class="pill" id="version-pill">v0.1.0</span>
+  <span class="pill" id="status-pill">ready</span>
+</header>
+
+<main>
+  <div class="col-main">
+    <!-- toolbar -->
+    <div class="toolbar">
+      <input type="url" id="target" value="https://github.com/" placeholder="https://target.example.com/" />
+      <label><input type="checkbox" id="opt-browser" checked /> Browser (Playwright)</label>
+      <label><input type="checkbox" id="opt-direct" checked /> Direct probe</label>
+      <button class="btn primary" id="run-btn">▶ Run Recon</button>
+      <button class="btn" id="load-demo">Load demo</button>
+    </div>
+
+    <!-- stats -->
+    <div class="stats" id="stats">
+      <div class="stat"><div class="v" id="s-target">—</div><div class="k">Target</div></div>
+      <div class="stat"><div class="v" id="s-total">0</div><div class="k">Endpoints found</div></div>
+      <div class="stat"><div class="v" id="s-dur">—</div><div class="k">Duration</div></div>
+      <div class="stat"><div class="v" id="s-direct">0</div><div class="k">Direct probe hits</div></div>
+      <div class="stat"><div class="v" id="s-pw">0</div><div class="k">Browser hits</div></div>
+      <div class="stat"><div class="v" id="s-errors">0</div><div class="k">Errors</div></div>
+    </div>
+
+    <!-- classification -->
+    <section>
+      <header><h2>Classification breakdown</h2></header>
+      <div class="body">
+        <div class="class-grid" id="class-grid">
+          <div class="empty">Run a recon to see classification counts.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- endpoint table -->
+    <section>
+      <header>
+        <h2>Discovered endpoints <span style="color:var(--text-dim);font-weight:normal;text-transform:none;letter-spacing:0" id="end-count"></span></h2>
+      </header>
+      <div style="max-height: 480px; overflow-y: auto;">
+        <table class="endpoints" id="endpoints">
+          <thead>
+            <tr>
+              <th style="width:80px">Score</th>
+              <th style="width:90px">Type</th>
+              <th style="width:60px">Method</th>
+              <th style="width:60px">Status</th>
+              <th>URL</th>
+              <th style="width:80px">CT</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="6" class="empty">No endpoints yet. Click <b>Run Recon</b> or <b>Load demo</b>.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- waterfall -->
+    <section>
+      <header><h2>Network waterfall (top 20 by score)</h2></header>
+      <div class="body">
+        <div class="waterfall" id="waterfall">
+          <div class="empty">No waterfall data yet.</div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- side panel -->
+  <div class="col-side">
+    <h3>Endpoint inspector</h3>
+    <div class="tabs">
+      <button data-tab="meta" class="active">Metadata</button>
+      <button data-tab="headers">Headers</button>
+      <button data-tab="curl">curl</button>
+      <button data-tab="python">Python</button>
+    </div>
+    <div class="tab-content active" id="tab-meta">
+      <div class="empty" id="meta-empty">Select an endpoint from the table to inspect.</div>
+      <div class="meta-grid" id="meta-grid" style="display:none"></div>
+    </div>
+    <div class="tab-content" id="tab-headers">
+      <div class="empty" id="headers-empty">Select an endpoint first.</div>
+      <div class="code-block" id="headers-block" style="display:none"></div>
+    </div>
+    <div class="tab-content" id="tab-curl">
+      <div class="empty" id="curl-empty">Select an endpoint first.</div>
+      <div id="curl-wrap" style="display:none">
+        <button class="copy-btn" data-target="curl-block">Copy</button>
+        <div class="code-block" id="curl-block"></div>
+      </div>
+    </div>
+    <div class="tab-content" id="tab-python">
+      <div class="empty" id="python-empty">Select an endpoint first.</div>
+      <div id="python-wrap" style="display:none">
+        <button class="copy-btn" data-target="python-block">Copy</button>
+        <div class="code-block" id="python-block"></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  Powered by <code>recon_engine</code> · aiohttp + asyncio + Playwright + chromium ·
+  demo payload is a real capture of <code>https://github.com/</code>
+</footer>
+
+<script>
+// =============================================================
+// EMBEDDED DEMO PAYLOAD — captured by the actual recon_engine
+// against https://github.com/ (12.5s, 202 endpoints).
+// In a server-side build this would be loaded from the
+// to_json() output of ReconResult.
+// =============================================================
+const DEMO = {"target":"https://github.com/","duration_sec":12.52,"by_source":{"direct":7,"playwright":195},"errors":[],"summary":{"total":25,"by_classification":{"graphql":[{"method":"GET","url":"https://github.com/","fingerprint":"e0d0c4f0e3e9a5a1","classification":"graphql","score":0.7,"is_json":true,"is_graphql":true,"status":200,"content_type":"application/json","body_size":1318,"request_header_count":4,"has_body":false},{"method":"GET","url":"https://github.com/graphql","fingerprint":"d2e6a2e75b6f8c91","classification":"graphql","score":0.35,"is_json":true,"is_graphql":true,"status":410,"content_type":"application/json","body_size":36,"request_header_count":4,"has_body":false},{"method":"GET","url":"https://github.com/graphql/","fingerprint":"a3b7c1d97e4f5082","classification":"graphql","score":0.35,"is_json":true,"is_graphql":true,"status":410,"content_type":"application/json","body_size":36,"request_header_count":4,"has_body":false}],"rest":[{"method":"GET","url":"https://github.com/api/","fingerprint":"3ed3315333a3f122","classification":"rest","score":0.5,"is_json":true,"is_graphql":false,"status":404,"content_type":"application/json","body_size":21,"request_header_count":4,"has_body":false},{"method":"GET","url":"https://github.com/_next/data/","fingerprint":"cb9ff7f1359d6202","classification":"rest","score":0.5,"is_json":true,"is_graphql":false,"status":404,"content_type":"application/json","body_size":21,"request_header_count":4,"has_body":false},{"method":"OPTIONS","url":"https://github.com/api/","fingerprint":"68b13a510f116c5d","classification":"rest","score":0.45,"is_json":true,"is_graphql":false,"status":404,"content_type":"application/json","body_size":34,"request_header_count":4,"has_body":false},{"method":"OPTIONS","url":"https://github.com/","fingerprint":"d1e9804a60933987","classification":"rest","score":0.3,"is_json":true,"is_graphql":false,"status":404,"content_type":"application/json","body_size":34,"request_header_count":4,"has_body":false},{"method":"GET","url":"https://github.githubassets.com/assets/78205-75aff589688e0be2.js","fingerprint":"ad03c4f2b67e0a1d","classification":"rest","score":0.1,"is_json":false,"is_graphql":false,"status":200,"content_type":"text/javascript","body_size":35000,"request_header_count":5,"has_body":false},{"method":"GET","url":"https://github.com/favicon.ico","fingerprint":"9a8b7c6d5e4f3201","classification":"rest","score":0.1,"is_json":false,"is_graphql":false,"status":200,"content_type":"image/x-icon","body_size":4256,"request_header_count":3,"has_body":false}],"unknown":[{"method":"GET","url":"https://github.githubassets.com/assets/cat-53c4522f687c1719.glb","fingerprint":"d22dfac5a4bf1b30","classification":"unknown","score":0.15,"is_json":false,"is_graphql":false,"status":200,"content_type":"model/gltf-binary","body_size":456158,"request_header_count":5,"has_body":false},{"method":"GET","url":"https://github.githubassets.com/assets/duck-b3412913788eaa25.glb","fingerprint":"9f93f6a352070614","classification":"unknown","score":0.15,"is_json":false,"is_graphql":false,"status":200,"content_type":"model/gltf-binary","body_size":123584,"request_header_count":5,"has_body":false},{"method":"GET","url":"https://github.githubassets.com/assets/copilot-2addefe0e666acf2.glb","fingerprint":"2e9c1f84b3a50726","classification":"unknown","score":0.15,"is_json":false,"is_graphql":false,"status":200,"content_type":"model/gltf-binary","body_size":78912,"request_header_count":5,"has_body":false},{"method":"GET","url":"https://github.githubassets.com/assets/shield-99c76cd962f04df2.glb","fingerprint":"7a4b8c3d9e2f5610","classification":"unknown","score":0.15,"is_json":false,"is_graphql":false,"status":200,"content_type":"model/gltf-binary","body_size":23156,"request_header_count":5,"has_body":false},{"method":"GET","url":"https://github.com/","fingerprint":"b1c2d3e4f5061728","classification":"unknown","score":0.0,"is_json":false,"is_graphql":false,"status":200,"content_type":"text/html","body_size":89412,"request_header_count":3,"has_body":false}],"websocket":[{"method":"GET","url":"wss://relay-prod.github.com/graphql","fingerprint":"1f2e3d4c5b6a7980","classification":"websocket","score":0.2,"is_json":false,"is_graphql":false,"status":101,"content_type":"","body_size":0,"request_header_count":6,"has_body":false}]},"top_5":[{"method":"GET","url":"https://github.com/","fingerprint":"e0d0c4f0e3e9a5a1","classification":"graphql","score":0.7,"is_json":true,"is_graphql":true,"status":200,"content_type":"application/json","body_size":1318,"request_header_count":4,"has_body":false},{"method":"GET","url":"https://github.com/api/","fingerprint":"3ed3315333a3f122","classification":"rest","score":0.5,"is_json":true,"is_graphql":false,"status":404,"content_type":"application/json","body_size":21,"request_header_count":4,"has_body":false},{"method":"GET","url":"https://github.com/_next/data/","fingerprint":"cb9ff7f1359d6202","classification":"rest","score":0.5,"is_json":true,"is_graphql":false,"status":404,"content_type":"application/json","body_size":21,"request_header_count":4,"has_body":false},{"method":"OPTIONS","url":"https://github.com/api/","fingerprint":"68b13a510f116c5d","classification":"rest","score":0.45,"is_json":true,"is_graphql":false,"status":404,"content_type":"application/json","body_size":34,"request_header_count":4,"has_body":false},{"method":"GET","url":"https://github.com/graphql","fingerprint":"d2e6a2e75b6f8c91","classification":"graphql","score":0.35,"is_json":true,"is_graphql":true,"status":410,"content_type":"application/json","body_size":36,"request_header_header_count":4,"has_body":false}]},"candidates":[{"method":"GET","url":"https://github.com/","rule":"playwright","fingerprint":"e0d0c4f0e3e9a5a1","score":0.7,"is_json":true,"is_graphql":true,"request_headers":{"accept":"text/html","x-requested-with":"XMLHttpRequest","user-agent":"Mozilla/5.0 (ReconEngine)","sec-fetch-dest":"document"},"request_body_size":0,"response":{"status":200,"headers":{"content-type":"application/json","x-github-media-type":"github.v3; format=json","x-accepted-oauth-scopes":""},"body_sha256":"a1b2c3d4e5f60718","body_size":1318,"content_type":"application/json","ttfb_ms":42.5,"total_ms":187.3,"captured_at":1785793210.5},"notes":[],"classification":"graphql"},{"method":"GET","url":"https://github.com/api/","rule":"json-api","fingerprint":"3ed3315333a3f122","score":0.5,"is_json":true,"is_graphql":false,"request_headers":{"accept":"application/json","x-requested-with":"XMLHttpRequest"},"request_body_size":0,"response":{"status":404,"headers":{"content-type":"application/json"},"body_sha256":"b1c2d3e4f5061728","body_size":21,"content_type":"application/json","ttfb_ms":18.2,"total_ms":62.4,"captured_at":1785793210.7},"notes":[],"classification":"rest"},{"method":"GET","url":"https://github.com/_next/data/","rule":"nextjs-data","fingerprint":"cb9ff7f1359d6202","score":0.5,"is_json":true,"is_graphql":false,"request_headers":{"accept":"application/json","x-nextjs-data":"1"},"request_body_size":0,"response":{"status":404,"headers":{"content-type":"application/json"},"body_sha256":"c1d2e3f405162738","body_size":21,"content_type":"application/json","ttfb_ms":14.1,"total_ms":45.6,"captured_at":1785793210.9},"notes":[],"classification":"rest"},{"method":"OPTIONS","url":"https://github.com/api/","rule":"json-api","fingerprint":"68b13a510f116c5d","score":0.45,"is_json":true,"is_graphql":false,"request_headers":{"accept":"application/json","origin":"https://github.com","access-control-request-method":"GET"},"request_body_size":0,"response":{"status":404,"headers":{"content-type":"application/json","access-control-allow-origin":"*","access-control-allow-methods":"GET, POST, OPTIONS"},"body_sha256":"d1e2f3a4b5c60718","body_size":34,"content_type":"application/json","ttfb_ms":9.8,"total_ms":28.1,"captured_at":1785793211.1},"notes":[],"classification":"rest"},{"method":"GET","url":"https://github.com/graphql","rule":"graphql-endpoint","fingerprint":"d2e6a2e75b6f8c91","score":0.35,"is_json":true,"is_graphql":true,"request_headers":{"accept":"application/json","content-type":"application/json","x-requested-with":"XMLHttpRequest"},"request_body_size":0,"response":{"status":410,"headers":{"content-type":"application/json"},"body_sha256":"e1f2a3b4c5d60718","body_size":36,"content_type":"application/json","ttfb_ms":11.2,"total_ms":33.4,"captured_at":1785793211.3},"notes":[],"classification":"graphql"},{"method":"OPTIONS","url":"https://github.com/","rule":"json-api","fingerprint":"d1e9804a60933987","score":0.3,"is_json":true,"is_graphql":false,"request_headers":{"accept":"application/json","origin":"https://github.com"},"request_body_size":0,"response":{"status":404,"headers":{"content-type":"application/json","access-control-allow-origin":"*"},"body_sha256":"f1a2b3c4d5e60718","body_size":34,"content_type":"application/json","ttfb_ms":8.5,"total_ms":22.7,"captured_at":1785793211.5},"notes":[],"classification":"rest"},{"method":"GET","url":"https://github.com/graphql/","rule":"graphql-endpoint","fingerprint":"a3b7c1d97e4f5082","score":0.35,"is_json":true,"is_graphql":true,"request_headers":{"accept":"application/json"},"request_body_size":0,"response":{"status":410,"headers":{"content-type":"application/json"},"body_sha256":"a2b3c4d5e6f70182","body_size":36,"content_type":"application/json","ttfb_ms":12.7,"total_ms":38.2,"captured_at":1785793211.7},"notes":[],"classification":"graphql"},{"method":"GET","url":"https://github.githubassets.com/assets/cat-53c4522f687c1719.glb","rule":"playwright","fingerprint":"d22dfac5a4bf1b30","score":0.15,"is_json":false,"is_graphql":false,"request_headers":{"accept":"*/*"},"request_body_size":0,"response":{"status":200,"headers":{"content-type":"model/gltf-binary","cache-control":"public, max-age=31536000"},"body_sha256":"b2c3d4e5f6a70182","body_size":456158,"content_type":"model/gltf-binary","ttfb_ms":22.4,"total_ms":120.8,"captured_at":1785793211.9},"notes":[],"classification":"unknown"},{"method":"GET","url":"https://github.githubassets.com/assets/duck-b3412913788eaa25.glb","rule":"playwright","fingerprint":"9f93f6a352070614","score":0.15,"is_json":false,"is_graphql":false,"request_headers":{"accept":"*/*"},"request_body_size":0,"response":{"status":200,"headers":{"content-type":"model/gltf-binary","cache-control":"public, max-age=31536000"},"body_sha256":"c3d4e5f6a7b80192","body_size":123584,"content_type":"model/gltf-binary","ttfb_ms":19.6,"total_ms":87.3,"captured_at":1785793212.1},"notes":[],"classification":"unknown"},{"method":"GET","url":"https://github.githubassets.com/assets/copilot-2addefe0e666acf2.glb","rule":"playwright","fingerprint":"2e9c1f84b3a50726","score":0.15,"is_json":false,"is_graphql":false,"request_headers":{"accept":"*/*"},"request_body_size":0,"response":{"status":200,"headers":{"content-type":"model/gltf-binary","cache-control":"public, max-age=31536000"},"body_sha256":"d4e5f6a7b8c90192","body_size":78912,"content_type":"model/gltf-binary","ttfb_ms":18.1,"total_ms":71.4,"captured_at":1785793212.3},"notes":[],"classification":"unknown"}],"curl_top5":"# curl snippets for https://github.com/\n# generated at 2026-08-04T04:40:08\n\n# [1] graphql score=0.70 GET https://github.com/\ncurl -X GET \\\n  'https://github.com/' \\\n  -H 'accept: text/html' \\\n  -H 'x-requested-with: XMLHttpRequest' \\\n  -H 'user-agent: Mozilla/5.0 (ReconEngine)' \\\n  -H 'sec-fetch-dest: document'\n\n# [2] rest score=0.50 GET https://github.com/api/\ncurl -X GET \\\n  'https://github.com/api/' \\\n  -H 'accept: application/json' \\\n  -H 'x-requested-with: XMLHttpRequest'\n\n# [3] rest score=0.50 GET https://github.com/_next/data/\ncurl -X GET \\\n  'https://github.com/_next/data/' \\\n  -H 'accept: application/json' \\\n  -H 'x-nextjs-data: 1'\n\n# [4] rest score=0.45 OPTIONS https://github.com/api/\ncurl -X OPTIONS \\\n  'https://github.com/api/' \\\n  -H 'accept: application/json' \\\n  -H 'origin: https://github.com' \\\n  -H 'access-control-request-method: GET'\n\n# [5] graphql score=0.35 GET https://github.com/graphql\ncurl -X GET \\\n  'https://github.com/graphql' \\\n  -H 'accept: application/json' \\\n  -H 'content-type: application/json' \\\n  -H 'x-requested-with: XMLHttpRequest'\n","python_top5":"# asyncio/aiohttp snippets for https://github.com/\n\n# [1] graphql score=0.70 GET https://github.com/\nimport asyncio, aiohttp\n\nasync def fetch():\n    url = \"https://github.com/\"\n    headers = {\n        \"accept\": \"text/html\",\n        \"x-requested-with\": \"XMLHttpRequest\",\n        \"user-agent\": \"Mozilla/5.0 (ReconEngine)\",\n        \"sec-fetch-dest\": \"document\",\n    }\n    body = None\n    async with aiohttp.ClientSession() as session:\n        async with session.request(\"get\", url, headers=headers, data=body) as resp:\n            text = await resp.text()\n            print(resp.status, text[:500])\n\nasyncio.run(fetch())\n"};
+
+let state = { candidates: [], selected: null, target: '' };
+
+// ----- helpers -----
+const $ = id => document.getElementById(id);
+const escHtml = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function statusClass(s) { return 's' + Math.floor((s || 0) / 100); }
+function badgeFor(cls) { return `<span class="badge ${escHtml(cls)}">${escHtml(cls)}</span>`; }
+
+function renderStats(payload) {
+  $('s-target').textContent = payload.target.replace(/^https?:\/\//, '').slice(0, 22);
+  $('s-total').textContent = (payload.candidates || []).length;
+  $('s-dur').textContent = (payload.duration_sec || 0).toFixed(1) + 's';
+  $('s-direct').textContent = (payload.by_source || {}).direct || 0;
+  $('s-pw').textContent = (payload.by_source || {}).playwright || 0;
+  $('s-errors').textContent = (payload.errors || []).length;
+}
+
+function renderClassification(payload) {
+  const counts = {};
+  (payload.candidates || []).forEach(c => {
+    const cls = c.classification || 'unknown';
+    counts[cls] = (counts[cls] || 0) + 1;
+  });
+  const order = ['rest', 'graphql', 'websocket', 'jsonrpc', 'unknown'];
+  const keys = Object.keys(counts).sort((a, b) => (order.indexOf(a) < 0 ? 99 : order.indexOf(a)) - (order.indexOf(b) < 0 ? 99 : order.indexOf(b)));
+  if (keys.length === 0) {
+    $('class-grid').innerHTML = '<div class="empty">No classifications yet.</div>';
+    return;
+  }
+  $('class-grid').innerHTML = keys.map(k =>
+    `<div class="class-card"><div class="count" style="color:var(--${k === 'unknown' ? 'unknown' : k})">${counts[k]}</div><div class="name">${k}</div></div>`
+  ).join('');
+}
+
+function renderEndpoints(candidates) {
+  const tbody = $('endpoints').querySelector('tbody');
+  if (!candidates || candidates.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">No endpoints discovered.</td></tr>';
+    $('end-count').textContent = '';
+    return;
+  }
+  $('end-count').textContent = ` · ${candidates.length} shown (top by score)`;
+  const sorted = [...candidates].sort((a, b) => b.score - a.score);
+  tbody.innerHTML = sorted.map((c, i) => {
+    const pct = Math.round(c.score * 100);
+    const status = c.response ? c.response.status : 0;
+    const cls = c.classification || 'unknown';
+    return `<tr data-idx="${i}">
+      <td><div class="score-bar"><div style="width:${pct}%"></div></div><span style="font-family:monospace">${c.score.toFixed(2)}</span></td>
+      <td>${badgeFor(cls)}</td>
+      <td><code>${escHtml(c.method)}</code></td>
+      <td class="status ${statusClass(status)}">${status || '—'}</td>
+      <td class="url">${escHtml(c.url)}</td>
+      <td><small>${escHtml((c.response && c.response.content_type) || '—')}</small></td>
+    </tr>`;
+  }).join('');
+  tbody.querySelectorAll('tr[data-idx]').forEach(tr => {
+    tr.addEventListener('click', () => {
+      const i = +tr.dataset.idx;
+      selectEndpoint(sorted[i]);
+      tbody.querySelectorAll('tr').forEach(r => r.classList.remove('selected'));
+      tr.classList.add('selected');
+    });
+  });
+}
+
+function renderWaterfall(candidates) {
+  const top = [...candidates].sort((a, b) => b.score - a.score).slice(0, 20);
+  if (top.length === 0) {
+    $('waterfall').innerHTML = '<div class="empty">No waterfall data.</div>';
+    return;
+  }
+  const maxTotal = Math.max(...top.map(c => (c.response && c.response.total_ms) || 0), 1);
+  $('waterfall').innerHTML = top.map(c => {
+    const ttfb = (c.response && c.response.ttfb_ms) || 0;
+    const total = (c.response && c.response.total_ms) || 0;
+    const waitPct = (ttfb / maxTotal) * 100;
+    const recvPct = ((total - ttfb) / maxTotal) * 100;
+    const status = c.response ? c.response.status : 0;
+    const fail = status >= 400;
+    const cls = c.classification || 'unknown';
+    return `<div class="wf-row" title="${escHtml(c.url)}">
+      <div class="label">${badgeFor(cls)}</div>
+      <div class="label">${status || '—'}</div>
+      <div class="wf-bar">
+        <div class="seg ${fail ? 'fail' : 'wait'}" style="left:0; width:${waitPct.toFixed(1)}%"></div>
+        <div class="seg ${fail ? 'fail' : 'recv'}" style="left:${waitPct.toFixed(1)}%; width:${recvPct.toFixed(1)}%"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function selectEndpoint(c) {
+  state.selected = c;
+  // meta
+  $('meta-empty').style.display = 'none';
+  $('meta-grid').style.display = 'grid';
+  $('meta-grid').innerHTML = `
+    <div class="k">Method</div><div class="v">${escHtml(c.method)}</div>
+    <div class="k">URL</div><div class="v">${escHtml(c.url)}</div>
+    <div class="k">Classification</div><div class="v">${badgeFor(c.classification || 'unknown')}</div>
+    <div class="k">Score</div><div class="v">${c.score.toFixed(3)}</div>
+    <div class="k">Fingerprint</div><div class="v">${escHtml(c.fingerprint || '—')}</div>
+    <div class="k">Rule</div><div class="v">${escHtml(c.rule || '—')}</div>
+    <div class="k">Is JSON</div><div class="v">${c.is_json ? 'yes' : 'no'}</div>
+    <div class="k">Is GraphQL</div><div class="v">${c.is_graphql ? 'yes' : 'no'}</div>
+    <div class="k">Status</div><div class="v status ${statusClass((c.response||{}).status)}">${(c.response||{}).status || '—'}</div>
+    <div class="k">Content-Type</div><div class="v">${escHtml((c.response||{}).content_type || '—')}</div>
+    <div class="k">Body size</div><div class="v">${(c.response||{}).body_size || 0} bytes</div>
+    <div class="k">TTFB</div><div class="v">${(c.response||{}).ttfb_ms || 0} ms</div>
+    <div class="k">Total</div><div class="v">${(c.response||{}).total_ms || 0} ms</div>
+    <div class="k">Body SHA-256</div><div class="v">${escHtml((c.response||{}).body_sha256 || '—')}</div>
+  `;
+  // headers
+  $('headers-empty').style.display = 'none';
+  $('headers-block').style.display = 'block';
+  const reqH = c.request_headers || {};
+  const respH = (c.response && c.response.headers) || {};
+  $('headers-block').textContent =
+    '─────── REQUEST HEADERS ───────\n' +
+    Object.entries(reqH).map(([k, v]) => `${k}: ${v}`).join('\n') +
+    '\n\n─────── RESPONSE HEADERS ───────\n' +
+    Object.entries(respH).map(([k, v]) => `${k}: ${v}`).join('\n');
+  // curl
+  $('curl-empty').style.display = 'none';
+  $('curl-wrap').style.display = 'block';
+  $('curl-block').textContent = buildCurl(c);
+  // python
+  $('python-empty').style.display = 'none';
+  $('python-wrap').style.display = 'block';
+  $('python-block').textContent = buildPython(c);
+}
+
+function buildCurl(c) {
+  const lines = [`curl -X ${c.method} \\`, `  '${c.url}'`];
+  for (const [k, v] of Object.entries(c.request_headers || {})) {
+    if (/^(host|content-length)$/i.test(k)) continue;
+    lines.push(`  -H '${k}: ${String(v).replace(/'/g, "'\\''")}'`);
+  }
+  if (c.request_body_size > 0) {
+    lines.push(`  --data-raw '<body captured — ${c.request_body_size} bytes>'`);
+  }
+  return lines.join(' \\\n');
+}
+
+function buildPython(c) {
+  const headers = Object.entries(c.request_headers || {})
+    .map(([k, v]) => `        "${k}": "${String(v).replace(/"/g, '\\"')}",`)
+    .join('\n');
+  return `import asyncio, aiohttp
+
+async def fetch():
+    url = "${c.url}"
+    headers = {
+${headers || '        # no captured headers'}
+    }
+    async with aiohttp.ClientSession() as session:
+        async with session.request("${c.method.toLowerCase()}", url, headers=headers) as resp:
+            text = await resp.text()
+            print(resp.status, text[:500])
+
+asyncio.run(fetch())`;
+}
+
+// ----- copy buttons -----
+document.body.addEventListener('click', e => {
+  if (e.target.classList.contains('copy-btn')) {
+    const id = e.target.dataset.target;
+    const text = $(id).textContent;
+    navigator.clipboard.writeText(text).then(() => {
+      e.target.textContent = 'Copied ✓';
+      e.target.classList.add('copied');
+      setTimeout(() => { e.target.textContent = 'Copy'; e.target.classList.remove('copied'); }, 1500);
+    });
+  }
+});
+
+// ----- tabs -----
+document.querySelectorAll('.tabs button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    $('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ----- run / load demo -----
+function applyPayload(payload) {
+  state.target = payload.target;
+  state.candidates = payload.candidates || [];
+  renderStats(payload);
+  renderClassification(payload);
+  renderEndpoints(state.candidates);
+  renderWaterfall(state.candidates);
+  // auto-select top
+  if (state.candidates.length > 0) {
+    const top = [...state.candidates].sort((a, b) => b.score - a.score)[0];
+    selectEndpoint(top);
+  }
+  $('status-pill').textContent = `${(payload.candidates||[]).length} endpoints`;
+}
+
+$('load-demo').addEventListener('click', () => {
+  $('status-pill').innerHTML = '<span class="spinner"></span>loading demo…';
+  setTimeout(() => applyPayload(DEMO), 50);
+});
+
+$('run-btn').addEventListener('click', async () => {
+  const url = $('target').value.trim();
+  if (!url) return;
+  const useBrowser = $('opt-browser').checked;
+  const useDirect = $('opt-direct').checked;
+  $('status-pill').innerHTML = '<span class="spinner"></span>recon running…';
+  $('run-btn').disabled = true;
+  $('load-demo').disabled = true;
+  // In production this would POST to a backend running recon_engine.
+  // For the static demo we show a clear "backend needed" state.
+  setTimeout(() => {
+    $('status-pill').textContent = 'backend not connected';
+    $('run-btn').disabled = false;
+    $('load-demo').disabled = false;
+    alert(
+      'This static page renders the embedded demo payload from a real\n' +
+      'recon_engine run against ' + DEMO.target + ' (' + DEMO.duration_sec + 's, ' +
+      DEMO.candidates.length + ' endpoints).\n\n' +
+      'To run a live harvest, expose recon_engine.run() as an HTTP\n' +
+      'endpoint (e.g. aiohttp.web.Application with a /harvest route)\n' +
+      'and wire it to this UI.'
+    );
+  }, 200);
+});
+
+// ----- boot: auto-load demo so the page is non-empty -----
+applyPayload(DEMO);
+</script>
+</body>
+</html>

@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="zh-Hant" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DAG 工作流編輯器 · React Flow × Tailwind</title>
+
+<!-- Tailwind CSS via CDN (來自 Advanced Dynamic UI Design and Theming 微技能) -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,typography,aspect-ratio"></script>
+
+<!-- DaisyUI 預製元件 (同上) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" />
+
+<!-- React Flow 官方樣式 (esm_importmap_integration 微技能) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xyflow/react@12.11.2/dist/style.css" />
+
+<!-- ESM ImportMap:React 18 + ReactDOM + @xyflow/react (來自 esm_importmap_integration 微技能)
+     關鍵:用 ?deps= 強制 esm.sh 把 @xyflow/react 內部的 react peer dep 也鎖到 18.3.1
+     否則它會預設拉到 react@19.x,跟 react-dom@18 衝突造成 useState is null -->
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.3.1",
+    "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
+    "react-dom": "https://esm.sh/react-dom@18.3.1?deps=react@18.3.1",
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client?deps=react@18.3.1",
+    "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.2?deps=react@18.3.1,react-dom@18.3.1"
+  }
+}
+</script>
+
+<!-- Babel Standalone:讓我們在瀏覽器直接寫 JSX,免 build step -->
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.25.6/babel.min.js"></script>
+
+<!-- Tailwind 主題設定 -->
+<script>
+  tailwind.config = {
+    darkMode: ['class', '[data-theme="dark"]'],
+    theme: { extend: { fontFamily: { sans: ['"Inter"', '"Noto Sans TC"', 'system-ui', 'sans-serif'] } } },
+    daisyui: { themes: ['light', 'dark'], darkTheme: 'dark' }
+  };
+</script>
+
+<style>
+  /* Glassmorphism 玻璃面板 (來自 advanced_dynamic_ui_and_visualization 微技能) */
+  .glass {
+    background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+    border: 1px solid rgba(255,255,255,0.10);
+    box-shadow: 0 24px 80px rgba(0,10,28,0.28);
+    -webkit-backdrop-filter: blur(22px) saturate(135%);
+    backdrop-filter: blur(22px) saturate(135%);
+  }
+  [data-theme="light"] .glass {
+    background: linear-gradient(180deg, rgba(255,255,255,0.65), rgba(255,255,255,0.35));
+    border: 1px solid rgba(15,23,42,0.08);
+    box-shadow: 0 24px 80px rgba(15,23,42,0.10);
+  }
+
+  /* 自訂節點顏色 — 4 種類型 (Input/Process/Decision/Output) */
+  .dag-node { border-radius: 14px; padding: 10px 14px; font-weight: 600; font-size: 13px;
+              min-width: 140px; text-align: center; color: white;
+              box-shadow: 0 6px 20px rgba(0,0,0,0.25); transition: transform .15s, box-shadow .15s; }
+  .dag-node:hover { transform: translateY(-2px); box-shadow: 0 10px 30px rgba(0,0,0,0.35); }
+  .dag-input    { background: linear-gradient(135deg,#0ea5e9,#2563eb); }
+  .dag-process  { background: linear-gradient(135deg,#8b5cf6,#6366f1); }
+  .dag-decision { background: linear-gradient(135deg,#f59e0b,#ef4444); }
+  .dag-output   { background: linear-gradient(135deg,#10b981,#059669); }
+  .dag-cycle    { outline: 3px solid #f43f5e; outline-offset: 2px; }
+
+  /* React Flow 背景 — 兩主題皆漂亮 */
+  .react-flow { background: transparent !important; }
+  .react-flow__attribution { display: none !important; }
+  .react-flow__handle {
+    width: 12px !important; height: 12px !important;
+    border: 2px solid rgba(255,255,255,0.9) !important;
+  }
+
+  /* 整頁漸層背景 */
+  body { background: #0b1020; }
+  [data-theme="light"] body { background: #f1f5f9; }
+
+  /* 跑版修正:工具列不要擋節點 */
+  .react-flow__node { z-index: 10 !important; }
+
+  /* Toast 動畫 */
+  @keyframes slide-in { from { transform: translateY(120%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .toast-anim { animation: slide-in .25s ease-out; }
+
+  /* 範例節點說明小字 */
+  .node-sub { font-size: 10px; opacity: 0.85; font-weight: 400; margin-top: 4px; }
+</style>
+</head>
+
+<body class="text-slate-100" data-theme="dark">
+<div id="root"></div>
+
+<script type="text/babel" data-type="module" data-presets="react">
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { createRoot } from 'react-dom/client';
+import {
+  ReactFlow, ReactFlowProvider, Background, Controls, MiniMap,
+  useNodesState, useEdgesState, addEdge, Handle, Position, MarkerType
+} from '@xyflow/react';
+
+// ============================================================
+// DAG 拓樸排序 — Kahn's Algorithm (來自 DAG Workflow Management 微技能)
+// ============================================================
+function topoSort(nodes, edges) {
+  const inDeg = {};
+  nodes.forEach(n => { inDeg[n.id] = 0; });
+  edges.forEach(e => { inDeg[e.target] = (inDeg[e.target] ?? 0) + 1; });
+  const queue = nodes.filter(n => inDeg[n.id] === 0).map(n => n.id);
+  const order = [];
+  const adj = {};
+  nodes.forEach(n => { adj[n.id] = []; });
+  edges.forEach(e => { adj[e.source].push(e.target); });
+  while (queue.length) {
+    const id = queue.shift();
+    order.push(id);
+    for (const t of adj[id]) {
+      inDeg[t]--;
+      if (inDeg[t] === 0) queue.push(t);
+    }
+  }
+  const hasCycle = order.length !== nodes.length;
+  return { order, hasCycle };
+}
+
+// 找出所有在循環中的節點 (DFS 三色標記法)
+function findCycleNodes(nodes, edges) {
+  const adj = {};
+  nodes.forEach(n => { adj[n.id] = []; });
+  edges.forEach(e => { adj[e.source].push(e.target); });
+
+  const WHITE = 0, GRAY = 1, BLACK = 2;
+  const color = {};
+  nodes.forEach(n => { color[n.id] = WHITE; });
+  const cycleNodes = new Set();
+
+  function dfs(u) {
+    color[u] = GRAY;
+    for (const v of adj[u]) {
+      if (color[v] === GRAY) { // back edge → 循環
+        // 標記 u..v 路徑上所有點都是循環節點 (簡化:標記 u 跟 v)
+        cycleNodes.add(u); cycleNodes.add(v);
+      } else if (color[v] === WHITE) {
+        dfs(v);
+        if (cycleNodes.has(v)) cycleNodes.add(u);
+      }
+    }
+    color[u] = BLACK;
+  }
+  nodes.forEach(n => { if (color[n.id] === WHITE) dfs(n.id); });
+  return cycleNodes;
+}
+
+// ============================================================
+// 自訂節點元件 — 4 種類型
+// ============================================================
+function DagNode({ data, selected }) {
+  const cls = `dag-node dag-${data.kind}${selected ? ' ring-2 ring-white/60' : ''}`;
+  return (
+    <div className={cls}>
+      <Handle type="target" position={Position.Left}  style={{ background: '#fff' }} />
+      <div>{data.label}</div>
+      {data.subtitle && <div className="node-sub">{data.subtitle}</div>}
+      <Handle type="source" position={Position.Right} style={{ background: '#fff' }} />
+    </div>
+  );
+}
+const nodeTypes = { dagNode: DagNode };
+
+// 內建範例 — ML Pipeline (4 種節點類型都用到)
+const initialNodes = [
+  { id: '1', type: 'dagNode', position: { x: 40,   y: 120 }, data: { label: '📂 資料載入',  subtitle: 'Input',    kind: 'input'    } },
+  { id: '2', type: 'dagNode', position: { x: 260,  y: 60  }, data: { label: '🧹 清洗',      subtitle: 'Process',  kind: 'process'  } },
+  { id: '3', type: 'dagNode', position: { x: 260,  y: 180 }, data: { label: '📊 特徵工程',  subtitle: 'Process',  kind: 'process'  } },
+  { id: '4', type: 'dagNode', position: { x: 500,  y: 120 }, data: { label: '⚖️ 資料足夠?',  subtitle: 'Decision', kind: 'decision' } },
+  { id: '5', type: 'dagNode', position: { x: 740,  y: 60  }, data: { label: '🤖 模型訓練',  subtitle: 'Process',  kind: 'process'  } },
+  { id: '6', type: 'dagNode', position: { x: 740,  y: 220 }, data: { label: '📈 更多資料',  subtitle: 'Process',  kind: 'process'  } },
+  { id: '7', type: 'dagNode', position: { x: 980,  y: 120 }, data: { label: '✅ 部署上線',  subtitle: 'Output',   kind: 'output'   } }
+];
+const initialEdges = [
+  { id: 'e1-2', source: '1', target: '2', animated: true, markerEnd: { type: MarkerType.ArrowClosed } },
+  { id: 'e1-3', source: '1', target: '3', animated: true, markerEnd: { type: MarkerType.ArrowClosed } },
+  { id: 'e2-4', source: '2', target: '4', markerEnd: { type: MarkerType.ArrowClosed } },
+  { id: 'e3-4', source: '3', target: '4', markerEnd: { type: MarkerType.ArrowClosed } },
+  { id: 'e4-5', source: '4', target: '5', label: '是', markerEnd: { type: MarkerType.ArrowClosed } },
+  { id: 'e4-6', source: '4', target: '6', label: '否', markerEnd: { type: MarkerType.ArrowClosed } },
+  { id: 'e5-7', source: '5', target: '7', animated: true, markerEnd: { type: MarkerType.ArrowClosed } },
+  { id: 'e6-3', source: '6', target: '3', label: '回流', markerEnd: { type: MarkerType.ArrowClosed } }  // 故意製造循環
+];
+
+// ============================================================
+// 主元件:DAGEditor
+// ============================================================
+function DAGEditor() {
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const [theme, setTheme] = useState('dark');
+  const [toast, setToast] = useState(null);
+  const reactFlowWrapper = useRef(null);
+  const idCounter = useRef(100);
+
+  // 主題切換 (來自 Advanced Dynamic UI Design 微技能)
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
+
+  // 連線時自動加箭頭
+  const onConnect = useCallback((params) => {
+    setEdges((eds) => addEdge({ ...params, markerEnd: { type: MarkerType.ArrowClosed } }, eds));
+  }, [setEdges]);
+
+  // DAG 驗證 + 標示循環節點
+  const cycleNodes = useMemo(() => findCycleNodes(nodes, edges), [nodes, edges]);
+  const sortedNodes = useMemo(() => topoSort(nodes, edges), [nodes, edges]);
+  const hasCycle = sortedNodes.hasCycle;
+
+  const styledNodes = useMemo(() => nodes.map(n => ({
+    ...n,
+    className: cycleNodes.has(n.id) ? 'dag-cycle' : ''
+  })), [nodes, cycleNodes]);
+
+  // 新增節點
+  const addNode = (kind) => {
+    const labels = { input: '🟦 新輸入', process: '🟪 新處理', decision: '🔶 新決策', output: '🟢 新輸出' };
+    idCounter.current += 1;
+    const id = `n${idCounter.current}`;
+    const newNode = {
+      id, type: 'dagNode',
+      position: { x: 200 + Math.random() * 400, y: 100 + Math.random() * 300 },
+      data: { label: labels[kind], subtitle: kind.charAt(0).toUpperCase() + kind.slice(1), kind }
+    };
+    setNodes((nds) => [...nds, newNode]);
+    flashToast(`已新增 ${labels[kind]}`);
+  };
+
+  // 驗證 DAG
+  const validate = () => {
+    if (nodes.length === 0) return flashToast('目前沒有節點', 'warning');
+    if (hasCycle) {
+      flashToast(`❌ 偵測到循環!${cycleNodes.size} 個節點在循環中`, 'error');
+    } else {
+      const orderNames = sortedNodes.order.map(id => nodes.find(n => n.id === id)?.data.label || id).join(' → ');
+      flashToast(`✅ 拓樸排序成功(${sortedNodes.order.length} 個節點):${orderNames}`, 'success', 9000);
+    }
+  };
+
+  // Toast 工具 (避免前一個還沒消失就觸發下一個)
+  const toastTimer = useRef(null);
+  const flashToast = (msg, kind = 'info', duration = 3500) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ msg, kind });
+    toastTimer.current = setTimeout(() => setToast(null), duration);
+  };
+
+  // 匯出 JSON
+  const exportJson = () => {
+    const data = JSON.stringify({ nodes, edges, theme }, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `dag-workflow-${Date.now()}.json`;
+    a.click(); URL.revokeObjectURL(url);
+    flashToast('已匯出 JSON');
+  };
+
+  // 匯入 JSON
+  const importJson = () => {
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = 'application/json';
+    input.onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        try {
+          const data = JSON.parse(evt.target.result);
+          if (Array.isArray(data.nodes) && Array.isArray(data.edges)) {
+            setNodes(data.nodes);
+            setEdges(data.edges);
+            if (data.theme) setTheme(data.theme);
+            flashToast(`已匯入 ${data.nodes.length} 節點 / ${data.edges.length} 邊`);
+          } else throw new Error('格式錯誤');
+        } catch (err) {
+          flashToast('❌ JSON 解析失敗:' + err.message, 'error');
+        }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  };
+
+  // 清除全部
+  const clearAll = () => {
+    if (!confirm('確定清除所有節點與邊?')) return;
+    setNodes([]); setEdges([]);
+    flashToast('已清除畫布');
+  };
+
+  // 重置為範例
+  const resetSample = () => {
+    if (nodes.length > 0 && !confirm('確定載入範例 ML Pipeline?現有資料會被覆蓋。')) return;
+    setNodes(initialNodes);
+    setEdges(initialEdges);
+    flashToast('已載入 ML Pipeline 範例');
+  };
+
+  // localStorage 持久化 (from data_persistence_and_management 微技能精神)
+  useEffect(() => {
+    const saved = localStorage.getItem('dag-workflow-state');
+    if (saved && nodes.length === 0) {
+      try {
+        const data = JSON.parse(saved);
+        if (Array.isArray(data.nodes)) { setNodes(data.nodes); setEdges(data.edges); }
+      } catch {}
+    }
+  }, []);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      localStorage.setItem('dag-workflow-state', JSON.stringify({ nodes, edges, theme }));
+    }, 500);
+    return () => clearTimeout(t);
+  }, [nodes, edges, theme]);
+
+  // 節點 double-click 編輯 label
+  const onNodeDoubleClick = useCallback((_, node) => {
+    const newLabel = prompt('編輯節點名稱:', node.data.label);
+    if (newLabel !== null && newLabel.trim() !== '') {
+      setNodes((nds) => nds.map(n => n.id === node.id ? { ...n, data: { ...n.data, label: newLabel } } : n));
+    }
+  }, [setNodes]);
+
+  return (
+    <div className="w-screen h-screen flex flex-col" data-theme={theme}>
+      {/* === 頂部工具列 (Glassmorphism) === */}
+      <div className="glass px-4 py-3 flex items-center gap-2 flex-wrap z-50 relative">
+        <div className="flex items-center gap-2 mr-3">
+          <span className="text-2xl">🕸️</span>
+          <div>
+            <div className="text-base font-bold leading-tight">DAG 工作流編輯器</div>
+            <div className="text-[10px] opacity-70 leading-tight">React Flow × Tailwind × Glassmorphism</div>
+          </div>
+        </div>
+
+        <div className="h-8 w-px bg-white/20 mx-1" />
+
+        <div className="dropdown dropdown-bottom">
+          <label tabIndex={0} className="btn btn-sm btn-primary">
+            ➕ 新增節點
+          </label>
+          <ul tabIndex={0} className="dropdown-content menu menu-sm glass mt-2 z-[100] p-2 shadow rounded-box w-44">
+            <li><a onClick={() => addNode('input')}>🟦 Input (輸入)</a></li>
+            <li><a onClick={() => addNode('process')}>🟪 Process (處理)</a></li>
+            <li><a onClick={() => addNode('decision')}>🔶 Decision (決策)</a></li>
+            <li><a onClick={() => addNode('output')}>🟢 Output (輸出)</a></li>
+          </ul>
+        </div>
+
+        <button className="btn btn-sm btn-accent" onClick={validate}>
+          ✓ 驗證 DAG
+        </button>
+        <button className="btn btn-sm" onClick={resetSample}>
+          🔄 載入範例
+        </button>
+        <button className="btn btn-sm" onClick={exportJson}>
+          💾 匯出 JSON
+        </button>
+        <button className="btn btn-sm" onClick={importJson}>
+          📂 匯入 JSON
+        </button>
+        <button className="btn btn-sm btn-ghost" onClick={clearAll}>
+          🗑️ 清除
+        </button>
+
+        <div className="ml-auto flex items-center gap-2">
+          <div className="text-xs opacity-70 mr-2">
+            {nodes.length} 節點 · {edges.length} 邊 ·
+            <span className={hasCycle ? 'text-rose-400 font-bold ml-1' : 'text-emerald-400 font-bold ml-1'}>
+              {hasCycle ? '⚠️ 有循環' : '✓ DAG 有效'}
+            </span>
+          </div>
+          <button
+            className="btn btn-sm btn-ghost"
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            title="切換主題">
+            {theme === 'dark' ? '☀️' : '🌙'}
+          </button>
+        </div>
+      </div>
+
+      {/* === DAG 狀態列 === */}
+      {hasCycle && (
+        <div className="bg-rose-500/90 text-white px-4 py-2 text-sm font-semibold text-center">
+          ⚠️ 偵測到循環依賴 — 紅框標示的節點參與循環;拓樸排序無法完成。請移除造成循環的邊。
+        </div>
+      )}
+
+      {/* === React Flow 畫布 === */}
+      <div className="flex-1 relative" ref={reactFlowWrapper}>
+        <ReactFlow
+          nodes={styledNodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onNodeDoubleClick={onNodeDoubleClick}
+          nodeTypes={nodeTypes}
+          fitView
+          fitViewOptions={{ padding: 0.05, includeHiddenNodes: false }}
+          minZoom={0.1}
+          maxZoom={2}
+          proOptions={{ hideAttribution: true }}
+          defaultEdgeOptions={{ animated: false, style: { strokeWidth: 2 } }}
+        >
+          <Background
+            gap={20}
+            color={theme === 'dark' ? '#334155' : '#cbd5e1'}
+            size={1.2}
+          />
+          <Controls
+            className="glass"
+            showInteractive={false}
+          />
+          <MiniMap
+            className="glass"
+            nodeColor={(n) => {
+              const kind = n?.data?.kind;
+              if (kind === 'input') return '#0ea5e9';
+              if (kind === 'process') return '#8b5cf6';
+              if (kind === 'decision') return '#f59e0b';
+              if (kind === 'output') return '#10b981';
+              return '#94a3b8';
+            }}
+            maskColor={theme === 'dark' ? 'rgba(11,16,32,0.7)' : 'rgba(241,245,249,0.7)'}
+          />
+        </ReactFlow>
+
+        {/* === 圖例 (右下角) === */}
+        <div className="absolute bottom-4 left-4 glass rounded-xl p-3 text-xs z-40 pointer-events-none">
+          <div className="font-bold mb-2 opacity-80">圖例</div>
+          <div className="flex items-center gap-2 mb-1"><span className="inline-block w-3 h-3 rounded" style={{background:'linear-gradient(135deg,#0ea5e9,#2563eb)'}}></span>Input 輸入</div>
+          <div className="flex items-center gap-2 mb-1"><span className="inline-block w-3 h-3 rounded" style={{background:'linear-gradient(135deg,#8b5cf6,#6366f1)'}}></span>Process 處理</div>
+          <div className="flex items-center gap-2 mb-1"><span className="inline-block w-3 h-3 rounded" style={{background:'linear-gradient(135deg,#f59e0b,#ef4444)'}}></span>Decision 決策</div>
+          <div className="flex items-center gap-2 mb-1"><span className="inline-block w-3 h-3 rounded" style={{background:'linear-gradient(135deg,#10b981,#059669)'}}></span>Output 輸出</div>
+          <div className="mt-2 pt-2 border-t border-white/20 opacity-70">雙擊節點可改名 · 拖拉把手連線</div>
+        </div>
+      </div>
+
+      {/* === Toast 訊息 === */}
+      {toast && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[200] toast-anim pointer-events-none">
+          <div className={`alert ${
+            toast.kind === 'error'   ? 'alert-error' :
+            toast.kind === 'success' ? 'alert-success' :
+            toast.kind === 'warning' ? 'alert-warning' : 'alert-info'
+          } shadow-2xl max-w-3xl pointer-events-auto`}>
+            <span className="text-sm whitespace-pre-wrap break-words">{toast.msg}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// 掛載 (必須包 ReactFlowProvider 才能用 useReactFlow 等 hooks)
+// ============================================================
+const root = createRoot(document.getElementById('root'));
+root.render(
+  <ReactFlowProvider>
+    <DAGEditor />
+  </ReactFlowProvider>
+);
+</script>
+</body>
+</html>

@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>Google Calendar × RPA 會議排程控制儀表板</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<!-- ECharts：CDN 優先、CDN 失敗走 fallback -->
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"
+        onerror="this.onerror=null;window.__ECHARTS_FAILED__=true;console.warn('ECharts CDN failed')"></script>
+
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft JhengHei", "PingFang TC", sans-serif;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    color: #e2e8f0;
+    min-height: 100vh;
+    padding: 24px;
+  }
+  header { max-width: 1400px; margin: 0 auto 24px; }
+  h1 { font-size: 30px; margin-bottom: 8px; color: #f8fafc; }
+  .subtitle { color: #94a3b8; font-size: 14px; line-height: 1.6; }
+  .badge {
+    display: inline-block;
+    background: #10b981;
+    color: #064e3b;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-right: 6px;
+    margin-bottom: 4px;
+  }
+  .badge.amber { background: #f59e0b; color: #422006; }
+  .badge.indigo { background: #818cf8; color: #1e1b4b; }
+  .badge.rose { background: #fb7185; color: #4c0519; }
+  .badge.sky { background: #38bdf8; color: #082f49; }
+
+  .grid {
+    max-width: 1400px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  @media (max-width: 920px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: rgba(30, 41, 59, 0.7);
+    border: 1px solid #334155;
+    border-radius: 12px;
+    padding: 20px;
+    backdrop-filter: blur(10px);
+  }
+  .card.wide { grid-column: 1 / -1; }
+  .card h2 {
+    font-size: 16px;
+    color: #f8fafc;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card h2 .icon { font-size: 20px; }
+  #timeline-chart { width: 100%; height: 380px; }
+  #flow-chart { width: 100%; height: 320px; }
+  #arch-chart { width: 100%; height: 360px; }
+
+  ul.feature-list { list-style: none; padding: 0; }
+  ul.feature-list li {
+    padding: 8px 0;
+    border-bottom: 1px solid #334155;
+    color: #cbd5e1;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  ul.feature-list li:last-child { border-bottom: none; }
+  ul.feature-list li b { color: #38bdf8; }
+  ul.feature-list li code { background: #0f172a; padding: 1px 6px; border-radius: 4px; color: #fbbf24; font-size: 12px; }
+
+  /* 互動 demo */
+  .form-row {
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .form-row label {
+    color: #94a3b8;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .form-row input, .form-row select, .form-row textarea {
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 8px 10px;
+    color: #f8fafc;
+    font-size: 13px;
+    font-family: inherit;
+  }
+  .form-row textarea { min-height: 50px; resize: vertical; }
+  .form-row input:focus, .form-row select:focus, .form-row textarea:focus {
+    border-color: #38bdf8;
+    outline: none;
+  }
+
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .btn {
+    background: #1e293b;
+    border: 1px solid #475569;
+    color: #cbd5e1;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all .15s;
+    font-family: inherit;
+  }
+  .btn:hover { background: #334155; border-color: #38bdf8; color: #f8fafc; }
+  .btn.primary { background: #0c4a6e; border-color: #38bdf8; color: #e0f2fe; }
+  .btn.primary:hover { background: #075985; }
+  .btn.success { background: #064e3b; border-color: #10b981; color: #d1fae5; }
+  .btn.success:hover { background: #065f46; }
+  .btn.amber { background: #422006; border-color: #f59e0b; color: #fed7aa; }
+  .btn.amber:hover { background: #78350f; }
+  .btn.rose { background: #450a0a; border-color: #ef4444; color: #fecaca; }
+  .btn.rose:hover { background: #7f1d1d; }
+
+  /* 輸出 log */
+  #demo-output {
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 14px;
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 12px;
+    color: #94a3b8;
+    min-height: 120px;
+    max-height: 280px;
+    overflow-y: auto;
+    line-height: 1.6;
+  }
+  #demo-output .ts { color: #64748b; }
+  #demo-output .ok { color: #10b981; }
+  #demo-output .warn { color: #f59e0b; }
+  #demo-output .err { color: #ef4444; }
+  #demo-output .info { color: #38bdf8; }
+  #demo-output .dim { color: #475569; }
+
+  /* 場景按鈕 */
+  .scenario-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  @media (max-width: 600px) { .scenario-grid { grid-template-columns: 1fr; } }
+  .scenario-btn {
+    background: rgba(56, 189, 248, 0.08);
+    border: 1px solid #475569;
+    color: #e2e8f0;
+    padding: 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    text-align: left;
+    transition: all .15s;
+    font-family: inherit;
+  }
+  .scenario-btn:hover {
+    background: rgba(56, 189, 248, 0.15);
+    border-color: #38bdf8;
+    transform: translateY(-1px);
+  }
+  .scenario-btn .name { font-weight: 600; color: #38bdf8; font-size: 14px; }
+  .scenario-btn .desc { color: #94a3b8; font-size: 12px; margin-top: 4px; }
+
+  /* 報告預覽 */
+  .report-mock {
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 14px;
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 12px;
+    color: #cbd5e1;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    overflow-x: auto;
+  }
+  .report-mock .key { color: #38bdf8; }
+  .report-mock .val { color: #fbbf24; }
+  .report-mock .ok { color: #10b981; }
+  .report-mock .warn { color: #f59e0b; }
+
+  footer {
+    max-width: 1400px;
+    margin: 32px auto 0;
+    text-align: center;
+    color: #64748b;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  footer code { color: #cbd5e1; background: #0f172a; padding: 1px 6px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📅 會議排程自動化控制儀表板</h1>
+  <p class="subtitle">
+    <span class="badge">Google Calendar API</span>
+    <span class="badge sky">RPA (Playwright)</span>
+    <span class="badge indigo">Device Code Flow</span>
+    <span class="badge amber">Conflict Detection</span>
+    <span class="badge rose">Auto-Retry</span>
+    <br>
+    整合 Google Calendar 與 RPA 工具的會議自動排程系統 — 候選時段尋找、衝突重試、批次建會議、外部網站預約。
+  </p>
+</header>
+
+<div class="grid">
+
+  <!-- 卡片 1: 候選時段時間軸 -->
+  <section class="card">
+    <h2><span class="icon">📊</span> 候選時段視覺化（mock 資料）</h2>
+    <div id="timeline-chart"></div>
+    <p class="subtitle" style="margin-top: 12px;">
+      實作：<code>calendar_scheduling.find_free_slots()</code> 走 freebusy + 30 分粒度掃描、回傳按 score 排序的時段。
+    </p>
+  </section>
+
+  <!-- 卡片 2: 架構圖 -->
+  <section class="card">
+    <h2><span class="icon">🏗️</span> 系統架構流程</h2>
+    <div id="arch-chart"></div>
+  </section>
+
+  <!-- 卡片 3: 互動決策樹 -->
+  <section class="card">
+    <h2><span class="icon">🌳</span> 排程決策樹</h2>
+    <div id="flow-chart"></div>
+  </section>
+
+  <!-- 卡片 4: 核心 API + 程式碼 -->
+  <section class="card">
+    <h2><span class="icon">💡</span> API 能力總覽</h2>
+    <ul class="feature-list">
+      <li><b>find_free_slots()</b> — freebusy 查詢 + 排出最佳候選時段</li>
+      <li><b>create_meeting()</b> — 帶 Meet 連結、attendees 自動發邀請</li>
+      <li><b>detect_conflicts()</b> — 偵測時段衝突、回傳重疊區間</li>
+      <li><b>find_next_available()</b> — 衝突後自動找下一個共同空檔</li>
+      <li><b>create_meeting_batch()</b> — 批次建多場會議</li>
+      <li><b>RPABookingEngine</b> — Playwright 操控 Cal.com / Calendly 預約</li>
+      <li><b>DryRunBooker</b> — CI/headless 友善純本地驗證</li>
+    </ul>
+  </section>
+
+  <!-- 卡片 5: 互動排程 demo（寬版） -->
+  <section class="card wide">
+    <h2><span class="icon">🎮</span> 互動 Demo：模擬排一場會議</h2>
+
+    <div class="form-row">
+      <label>主題</label>
+      <input id="f-summary" type="text" value="Project Sync 與 John">
+    </div>
+    <div class="form-row">
+      <label>時長</label>
+      <select id="f-duration">
+        <option value="30">30 分鐘</option>
+        <option value="45">45 分鐘</option>
+        <option value="60" selected>60 分鐘</option>
+        <option value="90">90 分鐘</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label>與會者</label>
+      <input id="f-attendees" type="text" value="john@company.com, alice@company.com">
+    </div>
+    <div class="form-row">
+      <label>最早時間</label>
+      <input id="f-earliest" type="text" value="明天 09:00">
+    </div>
+    <div class="form-row">
+      <label>模式</label>
+      <select id="f-mode">
+        <option value="api">純 Calendar API</option>
+        <option value="rpa">Calendar API + RPA 預約會議室</option>
+        <option value="retry">API + 衝突自動重試</option>
+      </select>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn primary" id="btn-run">▶ 執行排程</button>
+      <button class="btn amber" id="btn-batch">📦 批次排 5 場</button>
+      <button class="btn success" id="btn-conflict">⚡ 模擬衝突重試</button>
+      <button class="btn" id="btn-clear">🗑️ 清空 log</button>
+    </div>
+
+    <div id="demo-output"></div>
+  </section>
+
+  <!-- 卡片 6: 場景模板 -->
+  <section class="card">
+    <h2><span class="icon">📋</span> 4 大排程場景</h2>
+    <div class="scenario-grid">
+      <button class="scenario-btn" data-scenario="1">
+        <div class="name">情境 1：純 API</div>
+        <div class="desc">找最佳時段 → 直接建會議</div>
+      </button>
+      <button class="scenario-btn" data-scenario="2">
+        <div class="name">情境 2：批次</div>
+        <div class="desc">一次排 5 場 1:1 給主管</div>
+      </button>
+      <button class="scenario-btn" data-scenario="3">
+        <div class="name">情境 3：API + RPA</div>
+        <div class="desc">開 Calendar 邀請 + 用 RPA 訂會議室</div>
+      </button>
+      <button class="scenario-btn" data-scenario="4">
+        <div class="name">情境 4：衝突重試</div>
+        <div class="desc">偵測衝突 → 自動往後找空檔</div>
+      </button>
+    </div>
+  </section>
+
+  <!-- 卡片 7: 報告輸出預覽 -->
+  <section class="card">
+    <h2><span class="icon">📄</span> BookingReport 範例</h2>
+    <div class="report-mock" id="report-preview"></div>
+  </section>
+
+</div>
+
+<footer>
+  <code>calendar_scheduling.py</code> + <code>rpa_scheduler.py</code> + <code>meeting_orchestrator.py</code> ·
+  OAuth tokens 存放 <code>~/.local/share/hermes/secrets/</code> (chmod 600) ·
+  Deploy 見 README.md
+</footer>
+
+<script>
+// ============================================================
+//  內嵌 fallback（CDN 失效時的純文字版）
+// ============================================================
+window.addEventListener('DOMContentLoaded', () => {
+  const fail = window.__ECHARTS_FAILED__;
+  if (fail) {
+    document.querySelectorAll('#timeline-chart, #flow-chart, #arch-chart').forEach(el => {
+      el.innerHTML = '<p style="text-align:center;color:#94a3b8;padding:80px 20px">⚠️ ECharts CDN 載入失敗<br>請連網後重整</p>';
+    });
+    return;
+  }
+  if (typeof echarts === 'undefined') {
+    setTimeout(() => {
+      if (typeof echarts !== 'undefined') {
+        initAll();
+      } else {
+        document.querySelectorAll('#timeline-chart, #flow-chart, #arch-chart').forEach(el => {
+          el.innerHTML = '<p style="text-align:center;color:#ef4444;padding:80px 20px">echarts 載入逾時</p>';
+        });
+      }
+    }, 500);
+    return;
+  }
+  initAll();
+});
+
+function initAll() {
+  initTimelineChart();
+  initFlowChart();
+  initArchChart();
+  initReportPreview();
+  setupScenarioButtons();
+  setupFormButtons();
+}
+
+// ============================================================
+//  卡片 1: 候選時段時間軸
+// ============================================================
+function initTimelineChart() {
+  // 模擬「下週 5 個工作天 × 多場會議」的候選時段視覺化
+  const days = ['週一', '週二', '週三', '週四', '週五'];
+  const events = [
+    { day: 0, name: '週會',           start: 9,  end: 10, duration: 60, color: '#38bdf8', tag: 'fixed' },
+    { day: 0, name: 'Project Sync',   start: 14, end: 15, duration: 60, color: '#a78bfa', tag: 'candidate' },
+    { day: 1, name: '1:1 John',       start: 10, end: 11, duration: 60, color: '#10b981', tag: 'candidate' },
+    { day: 1, name: '午餐',           start: 12, end: 13, duration: 60, color: '#fbbf24', tag: 'fixed' },
+    { day: 2, name: 'Code Review',    start: 9,  end: 11, duration: 120, color: '#38bdf8', tag: 'fixed' },
+    { day: 2, name: '客戶 Demo',      start: 14, end: 16, duration: 120, color: '#f472b6', tag: 'candidate' },
+    { day: 3, name: '設計 Review',    start: 10, end: 11, duration: 60, color: '#38bdf8', tag: 'fixed' },
+    { day: 3, name: '🚀 自動選定',    start: 15, end: 16, duration: 60, color: '#22c55e', tag: 'selected' },
+    { day: 4, name: '專注時段',       start: 9,  end: 12, duration: 180, color: '#10b981', tag: 'fixed' },
+    { day: 4, name: '週報',           start: 16, end: 17, duration: 60, color: '#38bdf8', tag: 'fixed' },
+  ];
+
+  // 每個事件在 y 軸上用一個 row；以 day 分組
+  const grouped = {};
+  days.forEach((_, i) => grouped[i] = []);
+  events.forEach(e => grouped[e.day].push(e));
+
+  // 攤平成 scatter data
+  const scatter = [];
+  events.forEach(e => {
+    scatter.push({
+      name: e.name,
+      value: [e.start, e.day],
+      symbolSize: e.duration / 4,
+      itemStyle: { color: e.color, borderColor: '#0f172a', borderWidth: 2 },
+      tag: e.tag,
+    });
+  });
+
+  const option = {
+    tooltip: {
+      formatter: (p) => {
+        const ev = events[p.dataIndex];
+        return `<b>${ev.name}</b><br>${days[ev.day]} ${ev.start}:00 - ${ev.end}:00<br>${ev.duration} 分鐘${ev.tag === 'selected' ? '<br>✅ 自動選定' : ev.tag === 'candidate' ? '<br>🟡 候選' : ''}`;
+      }
+    },
+    grid: { top: 20, left: 70, right: 30, bottom: 40 },
+    xAxis: {
+      type: 'value', min: 8, max: 18, interval: 1,
+      name: '小時', nameLocation: 'middle', nameGap: 25,
+      nameTextStyle: { color: '#94a3b8' },
+      axisLabel: { formatter: (v) => `${v}:00`, color: '#94a3b8' },
+      splitLine: { lineStyle: { color: '#334155', type: 'dashed' } },
+    },
+    yAxis: {
+      type: 'category', data: days,
+      axisLabel: { color: '#cbd5e1', fontSize: 12 },
+      axisLine: { show: false },
+      axisTick: { show: false },
+    },
+    series: [{
+      type: 'scatter',
+      data: scatter,
+      symbolSize: (val, params) => params.data.symbolSize,
+      itemStyle: { opacity: 0.85 },
+      animationDuration: 800,
+      emphasis: { scale: 1.2 },
+    }],
+  };
+  echarts.init(document.getElementById('timeline-chart')).setOption(option);
+}
+
+// ============================================================
+//  卡片 2: 架構圖
+// ============================================================
+function initArchChart() {
+  const data = {
+    name: '使用者下指令\n(CLI / Telegram / REST)',
+    children: [
+      {
+        name: 'MeetingOrchestrator',
+        children: [
+          { name: 'schedule_meeting()' },
+          { name: 'schedule_batch()' },
+          { name: 'schedule_with_conflict_retry()' },
+          { name: 'schedule_meeting_with_rpa()' },
+        ],
+      },
+      {
+        name: 'Calendar API 層',
+        children: [
+          { name: 'find_free_slots()' },
+          { name: 'create_meeting()' },
+          { name: 'detect_conflicts()' },
+          { name: 'find_next_available()' },
+          { name: 'OAuth:\nDevice Code Flow' },
+        ],
+      },
+      {
+        name: 'RPA 層',
+        children: [
+          { name: 'RPABookingEngine\n(Playwright)' },
+          { name: 'DryRunBooker' },
+          { name: 'BookingTarget\n(Cal.com / Calendly)' },
+        ],
+      },
+      {
+        name: '輸出',
+        children: [
+          { name: 'BookingReport\n(JSON + Markdown)' },
+          { name: 'Calendar 事件\n(Google Meet 連結)' },
+          { name: '預約截圖' },
+        ],
+      },
+    ],
+  };
+
+  const option = {
+    tooltip: { trigger: 'item', triggerOn: 'mousemove' },
+    series: [{
+      type: 'tree',
+      data: [data],
+      top: '2%', left: '12%', bottom: '2%', right: '18%',
+      symbolSize: 9,
+      label: {
+        position: 'left', verticalAlign: 'middle', align: 'right',
+        color: '#cbd5e1', fontSize: 11, lineHeight: 14,
+      },
+      leaves: {
+        label: {
+          position: 'right', align: 'left', verticalAlign: 'middle',
+          color: '#94a3b8', fontSize: 10,
+        },
+      },
+      expandAndCollapse: true,
+      animationDuration: 550,
+      animationDurationUpdate: 750,
+      initialTreeDepth: 1,
+      lineStyle: { color: '#475569', curveness: 0.5 },
+      itemStyle: { color: '#38bdf8', borderColor: '#0ea5e9' },
+    }],
+  };
+  echarts.init(document.getElementById('arch-chart')).setOption(option);
+}
+
+// ============================================================
+//  卡片 3: 排程決策樹
+// ============================================================
+function initFlowChart() {
+  const data = {
+    name: '收到排程需求',
+    children: [
+      { name: '純 Calendar API', children: [
+        { name: 'find_free_slots()' },
+        { name: '挑分數最高時段' },
+        { name: 'create_meeting()' },
+        { name: '✅ 帶 Meet 連結' },
+      ]},
+      { name: 'API + RPA', children: [
+        { name: 'Calendar API 建邀請' },
+        { name: 'RPA 預約外部會議室' },
+        { name: 'BookingReport 整合' },
+      ]},
+      { name: '衝突重試', children: [
+        { name: 'detect_conflicts()' },
+        { name: 'find_next_available()' },
+        { name: '重試 N 次' },
+        { name: '成功 / 失敗' },
+      ]},
+      { name: '批次', children: [
+        { name: '批次候選查找' },
+        { name: 'create_meeting_batch()' },
+        { name: '回傳 N 場事件' },
+      ]},
+    ],
+  };
+  const option = {
+    tooltip: { trigger: 'item', triggerOn: 'mousemove' },
+    series: [{
+      type: 'tree',
+      data: [data],
+      top: '5%', left: '10%', bottom: '5%', right: '15%',
+      symbolSize: 8,
+      label: { position: 'left', verticalAlign: 'middle', align: 'right', color: '#cbd5e1', fontSize: 11 },
+      leaves: { label: { position: 'right', align: 'left', verticalAlign: 'middle', color: '#94a3b8', fontSize: 10 } },
+      expandAndCollapse: true,
+      animationDuration: 550,
+      animationDurationUpdate: 750,
+      initialTreeDepth: 2,
+      lineStyle: { color: '#475569', curveness: 0.5 },
+      itemStyle: { color: '#a78bfa', borderColor: '#8b5cf6' },
+    }],
+  };
+  echarts.init(document.getElementById('flow-chart')).setOption(option);
+}
+
+// ============================================================
+//  卡片 7: 報告預覽（純 DOM）
+// ============================================================
+function initReportPreview() {
+  const el = document.getElementById('report-preview');
+  el.innerHTML = [
+    '<span class="key">summary</span>: <span class="val">"排程：Project Sync 與 John"</span>',
+    '<span class="key">started_at</span>: <span class="val">"2026-08-04T14:23:11+00:00"</span>',
+    '<span class="key">dry_run</span>: <span class="val">false</span>',
+    '<span class="key">calendar_events</span>: [',
+    '  {',
+    '    <span class="key">id</span>: <span class="val">"abc123"</span>,',
+    '    <span class="key">summary</span>: <span class="val">"Project Sync 與 John"</span>,',
+    '    <span class="key">start</span>: <span class="val">"2026-08-06T14:00:00+08:00"</span>,',
+    '    <span class="key">meet_link</span>: <span class="val">"https://meet.google.com/xxx-yyyy-zzz"</span>',
+    '  }',
+    ']',
+    '<span class="key">rpa_results</span>: []',
+    '<span class="key">errors</span>: []',
+  ].join('\n');
+}
+
+// ============================================================
+//  互動 demo
+// ============================================================
+const output = document.getElementById('demo-output');
+function log(cls, msg) {
+  const ts = new Date().toLocaleTimeString('zh-TW', { hour12: false });
+  output.insertAdjacentHTML('beforeend',
+    `<div><span class="ts">[${ts}]</span> <span class="${cls}">${msg}</span></div>`);
+  output.scrollTop = output.scrollHeight;
+}
+
+function getFormData() {
+  return {
+    summary: document.getElementById('f-summary').value,
+    duration: parseInt(document.getElementById('f-duration').value, 10),
+    attendees: document.getElementById('f-attendees').value.split(',').map(e => e.trim()).filter(Boolean),
+    earliest: document.getElementById('f-earliest').value,
+    mode: document.getElementById('f-mode').value,
+  };
+}
+
+function setupFormButtons() {
+  document.getElementById('btn-run').addEventListener('click', () => {
+    const d = getFormData();
+    log('info', `🚀 MeetingOrchestrator.schedule_meeting("${d.summary}", ${d.duration}min)`);
+    log('dim', `   attendees: [${d.attendees.join(', ')}]`);
+    log('dim', `   earliest: ${d.earliest}, mode: ${d.mode}`);
+    setTimeout(() => {
+      log('info', `📡 Calendar API: freebusy.query() — 抓 5 個 calendar 忙碌區間`);
+      log('info', `🔍 find_free_slots(): 30 分粒度掃描 7 天 → 找到 12 個候選`);
+      log('info', `📊 評分排序：score 排序`);
+      const score = (Math.random() * 30 + 60).toFixed(1);
+      log('ok', `✅ 選定最佳時段（score=${score}）：週三 14:00-15:00`);
+      log('ok', `📅 create_meeting() → 事件已建立，Meet 連結：https://meet.google.com/abc-defg-hij`);
+      log('ok', `📧 已發邀請給 ${d.attendees.length} 個與會者`);
+      log('ok', `📝 BookingReport.calendar_events: 1 場`);
+    }, 400);
+  });
+
+  document.getElementById('btn-batch').addEventListener('click', () => {
+    const d = getFormData();
+    log('info', `📦 MeetingOrchestrator.schedule_batch(×5)`);
+    log('dim', `   5 場 1:1 會議，每天一場`);
+    let i = 0;
+    const days = ['週一', '週二', '週三', '週四', '週五'];
+    const interval = setInterval(() => {
+      if (i >= 5) { clearInterval(interval); log('ok', `✅ 批次完成：5 場事件已建立`); return; }
+      log('ok', `📅 場次 ${i+1}/5 已建立：${days[i]} 10:00-11:00 Meet`);
+      i++;
+    }, 300);
+  });
+
+  document.getElementById('btn-conflict').addEventListener('click', () => {
+    log('info', `⚡ schedule_with_conflict_retry(max_retries=5)`);
+    log('info', `📡 嘗試時段：週一 14:00-15:00`);
+    setTimeout(() => {
+      log('warn', `⚠️ detect_conflicts(): 發現 1 個衝突（既有會議「週會」）`);
+      log('info', `🔄 find_next_available(): 往後找 15 分鐘 → 週一 14:15-15:15`);
+      log('warn', `⚠️ 仍有衝突 → 14:30`);
+      log('info', `🔄 14:45 → 15:00`);
+      log('ok', `✅ 找到空檔：週一 15:00-16:00，事件已建立`);
+    }, 500);
+  });
+
+  document.getElementById('btn-clear').addEventListener('click', () => {
+    output.innerHTML = '<span class="ts">[demo]</span> log 已清空 — 點上方按鈕重新跑流程…';
+  });
+}
+
+function setupScenarioButtons() {
+  document.querySelectorAll('.scenario-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const n = btn.dataset.scenario;
+      const map = {
+        '1': '情境 1：純 Calendar API',
+        '2': '情境 2：批次排程',
+        '3': '情境 3：API + RPA',
+        '4': '情境 4：衝突重試',
+      };
+      log('info', `━━ 切換到 ${map[n]} ━━`);
+      const codes = {
+        '1': `req = ScheduleRequest(summary="...", duration_minutes=60, attendees=[...])
+orch = MeetingOrchestrator(token, dry_run=False)
+orch.schedule_meeting(req)`,
+        '2': `orch.schedule_batch(req, count=5)`,
+        '3': `target = make_calcom_target("https://cal.com/alice/30min", dry_run=False)
+orch.schedule_meeting_with_rpa(req, target, user_data)`,
+        '4': `orch.schedule_with_conflict_retry(req, max_retries=5)`,
+      };
+      log('dim', `範例程式碼（Python）：`);
+      log('dim', codes[n].split('\n').join('\n   '));
+    });
+  });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>React Flow DAG Workflow Editor</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  html, body, #root { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  body { background: #f7f8fa; }
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0; height: 52px;
+    background: #1f2937; color: #e5e7eb; display: flex; align-items: center; gap: 8px;
+    padding: 0 16px; z-index: 10; box-shadow: 0 2px 8px rgba(0,0,0,.08);
+  }
+  .topbar h1 { font-size: 14px; font-weight: 600; margin: 0 12px 0 0; color: #93c5fd; }
+  .topbar button {
+    background: #374151; color: #e5e7eb; border: 1px solid #4b5563;
+    padding: 6px 12px; font-size: 12px; border-radius: 4px; cursor: pointer;
+  }
+  .topbar button:hover { background: #4b5563; }
+  .topbar .spacer { flex: 1; }
+  .topbar .status { font-size: 12px; color: #fbbf24; }
+  .topbar .status.ok { color: #34d399; }
+  .topbar .status.error { color: #f87171; }
+  .palette {
+    position: fixed; top: 52px; left: 0; bottom: 0; width: 180px;
+    background: #ffffff; border-right: 1px solid #e5e7eb; padding: 16px 12px; z-index: 5;
+    overflow-y: auto;
+  }
+  .palette h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: #6b7280; margin: 0 0 12px 0; }
+  .palette-item {
+    background: #f3f4f6; border: 1px dashed #9ca3af; border-radius: 6px;
+    padding: 10px; margin-bottom: 8px; cursor: grab; font-size: 13px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .palette-item:hover { background: #e5e7eb; }
+  .palette-item:active { cursor: grabbing; }
+  .palette-item .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .props-panel {
+    position: fixed; top: 52px; right: 0; bottom: 0; width: 280px;
+    background: #ffffff; border-left: 1px solid #e5e7eb; padding: 16px; z-index: 5;
+    overflow-y: auto;
+  }
+  .props-panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: #6b7280; margin: 0 0 12px 0; }
+  .props-panel label { display: block; font-size: 12px; color: #374151; margin-top: 12px; margin-bottom: 4px; }
+  .props-panel input, .props-panel select, .props-panel textarea {
+    width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #d1d5db;
+    border-radius: 4px; font-size: 13px; font-family: inherit;
+  }
+  .props-panel textarea { min-height: 60px; font-family: ui-monospace, Menlo, monospace; }
+  .react-flow-container { position: absolute; top: 52px; left: 180px; right: 280px; bottom: 0; }
+  .react-flow-container .react-flow { background: #fafbfc; }
+  .empty-state {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    color: #9ca3af; font-size: 14px; text-align: center;
+  }
+  .node-default {
+    background: #ffffff; border: 2px solid #6366f1; border-radius: 8px;
+    padding: 10px 14px; min-width: 140px; font-size: 12px; color: #1f2937;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08);
+  }
+  .node-default.selected { border-color: #f59e0b; box-shadow: 0 0 0 4px rgba(245,158,11,.18); }
+  .node-default .node-title { font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+  .node-default .node-meta { font-size: 10px; color: #6b7280; }
+  .node-start { background: #d1fae5; border-color: #059669; }
+  .node-end { background: #fee2e2; border-color: #dc2626; }
+  .node-decision { background: #fef3c7; border-color: #d97706; }
+  .node-parallel { background: #ede9fe; border-color: #7c3aed; }
+  .error-banner {
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: #fef2f2; color: #991b1b; border: 1px solid #fecaca;
+    padding: 10px 16px; border-radius: 6px; font-size: 13px; z-index: 100;
+    box-shadow: 0 4px 12px rgba(0,0,0,.1);
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.3.1",
+    "react/": "https://esm.sh/react@18.3.1/",
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client?deps=react@18.3.1",
+    "reactflow": "https://esm.sh/reactflow@11.11.4?deps=react@18.3.1,react-dom@18.3.1"
+  }
+}
+</script>
+</head>
+<body>
+<div id="root"></div>
+<script type="module">
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { createRoot } from 'react-dom/client';
+import {
+  ReactFlow, ReactFlowProvider, Background, Controls, MiniMap,
+  addEdge, applyNodeChanges, applyEdgeChanges,
+} from 'reactflow';
+import 'reactflow/dist/style.css';
+
+const NODE_TYPES = {
+  start: { label: 'Start', color: '#059669', dotClass: 'node-start', desc: 'Workflow entry point (max 1)' },
+  task: { label: 'Task', color: '#6366f1', dotClass: '', desc: 'Executable unit (retry, timeout)' },
+  decision: { label: 'Decision', color: '#d97706', dotClass: 'node-decision', desc: 'Branching logic (true/false)' },
+  parallel: { label: 'Parallel', color: '#7c3aed', dotClass: 'node-parallel', desc: 'Fan-out / fan-in concurrency' },
+  end: { label: 'End', color: '#dc2626', dotClass: 'node-end', desc: 'Workflow exit point' },
+};
+
+// Detect cycles using DFS (white/gray/black coloring)
+function detectCycle(nodes, edges) {
+  const adj = new Map();
+  nodes.forEach(n => adj.set(n.id, []));
+  edges.forEach(e => adj.get(e.source, []).push(e.target));
+  const visited = new Set(), inStack = new Set();
+  const cyclePath = [];
+  function dfs(id, path) {
+    visited.add(id); inStack.add(id); path.push(id);
+    for (const next of adj.get(id) || []) {
+      if (inStack.has(next)) {
+        const idx = path.indexOf(next);
+        return [...path.slice(idx), next];
+      }
+      if (!visited.has(next)) {
+        const r = dfs(next, path);
+        if (r) return r;
+      }
+    }
+    inStack.delete(id); path.pop();
+    return null;
+  }
+  for (const n of nodes) {
+    if (!visited.has(n.id)) {
+      const c = dfs(n.id, []);
+      if (c) return c;
+    }
+  }
+  return null;
+}
+
+function validateDag(nodes, edges) {
+  const errors = [];
+  // Constraint 1: exactly one Start node
+  const starts = nodes.filter(n => n.data.type === 'start');
+  if (starts.length === 0) errors.push('Missing Start node (workflow needs an entry point)');
+  if (starts.length > 1) errors.push('Multiple Start nodes not allowed (DAG must have a single root)');
+  // Constraint 2: at least one End node
+  if (!nodes.some(n => n.data.type === 'end')) errors.push('Missing End node');
+  // Constraint 3: no cycles
+  const cycle = detectCycle(nodes, edges);
+  if (cycle) errors.push('Cycle detected: ' + cycle.join(' → ') + ' (DAG must be acyclic)');
+  return { valid: errors.length === 0, errors, cycle };
+}
+
+const Palette = ({ onAdd }) => (
+  React.createElement('div', { className: 'palette' },
+    React.createElement('h2', null, 'Node Palette'),
+    Object.entries(NODE_TYPES).map(([type, meta]) =>
+      React.createElement('div', {
+        key: type,
+        className: 'palette-item',
+        draggable: true,
+        onDragStart: (e) => e.dataTransfer.setData('application/reactflow', type),
+        onClick: () => onAdd(type),
+        title: meta.desc,
+      },
+        React.createElement('span', { className: 'dot', style: { background: meta.color } }),
+        React.createElement('span', null, meta.label)
+      )
+    ),
+    React.createElement('div', { style: { marginTop: 16, fontSize: 11, color: '#6b7280', lineHeight: 1.4 } },
+      'Drag onto canvas, or click to add.'
+    )
+  )
+);
+
+const NodeView = ({ data, selected }) => {
+  const meta = NODE_TYPES[data.type] || NODE_TYPES.task;
+  return React.createElement('div', {
+    className: 'node-default ' + meta.dotClass + (selected ? ' selected' : ''),
+  },
+    React.createElement('div', { className: 'node-title' },
+      React.createElement('span', { className: 'dot', style: { background: meta.color, width: 8, height: 8 } }),
+      data.label || meta.label
+    ),
+    React.createElement('div', { className: 'node-meta' }, meta.desc.split(',')[0]),
+    data.type === 'task' && data.retry ? React.createElement('div', { className: 'node-meta' }, 'retry: ' + data.retry) : null,
+    data.type === 'decision' && data.condition ? React.createElement('div', { className: 'node-meta' }, 'if: ' + data.condition.substring(0, 20)) : null,
+  );
+};
+
+const nodeTypes = { default: NodeView };
+
+const PropsPanel = ({ selectedNode, selectedEdge, onUpdate, onDelete }) => {
+  if (!selectedNode && !selectedEdge) {
+    return React.createElement('div', { className: 'props-panel' },
+      React.createElement('h2', null, 'Properties'),
+      React.createElement('p', { style: { color: '#9ca3af', fontSize: 13 } }, 'Select a node or edge to edit its properties.')
+    );
+  }
+  if (selectedEdge) {
+    return React.createElement('div', { className: 'props-panel' },
+      React.createElement('h2', null, 'Edge Properties'),
+      React.createElement('label', null, 'Label'),
+      React.createElement('input', {
+        value: selectedEdge.label || '',
+        onChange: (e) => onUpdate('edge', { label: e.target.value }),
+        placeholder: 'e.g. true / false / success'
+      }),
+      React.createElement('button', {
+        onClick: () => onDelete('edge'),
+        style: { marginTop: 20, background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca', padding: '8px 12px', borderRadius: 4, cursor: 'pointer', width: '100%' }
+      }, 'Delete Edge')
+    );
+  }
+  const n = selectedNode;
+  const meta = NODE_TYPES[n.data.type] || NODE_TYPES.task;
+  return React.createElement('div', { className: 'props-panel' },
+    React.createElement('h2', null, meta.label + ' Properties'),
+    React.createElement('label', null, 'Display name'),
+    React.createElement('input', {
+      value: n.data.label || '',
+      onChange: (e) => onUpdate('node', { label: e.target.value }),
+    }),
+    n.data.type === 'task' ? React.createElement(React.Fragment, null,
+      React.createElement('label', null, 'Retry count'),
+      React.createElement('input', {
+        type: 'number', min: 0, max: 10,
+        value: n.data.retry ?? 0,
+        onChange: (e) => onUpdate('node', { retry: parseInt(e.target.value) || 0 }),
+      }),
+      React.createElement('label', null, 'Timeout (sec)'),
+      React.createElement('input', {
+        type: 'number', min: 0,
+        value: n.data.timeout ?? 60,
+        onChange: (e) => onUpdate('node', { timeout: parseInt(e.target.value) || 0 }),
+      }),
+      React.createElement('label', null, 'Command / Action'),
+      React.createElement('textarea', {
+        value: n.data.action || '',
+        onChange: (e) => onUpdate('node', { action: e.target.value }),
+        placeholder: 'e.g. http.get(\'https://api.example.com\')',
+      })
+    ) : null,
+    n.data.type === 'decision' ? React.createElement(React.Fragment, null,
+      React.createElement('label', null, 'Condition expression'),
+      React.createElement('textarea', {
+        value: n.data.condition || '',
+        onChange: (e) => onUpdate('node', { condition: e.target.value }),
+        placeholder: 'e.g. response.status == 200',
+      })
+    ) : null,
+    n.data.type === 'parallel' ? React.createElement(React.Fragment, null,
+      React.createElement('label', null, 'Branches (fan-out factor)'),
+      React.createElement('input', {
+        type: 'number', min: 2, max: 10,
+        value: n.data.branches ?? 2,
+        onChange: (e) => onUpdate('node', { branches: parseInt(e.target.value) || 2 }),
+      })
+    ) : null,
+    n.data.type !== 'start' && n.data.type !== 'end' ? React.createElement('button', {
+      onClick: () => onDelete('node'),
+      style: { marginTop: 24, background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca', padding: '8px 12px', borderRadius: 4, cursor: 'pointer', width: '100%' }
+    }, 'Delete Node') : null
+  );
+};
+
+function WorkflowEditor() {
+  const [nodes, setNodes] = useState([]);
+  const [edges, setEdges] = useState([]);
+  const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState(null);
+  const [errorMsg, setErrorMsg] = useState(null);
+  const reactFlowWrapper = useRef(null);
+  const idCounter = useRef(1);
+
+  const validation = useMemo(() => validateDag(nodes, edges), [nodes, edges]);
+
+  const onNodesChange = useCallback((changes) => {
+    setNodes((nds) => applyNodeChanges(changes, nds));
+  }, []);
+  const onEdgesChange = useCallback((changes) => {
+    setEds((eds) => applyEdgeChanges(changes, eds));
+    // helper alias since we use it from inside template literals above; redefine here cleanly
+    function setEds() {}
+  }, []);
+  // Replace the aliased setEds with proper setter:
+  const setEds = (updater) => setEdges((prev) => typeof updater === 'function' ? updater(prev) : updater);
+  // Re-implement onEdgesChange using proper setter:
+  const onEdgesChangeReal = useCallback((changes) => {
+    setEdges((eds) => applyEdgeChanges(changes, eds));
+  }, []);
+  // But we already used setEds name conflict — keep simple: use onEdgesChangeReal instead. Discard the buggy one.
+  // To avoid double-binding warning, expose a single source:
+
+  return null; // unreachable — replaced by combined version below
+}
+
+// Single coherent implementation (replaces the fragments above):
+function WorkflowEditorReal() {
+  const [nodes, setNodes] = useState([]);
+  const [edges, setEdges] = useState([]);
+  const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState(null);
+  const [errorMsg, setErrorMsg] = useState(null);
+  const [rfInstance, setRfInstance] = useState(null);
+  const wrapperRef = useRef(null);
+  const idCounter = useRef(1);
+
+  const validation = useMemo(() => validateDag(nodes, edges), [nodes, edges]);
+
+  const onNodesChange = useCallback((changes) => setNodes((nds) => applyNodeChanges(changes, nds)), []);
+  const onEdgesChange = useCallback((changes) => setEdges((eds) => applyEdgeChanges(changes, eds)), []);
+  const onConnect = useCallback((params) => {
+    setEdges((eds) => addEdge({ ...params, animated: false, type: 'smoothstep' }, eds));
+  }, []);
+
+  const onDrop = useCallback((e) => {
+    e.preventDefault();
+    const type = e.dataTransfer.getData('application/reactflow');
+    if (!type || !NODE_TYPES[type] || !wrapperRef.current || !rfInstance) return;
+    const bounds = wrapperRef.current.getBoundingClientRect();
+    const position = rfInstance.screenToFlowPosition({ x: e.clientX - bounds.left, y: e.clientY - bounds.top });
+    const id = 'n_' + (idCounter.current++);
+    const newNode = {
+      id, type: 'default', position,
+      data: { type, label: NODE_TYPES[type].label, ...(type === 'task' ? { retry: 0, timeout: 60, action: '' } : {}) },
+    };
+    setNodes((nds) => nds.concat(newNode));
+  }, [rfInstance]);
+
+  const onDragOver = useCallback((e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }, []);
+
+  const handleAdd = useCallback((type) => {
+    const id = 'n_' + (idCounter.current++);
+    const position = { x: 100 + Math.random() * 300, y: 100 + Math.random() * 200 };
+    setNodes((nds) => nds.concat({
+      id, type: 'default', position,
+      data: { type, label: NODE_TYPES[type].label, ...(type === 'task' ? { retry: 0, timeout: 60, action: '' } : {}) },
+    }));
+  }, []);
+
+  const updateNode = useCallback((patch) => {
+    setNodes((nds) => nds.map(n => n.id === selectedNodeId ? { ...n, data: { ...n.data, ...patch } } : n));
+  }, [selectedNodeId]);
+
+  const updateEdge = useCallback((patch) => {
+    setEdges((eds) => eds.map(e => e.id === selectedEdgeId ? { ...e, ...patch } : e));
+  }, [selectedEdgeId]);
+
+  const deleteItem = useCallback((kind) => {
+    if (kind === 'node') {
+      setNodes((nds) => nds.filter(n => n.id !== selectedNodeId));
+      setEdges((eds) => eds.filter(e => e.source !== selectedNodeId && e.target !== selectedNodeId));
+      setSelectedNodeId(null);
+    } else {
+      setEdges((eds) => eds.filter(e => e.id !== selectedEdgeId));
+      setSelectedEdgeId(null);
+    }
+  }, [selectedNodeId, selectedEdgeId]);
+
+  const exportJson = useCallback(() => {
+    const data = { nodes, edges, exportedAt: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'workflow.json'; a.click();
+    URL.revokeObjectURL(url);
+  }, [nodes, edges]);
+
+  const importJson = useCallback(() => {
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'application/json';
+    inp.onchange = (e) => {
+      const file = e.target.files[0]; if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const data = JSON.parse(ev.target.result);
+          if (Array.isArray(data.nodes) && Array.isArray(data.edges)) {
+            setNodes(data.nodes);
+            setEdges(data.edges);
+            // reset id counter high water
+            const max = data.nodes.reduce((m, n) => Math.max(m, parseInt(String(n.id).replace(/\D/g, '')) || 0), 0);
+            idCounter.current = max + 1;
+            setSelectedNodeId(null); setSelectedEdgeId(null); setErrorMsg(null);
+          } else { setErrorMsg('Invalid JSON: must have nodes[] and edges[]'); }
+        } catch (err) { setErrorMsg('JSON parse error: ' + err.message); }
+      };
+      reader.readAsText(file);
+    };
+    inp.click();
+  }, []);
+
+  const clearAll = useCallback(() => {
+    if (confirm('Clear the entire workflow?')) {
+      setNodes([]); setEdges([]);
+      setSelectedNodeId(null); setSelectedEdgeId(null);
+      idCounter.current = 1;
+    }
+  }, []);
+
+  const seedDemo = useCallback(() => {
+    const id1 = 'n_' + (idCounter.current++);
+    const id2 = 'n_' + (idCounter.current++);
+    const id3 = 'n_' + (idCounter.current++);
+    const id4 = 'n_' + (idCounter.current++);
+    const id5 = 'n_' + (idCounter.current++);
+    setNodes([
+      { id: id1, type: 'default', position: { x: 60, y: 150 }, data: { type: 'start', label: 'Receive request' } },
+      { id: id2, type: 'default', position: { x: 280, y: 80 }, data: { type: 'task', label: 'Validate input', retry: 1, timeout: 30, action: 'schema.validate()' } },
+      { id: id3, type: 'default', position: { x: 280, y: 220 }, data: { type: 'task', label: 'Fetch user', retry: 2, timeout: 60, action: 'http.get(\'/api/user\')' } },
+      { id: id4, type: 'default', position: { x: 520, y: 150 }, data: { type: 'decision', label: 'Check auth', condition: 'user.role == "admin"' } },
+      { id: id5, type: 'default', position: { x: 760, y: 150 }, data: { type: 'end', label: 'Return result' } },
+    ]);
+    setEdges([
+      { id: 'e1', source: id1, target: id2, type: 'smoothstep' },
+      { id: 'e2', source: id1, target: id3, type: 'smoothstep' },
+      { id: 'e3', source: id2, target: id4, type: 'smoothstep' },
+      { id: 'e4', source: id3, target: id4, type: 'smoothstep' },
+      { id: 'e5', source: id4, target: id5, type: 'smoothstep', label: 'true' },
+    ]);
+  }, []);
+
+  const cyclePath = validation.cycle;
+  const cycleEdgeIds = useMemo(() => {
+    if (!cyclePath) return new Set();
+    const ids = new Set();
+    for (let i = 0; i < cyclePath.length - 1; i++) {
+      const e = edges.find(ed => ed.source === cyclePath[i] && ed.target === cyclePath[i + 1]);
+      if (e) ids.add(e.id);
+    }
+    return ids;
+  }, [cyclePath, edges]);
+
+  const styledEdges = useMemo(() => edges.map(e => ({
+    ...e,
+    style: cycleEdgeIds.has(e.id) ? { stroke: '#dc2626', strokeWidth: 2.5 } : undefined,
+  })), [edges, cycleEdgeIds]);
+
+  const selectedNode = nodes.find(n => n.id === selectedNodeId);
+  const selectedEdge = styledEdges.find(e => e.id === selectedEdgeId);
+
+  return React.createElement(React.Fragment, null,
+    React.createElement('div', { className: 'topbar' },
+      React.createElement('h1', null, '⚙ DAG Workflow Editor'),
+      React.createElement('button', { onClick: seedDemo }, 'Demo'),
+      React.createElement('button', { onClick: importJson }, 'Import'),
+      React.createElement('button', { onClick: exportJson, disabled: nodes.length === 0 }, 'Export JSON'),
+      React.createElement('button', { onClick: clearAll, disabled: nodes.length === 0 }, 'Clear'),
+      React.createElement('div', { className: 'spacer' }),
+      validation.valid
+        ? React.createElement('span', { className: 'status ok' }, '✓ Valid DAG · ' + nodes.length + ' nodes')
+        : React.createElement('span', { className: 'status error' }, '✗ Invalid: ' + validation.errors[0])
+    ),
+    React.createElement(Palette, { onAdd: handleAdd }),
+    React.createElement('div', {
+      className: 'react-flow-container',
+      ref: wrapperRef,
+      onDrop, onDragOver,
+    },
+      nodes.length === 0
+        ? React.createElement('div', { className: 'empty-state' }, 'Drag nodes from the left palette to get started. Or click "Demo" for a sample workflow.')
+        : null,
+      React.createElement(ReactFlow, {
+        nodes: nodes,
+        edges: styledEdges,
+        onNodesChange,
+        onEdgesChange,
+        onConnect,
+        onNodeClick: (_, n) => { setSelectedNodeId(n.id); setSelectedEdgeId(null); },
+        onEdgeClick: (_, e) => { setSelectedEdgeId(e.id); setSelectedNodeId(null); },
+        onPaneClick: () => { setSelectedNodeId(null); setSelectedEdgeId(null); },
+        nodeTypes,
+        onInit: setRfInstance,
+        fitView: true,
+        attributionPosition: 'bottom-left',
+      },
+        React.createElement(Background, null),
+        React.createElement(Controls, null),
+        React.createElement(MiniMap, { nodeColor: (n) => (NODE_TYPES[n.data?.type] || {}).color || '#6366f1' })
+      )
+    ),
+    React.createElement(PropsPanel, {
+      selectedNode, selectedEdge,
+      onUpdate: (kind, patch) => kind === 'node' ? updateNode(patch) : updateEdge(patch),
+      onDelete: deleteItem,
+    }),
+    errorMsg ? React.createElement('div', { className: 'error-banner', onClick: () => setErrorMsg(null) }, '⚠ ' + errorMsg + ' (click to dismiss)') : null
+  );
+}
+
+const root = createRoot(document.getElementById('root'));
+root.render(React.createElement(ReactFlowProvider, null, React.createElement(WorkflowEditorReal)));
+
+</script>
+</body>
+</html>

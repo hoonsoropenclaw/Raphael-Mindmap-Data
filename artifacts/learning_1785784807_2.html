@@ -1,0 +1,696 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Glassmorphism × React Flow — Dynamic UI</title>
+
+  <!-- React Flow official CSS (per single_file_html_esm_delivery micro-skill) -->
+  <link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css" />
+
+  <style>
+    /* =========================================================
+       BASE — animated aurora background so backdrop-filter has
+       something to actually blur.
+       ========================================================= */
+    :root {
+      --glass-border:    rgba(220, 241, 255, .18);
+      --glass-bg:        linear-gradient(135deg, rgba(255,255,255,.12), rgba(255,255,255,.035));
+      --glass-bg-dark:   linear-gradient(135deg, rgba(255,255,255,.06), rgba(255,255,255,.015));
+      --glass-shadow:    inset 0 1px 0 rgba(255,255,255,.18), 0 24px 80px rgba(0,0,0,.22);
+      --glass-highlight: radial-gradient(circle at 15% 0%, rgba(255,255,255,.18), transparent 34%);
+      --accent:          #7afcff;
+      --accent-2:        #ff7adb;
+      --accent-3:        #b388ff;
+      --danger:          #ff7a7a;
+      --ok:              #7afca6;
+      --text:            #eaf4ff;
+      --text-dim:        #b9c9dc;
+    }
+
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC",
+                   "Microsoft JhengHei", Roboto, sans-serif;
+      color: var(--text);
+      background: #070713;
+      overflow: hidden;
+    }
+
+    /* Aurora layer — slow shifting blobs */
+    .aurora {
+      position: fixed; inset: 0; z-index: 0;
+      background:
+        radial-gradient(60% 60% at 12% 18%, #4d2dff 0%, transparent 60%),
+        radial-gradient(50% 50% at 88% 22%, #ff2d8e 0%, transparent 60%),
+        radial-gradient(70% 70% at 50% 95%, #00d4ff 0%, transparent 60%),
+        radial-gradient(40% 40% at 80% 80%, #ffd24d 0%, transparent 60%),
+        linear-gradient(180deg, #0a0a1f 0%, #070713 100%);
+      filter: saturate(140%);
+      animation: drift 22s ease-in-out infinite alternate;
+    }
+    @keyframes drift {
+      0%   { background-position: 0% 0%,   0% 0%,   0% 0%,   0% 0%, 0% 0%; transform: scale(1); }
+      50%  { background-position: 8% 4%,  -6% 2%,  4% -4%, -3% 3%, 0% 0%; transform: scale(1.06); }
+      100% { background-position:-6% 8%,   6% -2%, -4% 6%,  3% -4%, 0% 0%; transform: scale(1); }
+    }
+
+    /* =========================================================
+       GLASS PRIMITIVE — derived from
+       glassmorphism_design_and_ui_components.md §關鍵程式碼片段
+       ========================================================= */
+    .glass {
+      position: relative;
+      isolation: isolate;          /* pitfall #4 in micro-skill */
+      overflow: hidden;
+      border: 1px solid var(--glass-border);
+      background: var(--glass-bg);
+      backdrop-filter: blur(20px) saturate(145%);
+      -webkit-backdrop-filter: blur(20px) saturate(145%);
+      box-shadow: var(--glass-shadow);
+      color: var(--text);
+    }
+    .glass::before {                /* specular highlight */
+      content: '';
+      position: absolute; inset: 0;
+      z-index: -1; pointer-events: none;
+      background: var(--glass-highlight);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --glass-bg: var(--glass-bg-dark); }
+    }
+    @supports not (backdrop-filter: blur(1px)) {
+      .glass { background: rgba(40,40,80,.55); }
+    }
+
+    /* =========================================================
+       APP LAYOUT
+       ========================================================= */
+    .app {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      grid-template-rows: 64px 1fr 56px;
+      height: 100vh;
+      gap: 14px;
+      padding: 14px;
+      box-sizing: border-box;
+    }
+
+    /* TOP BAR */
+    .topbar {
+      grid-column: 1 / span 2;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 18px; border-radius: 16px;
+    }
+    .topbar h1 {
+      font-size: 15px; font-weight: 600; margin: 0;
+      letter-spacing: .04em; text-transform: uppercase;
+    }
+    .topbar h1 span { color: var(--accent); }
+    .topbar .meta { display: flex; gap: 8px; align-items: center; }
+    .pill {
+      font-size: 11px; padding: 4px 10px; border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.18);
+      background: rgba(255,255,255,.06);
+      color: var(--text-dim);
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    }
+    .pill.ok    { color: var(--ok);     border-color: rgba(122,252,166,.4); }
+    .pill.bad   { color: var(--danger); border-color: rgba(255,122,122,.4); }
+    .pill.warn  { color: var(--accent); border-color: rgba(122,252,255,.4); }
+
+    /* SIDE PANEL */
+    .panel {
+      grid-row: 2 / span 2;
+      padding: 18px; border-radius: 18px;
+      display: flex; flex-direction: column; gap: 14px;
+      overflow-y: auto;
+    }
+    .panel h2 {
+      font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+      color: var(--text-dim); margin: 0 0 6px 0;
+    }
+    .panel-section { display: flex; flex-direction: column; gap: 8px; }
+
+    .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .glass-btn {
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,.18);
+      background: rgba(255,255,255,.08);
+      color: var(--text); font-size: 12px;
+      cursor: pointer;
+      transition: transform .12s ease, background .12s ease, border-color .12s ease;
+      backdrop-filter: blur(8px);
+    }
+    .glass-btn:hover  { background: rgba(255,255,255,.14); border-color: rgba(122,252,255,.5); transform: translateY(-1px); }
+    .glass-btn:active { transform: translateY(0); }
+    .glass-btn.primary { background: linear-gradient(135deg, rgba(122,252,255,.22), rgba(179,136,255,.22)); border-color: rgba(122,252,255,.5); }
+    .glass-btn.danger  { background: rgba(255,122,122,.12); border-color: rgba(255,122,122,.35); color: #ffd2d2; }
+    .glass-btn.danger:hover { background: rgba(255,122,122,.22); }
+
+    /* Theme swatches */
+    .swatches { display: flex; gap: 8px; }
+    .swatch {
+      width: 36px; height: 36px; border-radius: 10px; cursor: pointer;
+      border: 1px solid rgba(255,255,255,.18);
+      transition: transform .12s ease;
+    }
+    .swatch:hover  { transform: scale(1.08); }
+    .swatch.active { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+    /* Slider / form */
+    .glass-input, .glass-select {
+      width: 100%; box-sizing: border-box;
+      padding: 9px 12px; border-radius: 10px;
+      border: 1px solid rgba(255,255,255,.18);
+      background: rgba(255,255,255,.06);
+      color: var(--text); font-size: 13px;
+      backdrop-filter: blur(8px);
+      outline: none;
+    }
+    .glass-input:focus, .glass-select:focus { border-color: var(--accent); }
+
+    /* CANVAS WRAPPER */
+    .canvas-wrap {
+      grid-column: 2; grid-row: 2;
+      border-radius: 18px;
+      overflow: hidden;
+      position: relative;
+    }
+    .canvas-empty {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-dim); font-size: 13px;
+      pointer-events: none; opacity: .5;
+      z-index: 0;
+    }
+    /* CSS-only dotted backdrop (replaces <Background> from @reactflow/background) */
+    .canvas-dots {
+      position: absolute; inset: 0;
+      z-index: 0;
+      background-image: radial-gradient(rgba(255,255,255,.18) 1.1px, transparent 1.1px);
+      background-size: 18px 18px;
+      pointer-events: none;
+    }
+    /* Make sure RF internals sit above the dots overlay */
+    .react-flow__renderer, .react-flow__pane { z-index: 1; position: relative; }
+
+    /* STATUS BAR */
+    .statusbar {
+      grid-column: 2; grid-row: 3;
+      padding: 0 18px; border-radius: 14px;
+      display: flex; align-items: center; gap: 14px;
+      font-size: 12px; color: var(--text-dim);
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    }
+    .statusbar code { color: var(--accent); }
+
+    /* =========================================================
+       CUSTOM REACT FLOW NODES — all use .glass primitive
+       Each type has unique accent stripe so users can read
+       the graph at a glance.
+       ========================================================= */
+    .gfn {
+      min-width: 180px; max-width: 240px;
+      padding: 12px 14px; border-radius: 14px;
+      font-size: 13px; line-height: 1.4;
+    }
+    .gfn .gfn-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .gfn .gfn-icon {
+      width: 24px; height: 24px; border-radius: 8px;
+      display: grid; place-items: center;
+      font-size: 13px; font-weight: 700;
+    }
+    .gfn .gfn-title { font-weight: 600; font-size: 13px; }
+    .gfn .gfn-sub   { color: var(--text-dim); font-size: 11px; }
+
+    /* accent stripes — reuse the `--accent` slot via inline style in node JSX */
+    .gfn.input  .gfn-icon { background: linear-gradient(135deg, var(--accent),  #4d8aff); color: #00132a; }
+    .gfn.process .gfn-icon { background: linear-gradient(135deg, var(--accent-3), #6a8cff); color: #0c0033; }
+    .gfn.output .gfn-icon  { background: linear-gradient(135deg, var(--accent-2), #ff7a7a); color: #2a000d; }
+    .gfn.metric .gfn-icon  { background: linear-gradient(135deg, #ffd24d, #ff8a3d); color: #2a1500; }
+
+    .gfn .gfn-body {
+      display: flex; flex-direction: column; gap: 4px;
+      font-size: 12px; color: var(--text-dim);
+    }
+    .gfn .gfn-row { display: flex; justify-content: space-between; }
+    .gfn .gfn-row b { color: var(--text); font-weight: 600; }
+
+    .gfn.selected { box-shadow: var(--glass-shadow), 0 0 0 2px var(--accent); }
+    .react-flow__handle {
+      width: 10px; height: 10px;
+      background: rgba(255,255,255,.4);
+      border: 1px solid rgba(255,255,255,.7);
+      backdrop-filter: blur(6px);
+    }
+    .react-flow__handle:hover { background: var(--accent); }
+    .react-flow__edge-path { stroke: rgba(255,255,255,.55); stroke-width: 1.6; }
+    .react-flow__edge.animated .react-flow__edge-path {
+      stroke: var(--accent);
+      stroke-dasharray: 6 4;
+      animation: dash 1.2s linear infinite;
+    }
+    @keyframes dash { to { stroke-dashoffset: -20; } }
+
+    /* MiniMap + Controls recolor */
+    .react-flow__minimap {
+      background: rgba(20,20,40,.55) !important;
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--glass-border);
+      border-radius: 12px;
+    }
+    .react-flow__controls {
+      background: transparent; box-shadow: none;
+    }
+    .react-flow__controls-button {
+      background: rgba(20,20,40,.55) !important;
+      border: 1px solid var(--glass-border) !important;
+      backdrop-filter: blur(10px);
+      color: var(--text) !important;
+    }
+    .react-flow__controls-button:hover { background: rgba(122,252,255,.25) !important; }
+
+    /* tiny scrollbar inside glass panel */
+    .panel::-webkit-scrollbar { width: 6px; }
+    .panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 3px; }
+  </style>
+
+  <!-- Importmap — per single_file_html_esm_delivery.md + esm_importmap_integration.md -->
+  <script type="importmap">
+  {
+    "imports": {
+      "react":           "https://esm.sh/react@18.3.1",
+      "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
+      "react-dom":       "https://esm.sh/react-dom@18.3.1",
+      "react-dom/client":"https://esm.sh/react-dom@18.3.1/client",
+      "reactflow":       "https://esm.sh/reactflow@11.11.4?deps=react@18.3.1,react-dom@18.3.1&external=react,react-dom"
+    }
+  }
+  </script>
+</head>
+<body>
+
+  <!-- Aurora layer behind everything -->
+  <div class="aurora" aria-hidden="true"></div>
+
+  <!-- React mount target -->
+  <div id="root"></div>
+
+  <noscript>
+    <div style="padding:24px;color:#fff">
+      This demo requires JavaScript. The Glassmorphism + React Flow playground
+      runs entirely in the browser via ESM importmap.
+    </div>
+  </noscript>
+
+  <script type="module">
+    import * as React from 'react';
+    import { createRoot } from 'react-dom/client';
+    import ReactFlow, {
+      ReactFlowProvider,
+      Controls,
+      MiniMap,
+      useNodesState,
+      useEdgesState,
+      addEdge,
+      Handle,
+      Position,
+      useReactFlow,
+    } from 'reactflow';
+    // Note: `Background` lives in the separate `@reactflow/background`
+    // package which v11 doesn't re-export from the main entry.
+    // We render a CSS-based dot grid instead (see .canvas-dots below).
+
+    const { useState, useEffect, useCallback, useMemo, useRef } = React;
+
+    /* =========================================================
+       CUSTOM NODES — every node is a .glass card with an
+       accent stripe determined by its type.
+       ========================================================= */
+
+    const accentMap = {
+      input:   'var(--accent)',
+      process: 'var(--accent-3)',
+      output:  'var(--accent-2)',
+      metric:  '#ffd24d',
+    };
+    const iconMap = {
+      input:   '▶',
+      process: '⚙',
+      output:  '◆',
+      metric:  'Σ',
+    };
+
+    function GlassNode({ data, type, selected }) {
+      const accent = accentMap[type] || 'var(--accent)';
+      const icon   = iconMap[type] || '•';
+      return (
+        <div
+          className={`glass gfn ${type}${selected ? ' selected' : ''}`}
+          style={{ borderColor: accent, boxShadow: `var(--glass-shadow), 0 0 0 1px ${accent}33` }}
+        >
+          <Handle type="target" position={Position.Left} />
+          <div className="gfn-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className="gfn-icon">{icon}</span>
+              <span className="gfn-title">{data.label || type}</span>
+            </div>
+            <span className="gfn-sub">{type}</span>
+          </div>
+          <div className="gfn-body">
+            {Object.entries(data.meta || {}).map(([k, v]) => (
+              <div className="gfn-row" key={k}>
+                <span>{k}</span><b>{String(v)}</b>
+              </div>
+            ))}
+          </div>
+          <Handle type="source" position={Position.Right} />
+        </div>
+      );
+    }
+    const nodeTypes = {
+      input:   GlassNode,
+      process: GlassNode,
+      output:  GlassNode,
+      metric:  GlassNode,
+    };
+
+    /* =========================================================
+       DAG VALIDATION — per reactflow_integration_for_dag_and_ui.md
+       Cycle detection (DFS + recursion stack) + orphan detection.
+       ========================================================= */
+    function detectCycle(nodes, edges) {
+      const adj = new Map();
+      nodes.forEach(n => adj.set(n.id, []));
+      edges.forEach(e => { if (adj.has(e.source)) adj.get(e.source).push(e.target); });
+      const WHITE = 0, GRAY = 1, BLACK = 2;
+      const color = new Map(nodes.map(n => [n.id, WHITE]));
+      const cycleEdges = [];
+
+      function dfs(u) {
+        color.set(u, GRAY);
+        for (const v of adj.get(u) || []) {
+          if (color.get(v) === GRAY) {
+            cycleEdges.push([u, v]);
+            return true;
+          }
+          if (color.get(v) === WHITE && dfs(v)) return true;
+        }
+        color.set(u, BLACK);
+        return false;
+      }
+      for (const n of nodes) {
+        if (color.get(n.id) === WHITE && dfs(n.id)) return cycleEdges;
+      }
+      return null;
+    }
+    function findOrphans(nodes, edges) {
+      const hasIncoming = new Set();
+      edges.forEach(e => hasIncoming.add(e.target));
+      return nodes.filter(n => !hasIncoming.has(n.id) && n.type !== 'input');
+    }
+
+    /* =========================================================
+       FLOW CANVAS — wraps ReactFlow with all the dynamic UI hooks
+       ========================================================= */
+    function FlowCanvas({ theme, snap, onStats }) {
+      const wrapper = useRef(null);
+      const [size, setSize] = useState({ w: 800, h: 600 });
+
+      // Initial seed graph
+      const initialNodes = [
+        { id: 'in1',  type: 'input',   data: { label: 'Webhook',     meta: { src: 'GitHub', latency: '42ms' } }, position: { x:  40, y:  60 } },
+        { id: 'p1',   type: 'process', data: { label: 'Validate',    meta: { stage: '1/3',  rate: '1.2k/s' } }, position: { x: 320, y:  60 } },
+        { id: 'p2',   type: 'process', data: { label: 'Transform',   meta: { fmt: 'JSON→Parquet', workers: '4' } }, position: { x: 600, y:  60 } },
+        { id: 'p3',   type: 'process', data: { label: 'Enrich',      meta: { joined: 'crm', rows: '7.4k' } }, position: { x: 880, y:  60 } },
+        { id: 'out1', type: 'output',  data: { label: 'Warehouse',   meta: { dest: 'Snowflake', lag: '5s' } }, position: { x: 320, y: 240 } },
+        { id: 'm1',   type: 'metric',  data: { label: 'Live KPI',    meta: { rps: '1240', err: '0.3%', p99: '187ms' } }, position: { x: 600, y: 240 } },
+      ];
+      const initialEdges = [
+        { id: 'e-in-p1',  source: 'in1',  target: 'p1',  animated: true },
+        { id: 'e-p1-p2',  source: 'p1',   target: 'p2',  animated: true },
+        { id: 'e-p2-p3',  source: 'p2',   target: 'p3',  animated: true },
+        { id: 'e-p3-out', source: 'p3',   target: 'out1', animated: true },
+        { id: 'e-p1-m1',  source: 'p1',   target: 'm1',  animated: true },
+        { id: 'e-p2-m1',  source: 'p2',   target: 'm1',  animated: true },
+        { id: 'e-p3-m1',  source: 'p3',   target: 'm1',  animated: true },
+      ];
+
+      const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+      const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+
+      const onConnect = useCallback(p => setEdges(es => addEdge({ ...p, animated: true }, es)), [setEdges]);
+
+      // Resize observer
+      useEffect(() => {
+        if (!wrapper.current) return;
+        const ro = new ResizeObserver(entries => {
+          for (const e of entries) {
+            setSize({ w: e.contentRect.width, h: e.contentRect.height });
+          }
+        });
+        ro.observe(wrapper.current);
+        return () => ro.disconnect();
+      }, []);
+
+      // DAG validation reporting
+      useEffect(() => {
+        const cycle = detectCycle(nodes, edges);
+        const orphans = findOrphans(nodes, edges);
+        onStats({
+          nodeCount: nodes.length,
+          edgeCount: edges.length,
+          acyclic: !cycle,
+          orphans: orphans.length,
+        });
+      }, [nodes, edges, onStats]);
+
+      const snapGrid = snap ? [16, 16] : [1, 1];
+
+      return (
+        <div ref={wrapper} style={{ width: '100%', height: '100%' }}>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            nodeTypes={nodeTypes}
+            snapToGrid={snap}
+            snapGrid={snapGrid}
+            fitView
+            fitViewOptions={{ padding: 0.2 }}
+            proOptions={{ hideAttribution: true }}
+          >
+            <div className="canvas-dots" aria-hidden="true" />
+            <Controls position="bottom-right" showInteractive={false} />
+            <MiniMap
+              position="top-right"
+              pannable
+              zoomable
+              nodeColor={n => accentMap[n.type] || 'var(--accent)'}
+              nodeStrokeColor="rgba(255,255,255,.4)"
+              maskColor="rgba(7,7,19,.6)"
+            />
+          </ReactFlow>
+          {nodes.length === 0 && (
+            <div className="canvas-empty">Press “+ Input / Process / Output” to add your first node</div>
+          )}
+          <div style={{ position: 'absolute', left: 14, bottom: 12, fontSize: 10, color: 'rgba(255,255,255,.45)', fontFamily: 'ui-monospace, monospace' }}>
+            viewport {size.w|0}×{size.h|0}
+          </div>
+        </div>
+      );
+    }
+
+    /* =========================================================
+       APP — top-level shell: topbar, side panel, canvas, status bar
+       The "dynamic UI" lives mostly in the side panel and in
+       the imperative bridge to React Flow (useReactFlow).
+       ========================================================= */
+    function App() {
+      const [snap, setSnap] = useState(true);
+      const [theme, setTheme] = useState('aurora');
+      const [nodeCount, setNodeCount] = useState(0);
+      const [edgeCount, setEdgeCount] = useState(0);
+      const [acyclic, setAcyclic] = useState(true);
+      const [orphanCount, setOrphanCount] = useState(0);
+
+      // stats callback wired to FlowCanvas
+      const onStats = useCallback(s => {
+        setNodeCount(s.nodeCount);
+        setEdgeCount(s.edgeCount);
+        setAcyclic(s.acyclic);
+        setOrphanCount(s.orphans);
+      }, []);
+
+      const rf = useReactFlow();
+
+      const addNode = (type) => {
+        const id = `${type}-${Date.now().toString(36).slice(-4)}`;
+        const palette = {
+          input:   'New Source',
+          process: 'New Step',
+          output:  'New Sink',
+          metric:  'New Metric',
+        };
+        // Place near viewport centre, with jitter
+        const vp = rf.getViewport();
+        const cx = (-vp.x + window.innerWidth / 2) / vp.zoom;
+        const cy = (-vp.y + window.innerHeight / 2) / vp.zoom;
+        const x = cx - 90 + (Math.random() * 80 - 40);
+        const y = cy - 30 + (Math.random() * 80 - 40);
+        rf.setNodes(ns => ns.concat({
+          id, type, data: { label: palette[type], meta: { created: new Date().toLocaleTimeString() } },
+          position: { x, y },
+        }));
+      };
+
+      const autoLayout = () => {
+        // Simple force-ish radial layout: rotate existing nodes
+        const ns = rf.getNodes();
+        const cx = 500, cy = 300, R = 260;
+        rf.setNodes(ns.map((n, i) => ({
+          ...n,
+          position: {
+            x: cx + R * Math.cos((2 * Math.PI * i) / ns.length) - 90,
+            y: cy + R * Math.sin((2 * Math.PI * i) / ns.length) - 40,
+          },
+        })));
+        rf.fitView({ padding: 0.2, duration: 500 });
+      };
+
+      const clearAll = () => {
+        if (rf.getNodes().length === 0) return;
+        if (!confirm('Remove every node and edge?')) return;
+        rf.setNodes([]);
+        rf.setEdges([]);
+      };
+
+      const themes = {
+        aurora:  ['#4d2dff', '#ff2d8e', '#00d4ff', '#ffd24d'],
+        ocean:   ['#0a3d62', '#1e6091', '#4ca1c4', '#9ce5ff'],
+        forest:  ['#0d3b1e', '#1e6e3c', '#5fbf7f', '#cdf0d4'],
+        sunset:  ['#ff5e5b', '#ff9966', '#ffd24d', '#ffe9a3'],
+      };
+      const applyTheme = (name) => {
+        const t = themes[name];
+        if (!t) return;
+        setTheme(name);
+        document.querySelector('.aurora').style.background =
+          `radial-gradient(60% 60% at 12% 18%, ${t[0]} 0%, transparent 60%),
+           radial-gradient(50% 50% at 88% 22%, ${t[1]} 0%, transparent 60%),
+           radial-gradient(70% 70% at 50% 95%, ${t[2]} 0%, transparent 60%),
+           radial-gradient(40% 40% at 80% 80%, ${t[3]} 0%, transparent 60%),
+           linear-gradient(180deg, #0a0a1f 0%, #070713 100%)`;
+      };
+
+      return (
+        <div className="app">
+          {/* TOPBAR */}
+          <header className="topbar glass">
+            <h1>Glassmorphism <span>×</span> React Flow</h1>
+            <div className="meta">
+              <span className={`pill ${acyclic ? 'ok' : 'bad'}`}>
+                {acyclic ? 'Acyclic ✓' : 'Cycle ✗'}
+              </span>
+              <span className={`pill ${orphanCount ? 'warn' : ''}`}>
+                Orphans: {orphanCount}
+              </span>
+              <span className="pill">{nodeCount} nodes / {edgeCount} edges</span>
+            </div>
+          </header>
+
+          {/* SIDE PANEL */}
+          <aside className="panel glass">
+            <div className="panel-section">
+              <h2>Add Node</h2>
+              <div className="btn-row">
+                <button className="glass-btn primary" onClick={() => addNode('input')}>+ Input</button>
+                <button className="glass-btn" onClick={() => addNode('process')}>+ Process</button>
+                <button className="glass-btn" onClick={() => addNode('output')}>+ Output</button>
+                <button className="glass-btn" onClick={() => addNode('metric')}>+ Metric</button>
+              </div>
+            </div>
+
+            <div className="panel-section">
+              <h2>Graph Actions</h2>
+              <div className="btn-row">
+                <button className="glass-btn" onClick={autoLayout}>Auto-layout</button>
+                <button className="glass-btn" onClick={() => rf.fitView({ padding: 0.2, duration: 400 })}>Fit view</button>
+                <button className="glass-btn" onClick={() => setSnap(s => !s)}>
+                  Snap: {snap ? '16px' : 'off'}
+                </button>
+                <button className="glass-btn danger" onClick={clearAll}>Clear all</button>
+              </div>
+            </div>
+
+            <div className="panel-section">
+              <h2>Theme</h2>
+              <div className="swatches">
+                {Object.entries(themes).map(([name, colors]) => (
+                  <div
+                    key={name}
+                    className={`swatch ${theme === name ? 'active' : ''}`}
+                    style={{ background: `linear-gradient(135deg, ${colors.join(', ')})` }}
+                    onClick={() => applyTheme(name)}
+                    title={name}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="panel-section">
+              <h2>How to Use</h2>
+              <div style={{ fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.55 }}>
+                • Drag any <b style={{color:'var(--text)'}}>glass node</b> to reposition.<br/>
+                • Drag from the right <b style={{color:'var(--text)'}}>●</b> handle to another node's left <b style={{color:'var(--text)'}}>●</b> to wire dataflow.<br/>
+                • Use the side panel to add new node types — try forming a cycle to see the badge flip red.<br/>
+                • Pick a theme — the aurora backdrop drives the glass blur, so changing it changes the whole look.
+              </div>
+            </div>
+          </aside>
+
+          {/* CANVAS */}
+          <main className="canvas-wrap glass">
+            <FlowCanvas theme={theme} snap={snap} onStats={onStats} />
+          </main>
+
+          {/* STATUS BAR */}
+          <footer className="statusbar glass">
+            <span>react@18.3.1</span>
+            <span>·</span>
+            <span>reactflow@11.11.4</span>
+            <span>·</span>
+            <span>ESM importmap · single-file delivery</span>
+            <span style={{flex:1}}></span>
+            <span>backdrop-filter <code>blur(20px) saturate(145%)</code></span>
+            <span>·</span>
+            <span>isolation: isolate ✓</span>
+          </footer>
+        </div>
+      );
+    }
+
+    /* =========================================================
+       MOUNT — Provider must wrap App because App calls useReactFlow
+       ========================================================= */
+    const root = createRoot(document.getElementById('root'));
+    root.render(
+      <ReactFlowProvider>
+        <App />
+      </ReactFlowProvider>
+    );
+
+    // expose for quick debugging in devtools
+    window.__hermes_glass_demo = { ReactFlow, reactflowVersion: '11.11.4' };
+  </script>
+</body>
+</html>

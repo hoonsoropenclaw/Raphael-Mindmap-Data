@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>React Flow DAG Editor — Next.js Integration Demo</title>
+  <meta name="description" content="A demo DAG editor built with React Flow (@xyflow/react) ready to drop into a Next.js frontend." />
+
+  <!-- Tailwind (Play CDN) for fast single-file styling -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- React Flow base styles (must be loaded for the canvas to render) -->
+  <link rel="stylesheet" href="https://esm.sh/@xyflow/react@12.3.5/dist/style.css" />
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ink: { 900: '#0b1020', 800: '#0f1530', 700: '#141b3d', 600: '#1d2750' },
+          },
+          boxShadow: {
+            glow: '0 0 32px rgba(99,102,241,0.45)',
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    :root {
+      --bg-glow-1: #1e1b4b;
+      --bg-glow-2: #0f172a;
+      --accent: #818cf8;
+      --accent-2: #f472b6;
+      --success: #34d399;
+      --warn: #fbbf24;
+      --danger: #f87171;
+    }
+    html, body {
+      margin: 0; padding: 0;
+      background: radial-gradient(1200px 800px at 10% 10%, #1e1b4b 0%, #0f172a 60%, #020617 100%);
+      color: #e2e8f0;
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      min-height: 100vh;
+    }
+    /* React Flow theme overrides for dark background */
+    .react-flow__background {
+      background-color: transparent;
+    }
+    .react-flow__controls {
+      background: rgba(15, 23, 42, 0.72);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      backdrop-filter: blur(8px);
+    }
+    .react-flow__controls button {
+      background: rgba(255, 255, 255, 0.04);
+      color: #cbd5e1;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .react-flow__controls button:hover {
+      background: rgba(99, 102, 241, 0.25);
+    }
+    .react-flow__minimap {
+      background: rgba(15, 23, 42, 0.78);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+    }
+    .react-flow__attribution {
+      background: transparent;
+      color: rgba(255, 255, 255, 0.35);
+    }
+    .react-flow__edge-path {
+      stroke: #94a3b8;
+      stroke-width: 2;
+    }
+    .react-flow__edge.selected .react-flow__edge-path,
+    .react-flow__edge:focus .react-flow__edge-path {
+      stroke: var(--accent);
+    }
+    .react-flow__edge.cycle .react-flow__edge-path {
+      stroke: var(--danger);
+      stroke-dasharray: 6 4;
+    }
+    .react-flow__handle {
+      width: 10px; height: 10px;
+      background: var(--accent);
+      border: 2px solid #0f172a;
+    }
+    .react-flow__handle.connectingfrom,
+    .react-flow__handle.connectingto {
+      background: var(--warn);
+    }
+    /* Custom node card */
+    .dag-node {
+      min-width: 180px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, rgba(30, 27, 75, 0.85), rgba(15, 23, 42, 0.85));
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      color: #e2e8f0;
+      font-size: 13px;
+    }
+    .dag-node .badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-bottom: 4px;
+    }
+    .dag-node.input   .badge { background: #34d399; color: #052e1f; }
+    .dag-node.process .badge { background: #818cf8; color: #1e1b4b; }
+    .dag-node.output  .badge { background: #f472b6; color: #4a1337; }
+    .dag-node .title { font-weight: 600; line-height: 1.25; }
+    .dag-node .meta  { font-size: 11px; color: rgba(226, 232, 240, 0.55); margin-top: 2px; }
+    .dag-node.orphan { border-color: var(--warn); }
+    .dag-node.invalid { border-color: var(--danger); }
+
+    /* Glass panel */
+    .panel {
+      background: rgba(15, 23, 42, 0.66);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(14px);
+      border-radius: 12px;
+    }
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 12px; border-radius: 8px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #e2e8f0;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .btn:hover { background: rgba(99, 102, 241, 0.18); border-color: rgba(99, 102, 241, 0.45); }
+    .btn.primary { background: linear-gradient(135deg, #6366f1, #8b5cf6); border-color: transparent; }
+    .btn.primary:hover { filter: brightness(1.08); }
+    .btn.danger { background: rgba(248, 113, 113, 0.12); border-color: rgba(248, 113, 113, 0.4); }
+    .btn.danger:hover { background: rgba(248, 113, 113, 0.22); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* Toast */
+    .toast {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      padding: 10px 18px; border-radius: 10px;
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      font-size: 13px; color: #e2e8f0;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
+    .toast.success { border-color: rgba(52, 211, 153, 0.5); }
+    .toast.error   { border-color: rgba(248, 113, 113, 0.5); }
+
+    /* React Flow attribution cleanup */
+    .react-flow__attribution a { color: rgba(255, 255, 255, 0.4); }
+  </style>
+
+  <!-- ESM importmap: pin React / ReactDOM / React Flow versions -->
+  <script type="importmap">
+  {
+    "imports": {
+      "react": "https://esm.sh/react@18.3.1",
+      "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
+      "react-dom": "https://esm.sh/react-dom@18.3.1",
+      "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+      "@xyflow/react": "https://esm.sh/@xyflow/react@12.3.5?external=react,react-dom"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- Bootstrap error UI for when esm.sh fails / no network -->
+  <noscript>
+    <div style="padding:24px;color:#e2e8f0">
+      This demo requires JavaScript + ES modules. Please enable both.
+    </div>
+  </noscript>
+
+  <!-- ====================================================================
+       Pre-flight error display: catches module loading errors and shows them
+       ==================================================================== -->
+    <script>
+      window.__preBootError = function(tag, err) {
+        const root = document.getElementById('root');
+        if (!root) return;
+        const msg = (err && (err.message || err.reason)) || String(err);
+        const stack = (err && err.stack) ? err.stack : '';
+        root.innerHTML = '<div style="padding:24px;color:#f87171;font-family:ui-monospace,monospace;line-height:1.5;max-width:900px">'
+          + '<h2 style="color:#fbbf24;margin:0 0 12px 0">⚠ Boot failure  [' + tag + ']</h2>'
+          + '<pre style="white-space:pre-wrap;background:rgba(0,0,0,0.4);padding:12px;border-radius:8px">' + msg + '</pre>'
+          + (stack ? '<pre style="white-space:pre-wrap;background:rgba(0,0,0,0.4);padding:12px;border-radius:8px;font-size:11px;opacity:0.8">' + stack + '</pre>' : '')
+          + '<p style="color:#94a3b8;font-size:12px;margin-top:12px">Common causes: esm.sh unreachable, browser too old, or mixed-content (use https://).</p>'
+          + '</div>';
+        console.error('[preBootError]', tag, err);
+      };
+      window.addEventListener('error', (e) => {
+        console.log('[error event]', e.message, e.filename, e.lineno, e.colno, e);
+        if (e && e.target && (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK')) {
+          window.__preBootError('script-load', (e.target.src || e.target.href) + ' failed to load');
+        } else if (e && e.message) {
+          window.__preBootError('exception', e.message + '\n  at ' + (e.filename || '?') + ':' + (e.lineno || '?'));
+        }
+      });
+      window.addEventListener('unhandledrejection', (e) => {
+        window.__preBootError('unhandled-promise', e.reason || e);
+      });
+      window.__bootReached = function() {
+        document.title = '✓ React mounted';
+      };
+    </script>
+
+    <!-- Application bootstrap (kept in a single module so the whole tree is one IIFE-like bundle) -->
+    <script type="module">
+    import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import {
+      ReactFlow,
+      Background,
+      Controls,
+      MiniMap,
+      Handle,
+      Position,
+      useNodesState,
+      useEdgesState,
+      addEdge,
+      ReactFlowProvider,
+      useReactFlow,
+      Panel as RFPanel,
+    } from '@xyflow/react';
+
+    // ====================================================================
+    // 1. DAG validation (DFS cycle detection) — per dag_editor_implementation
+    //    Pure function, accepts React Flow's nodes/edges shape.
+    // ====================================================================
+    function validateDAG(nodes, edges) {
+      const adjacency = new Map();
+      nodes.forEach(n => adjacency.set(n.id, []));
+      edges.forEach(e => {
+        if (adjacency.has(e.source)) adjacency.get(e.source).push(e.target);
+      });
+
+      const visited = new Set();
+      const recStack = new Set();
+      const cycleEdges = new Set();
+
+      function dfs(nodeId) {
+        visited.add(nodeId);
+        recStack.add(nodeId);
+        for (const next of adjacency.get(nodeId) || []) {
+          if (!visited.has(next)) {
+            // mark predecessor edge as suspect only if recursion finds a cycle
+            const suspect = edges.find(e => e.source === nodeId && e.target === next);
+            if (suspect) cycleEdges.add(suspect.id);
+            if (!dfs(next)) return false;
+            if (suspect) cycleEdges.delete(suspect.id);
+          } else if (recStack.has(next)) {
+            // back-edge -> cycle, mark this edge
+            const back = edges.find(e => e.source === nodeId && e.target === next);
+            if (back) cycleEdges.add(back.id);
+            return false;
+          }
+        }
+        recStack.delete(nodeId);
+        return true;
+      }
+
+      let isValid = true;
+      for (const n of nodes) {
+        if (!visited.has(n.id)) {
+          if (!dfs(n.id)) isValid = false;
+        }
+      }
+      return { isValid, cycleEdges: Array.from(cycleEdges) };
+    }
+
+    // Find nodes that are unreachable from any input node (no path from an input)
+    function findOrphans(nodes, edges) {
+      const hasIncoming = new Set();
+      edges.forEach(e => hasIncoming.add(e.target));
+      const startNodes = nodes.filter(n => n.type === 'input' || !hasIncoming.has(n.id));
+      // reachable from start nodes
+      const reachable = new Set();
+      const stack = startNodes.map(n => n.id);
+      const forward = new Map();
+      edges.forEach(e => {
+        if (!forward.has(e.source)) forward.set(e.source, []);
+        forward.get(e.source).push(e.target);
+      });
+      while (stack.length) {
+        const id = stack.pop();
+        if (reachable.has(id)) continue;
+        reachable.add(id);
+        (forward.get(id) || []).forEach(t => stack.push(t));
+      }
+      return nodes.filter(n => !reachable.has(n.id)).map(n => n.id);
+    }
+
+    // ====================================================================
+    // 2. Custom node components — Input / Process / Output
+    // ====================================================================
+    function NodeShell({ type, title, meta, className = '', selected }) {
+      const variant = type; // 'input' | 'process' | 'output'
+      const labelText = type === 'input' ? 'INPUT' : type === 'output' ? 'OUTPUT' : 'PROCESS';
+      const handleLeft = type === 'output' ? null : React.createElement(Handle, { type: 'target', position: Position.Left, id: 't-' + type });
+      const handleRight = type === 'input' ? null : React.createElement(Handle, { type: 'source', position: Position.Right, id: 's-' + type });
+      const metaEl = meta ? React.createElement('div', { className: 'meta' }, meta) : null;
+      return React.createElement(
+        'div',
+        {
+          className: `dag-node ${variant} ${className}`,
+          style: selected ? { boxShadow: '0 0 0 2px rgba(129,140,248,0.7)' } : null
+        },
+        handleLeft,
+        React.createElement('div', { className: 'badge' }, labelText),
+        React.createElement('div', { className: 'title' }, title),
+        metaEl,
+        handleRight
+      );
+    }
+
+    function InputNode({ data, selected }) {
+      return React.createElement(NodeShell, { type: 'input', title: data.label, meta: data.subtitle, className: data.invalid ? 'invalid' : '', selected });
+    }
+    function ProcessNode({ data, selected }) {
+      return React.createElement(NodeShell, { type: 'process', title: data.label, meta: data.subtitle, className: data.invalid ? 'invalid' : '', selected });
+    }
+    function OutputNode({ data, selected }) {
+      return React.createElement(NodeShell, { type: 'output', title: data.label, meta: data.subtitle, className: data.invalid ? 'invalid' : '', selected });
+    }
+
+    const nodeTypes = {
+      input:   InputNode,
+      process: ProcessNode,
+      output:  OutputNode,
+    };
+
+    // ====================================================================
+    // 3. Editor: holds nodes/edges, runs validation, supports CRUD,
+    //    connect, drag, JSON import/export, localStorage persistence.
+    // ====================================================================
+    const STORAGE_KEY = 'dag-editor-v1';
+    const DEFAULT_NODES = [
+      { id: 'n1', type: 'input',   position: { x:  60, y: 120 }, data: { label: 'Start',         subtitle: 'event source' } },
+      { id: 'n2', type: 'process', position: { x: 300, y:  40 }, data: { label: 'Validate',      subtitle: 'schema check' } },
+      { id: 'n3', type: 'process', position: { x: 300, y: 200 }, data: { label: 'Transform',     subtitle: 'DTO mapping' } },
+      { id: 'n4', type: 'output',  position: { x: 560, y: 120 }, data: { label: 'Persist',       subtitle: 'write to DB' } },
+    ];
+    const DEFAULT_EDGES = [
+      { id: 'e1-2', source: 'n1', target: 'n2', label: 'emit',  animated: true, type: 'default' },
+      { id: 'e1-3', source: 'n1', target: 'n3', label: 'emit',  animated: true, type: 'default' },
+      { id: 'e2-4', source: 'n2', target: 'n4', label: 'ok', type: 'default' },
+      { id: 'e3-4', source: 'n3', target: 'n4', label: 'ok', type: 'default' },
+    ];
+
+    function loadInitial() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return { nodes: DEFAULT_NODES, edges: DEFAULT_EDGES };
+        const parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.nodes) && Array.isArray(parsed.edges)) {
+          return parsed;
+        }
+      } catch (e) {
+        console.warn('Failed to load from localStorage:', e);
+      }
+      return { nodes: DEFAULT_NODES, edges: DEFAULT_EDGES };
+    }
+
+    function FlowEditor() {
+      const initial = useMemo(loadInitial, []);
+      const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
+      const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
+      const [selectedNode, setSelectedNode] = useState(null);
+      const [validation, setValidation] = useState({ isValid: true, cycleEdges: [], orphans: [] });
+      const [toast, setToast] = useState({ show: false, text: '', kind: '' });
+      const wrapperRef = useRef(null);
+      const idCounter = useRef(1000);
+
+      // Persist to localStorage whenever nodes/edges change (skip first render)
+      useEffect(() => {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ nodes, edges }));
+        } catch (e) { /* quota exceeded — ignore */ }
+      }, [nodes, edges]);
+
+      // Re-validate DAG whenever nodes/edges change
+      useEffect(() => {
+        window.__dbg = { nodes: nodes.length, edges: edges.length, edgeIds: edges.map(e => e.id) };
+        const { isValid, cycleEdges } = validateDAG(nodes, edges);
+        const orphans = findOrphans(nodes, edges);
+        setValidation({ isValid, cycleEdges, orphans });
+        // DEBUG: temporarily disabled to test edge rendering
+      }, [nodes, edges]);
+
+      // ---------- Handlers ----------
+      const onConnect = useCallback((params) => {
+        setEdges((eds) => addEdge({
+          ...params,
+          animated: true,
+          label: 'edge',
+        }, eds));
+      }, [setEdges]);
+
+      const onNodeClick = useCallback((_, node) => {
+        setSelectedNode(node);
+      }, []);
+
+      const onPaneClick = useCallback(() => {
+        setSelectedNode(null);
+      }, []);
+
+      const addNode = (type) => {
+        const id = `n${idCounter.current++}`;
+        const label = type === 'input' ? 'New Input' : type === 'output' ? 'New Output' : `Step ${idCounter.current}`;
+        const position = {
+          x: 100 + Math.random() * 300,
+          y: 80 + Math.random() * 200,
+        };
+        setNodes(ns => ns.concat({ id, type, position, data: { label } }));
+        showToast(`Added ${type} node`, 'success');
+      };
+
+      const deleteSelected = () => {
+        if (!selectedNode) return;
+        setNodes(ns => ns.filter(n => n.id !== selectedNode.id));
+        setEdges(es => es.filter(e => e.source !== selectedNode.id && e.target !== selectedNode.id));
+        setSelectedNode(null);
+        showToast('Node deleted', 'success');
+      };
+
+      const updateSelectedLabel = (val) => {
+        if (!selectedNode) return;
+        setNodes(ns => ns.map(n => n.id === selectedNode.id ? { ...n, data: { ...n.data, label: val } } : n));
+        setSelectedNode(s => s ? { ...s, data: { ...s.data, label: val } } : s);
+      };
+
+      const clearAll = () => {
+        if (!confirm('Clear the entire graph?')) return;
+        setNodes([]);
+        setEdges([]);
+        setSelectedNode(null);
+        showToast('Graph cleared', 'success');
+      };
+
+      const loadSample = () => {
+        setNodes(DEFAULT_NODES);
+        setEdges(DEFAULT_EDGES);
+        showToast('Sample DAG loaded', 'success');
+      };
+
+      const exportJSON = () => {
+        const data = { nodes, edges, exportedAt: new Date().toISOString() };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'dag-export.json';
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('Exported dag-export.json', 'success');
+      };
+
+      const importJSON = (file) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const parsed = JSON.parse(e.target.result);
+            if (!Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) {
+              throw new Error('JSON must contain nodes[] and edges[]');
+            }
+            setNodes(parsed.nodes);
+            setEdges(parsed.edges);
+            showToast('Imported DAG', 'success');
+          } catch (err) {
+            showToast('Import failed: ' + err.message, 'error');
+          }
+        };
+        reader.readAsText(file);
+      };
+
+      const showToast = (text, kind = '') => {
+        setToast({ show: true, text, kind });
+        setTimeout(() => setToast(t => ({ ...t, show: false })), 2400);
+      };
+
+      // ---------- Render ----------
+      return (
+        React.createElement('div', {
+          className: 'flex h-screen w-screen overflow-hidden',
+          ref: wrapperRef,
+        },
+          /* ===== Sidebar (left) ===== */
+          React.createElement('aside', { className: 'w-64 p-4 panel m-3 mr-0 flex flex-col gap-3 overflow-y-auto' },
+            React.createElement('div', { className: 'flex items-center gap-2 mb-1' },
+              React.createElement('div', {
+                className: 'w-9 h-9 rounded-lg flex items-center justify-center',
+                style: { background: 'linear-gradient(135deg, #6366f1, #f472b6)', fontWeight: '800', color: '#fff' }
+              }, '✦'),
+              React.createElement('div', null,
+                React.createElement('div', { className: 'font-bold text-base' }, 'DAG Editor'),
+                React.createElement('div', { className: 'text-xs text-slate-400' }, 'React Flow · Next.js ready')
+              )
+            ),
+
+            React.createElement('div', { className: 'text-xs uppercase tracking-wider text-slate-400 mt-2' }, 'Add Node'),
+            React.createElement('div', { className: 'flex flex-col gap-2' },
+              React.createElement('button', { className: 'btn', onClick: () => addNode('input') }, '▶ Add Input'),
+              React.createElement('button', { className: 'btn', onClick: () => addNode('process') }, '◆ Add Process'),
+              React.createElement('button', { className: 'btn', onClick: () => addNode('output') }, '■ Add Output')
+            ),
+
+            React.createElement('div', { className: 'text-xs uppercase tracking-wider text-slate-400 mt-3' }, 'Operations'),
+            React.createElement('div', { className: 'flex flex-col gap-2' },
+              React.createElement('button', { className: 'btn', onClick: loadSample }, '↺ Load Sample'),
+              React.createElement('button', { className: 'btn danger', onClick: clearAll }, '⌫ Clear All')
+            ),
+
+            React.createElement('div', { className: 'text-xs uppercase tracking-wider text-slate-400 mt-3' }, 'Import / Export'),
+            React.createElement('div', { className: 'flex flex-col gap-2' },
+              React.createElement('button', { className: 'btn primary', onClick: exportJSON }, '⤓ Export JSON'),
+              React.createElement('label', { className: 'btn cursor-pointer' },
+                '⤒ Import JSON',
+                React.createElement('input', {
+                  type: 'file', accept: 'application/json', className: 'hidden',
+                  onChange: (e) => e.target.files[0] && importJSON(e.target.files[0])
+                })
+              )
+            ),
+
+            React.createElement('div', { className: 'text-xs uppercase tracking-wider text-slate-400 mt-3' }, 'Selected'),
+            selectedNode
+              ? React.createElement('div', { className: 'flex flex-col gap-2' },
+                  React.createElement('input', {
+                    value: selectedNode.data.label || '',
+                    onChange: (e) => updateSelectedLabel(e.target.value),
+                    className: 'bg-slate-800/60 border border-slate-700 rounded px-2 py-1 text-sm',
+                    placeholder: 'Node label'
+                  }),
+                  React.createElement('div', { className: 'text-xs text-slate-400' },
+                    'Type: ', React.createElement('span', { className: 'text-indigo-300' }, selectedNode.type)),
+                  React.createElement('div', { className: 'text-xs text-slate-400' },
+                    'ID: ', React.createElement('code', { className: 'text-xs text-slate-300' }, selectedNode.id)),
+                  React.createElement('button', { className: 'btn danger', onClick: deleteSelected }, 'Delete this node')
+                )
+              : React.createElement('div', { className: 'text-xs text-slate-500 italic' }, 'Click a node to edit')
+          ),
+
+          /* ===== Canvas (right) ===== */
+          React.createElement('main', { className: 'flex-1 relative' },
+            React.createElement(ReactFlow, {
+              nodes,
+              edges,
+              onNodesChange,
+              onEdgesChange,
+              onConnect,
+              onNodeClick,
+              onPaneClick,
+              nodeTypes,
+              fitView: true,
+              fitViewOptions: { padding: 0.2 },
+              defaultEdgeOptions: { animated: true },
+              'data-testid': 'rf-canvas',
+            },
+              React.createElement(Background, { color: '#1e293b', gap: 24, size: 1.2 }),
+              React.createElement(Controls, { showInteractive: false }),
+              React.createElement(MiniMap, {
+                nodeColor: (n) => n.type === 'input' ? '#34d399' : n.type === 'output' ? '#f472b6' : '#818cf8',
+                maskColor: 'rgba(2, 6, 23, 0.6)',
+              }),
+
+              /* Top status bar */
+              React.createElement(RFPanel, { position: 'top-left', className: '!m-3' },
+                React.createElement('div', { className: 'panel px-3 py-2 flex items-center gap-3' },
+                  React.createElement('span', { className: 'text-xs' },
+                    React.createElement('strong', null, nodes.length),
+                    ' nodes · ',
+                    React.createElement('strong', null, edges.length),
+                    ' edges'
+                  ),
+                  React.createElement('span', {
+                    className: 'text-xs px-2 py-0.5 rounded font-semibold',
+                    style: validation.isValid
+                      ? { background: 'rgba(52,211,153,0.18)', color: '#34d399' }
+                      : { background: 'rgba(248,113,113,0.2)', color: '#f87171' }
+                  }, validation.isValid ? '✓ Valid DAG' : '✗ Cycle detected'),
+                  validation.orphans.length > 0 && React.createElement('span', {
+                    className: 'text-xs px-2 py-0.5 rounded',
+                    style: { background: 'rgba(251,191,36,0.18)', color: '#fbbf24' }
+                  }, `${validation.orphans.length} unreachable`),
+                  React.createElement('span', { className: 'text-xs text-slate-400' },
+                    'Drag from handle → handle to connect')
+                )
+              ),
+
+              /* Bottom-right legend */
+              React.createElement(RFPanel, { position: 'bottom-right', className: '!m-3' },
+                React.createElement('div', { className: 'panel px-3 py-2 text-xs flex flex-col gap-1' },
+                  React.createElement('div', null, React.createElement('span', { className: 'inline-block w-3 h-3 rounded-sm mr-1', style: { background: '#34d399' } }), 'Input'),
+                  React.createElement('div', null, React.createElement('span', { className: 'inline-block w-3 h-3 rounded-sm mr-1', style: { background: '#818cf8' } }), 'Process'),
+                  React.createElement('div', null, React.createElement('span', { className: 'inline-block w-3 h-3 rounded-sm mr-1', style: { background: '#f472b6' } }), 'Output'),
+                  React.createElement('div', { className: 'text-slate-400 mt-1' }, 'Red border = unreachable · Red dashed edge = cycle')
+                )
+              )
+            )
+          )
+        )
+      );
+    }
+
+    // ====================================================================
+    // 4. Top-level App: ReactFlowProvider is required for useReactFlow hooks
+    // ====================================================================
+    function App() {
+      return (
+        React.createElement(ReactFlowProvider, null,
+          React.createElement(FlowEditor, null)
+        )
+      );
+    }
+
+    // ====================================================================
+    // 5. Safe root createRoot (handles error UI)
+    // ====================================================================
+    function __bootApp() {
+      const root = document.getElementById('root');
+      try {
+        createRoot(root).render(React.createElement(App));
+      } catch (err) {
+        window.__preBootError('render', err);
+        console.error('Boot error:', err);
+      }
+    }
+    try {
+      __bootApp();
+    } catch (err) {
+      window.__preBootError('top', err);
+      console.error('Top boot error:', err);
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,1146 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TokenFlow · 動態設計系統與設計令牌生成器</title>
+<meta name="description" content="基於 Tailwind CSS 3 + DaisyUI 4 的動態設計系統：選色即生成完整 11 階色票、CSS 變數、Tailwind config、JSON 與 SCSS 設計令牌。" />
+
+<!-- Tailwind 3 Play CDN (proven pattern from past learning) -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  // Tailwind config — extends default theme to expose the live CSS variables
+  // from our token generator as utility colors: e.g. bg-primary-500, text-base-700,
+  // etc. Note: with Play CDN, custom theme tokens are wired via `colors` referencing
+  // CSS variables so the browser does the actual color resolution at paint time.
+  tailwind.config = {
+    darkMode: ['class', '[data-theme="dark"]'],
+    theme: {
+      extend: {
+        colors: {
+          // These CSS-variable-backed colors give us a real-time theme switch:
+          // change --p-h/s/l on :root and every bg-primary-* / text-base-* updates.
+          primary: {
+            50:  'hsl(var(--p-h) var(--p-s) 96%)',
+            100: 'hsl(var(--p-h) var(--p-s) 92%)',
+            200: 'hsl(var(--p-h) var(--p-s) 85%)',
+            300: 'hsl(var(--p-h) var(--p-s) 75%)',
+            400: 'hsl(var(--p-h) var(--p-s) 65%)',
+            500: 'hsl(var(--p-h) var(--p-s) 55%)',
+            600: 'hsl(var(--p-h) var(--p-s) 45%)',
+            700: 'hsl(var(--p-h) var(--p-s) 38%)',
+            800: 'hsl(var(--p-h) var(--p-s) 30%)',
+            900: 'hsl(var(--p-h) var(--p-s) 22%)',
+            950: 'hsl(var(--p-h) var(--p-s) 14%)',
+          },
+          base: {
+            50:  'hsl(var(--b-h) var(--b-s) 98%)',
+            100: 'hsl(var(--b-h) var(--b-s) 96%)',
+            200: 'hsl(var(--b-h) var(--b-s) 92%)',
+            300: 'hsl(var(--b-h) var(--b-s) 86%)',
+            400: 'hsl(var(--b-h) var(--b-s) 76%)',
+            500: 'hsl(var(--b-h) var(--b-s) 60%)',
+            600: 'hsl(var(--b-h) var(--b-s) 48%)',
+            700: 'hsl(var(--b-h) var(--b-s) 38%)',
+            800: 'hsl(var(--b-h) var(--b-s) 26%)',
+            900: 'hsl(var(--b-h) var(--b-s) 16%)',
+            950: 'hsl(var(--b-h) var(--b-s) 10%)',
+          },
+          accent: {
+            50:  'hsl(var(--a-h) var(--a-s) 96%)',
+            500: 'hsl(var(--a-h) var(--a-s) 55%)',
+            700: 'hsl(var(--a-h) var(--a-s) 38%)',
+            900: 'hsl(var(--a-h) var(--a-s) 22%)',
+          },
+        },
+        fontFamily: {
+          sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+          mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+        },
+        borderRadius: {
+          token: 'var(--radius)',
+        },
+        boxShadow: {
+          'token-sm': '0 1px 2px 0 hsl(var(--p-h) var(--p-s) 20% / 0.08)',
+          'token':    '0 4px 12px -2px hsl(var(--p-h) var(--p-s) 20% / 0.12)',
+          'token-lg': '0 12px 32px -4px hsl(var(--p-h) var(--p-s) 20% / 0.16)',
+        },
+      },
+    },
+  };
+</script>
+
+<!-- DaisyUI 4 precompiled full.min.css (proven pattern: CDN plugin won't load) -->
+<link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css" />
+
+<!-- Inter + JetBrains Mono for typography -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  /* ─────────────────────────────────────────────────────────────
+     TokenFlow — base CSS variable layer
+     We piggyback on DaisyUI's built-in [data-theme="light"] and
+     [data-theme="dark"] selectors (those are guaranteed to be in
+     the loaded full.min.css) but override the variables so the
+     design tokens drive everything.
+
+     The HSL channels --p-h, --a-h, --b-h are the single source of
+     truth. Change them and every DaisyUI + Tailwind utility recolors.
+     ───────────────────────────────────────────────────────────── */
+  [data-theme="light"] {
+    /* Primary: defaults to indigo */
+    --p-h: 244; --p-s: 75%;
+    /* Base (neutral): cool gray */
+    --b-h: 220; --b-s: 14%;
+    /* Accent: violet */
+    --a-h: 282; --a-s: 70%;
+    /* System */
+    --radius: 0.75rem;
+
+    /* Override DaisyUI's named variables with our token-driven values */
+    --p: var(--p-h) var(--p-s) 55%;
+    --pc: 0 0% 100%;
+    --a: var(--a-h) var(--a-s) 55%;
+    --ac: 0 0% 100%;
+    --n: var(--b-h) var(--b-s) 16%;
+    --nc: 0 0% 100%;
+    --b1: 0 0% 100%;
+    --b2: var(--b-h) var(--b-s) 96%;
+    --b3: var(--b-h) var(--b-s) 92%;
+    --bc: var(--b-h) var(--b-s) 16%;
+  }
+  [data-theme="dark"] {
+    /* Same source channels — but DaisyUI's dark theme palette is already dark,
+       so we don't override the b1/b2/b3/bc values. We tweak --p and --a to be
+       lighter for better contrast on dark surfaces. */
+    --p: var(--p-h) var(--p-s) 65%;
+    --pc: var(--b-h) var(--b-s) 10%;
+    --a: var(--a-h) var(--a-s) 65%;
+    --ac: var(--b-h) var(--b-s) 10%;
+  }
+
+  /* Force DaisyUI's .btn-primary / .bg-primary to read our HSL channels.
+     Lightness is theme-aware so dark mode keeps enough contrast on dark surfaces. */
+  [data-theme="light"] .btn-primary,
+  [data-theme="light"] .bg-primary {
+    background-color: hsl(var(--p-h) var(--p-s) 55%);
+    border-color: hsl(var(--p-h) var(--p-s) 55%);
+  }
+  [data-theme="dark"] .btn-primary,
+  [data-theme="dark"] .bg-primary {
+    background-color: hsl(var(--p-h) var(--p-s) 65%);
+    border-color: hsl(var(--p-h) var(--p-s) 65%);
+  }
+  [data-theme="light"] .text-primary { color: hsl(var(--p-h) var(--p-s) 55%); }
+  [data-theme="dark"] .text-primary { color: hsl(var(--p-h) var(--p-s) 65%); }
+  [data-theme="light"] .border-primary { border-color: hsl(var(--p-h) var(--p-s) 55%); }
+  [data-theme="dark"] .border-primary { border-color: hsl(var(--p-h) var(--p-s) 65%); }
+
+  [data-theme="light"] .btn-accent,
+  [data-theme="light"] .bg-accent {
+    background-color: hsl(var(--a-h) var(--a-s) 55%);
+    border-color: hsl(var(--a-h) var(--a-s) 55%);
+  }
+  [data-theme="dark"] .btn-accent,
+  [data-theme="dark"] .bg-accent {
+    background-color: hsl(var(--a-h) var(--a-s) 65%);
+    border-color: hsl(var(--a-h) var(--a-s) 65%);
+  }
+  [data-theme="light"] .text-accent { color: hsl(var(--a-h) var(--a-s) 55%); }
+  [data-theme="dark"] .text-accent { color: hsl(var(--a-h) var(--a-s) 65%); }
+
+  html { font-family: 'Inter', system-ui, sans-serif; }
+  body { min-height: 100vh; }
+
+  /* Tonal scale swatch grid */
+  .swatch-grid { display: grid; grid-template-columns: repeat(11, minmax(0,1fr)); gap: 4px; }
+  .swatch {
+    height: 56px; border-radius: 8px;
+    display: flex; align-items: flex-end; justify-content: center;
+    font-size: 10px; font-weight: 600;
+    padding-bottom: 4px;
+    box-shadow: inset 0 0 0 1px hsl(0 0% 0% / 0.06);
+  }
+
+  /* Live preview surface — uses DaisyUI's b1/b2/b3 tokens so theme switch works */
+  .preview-surface {
+    background-color: hsl(var(--b1));
+    color: hsl(var(--bc));
+  }
+
+  /* Token code area */
+  .code-area {
+    background: hsl(220 18% 10%);
+    color: hsl(220 14% 92%);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    border-radius: 12px;
+    padding: 16px;
+    overflow: auto;
+    max-height: 360px;
+    white-space: pre;
+  }
+  .code-area .tk { color: #c084fc; }   /* token key */
+  .code-area .tv { color: #f0abfc; }   /* token value */
+  .code-area .tc { color: #67e8f9; }   /* comment */
+  .code-area .tn { color: #94a3b8; }   /* neutral */
+
+  /* Copy toast */
+  .toast-flash {
+    position: fixed; bottom: 24px; right: 24px;
+    background: hsl(158 64% 35%); color: white;
+    padding: 12px 20px; border-radius: 10px;
+    font-weight: 600; font-size: 14px;
+    box-shadow: 0 12px 32px -8px rgba(0,0,0,0.3);
+    opacity: 0; transform: translateY(20px);
+    transition: opacity 0.25s, transform 0.25s;
+    pointer-events: none; z-index: 9999;
+  }
+  .toast-flash.show { opacity: 1; transform: translateY(0); }
+
+  /* Color picker row */
+  .control-row { display: grid; grid-template-columns: 160px 1fr 80px; align-items: center; gap: 12px; }
+
+  /* Smooth token-driven transitions */
+  button, .btn, .card, .badge, .alert, .navbar, .swap, .tab {
+    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  /* Section anchor offset for sticky header */
+  section[id] { scroll-margin-top: 88px; }
+
+  /* ─────────────────────────────────────────────────────────────
+     Token visual overrides — keep our token-driven HSL palette
+     consistent in both light and dark modes, regardless of how
+     DaisyUI's oklch variables resolve. These rules have high
+     specificity (.element AND [data-theme="x"]).
+     ───────────────────────────────────────────────────────────── */
+  [data-theme="light"] .bg-base-100 { background-color: hsl(0 0% 100%) !important; }
+  [data-theme="light"] .bg-base-200 { background-color: hsl(220 14% 96%) !important; }
+  [data-theme="light"] .bg-base-300 { background-color: hsl(220 14% 92%) !important; }
+  [data-theme="light"] .text-base-content { color: hsl(220 14% 16%) !important; }
+  [data-theme="light"] .navbar {
+    background-color: hsl(0 0% 100% / 0.9) !important;
+    color: hsl(220 14% 16%) !important;
+    border-bottom-color: hsl(220 14% 92%) !important;
+  }
+  [data-theme="light"] .card {
+    background-color: hsl(0 0% 100%) !important;
+    color: hsl(220 14% 16%) !important;
+    border-color: hsl(220 14% 92%) !important;
+  }
+  [data-theme="light"] .stat { color: hsl(220 14% 16%) !important; }
+  [data-theme="light"] .stat-value { color: hsl(var(--p-h) var(--p-s) 55%) !important; }
+  [data-theme="light"] .stat .stat-value.text-accent { color: hsl(var(--a-h) var(--a-s) 55%) !important; }
+  [data-theme="light"] .mockup-window { background-color: hsl(220 14% 88%) !important; }
+  [data-theme="light"] .mockup-code,
+  [data-theme="light"] .mockup-code pre { background-color: hsl(220 30% 12%) !important; }
+  [data-theme="light"] .input,
+  [data-theme="light"] .select,
+  [data-theme="light"] .textarea { background-color: hsl(0 0% 100%) !important; color: hsl(220 14% 16%) !important; border-color: hsl(220 14% 88%) !important; }
+  [data-theme="light"] .footer { background-color: hsl(220 14% 96%) !important; color: hsl(220 14% 16%) !important; border-color: hsl(220 14% 92%) !important; }
+  [data-theme="light"] .alert { color: hsl(220 14% 16%) !important; }
+  [data-theme="light"] .code-area { background: hsl(220 30% 12%) !important; color: hsl(220 14% 92%) !important; }
+  [data-theme="light"] .footer { background-color: hsl(220 14% 96%) !important; }
+
+  [data-theme="dark"] .bg-base-100 { background-color: hsl(220 18% 9%) !important; }
+  [data-theme="dark"] .bg-base-200 { background-color: hsl(220 18% 13%) !important; }
+  [data-theme="dark"] .bg-base-300 { background-color: hsl(220 18% 17%) !important; }
+  [data-theme="dark"] .text-base-content { color: hsl(220 14% 92%) !important; }
+  [data-theme="dark"] body { background-color: hsl(220 18% 9%) !important; color: hsl(220 14% 92%) !important; }
+  [data-theme="dark"] .navbar {
+    background-color: hsl(220 18% 9% / 0.9) !important;
+    color: hsl(220 14% 92%) !important;
+    border-bottom-color: hsl(220 18% 17%) !important;
+  }
+  [data-theme="dark"] .card {
+    background-color: hsl(220 18% 11%) !important;
+    color: hsl(220 14% 92%) !important;
+    border-color: hsl(220 18% 17%) !important;
+  }
+  [data-theme="dark"] .stat { color: hsl(220 14% 92%) !important; }
+  [data-theme="dark"] .stat-value { color: hsl(var(--p-h) var(--p-s) 65%) !important; }
+  [data-theme="dark"] .stat .stat-value.text-accent { color: hsl(var(--a-h) var(--a-s) 65%) !important; }
+  [data-theme="dark"] .mockup-window { background-color: hsl(220 18% 18%) !important; }
+  [data-theme="dark"] .mockup-code,
+  [data-theme="dark"] .mockup-code pre { background-color: hsl(220 30% 6%) !important; }
+  [data-theme="dark"] .input,
+  [data-theme="dark"] .select,
+  [data-theme="dark"] .textarea { background-color: hsl(220 18% 13%) !important; color: hsl(220 14% 92%) !important; border-color: hsl(220 18% 22%) !important; }
+  [data-theme="dark"] .footer { background-color: hsl(220 18% 11%) !important; color: hsl(220 14% 92%) !important; border-color: hsl(220 18% 17%) !important; }
+  [data-theme="dark"] .alert { color: hsl(220 14% 92%) !important; }
+  [data-theme="dark"] .code-area { background: hsl(220 30% 6%) !important; color: hsl(220 14% 92%) !important; }
+  [data-theme="dark"] .badge-default { background-color: hsl(220 18% 22%) !important; color: hsl(220 14% 92%) !important; }
+  [data-theme="dark"] .btn-ghost { color: hsl(220 14% 92%) !important; }
+  [data-theme="dark"] .btn-outline { color: hsl(220 14% 92%) !important; border-color: hsl(220 18% 32%) !important; }
+  [data-theme="dark"] .text-primary { color: hsl(var(--p-h) var(--p-s) 65%) !important; }
+  [data-theme="dark"] .text-accent { color: hsl(var(--a-h) var(--a-s) 65%) !important; }
+  [data-theme="dark"] .border-primary { border-color: hsl(var(--p-h) var(--p-s) 65%) !important; }
+
+</style>
+</head>
+
+<body class="bg-base-100 text-base-content">
+
+<!-- ───────────────────────────────────────────────────────
+  HEADER / NAV
+  ─────────────────────────────────────────────────────── -->
+<header class="navbar bg-base-100/90 backdrop-blur sticky top-0 z-40 border-b border-base-300 px-4 lg:px-8">
+  <div class="flex-1 gap-2">
+    <div class="w-9 h-9 rounded-token bg-primary flex items-center justify-center text-white font-extrabold">T</div>
+    <div>
+      <p class="font-extrabold text-base leading-tight">TokenFlow</p>
+      <p class="text-xs opacity-60 leading-tight">動態設計系統 · v1.0</p>
+    </div>
+  </div>
+  <div class="flex-none gap-2">
+    <a href="#generator" class="btn btn-ghost btn-sm">生成器</a>
+    <a href="#tokens"    class="btn btn-ghost btn-sm">設計令牌</a>
+    <a href="#preview"   class="btn btn-ghost btn-sm">元件展示</a>
+    <button id="theme-toggle" class="btn btn-sm btn-circle" aria-label="切換主題">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- ───────────────────────────────────────────────────────
+  HERO
+  ─────────────────────────────────────────────────────── -->
+<section class="relative overflow-hidden">
+  <div class="absolute inset-0 -z-10 opacity-60"
+       style="background:
+         radial-gradient(60% 80% at 20% 0%, hsl(var(--p-h) var(--p-s) 55% / 0.18), transparent 60%),
+         radial-gradient(50% 60% at 100% 100%, hsl(var(--a-h) var(--a-s) 55% / 0.18), transparent 60%);"></div>
+  <div class="max-w-6xl mx-auto px-6 py-16 lg:py-24 grid lg:grid-cols-2 gap-12 items-center">
+    <div>
+      <div class="badge bg-primary/15 text-primary border-0 font-semibold mb-4">Tailwind CSS 3 · DaisyUI 4</div>
+      <h1 class="text-4xl lg:text-5xl font-extrabold leading-tight tracking-tight">
+        動態設計系統 <span class="bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">與設計令牌生成器</span>
+      </h1>
+      <p class="mt-5 text-lg opacity-75 leading-relaxed">
+        選一個色相，整套 11 階色票、CSS 變數、Tailwind config、JSON 與 SCSS 設計令牌即時生成。
+        所有 DaisyUI 元件即時連動，主題切換零延遲。
+      </p>
+      <div class="mt-7 flex flex-wrap gap-3">
+        <a href="#generator" class="btn btn-primary">▶ 開始生成</a>
+        <a href="#tokens"   class="btn btn-outline">查看設計令牌</a>
+      </div>
+      <div class="mt-8 grid grid-cols-3 gap-4 max-w-md">
+        <div class="stat p-3 bg-base-200 rounded-token">
+          <div class="stat-title text-xs">色階</div>
+          <div class="stat-value text-2xl">11</div>
+        </div>
+        <div class="stat p-3 bg-base-200 rounded-token">
+          <div class="stat-title text-xs">匯出格式</div>
+          <div class="stat-value text-2xl">4</div>
+        </div>
+        <div class="stat p-3 bg-base-200 rounded-token">
+          <div class="stat-title text-xs">主題</div>
+          <div class="stat-value text-2xl">2</div>
+        </div>
+      </div>
+    </div>
+    <div class="relative">
+      <div class="mockup-window bg-base-300 border border-base-300 shadow-token-lg">
+        <div class="bg-base-100 px-4 py-6">
+          <div class="swatch-grid" id="hero-swatches"></div>
+          <div class="mt-4 grid grid-cols-3 gap-3">
+            <button class="btn btn-primary btn-sm">Primary</button>
+            <button class="btn btn-accent btn-sm">Accent</button>
+            <button class="btn btn-outline btn-sm">Outline</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────────────────────────────────
+  GENERATOR (核心)
+  ─────────────────────────────────────────────────────── -->
+<section id="generator" class="max-w-6xl mx-auto px-6 py-12">
+  <div class="flex items-end justify-between mb-6 flex-wrap gap-4">
+    <div>
+      <h2 class="text-3xl font-bold tracking-tight">🎨 主題生成器</h2>
+      <p class="opacity-70 mt-1">調整下方色相／飽和度，下游所有令牌與元件即時更新。</p>
+    </div>
+    <div class="flex gap-2">
+      <button class="btn btn-sm" id="preset-default">預設（靛紫）</button>
+      <button class="btn btn-sm" id="preset-emerald">祖母綠</button>
+      <button class="btn btn-sm" id="preset-rose">玫瑰</button>
+      <button class="btn btn-sm" id="preset-amber">琥珀</button>
+    </div>
+  </div>
+
+  <div class="grid lg:grid-cols-2 gap-6">
+    <!-- Primary -->
+    <div class="card bg-base-200 border border-base-300 shadow-token">
+      <div class="card-body">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="w-3 h-3 rounded-full bg-primary"></span>
+          <h3 class="card-title text-base">Primary · 主色</h3>
+        </div>
+        <div class="control-row">
+          <label class="text-sm opacity-70">色相 (H)</label>
+          <input id="p-h" type="range" min="0" max="360" value="244" class="range range-primary range-sm" />
+          <span class="font-mono text-sm" id="p-h-v">244</span>
+        </div>
+        <div class="control-row">
+          <label class="text-sm opacity-70">飽和 (S)</label>
+          <input id="p-s" type="range" min="0" max="100" value="75" class="range range-primary range-sm" />
+          <span class="font-mono text-sm" id="p-s-v">75%</span>
+        </div>
+        <div class="control-row">
+          <label class="text-sm opacity-70">色光 (L)</label>
+          <input id="p-l" type="range" min="35" max="70" value="55" class="range range-primary range-sm" />
+          <span class="font-mono text-sm" id="p-l-v">55%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Accent -->
+    <div class="card bg-base-200 border border-base-300 shadow-token">
+      <div class="card-body">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="w-3 h-3 rounded-full bg-accent"></span>
+          <h3 class="card-title text-base">Accent · 強調色</h3>
+        </div>
+        <div class="control-row">
+          <label class="text-sm opacity-70">色相 (H)</label>
+          <input id="a-h" type="range" min="0" max="360" value="282" class="range range-sm" style="accent-color: hsl(282 70% 55%)" />
+          <span class="font-mono text-sm" id="a-h-v">282</span>
+        </div>
+        <div class="control-row">
+          <label class="text-sm opacity-70">飽和 (S)</label>
+          <input id="a-s" type="range" min="0" max="100" value="70" class="range range-sm" style="accent-color: hsl(282 70% 55%)" />
+          <span class="font-mono text-sm" id="a-s-v">70%</span>
+        </div>
+        <div class="control-row">
+          <label class="text-sm opacity-70">色光 (L)</label>
+          <input id="a-l" type="range" min="35" max="70" value="55" class="range range-sm" style="accent-color: hsl(282 70% 55%)" />
+          <span class="font-mono text-sm" id="a-l-v">55%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Base -->
+    <div class="card bg-base-200 border border-base-300 shadow-token">
+      <div class="card-body">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="w-3 h-3 rounded-full" style="background: hsl(220 14% 50%)"></span>
+          <h3 class="card-title text-base">Base · 中性色</h3>
+        </div>
+        <div class="control-row">
+          <label class="text-sm opacity-70">色相 (H)</label>
+          <input id="b-h" type="range" min="0" max="360" value="220" class="range range-sm" style="accent-color: hsl(220 14% 50%)" />
+          <span class="font-mono text-sm" id="b-h-v">220</span>
+        </div>
+        <div class="control-row">
+          <label class="text-sm opacity-70">飽和 (S)</label>
+          <input id="b-s" type="range" min="0" max="30" value="14" class="range range-sm" style="accent-color: hsl(220 14% 50%)" />
+          <span class="font-mono text-sm" id="b-s-v">14%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- System -->
+    <div class="card bg-base-200 border border-base-300 shadow-token">
+      <div class="card-body">
+        <h3 class="card-title text-base mb-2">⚙️ 系統設定</h3>
+        <div class="control-row">
+          <label class="text-sm opacity-70">圓角 (Radius)</label>
+          <input id="radius" type="range" min="0" max="24" value="12" class="range range-sm" />
+          <span class="font-mono text-sm" id="radius-v">12px</span>
+        </div>
+        <div class="control-row">
+          <label class="text-sm opacity-70">主要字重</label>
+          <select id="font-weight" class="select select-bordered select-sm">
+            <option value="400">Regular (400)</option>
+            <option value="500">Medium (500)</option>
+            <option value="600" selected>Semibold (600)</option>
+            <option value="700">Bold (700)</option>
+          </select>
+          <span></span>
+        </div>
+        <div class="control-row">
+          <label class="text-sm opacity-70">字型</label>
+          <select id="font-family" class="select select-bordered select-sm">
+            <option value="Inter" selected>Inter</option>
+            <option value="system-ui">System</option>
+            <option value="JetBrains Mono">JetBrains Mono</option>
+          </select>
+          <span></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────────────────────────────────
+  COLOR SCALES (11-step)
+  ─────────────────────────────────────────────────────── -->
+<section id="scales" class="max-w-6xl mx-auto px-6 py-8">
+  <h2 class="text-3xl font-bold tracking-tight mb-2">🧪 生成色階</h2>
+  <p class="opacity-70 mb-6">從主色自動派生 11 階色票（50→950），採用 Tailwind 風格的 L 曲線。</p>
+
+  <div class="space-y-6">
+    <div>
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-sm font-semibold flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-primary"></span>Primary Scale</span>
+        <span class="text-xs opacity-60 font-mono">11 stops</span>
+      </div>
+      <div class="swatch-grid" id="primary-scale"></div>
+    </div>
+    <div>
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-sm font-semibold flex items-center gap-2"><span class="w-3 h-3 rounded-full bg-accent"></span>Accent Scale</span>
+        <span class="text-xs opacity-60 font-mono">11 stops</span>
+      </div>
+      <div class="swatch-grid" id="accent-scale"></div>
+    </div>
+    <div>
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-sm font-semibold flex items-center gap-2"><span class="w-3 h-3 rounded-full" style="background: hsl(220 14% 50%)"></span>Base Scale</span>
+        <span class="text-xs opacity-60 font-mono">11 stops</span>
+      </div>
+      <div class="swatch-grid" id="base-scale"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────────────────────────────────
+  TOKENS (export)
+  ─────────────────────────────────────────────────────── -->
+<section id="tokens" class="max-w-6xl mx-auto px-6 py-12">
+  <div class="flex items-end justify-between mb-6 flex-wrap gap-4">
+    <div>
+      <h2 class="text-3xl font-bold tracking-tight">📦 設計令牌</h2>
+      <p class="opacity-70 mt-1">從單一來源即時生成 4 種格式，複製後直接用於任何專案。</p>
+    </div>
+    <div role="tablist" class="tabs tabs-boxed">
+      <a role="tab" class="tab tab-active" data-format="css">CSS</a>
+      <a role="tab" class="tab" data-format="tailwind">Tailwind</a>
+      <a role="tab" class="tab" data-format="json">JSON</a>
+      <a role="tab" class="tab" data-format="scss">SCSS</a>
+    </div>
+  </div>
+
+  <div class="card bg-base-200 border border-base-300 shadow-token">
+    <div class="card-body p-0">
+      <div class="flex items-center justify-between px-6 py-3 border-b border-base-300">
+        <span class="text-sm font-semibold" id="format-title">CSS Custom Properties</span>
+        <button id="copy-btn" class="btn btn-sm btn-primary">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
+          複製
+        </button>
+      </div>
+      <div class="p-6">
+        <pre class="code-area" id="token-code"></pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-6 grid md:grid-cols-3 gap-4 text-sm">
+    <div class="card bg-base-200 border border-base-300">
+      <div class="card-body p-4">
+        <p class="font-semibold mb-1">⚡ 單一來源</p>
+        <p class="opacity-70">所有令牌從 HSL 色相自動派生，永遠同步。</p>
+      </div>
+    </div>
+    <div class="card bg-base-200 border border-base-300">
+      <div class="card-body p-4">
+        <p class="font-semibold mb-1">🎯 感知均勻</p>
+        <p class="opacity-70">L 曲線設計使 50→950 視覺上均勻遞增。</p>
+      </div>
+    </div>
+    <div class="card bg-base-200 border border-base-300">
+      <div class="card-body p-4">
+        <p class="font-semibold mb-1">♿ 對比檢查</p>
+        <p class="opacity-700">主色對白底自動計算 WCAG 對比（≥ 3.0 為合規）。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────────────────────────────────
+  PREVIEW (DaisyUI components)
+  ─────────────────────────────────────────────────────── -->
+<section id="preview" class="max-w-6xl mx-auto px-6 py-12">
+  <h2 class="text-3xl font-bold tracking-tight mb-2">🧩 元件展示</h2>
+  <p class="opacity-70 mb-6">DaisyUI 元件全部綁定 CSS 變數，主題切換時即時連動。</p>
+
+  <div class="grid md:grid-cols-2 gap-6">
+    <!-- Buttons -->
+    <div class="card bg-base-100 border border-base-300 shadow-token">
+      <div class="card-body">
+        <h3 class="card-title text-base">Buttons</h3>
+        <div class="flex flex-wrap gap-2">
+          <button class="btn btn-primary btn-sm">Primary</button>
+          <button class="btn btn-accent btn-sm">Accent</button>
+          <button class="btn btn-secondary btn-sm">Secondary</button>
+          <button class="btn btn-success btn-sm">Success</button>
+          <button class="btn btn-warning btn-sm">Warning</button>
+          <button class="btn btn-error btn-sm">Error</button>
+          <button class="btn btn-outline btn-sm">Outline</button>
+          <button class="btn btn-ghost btn-sm">Ghost</button>
+        </div>
+        <div class="divider my-1"></div>
+        <div class="flex flex-wrap gap-2 items-center">
+          <button class="btn btn-primary btn-circle">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          </button>
+          <button class="btn btn-primary btn-block btn-sm">Block Button</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Badges & Stats -->
+    <div class="card bg-base-100 border border-base-300 shadow-token">
+      <div class="card-body">
+        <h3 class="card-title text-base">Badges &amp; Stats</h3>
+        <div class="flex flex-wrap gap-2">
+          <span class="badge bg-primary text-white border-0">Primary</span>
+          <span class="badge bg-accent text-white border-0">Accent</span>
+          <span class="badge badge-outline">Outline</span>
+          <span class="badge badge-lg bg-primary text-white border-0">Large</span>
+        </div>
+        <div class="divider my-1"></div>
+        <div class="stats stats-vertical sm:stats-horizontal bg-base-200 shadow">
+          <div class="stat">
+            <div class="stat-title">下載量</div>
+            <div class="stat-value text-primary text-3xl">31K</div>
+            <div class="stat-desc">↗︎ 22% 本月</div>
+          </div>
+          <div class="stat">
+            <div class="stat-title">活躍用戶</div>
+            <div class="stat-value text-accent text-3xl">4.2K</div>
+            <div class="stat-desc">↗︎ 18% 本月</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Alert -->
+    <div class="card bg-base-100 border border-base-300 shadow-token">
+      <div class="card-body">
+        <h3 class="card-title text-base">Alerts</h3>
+        <div role="alert" class="alert">
+          <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-5 w-5" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span>基本 alert — 自動跟隨主題。</span>
+        </div>
+        <div role="alert" class="alert" style="background: hsl(var(--p-h) var(--p-s) 95%); color: hsl(var(--p-h) var(--p-s) 25%); border-color: hsl(var(--p-h) var(--p-s) 75%);">
+          <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-5 w-5" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span>設計令牌驅動 alert — 顏色從您的 Primary 即時生成。</span>
+        </div>
+        <div role="alert" class="alert alert-success">
+          <span>✓ 設計令牌已成功生成並可複製。</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Form -->
+    <div class="card bg-base-100 border border-base-300 shadow-token">
+      <div class="card-body">
+        <h3 class="card-title text-base">Form Controls</h3>
+        <label class="form-control w-full">
+          <div class="label"><span class="label-text">Email</span></div>
+          <input type="email" placeholder="you@tokenflow.dev" class="input input-bordered input-sm w-full" />
+        </label>
+        <label class="form-control w-full">
+          <div class="label"><span class="label-text">主題偏好</span></div>
+          <select class="select select-bordered select-sm">
+            <option>亮色</option>
+            <option>暗色</option>
+            <option>自動</option>
+          </select>
+        </label>
+        <div class="form-control">
+          <label class="cursor-pointer label justify-start gap-3">
+            <input type="checkbox" class="toggle toggle-primary" checked />
+            <span class="label-text">啟用設計令牌同步</span>
+          </label>
+        </div>
+        <div class="flex gap-2 items-center">
+          <input type="radio" name="r" class="radio radio-primary radio-sm" checked />
+          <span class="text-sm">Light</span>
+          <input type="radio" name="r" class="radio radio-primary radio-sm" />
+          <span class="text-sm">Dark</span>
+          <input type="range" min="0" max="100" value="60" class="range range-primary range-sm flex-1" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Card -->
+    <div class="card bg-base-100 border border-base-300 shadow-token md:col-span-2">
+      <div class="card-body">
+        <h3 class="card-title text-base">Progress + Tabs</h3>
+        <progress class="progress progress-primary w-full" value="70" max="100"></progress>
+        <div role="tablist" class="tabs tabs-bordered">
+          <a role="tab" class="tab tab-active">設計令牌</a>
+          <a role="tab" class="tab">元件</a>
+          <a role="tab" class="tab">匯出</a>
+        </div>
+        <div class="mockup-code bg-neutral text-neutral-content text-xs">
+          <pre><code>const tokens = generateTokens({ primary: 'hsl(244 75% 55%)' });</code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────────────────────────────────
+  ARCHITECTURE / PHILOSOPHY
+  ─────────────────────────────────────────────────────── -->
+<section id="architecture" class="max-w-6xl mx-auto px-6 py-12">
+  <h2 class="text-3xl font-bold tracking-tight mb-2">🏗️ 設計系統架構</h2>
+  <p class="opacity-70 mb-6">TokenFlow 採用「單一來源 → 多格式輸出」模型，所有下游產物由同一組 HSL 通道驅動。</p>
+
+  <div class="grid md:grid-cols-4 gap-4">
+    <div class="card bg-base-200 border border-base-300">
+      <div class="card-body p-5">
+        <div class="text-3xl mb-2">1</div>
+        <p class="font-semibold mb-1">單一來源</p>
+        <p class="text-sm opacity-70">Primary/Accent/Base 三組 HSL 通道（hue, saturation, lightness）。</p>
+      </div>
+    </div>
+    <div class="card bg-base-200 border border-base-300">
+      <div class="card-body p-5">
+        <div class="text-3xl mb-2">2</div>
+        <p class="font-semibold mb-1">派生色階</p>
+        <p class="text-sm opacity-70">依 L 曲線生成 11 階（50→950）色票，視覺上均勻遞增。</p>
+      </div>
+    </div>
+    <div class="card bg-base-200 border border-base-300">
+      <div class="card-body p-5">
+        <div class="text-3xl mb-2">3</div>
+        <p class="font-semibold mb-1">CSS 變數</p>
+        <p class="text-sm opacity-70">寫入 <code>:root</code> 與 DaisyUI 主題槽，全域即時切換。</p>
+      </div>
+    </div>
+    <div class="card bg-base-200 border border-base-300">
+      <div class="card-body p-5">
+        <div class="text-3xl mb-2">4</div>
+        <p class="font-semibold mb-1">多格式輸出</p>
+        <p class="text-sm opacity-70">CSS / Tailwind / JSON / SCSS 一鍵複製。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-8 card bg-base-200 border border-base-300">
+    <div class="card-body">
+      <h3 class="card-title text-base">🎓 設計令牌心法</h3>
+      <ul class="text-sm opacity-85 leading-relaxed list-disc list-inside space-y-1">
+        <li>單一來源（Single Source of Truth）是設計系統的命脈——Hue 改變，所有下游同步。</li>
+        <li>HSL 是設計師友善的色彩空間：Hue 定義色相、Saturation 定義鮮豔、Lightness 定義明暗。</li>
+        <li>11 階色票（50/100/200…950）對應 Tailwind 預設，能與生態系無縫協作。</li>
+        <li>DaisyUI 4 主題槽（<code>--p</code>、<code>--b1</code>、<code>--bc</code> 等）讓設計令牌直接驅動元件顏色。</li>
+        <li>設計令牌不只是顏色——還涵蓋圓角、字型、字重、間距、陰影等「視覺常數」。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────────────────────────────────────
+  FOOTER
+  ─────────────────────────────────────────────────────── -->
+<footer class="footer footer-center p-8 bg-base-200 text-base-content border-t border-base-300">
+  <aside>
+    <p class="font-bold">TokenFlow · 動態設計系統</p>
+    <p class="text-sm opacity-70">基於 Tailwind CSS 3 + DaisyUI 4 · 單一來源 · 多格式輸出</p>
+    <p class="text-xs opacity-60 mt-2">© 2026 TokenFlow — Generated by Hermes Learning Session</p>
+  </aside>
+</footer>
+
+<!-- Copy toast -->
+<div class="toast-flash" id="toast">✓ 已複製到剪貼簿</div>
+
+<!-- ───────────────────────────────────────────────────────
+  TOKEN ENGINE
+  ─────────────────────────────────────────────────────── -->
+<script>
+(function () {
+  'use strict';
+
+  // ─── Color math ───────────────────────────────────────────
+  // L curve: maps Tailwind-style 50→950 stops to perceptually
+  // pleasing lightness values. Tuned empirically to match
+  // Tailwind's default indigo palette.
+  const L_CURVE = {
+    50: 96, 100: 92, 200: 85, 300: 75, 400: 65, 500: 55,
+    600: 45, 700: 38, 800: 30, 900: 22, 950: 14
+  };
+
+  function hslToHex(h, s, l) {
+    s /= 100; l /= 100;
+    const k = n => (n + h / 30) % 12;
+    const a = s * Math.min(l, 1 - l);
+    const f = n => {
+      const v = l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+      return Math.round(255 * v).toString(16).padStart(2, '0');
+    };
+    return `#${f(0)}${f(8)}${f(4)}`;
+  }
+
+  // Relative luminance for WCAG contrast checking
+  function relLuminance(h, s, l) {
+    s /= 100; l /= 100;
+    const a = s * Math.min(l, 1 - l);
+    const f = n => {
+      const v = l - a * Math.max(-1, Math.min((n + h / 30) % 12 - 3, Math.min(9 - ((n + h / 30) % 12), 1)));
+      return v;
+    };
+    const toLin = c => c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    return 0.2126 * toLin(f(0)) + 0.7152 * toLin(f(8)) + 0.0722 * toLin(f(4));
+  }
+
+  function contrastRatio(h1, s1, l1, h2, s2, l2) {
+    const L1 = relLuminance(h1, s1, l1);
+    const L2 = relLuminance(h2, s2, l2);
+    const [a, b] = L1 > L2 ? [L1, L2] : [L2, L1];
+    return (a + 0.05) / (b + 0.05);
+  }
+
+  // ─── State ────────────────────────────────────────────────
+  const state = {
+    p: { h: 244, s: 75, l: 55 },
+    a: { h: 282, s: 70, l: 55 },
+    b: { h: 220, s: 14 },
+    radius: 12,
+    fontWeight: 600,
+    fontFamily: 'Inter',
+    format: 'css',
+    isDark: false,
+  };
+
+  // ─── DOM refs ─────────────────────────────────────────────
+  const $ = id => document.getElementById(id);
+  const inputs = {
+    'p-h': $('p-h'), 'p-s': $('p-s'), 'p-l': $('p-l'),
+    'a-h': $('a-h'), 'a-s': $('a-s'), 'a-l': $('a-l'),
+    'b-h': $('b-h'), 'b-s': $('b-s'),
+    radius: $('radius'), fontWeight: $('font-weight'), fontFamily: $('font-family'),
+  };
+  const labels = {
+    'p-h': $('p-h-v'), 'p-s': $('p-s-v'), 'p-l': $('p-l-v'),
+    'a-h': $('a-h-v'), 'a-s': $('a-s-v'), 'a-l': $('a-l-v'),
+    'b-h': $('b-h-v'), 'b-s': $('b-s-v'),
+    radius: $('radius-v'),
+  };
+
+  // ─── Apply CSS variables ─────────────────────────────────
+  function applyBaseTokens() {
+    const r = document.documentElement;
+    r.style.setProperty('--p-h', state.p.h);
+    r.style.setProperty('--p-s', state.p.s + '%');
+    r.style.setProperty('--p-l', state.p.l + '%');
+    r.style.setProperty('--a-h', state.a.h);
+    r.style.setProperty('--a-s', state.a.s + '%');
+    r.style.setProperty('--a-l', state.a.l + '%');
+    r.style.setProperty('--b-h', state.b.h);
+    r.style.setProperty('--b-s', state.b.s + '%');
+    r.style.setProperty('--radius', state.radius + 'px');
+    r.style.setProperty('--primary-l', state.p.l + '%');
+    document.body.style.fontFamily = state.fontFamily;
+    document.body.style.fontWeight = state.fontWeight;
+  }
+
+  // ─── Render swatches ─────────────────────────────────────
+  function buildScale(channel) {
+    const stops = {};
+    Object.keys(L_CURVE).forEach(k => {
+      const l = L_CURVE[k];
+      const hex = hslToHex(state[channel].h, state[channel].s, l);
+      stops[k] = { hex, l };
+    });
+    return stops;
+  }
+
+  function renderScale(elId, scale) {
+    const el = $(elId);
+    el.innerHTML = '';
+    Object.keys(L_CURVE).forEach(k => {
+      const div = document.createElement('div');
+      const { hex, l } = scale[k];
+      const textColor = l > 60 ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.92)';
+      div.className = 'swatch';
+      div.style.background = hex;
+      div.style.color = textColor;
+      div.textContent = k;
+      div.title = `${k} · ${hex}`;
+      el.appendChild(div);
+    });
+  }
+
+  // ─── Token export ────────────────────────────────────────
+  function buildCSS() {
+    const p = buildScale('p'), a = buildScale('a'), b = buildScale('b');
+    let out = `/* ─── TokenFlow CSS Custom Properties ───\n`;
+    out += `/* Generated: ${new Date().toISOString()} */\n\n`;
+    out += `:root {\n`;
+    out += `  /* Primary HSL channels (single source of truth) */\n`;
+    out += `  --p-h: ${state.p.h}; --p-s: ${state.p.s}%; --p-l: ${state.p.l}%;\n`;
+    out += `  --a-h: ${state.a.h}; --a-s: ${state.a.s}%; --a-l: ${state.a.l}%;\n`;
+    out += `  --b-h: ${state.b.h}; --b-s: ${state.b.s}%;\n`;
+    out += `  --radius: ${state.radius}px;\n`;
+    out += `  --font-weight: ${state.fontWeight};\n`;
+    out += `  --font-family: ${state.fontFamily};\n\n`;
+    out += `  /* Primary scale (50 → 950) */\n`;
+    Object.keys(p).forEach(k => {
+      out += `  --primary-${k}: ${p[k].hex};\n`;
+    });
+    out += `\n  /* Accent scale */\n`;
+    Object.keys(a).forEach(k => {
+      out += `  --accent-${k}: ${a[k].hex};\n`;
+    });
+    out += `\n  /* Base scale (neutral) */\n`;
+    Object.keys(b).forEach(k => {
+      out += `  --base-${k}: ${b[k].hex};\n`;
+    });
+    out += `}\n`;
+    return out;
+  }
+
+  function buildTailwind() {
+    const p = buildScale('p'), a = buildScale('a'), b = buildScale('b');
+    const fmt = obj => Object.keys(obj).map(k => `          '${k}': '${obj[k].hex}'`).join(',\n');
+    return `// ─── TokenFlow Tailwind Config ───
+// Generated: ${new Date().toISOString()}
+
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  theme: {
+    extend: {
+      colors: {
+        primary: {
+${fmt(p)}
+        },
+        accent: {
+${fmt(a)}
+        },
+        base: {
+${fmt(b)}
+        },
+      },
+      borderRadius: {
+        token: '${state.radius}px',
+      },
+      fontFamily: {
+        sans: ['${state.fontFamily}', 'system-ui', 'sans-serif'],
+      },
+      fontWeight: {
+        primary: '${state.fontWeight}',
+      },
+    },
+  },
+};
+`;
+  }
+
+  function buildJSON() {
+    const p = buildScale('p'), a = buildScale('a'), b = buildScale('b');
+    const tokens = {
+      meta: {
+        generator: 'TokenFlow',
+        generated: new Date().toISOString(),
+        version: '1.0',
+      },
+      source: {
+        primary: { h: state.p.h, s: state.p.s, l: state.p.l },
+        accent:  { h: state.a.h, s: state.a.s, l: state.a.l },
+        base:    { h: state.b.h, s: state.b.s },
+      },
+      scale: {
+        primary: Object.fromEntries(Object.keys(p).map(k => [k, p[k].hex])),
+        accent:  Object.fromEntries(Object.keys(a).map(k => [k, a[k].hex])),
+        base:    Object.fromEntries(Object.keys(b).map(k => [k, b[k].hex])),
+      },
+      system: {
+        radius: state.radius,
+        fontWeight: state.fontWeight,
+        fontFamily: state.fontFamily,
+      },
+    };
+    return JSON.stringify(tokens, null, 2);
+  }
+
+  function buildSCSS() {
+    const p = buildScale('p'), a = buildScale('a'), b = buildScale('b');
+    let out = `// ─── TokenFlow SCSS Variables ───\n`;
+    out += `// Generated: ${new Date().toISOString()}\n\n`;
+    out += `// Source channels\n`;
+    out += `$primary-h: ${state.p.h};\n`;
+    out += `$primary-s: ${state.p.s}%;\n`;
+    out += `$primary-l: ${state.p.l}%;\n`;
+    out += `$accent-h: ${state.a.h};\n`;
+    out += `$accent-s: ${state.a.s}%;\n`;
+    out += `$accent-l: ${state.a.l}%;\n`;
+    out += `$base-h: ${state.b.h};\n`;
+    out += `$base-s: ${state.b.s}%;\n\n`;
+    out += `// Primary scale\n`;
+    Object.keys(p).forEach(k => { out += `$primary-${k}: ${p[k].hex};\n`; });
+    out += `\n// Accent scale\n`;
+    Object.keys(a).forEach(k => { out += `$accent-${k}: ${a[k].hex};\n`; });
+    out += `\n// Base scale\n`;
+    Object.keys(b).forEach(k => { out += `$base-${k}: ${b[k].hex};\n`; });
+    out += `\n// System\n`;
+    out += `$radius: ${state.radius}px;\n`;
+    out += `$font-weight: ${state.fontWeight};\n`;
+    out += `$font-family: '${state.fontFamily}', system-ui, sans-serif;\n`;
+    return out;
+  }
+
+  // ─── Syntax-highlight (lightweight) ──────────────────────
+  function highlight(text, format) {
+    const lines = text.split('\n');
+    return lines.map(line => {
+      let h = line
+        .replace(/(\/\/.*$)/g, '<span class="tc">$1</span>')
+        .replace(/(\/\*[\s\S]*?\*\/)/g, '<span class="tc">$1</span>')
+        .replace(/('#[0-9a-fA-F]{3,6}')/g, '<span class="tv">$1</span>')
+        .replace(/('[^']*':)/g, '<span class="tk">$1</span>')
+        .replace(/(--[a-z-]+)/g, '<span class="tk">$1</span>')
+        .replace(/(\$[a-z-]+)/g, '<span class="tk">$1</span>');
+      return h;
+    }).join('\n');
+  }
+
+  // ─── Render export area ──────────────────────────────────
+  function renderExport() {
+    let code, title;
+    switch (state.format) {
+      case 'tailwind': code = buildTailwind(); title = 'Tailwind Config (JS)'; break;
+      case 'json':     code = buildJSON();     title = 'JSON Tokens'; break;
+      case 'scss':     code = buildSCSS();     title = 'SCSS Variables'; break;
+      default:         code = buildCSS();      title = 'CSS Custom Properties';
+    }
+    $('format-title').textContent = title;
+    $('token-code').innerHTML = highlight(code, state.format);
+  }
+
+  // ─── Re-render everything ────────────────────────────────
+  function rerender() {
+    applyBaseTokens();
+    renderScale('primary-scale', buildScale('p'));
+    renderScale('accent-scale', buildScale('a'));
+    renderScale('base-scale', buildScale('b'));
+    renderScale('hero-swatches', buildScale('p'));
+    renderExport();
+  }
+
+  // ─── Label sync ──────────────────────────────────────────
+  function syncLabel(key) {
+    if (key === 'p-h' || key === 'a-h' || key === 'b-h') labels[key].textContent = state[key[0]].h;
+    else if (key === 'p-s' || key === 'a-s' || key === 'b-s') labels[key].textContent = state[key[0]].s + '%';
+    else if (key === 'p-l' || key === 'a-l') labels[key].textContent = state[key[0]].l + '%';
+    else if (key === 'radius') labels[key].textContent = state.radius + 'px';
+  }
+
+  // ─── Input bindings ──────────────────────────────────────
+  Object.entries(inputs).forEach(([key, el]) => {
+    el.addEventListener('input', e => {
+      const v = parseInt(e.target.value, 10) || e.target.value;
+      if (key === 'p-h') state.p.h = v;
+      else if (key === 'p-s') state.p.s = v;
+      else if (key === 'p-l') state.p.l = v;
+      else if (key === 'a-h') state.a.h = v;
+      else if (key === 'a-s') state.a.s = v;
+      else if (key === 'a-l') state.a.l = v;
+      else if (key === 'b-h') state.b.h = v;
+      else if (key === 'b-s') state.b.s = v;
+      else if (key === 'radius') state.radius = v;
+      else if (key === 'fontWeight') state.fontWeight = parseInt(v, 10);
+      else if (key === 'fontFamily') state.fontFamily = v;
+      else if (key === 'font-weight') state.fontWeight = parseInt(v, 10);
+      else if (key === 'font-family') state.fontFamily = v;
+      syncLabel(key);
+      rerender();
+    });
+  });
+
+  // ─── Presets ─────────────────────────────────────────────
+  const presets = {
+    'preset-default':  { p: {h:244,s:75,l:55}, a: {h:282,s:70,l:55}, b: {h:220,s:14} },
+    'preset-emerald':  { p: {h:158,s:64,l:45}, a: {h:198,s:93,l:50}, b: {h:220,s:14} },
+    'preset-rose':     { p: {h:347,s:77,l:55}, a: {h:316,s:72,l:55}, b: {h:220,s:14} },
+    'preset-amber':    { p: {h:38,s:92,l:50},  a: {h:18,s:90,l:55},  b: {h:30,s:14} },
+  };
+  Object.entries(presets).forEach(([id, preset]) => {
+    $(id).addEventListener('click', () => {
+      Object.assign(state.p, preset.p);
+      Object.assign(state.a, preset.a);
+      Object.assign(state.b, preset.b);
+      inputs['p-h'].value = state.p.h; inputs['p-s'].value = state.p.s; inputs['p-l'].value = state.p.l;
+      inputs['a-h'].value = state.a.h; inputs['a-s'].value = state.a.s; inputs['a-l'].value = state.a.l;
+      inputs['b-h'].value = state.b.h; inputs['b-s'].value = state.b.s;
+      syncLabel('p-h'); syncLabel('p-s'); syncLabel('p-l');
+      syncLabel('a-h'); syncLabel('a-s'); syncLabel('a-l');
+      syncLabel('b-h'); syncLabel('b-s');
+      rerender();
+    });
+  });
+
+  // ─── Format tabs ─────────────────────────────────────────
+  document.querySelectorAll('[data-format]').forEach(tab => {
+    tab.addEventListener('click', e => {
+      e.preventDefault();
+      document.querySelectorAll('[data-format]').forEach(t => t.classList.remove('tab-active'));
+      tab.classList.add('tab-active');
+      state.format = tab.dataset.format;
+      renderExport();
+    });
+  });
+
+  // ─── Copy ────────────────────────────────────────────────
+  function showToast(msg) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => t.classList.remove('show'), 1800);
+  }
+  $('copy-btn').addEventListener('click', async () => {
+    let code;
+    switch (state.format) {
+      case 'tailwind': code = buildTailwind(); break;
+      case 'json':     code = buildJSON(); break;
+      case 'scss':     code = buildSCSS(); break;
+      default:         code = buildCSS();
+    }
+    try {
+      await navigator.clipboard.writeText(code);
+      showToast('✓ 已複製 ' + tokenLabel() + ' 到剪貼簿');
+    } catch (err) {
+      // Fallback: select-the-code-into-textarea pattern
+      const ta = document.createElement('textarea');
+      ta.value = code;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+      showToast('✓ 已複製 (fallback)');
+    }
+  });
+  function tokenLabel() {
+    return { css: 'CSS', tailwind: 'Tailwind config', json: 'JSON tokens', scss: 'SCSS' }[state.format];
+  }
+
+  // ─── Theme toggle (light/dark) ──────────────────────────
+  // Use a `dark` class on <html> for Tailwind's dark variant AND swap
+  // data-theme so DaisyUI respects the change. This is more reliable than
+  // a sidecar data-theme attribute.
+  $('theme-toggle').addEventListener('click', () => {
+    state.isDark = !state.isDark;
+    document.documentElement.classList.toggle('dark', state.isDark);
+    document.documentElement.setAttribute('data-theme', state.isDark ? 'dark' : 'light');
+    showToast(state.isDark ? '🌙 切換到暗色主題' : '☀️ 切換到亮色主題');
+  });
+
+  // ─── Initial render ──────────────────────────────────────
+  rerender();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,777 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Dynamic Workflow Engine — React Flow × DAG</title>
+<style>
+  :root {
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c2230; --line:#262d3a;
+    --text:#e6edf3; --muted:#8b949e; --accent:#58a6ff; --good:#3fb950;
+    --warn:#d29922; --bad:#f85149; --chip:#21262d;
+  }
+  * { box-sizing:border-box }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--text);
+              font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",
+                          "Microsoft JhengHei",Roboto,sans-serif; font-size:13px; }
+  .app { display:grid; grid-template-rows:48px 1fr; height:100vh; }
+  header.topbar { display:flex; align-items:center; gap:12px; padding:0 14px;
+                  background:linear-gradient(180deg,#161b22,#11151c); border-bottom:1px solid var(--line); }
+  header.topbar h1 { margin:0; font-size:14px; letter-spacing:.3px; font-weight:600; }
+  header.topbar .pill { padding:2px 8px; border-radius:999px; background:var(--chip); color:var(--muted);
+                        font-size:11px; border:1px solid var(--line); }
+  header.topbar .spacer { flex:1 }
+  header.topbar button { background:#21262d; color:var(--text); border:1px solid var(--line);
+                        padding:5px 10px; border-radius:6px; cursor:pointer; font-size:12px; }
+  header.topbar button:hover { background:#2d333b }
+  header.topbar button.primary { background:#1f6feb; border-color:#1f6feb; }
+  header.topbar button.danger  { background:#7a1f24; border-color:#a02833; }
+  header.topbar button.good    { background:#1f7a3a; border-color:#2da44e; }
+  .layout { display:grid; grid-template-columns:220px 1fr 320px; min-height:0; }
+  aside.palette { background:var(--panel); border-right:1px solid var(--line); padding:10px; overflow:auto; }
+  aside.palette h3 { margin:6px 4px 8px; font-size:11px; text-transform:uppercase;
+                      letter-spacing:.8px; color:var(--muted); }
+  .node-card { display:flex; align-items:center; gap:8px; padding:8px 10px; margin-bottom:6px;
+               background:var(--panel2); border:1px solid var(--line); border-radius:6px;
+               cursor:grab; user-select:none; }
+  .node-card:active { cursor:grabbing }
+  .node-card .dot { width:10px; height:10px; border-radius:50%; flex:0 0 auto; }
+  .node-card .meta { display:flex; flex-direction:column; line-height:1.2; min-width:0; }
+  .node-card .meta b { font-weight:600; }
+  .node-card .meta span { color:var(--muted); font-size:11px; overflow:hidden; text-overflow:ellipsis; }
+  .node-card.clickable { cursor:pointer; }
+  .canvas { position:relative; min-width:0; }
+  .canvas .react-flow { background:#0b0e13; }
+  .panel-right { background:var(--panel); border-left:1px solid var(--line);
+                  padding:12px; overflow:auto; min-width:0; }
+  .panel-right h3 { margin:4px 0 8px; font-size:12px; text-transform:uppercase;
+                    letter-spacing:.8px; color:var(--muted); }
+  .field { display:flex; flex-direction:column; gap:4px; margin-bottom:10px; }
+  .field label { font-size:11px; color:var(--muted); }
+  .field input, .field select, .field textarea {
+    background:#0d1117; color:var(--text); border:1px solid var(--line);
+    border-radius:5px; padding:6px 8px; font:inherit; font-size:12px; outline:none;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus { border-color:var(--accent); }
+  .row { display:flex; gap:6px; }
+  .row > * { flex:1 }
+  .status { padding:8px 10px; border-radius:6px; font-size:12px; margin-bottom:8px;
+            border:1px solid var(--line); background:#0d1117; }
+  .status.ok    { border-color:#2da44e; background:rgba(63,185,80,.07); color:#7ee787; }
+  .status.warn  { border-color:#9e6a03; background:rgba(210,153,34,.08); color:#e3b341; }
+  .status.bad   { border-color:#b62324; background:rgba(248,81,73,.08); color:#ff7b72; }
+  .exec-log { background:#0b0e13; border:1px solid var(--line); border-radius:6px;
+              padding:8px; max-height:260px; overflow:auto; font-family:ui-monospace,
+              SFMono-Regular,Menlo,Consolas,monospace; font-size:11px; }
+  .exec-log .line { display:flex; gap:8px; padding:2px 0; }
+  .exec-log .t { color:var(--muted); flex:0 0 56px; }
+  .exec-log .ok { color:#7ee787; }
+  .exec-log .err{ color:#ff7b72; }
+  .exec-log .run{ color:#79c0ff; }
+  .badge { display:inline-block; padding:1px 6px; border-radius:4px; font-size:10px;
+           background:var(--chip); border:1px solid var(--line); color:var(--muted); }
+  .rf-node { background:#161b22; color:var(--text); border:1px solid var(--line);
+              border-radius:8px; padding:8px 10px; min-width:150px; max-width:220px;
+              box-shadow:0 2px 8px rgba(0,0,0,.4); }
+  .rf-node .title { font-weight:600; margin-bottom:4px; display:flex; align-items:center; gap:6px; }
+  .rf-node .title span.label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .rf-node .sub { font-size:11px; color:var(--muted); }
+  .rf-node .tag { display:inline-block; padding:1px 6px; border-radius:4px;
+                  font-size:10px; background:var(--chip); color:var(--muted); }
+  .rf-node.kind-trigger   { border-left:3px solid #58a6ff; }
+  .rf-node.kind-action    { border-left:3px solid #3fb950; }
+  .rf-node.kind-decision  { border-left:3px solid #d29922; }
+  .rf-node.kind-approval  { border-left:3px solid #a371f7; }
+  .rf-node.kind-end       { border-left:3px solid #f85149; }
+  .rf-node.status-running { animation:pulse 1s infinite; }
+  .rf-node.status-done    { box-shadow:0 0 0 1px #2da44e; }
+  .rf-node.status-error   { box-shadow:0 0 0 1px #b62324; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.6} }
+  .react-flow__edge-path { stroke:#58a6ff; stroke-width:2; }
+  .react-flow__edge.cycle .react-flow__edge-path { stroke:#f85149; stroke-dasharray:6 4; stroke-width:2.5; }
+  .react-flow__edge.animated .react-flow__edge-path {
+    stroke:#3fb950; stroke-dasharray:6 4; animation:dash 1s linear infinite;
+  }
+  @keyframes dash { to { stroke-dashoffset:-20; } }
+  .react-flow__edge-text { fill:#e6edf3; font-size:10px; }
+  .react-flow__edge-textbg { fill:#0b0e13; }
+  .react-flow__handle { width:10px; height:10px; background:var(--accent); border:2px solid #0b0e13; }
+  .react-flow__attribution { display:none; }
+  .toolbar { position:absolute; left:10px; bottom:10px; display:flex; gap:6px; z-index:5; }
+  .toolbar button { background:#161b22cc; backdrop-filter:blur(8px); border:1px solid var(--line);
+                    color:var(--text); padding:6px 10px; border-radius:6px; cursor:pointer; font-size:12px; }
+  .toolbar button:hover { background:#1c2230; }
+  .legend-block { color:var(--muted); font-size:11px; margin-top:14px; }
+  .legend-block ul { margin:4px 0; padding-left:16px; }
+  .legend-block b { color:var(--text); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <h1>⚙ Dynamic Workflow Engine</h1>
+    <span class="pill">React Flow × DAG</span>
+    <span class="pill" id="pill-nodes">0 nodes</span>
+    <span class="pill" id="pill-edges">0 edges</span>
+    <span class="pill" id="pill-status">● idle</span>
+    <span class="spacer"></span>
+    <button id="btn-validate">Validate DAG</button>
+    <button id="btn-export">Export JSON</button>
+    <button id="btn-import">Import JSON</button>
+    <button id="btn-clear" class="danger">Clear</button>
+    <button id="btn-run" class="good">▶ Run</button>
+  </header>
+
+  <div class="layout">
+    <aside class="palette">
+      <h3>Node Palette</h3>
+      <div id="palette"></div>
+      <h3 style="margin-top:14px">Sample Templates</h3>
+      <div class="node-card clickable" data-template="approval-flow">
+        <div class="dot" style="background:#a371f7"></div>
+        <div class="meta"><b>請假審核</b><span>Trigger → Approval → End</span></div>
+      </div>
+      <div class="node-card clickable" data-template="decision-flow">
+        <div class="dot" style="background:#d29922"></div>
+        <div class="meta"><b>分支決策</b><span>Trigger → Decision → Action ×2</span></div>
+      </div>
+      <div class="node-card clickable" data-template="etl-flow">
+        <div class="dot" style="background:#3fb950"></div>
+        <div class="meta"><b>ETL 管線</b><span>Trigger → 3 Actions → End</span></div>
+      </div>
+
+      <div class="legend-block">
+        <h3 style="margin-top:14px">Legend</h3>
+        <ul>
+          <li><b>Drag</b> node from palette to canvas</li>
+          <li>Drag from <b>handle (●)</b> to connect</li>
+          <li>Click a node to edit properties</li>
+          <li>Press <b>Delete</b> to remove selection</li>
+          <li>Red dashed edges = cycle</li>
+          <li>Green animated edges = DAG</li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="canvas">
+      <div id="flow" style="width:100%; height:100%"></div>
+      <div class="toolbar">
+        <button id="btn-fit">Fit View</button>
+        <button id="btn-toggle-grid">Grid: on</button>
+        <button id="btn-toggle-mini">Minimap</button>
+      </div>
+    </main>
+
+    <aside class="panel-right">
+      <div id="status" class="status ok">Ready. Drag a node from the palette to begin.</div>
+      <h3>Properties</h3>
+      <div id="props">
+        <div style="color:var(--muted); font-size:12px">No node selected.</div>
+      </div>
+      <h3 style="margin-top:14px">Topological Order</h3>
+      <div id="topo" class="exec-log"><div class="line"><span class="t">—</span><span>Run Validate to compute</span></div></div>
+      <h3 style="margin-top:14px">Execution Log</h3>
+      <div id="log" class="exec-log"></div>
+    </aside>
+  </div>
+</div>
+
+<input id="file-input" type="file" accept="application/json" style="display:none" />
+
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+<script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css" />
+<script>
+// CommonJS module guard for ReactFlow UMD — Babel will strip types if any
+</script>
+<script type="text/babel" data-presets="react" data-type="module">
+/* ============================================================
+ *  Dynamic Workflow Engine — pure browser, single file
+ *  - React Flow 11 UMD (CDN)
+ *  - 5 node kinds: Trigger / Action / Decision / Approval / End
+ *  - Live DAG validation (DFS 3-color cycle detection)
+ *  - Kahn's BFS topological sort
+ *  - Execution simulator with async step delay
+ *  - JSON Import / Export
+ *  - 3 sample templates
+ * ============================================================ */
+
+const { useState, useEffect, useCallback, useMemo, useRef } = React;
+const RF = window.ReactFlow;
+const { ReactFlow, ReactFlowProvider, Controls, Background, MiniMap,
+        Handle, applyNodeChanges, applyEdgeChanges, addEdge } = RF;
+
+/* ---------- 1. Node type registry ---------- */
+const NODE_KINDS = {
+  trigger:  { label:'Trigger',  color:'#58a6ff', desc:'Entry point',
+              defaultProps:{ label:'Start', event:'manual' },
+              fields:[
+                { key:'label', label:'Label', type:'text' },
+                { key:'event', label:'Event', type:'select', options:['manual','schedule','webhook','email'] }
+              ], in:0, out:1 },
+  action:   { label:'Action',   color:'#3fb950', desc:'Execute a task',
+              defaultProps:{ label:'Send Email', action:'http', endpoint:'https://api.example.com/notify' },
+              fields:[
+                { key:'label', label:'Label', type:'text' },
+                { key:'action', label:'Action Type', type:'select', options:['http','shell','notify','log'] },
+                { key:'endpoint', label:'Endpoint / Command', type:'text' }
+              ], in:1, out:1 },
+  decision: { label:'Decision', color:'#d29922', desc:'Conditional branch',
+              defaultProps:{ label:'If Amount > 1000', expr:'amount > 1000' },
+              fields:[
+                { key:'label', label:'Label', type:'text' },
+                { key:'expr', label:'Expression', type:'text' }
+              ], in:1, out:2 },
+  approval: { label:'Approval', color:'#a371f7', desc:'Human approval gate (RBAC)',
+              defaultProps:{ label:'Manager Review', role:'manager', timeout:'24h' },
+              fields:[
+                { key:'label', label:'Label', type:'text' },
+                { key:'role', label:'Required Role', type:'select', options:['manager','hr','finance','director'] },
+                { key:'timeout', label:'Timeout', type:'text' }
+              ], in:1, out:1 },
+  end:      { label:'End',      color:'#f85149', desc:'Terminal node',
+              defaultProps:{ label:'Done', status:'success' },
+              fields:[
+                { key:'label', label:'Label', type:'text' },
+                { key:'status', label:'Status', type:'select', options:['success','failure','cancelled'] }
+              ], in:1, out:0 }
+};
+const KIND_KEYS = Object.keys(NODE_KINDS);
+
+/* ---------- 2. Custom node renderer (registered with RF) ---------- */
+function FlowNode({ id, data, selected }) {
+  const k = NODE_KINDS[data.kind] || NODE_KINDS.action;
+  const status = data.status || 'idle';
+  const cls = `rf-node kind-${data.kind}${selected?' selected':''}${status!=='idle'?' status-'+status:''}`;
+  const handles = [];
+  if (k.in  >= 1) handles.push(<Handle key="t" type="target" position="left"
+                                       style={{ background:k.color }} />);
+  if (k.out === 1) handles.push(<Handle key="s" type="source" position="right"
+                                       style={{ background:k.color }} />);
+  if (k.out === 2) {
+    handles.push(<Handle key="s0" type="source" position="right" id="true"
+                         style={{ background:'#3fb950', top:'35%' }} />);
+    handles.push(<Handle key="s1" type="source" position="right" id="false"
+                         style={{ background:'#f85149', top:'65%' }} />);
+  }
+  let sub = null;
+  if (data.kind === 'decision' && data.expr)
+    sub = <span className="badge">{data.expr}</span>;
+  else if (data.kind === 'approval' && data.role)
+    sub = <span className="badge">role: {data.role}</span>;
+  return (
+    <div className={cls} data-id={id}>
+      <div className="title">
+        <span className="tag">{k.label}</span>
+        <span className="label">{data.label || k.label}</span>
+      </div>
+      <div className="sub">{sub}</div>
+      {handles}
+    </div>
+  );
+}
+const nodeTypes = { flow: FlowNode };
+
+/* ---------- 3. DAG algorithms (cycle detect + topo sort) ---------- */
+function detectCycle(nodes, edges) {
+  const adj = {}; const byId = {};
+  nodes.forEach(n => { adj[n.id] = []; byId[n.id] = n; });
+  edges.forEach(e => { if (adj[e.source]) adj[e.source].push(e.target); });
+  const WHITE=0, GRAY=1, BLACK=2;
+  const color = {}; nodes.forEach(n => color[n.id] = WHITE);
+  const cycleNodes = []; let found = false;
+  function dfs(u) {
+    color[u] = GRAY;
+    for (const v of adj[u]) {
+      if (color[v] === GRAY) { found = true; cycleNodes.push(u, v); return true; }
+      if (color[v] === WHITE && dfs(v)) { cycleNodes.push(u); return true; }
+    }
+    color[u] = BLACK; return false;
+  }
+  for (const n of nodes) if (color[n.id] === WHITE) {
+    if (dfs(n.id)) break;
+  }
+  return { hasCycle: found, cyclePath: cycleNodes.reverse() };
+}
+function findCycleEdgeIds(nodes, edges) {
+  const cyc = detectCycle(nodes, edges);
+  if (!cyc.hasCycle) return new Set();
+  const inC = new Set(cyc.cyclePath);
+  return new Set(edges.filter(e => inC.has(e.source) && inC.has(e.target)).map(e => e.id));
+}
+function topologicalSort(nodes, edges) {
+  const inDeg = {}; const byId = {}; const adj = {};
+  nodes.forEach(n => { inDeg[n.id] = 0; byId[n.id] = n; adj[n.id] = []; });
+  edges.forEach(e => {
+    if (byId[e.target] != null) inDeg[e.target]++;
+    if (adj[e.source]) adj[e.source].push(e.target);
+  });
+  const queue = nodes.filter(n => inDeg[n.id] === 0).map(n => n.id);
+  const order = [];
+  while (queue.length) {
+    const u = queue.shift();
+    order.push(byId[u]);
+    for (const v of adj[u]) {
+      if (--inDeg[v] === 0) queue.push(v);
+    }
+  }
+  return order.length === nodes.length ? order : [];
+}
+
+/* ---------- 4. Node factory + templates ---------- */
+let __idSeq = 1;
+const genId = (prefix='n') =>
+  `${prefix}_${Date.now().toString(36)}_${(__idSeq++).toString(36)}`;
+
+function makeNode(kind, position, props) {
+  const def = NODE_KINDS[kind];
+  return {
+    id: genId(kind[0]),
+    type: 'flow',
+    position,
+    data: { kind, status:'idle', ...def.defaultProps, ...(props||{}) }
+  };
+}
+
+const TEMPLATES = {
+  'approval-flow': () => {
+    const n = [
+      makeNode('trigger',  {x: 40,  y: 120}, {label:'員工請假'}),
+      makeNode('approval', {x:300,  y: 120}, {label:'主管審核'}),
+      makeNode('end',      {x:560,  y: 120}, {label:'完成'})
+    ];
+    return { nodes:n, edges:[
+      { id:genId('e'), source:n[0].id, target:n[1].id, animated:true },
+      { id:genId('e'), source:n[1].id, target:n[2].id, animated:true }
+    ]};
+  },
+  'decision-flow': () => {
+    const n = [
+      makeNode('trigger',  {x: 40,  y:200}, {label:'訂單建立'}),
+      makeNode('decision', {x:300,  y:200}, {label:'金額判斷', expr:'amount > 1000'}),
+      makeNode('action',   {x:580,  y: 60}, {label:'自動核准', action:'log'}),
+      makeNode('approval', {x:580,  y:340}, {label:'主管覆核', role:'manager'}),
+      makeNode('end',      {x:860,  y:200}, {label:'關單'})
+    ];
+    return { nodes:n, edges:[
+      { id:genId('e'), source:n[0].id, target:n[1].id, animated:true },
+      { id:genId('e'), source:n[1].id, target:n[2].id, animated:true, sourceHandle:'true',  label:'≤ 1000' },
+      { id:genId('e'), source:n[1].id, target:n[3].id, animated:true, sourceHandle:'false', label:'> 1000' },
+      { id:genId('e'), source:n[2].id, target:n[4].id, animated:true },
+      { id:genId('e'), source:n[3].id, target:n[4].id, animated:true }
+    ]};
+  },
+  'etl-flow': () => {
+    const n = [
+      makeNode('trigger', {x: 40, y:200}, {label:'CSV 上傳', event:'webhook'}),
+      makeNode('action',  {x:300, y: 60}, {label:'解析 CSV', action:'shell', endpoint:'python parse.py'}),
+      makeNode('action',  {x:300, y:200}, {label:'驗證資料', action:'http', endpoint:'POST /validate'}),
+      makeNode('action',  {x:300, y:340}, {label:'寫入 DB', action:'http', endpoint:'POST /db/insert'}),
+      makeNode('end',     {x:600, y:200}, {label:'完成', status:'success'})
+    ];
+    return { nodes:n, edges:[
+      { id:genId('e'), source:n[0].id, target:n[1].id, animated:true },
+      { id:genId('e'), source:n[1].id, target:n[2].id, animated:true },
+      { id:genId('e'), source:n[2].id, target:n[3].id, animated:true },
+      { id:genId('e'), source:n[3].id, target:n[4].id, animated:true }
+    ]};
+  },
+};
+
+/* ---------- 5. Workflow execution simulator ---------- */
+function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+
+async function executeWorkflow(nodes, edges, setNodes, log) {
+  const order = topologicalSort(nodes, edges);
+  if (!order.length) { log('err','Cannot execute: graph contains a cycle'); return; }
+  const adj = {};
+  nodes.forEach(n => adj[n.id] = []);
+  edges.forEach(e => { if (adj[e.source]) adj[e.source].push(e.target); });
+
+  const ctx = { amount: 1500 };  // demo context
+
+  for (const node of order) {
+    setNodes(nds => nds.map(n => n.id === node.id
+      ? {...n, data:{...n.data, status:'running'}} : n));
+    log('run', `▶ ${node.data.label}`);
+    await sleep(280 + Math.random() * 320);
+
+    if (node.data.kind === 'decision') {
+      const m = String(node.data.expr||'').match(/(\w+)\s*>\s*(\d+)/);
+      let branch = 'true';
+      if (m) branch = (Number(ctx[m[1]] ?? 0) > Number(m[2])) ? 'false' : 'true';
+      log('ok', `  decision → ${branch} (${node.data.expr})`);
+      ctx._branch = branch;
+    } else if (node.data.kind === 'action') {
+      log('ok', `  action: ${node.data.action} → ${node.data.endpoint}`);
+    } else if (node.data.kind === 'approval') {
+      log('ok', `  approval required (role=${node.data.role}) → auto-approved for demo`);
+    } else if (node.data.kind === 'end') {
+      log('ok', `  end: status=${node.data.status}`);
+    }
+    setNodes(nds => nds.map(n => n.id === node.id
+      ? {...n, data:{...n.data, status:'done'}} : n));
+  }
+  log('ok', '✓ workflow complete');
+}
+
+/* ---------- 6. Main App ---------- */
+function App() {
+  const wrapper = useRef(null);
+  const [rfInstance, setRfInstance] = useState(null);
+  const [nodes, setNodes] = useState([]);
+  const [edges, setEdges] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [showMini, setShowMini] = useState(true);
+  const [showGrid, setShowGrid] = useState(true);
+
+  /* Expose state + mutators to window so the imperative DOM glue can call them */
+  useEffect(() => {
+    window.__wf = { nodes, edges, setNodes, setEdges, getSelected:()=>selected };
+  }, [nodes, edges, selected]);
+
+  /* Live cycle edge styling */
+  const cycleEdgeIds = useMemo(() => findCycleEdgeIds(nodes, edges), [nodes, edges]);
+  const styledEdges = useMemo(() => edges.map(e => ({
+    ...e,
+    className: cycleEdgeIds.has(e.id) ? 'cycle' : (e.animated ? 'animated' : ''),
+    label: e.label,
+    labelStyle: { fill: '#e6edf3', fontSize: 11 },
+    labelBgStyle: { fill: '#0b0e13' }
+  })), [edges, cycleEdgeIds]);
+
+  /* RF callbacks */
+  const onNodesChange = useCallback(changes => setNodes(ns => applyNodeChanges(changes, ns)), []);
+  const onEdgesChange = useCallback(changes => setEdges(es => applyEdgeChanges(changes, es)), []);
+  const onConnect = useCallback(p => setEdges(es => addEdge({...p, animated:true}, es)), []);
+  const onSelectionChange = useCallback(({ nodes: sel }) => {
+    const node = (sel && sel[0]) || null;
+    setSelected(node);
+    renderProps(node);
+  }, []);
+
+  /* Drag & drop from palette */
+  const onDragOver = useCallback(e => {
+    e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+  }, []);
+  const onDrop = useCallback(e => {
+    e.preventDefault();
+    const kind = e.dataTransfer.getData('application/reactflow');
+    if (!kind || !NODE_KINDS[kind]) return;
+    const pos = rfInstance && rfInstance.screenToFlowPosition
+      ? rfInstance.screenToFlowPosition({ x:e.clientX, y:e.clientY })
+      : { x: e.clientX - 40, y: e.clientY - 40 };
+    setNodes(ns => [...ns, makeNode(kind, pos)]);
+  }, [rfInstance]);
+
+  /* Apply props edits from the side panel */
+  const applyPropPatch = useCallback((id, patch) => {
+    setNodes(ns => ns.map(n => n.id === id
+      ? {...n, data:{...n.data, ...patch}} : n));
+    setSelected(s => s && s.id === id ? {...s, data:{...s.data, ...patch}} : s);
+  }, []);
+
+  /* Validate (computes status panel + topo display) */
+  const validate = useCallback(() => {
+    const status = document.getElementById('status');
+    const topoEl = document.getElementById('topo');
+    if (!nodes.length) {
+      status.className = 'status warn';
+      status.innerHTML = 'Empty graph. Drag nodes from the palette to begin.';
+      topoEl.innerHTML = '<div class="line"><span class="t">—</span><span>—</span></div>';
+      return { ok:false, hasCycle:false, order:[] };
+    }
+    const cyc = detectCycle(nodes, edges);
+    const order = topologicalSort(nodes, edges);
+    if (cyc.hasCycle) {
+      status.className = 'status bad';
+      status.innerHTML = `✗ Cycle detected: <b>${cyc.cyclePath.slice(0,6).join(' → ')}</b>... <br><small>Remove highlighted red edges.</small>`;
+      topoEl.innerHTML = '<div class="line"><span class="err">cycle — topological sort impossible</span></div>';
+      return { ok:false, hasCycle:true, order:[] };
+    }
+    status.className = 'status ok';
+    status.innerHTML = `✓ Valid DAG — ${nodes.length} nodes, ${edges.length} edges, ${order.length} steps in topo order.`;
+    topoEl.innerHTML = order.map((n,i) =>
+      `<div class="line"><span class="t">${i+1}.</span><span>${esc(n.data.label||n.id)} <span class="badge">${NODE_KINDS[n.data.kind].label}</span></span></div>`
+    ).join('');
+    return { ok:true, hasCycle:false, order };
+  }, [nodes, edges]);
+
+  /* Run the workflow */
+  const run = useCallback(async () => {
+    const v = validate();
+    if (!v.ok) { appendLog('err','✗ Refusing to run'); return; }
+    appendLog('run', `── run start (${nodes.length} nodes, ctx={amount:1500}) ──`);
+    setNodes(ns => ns.map(n => ({...n, data:{...n.data, status:'idle'}})));
+    await executeWorkflow(nodes, edges, setNodes, appendLog);
+  }, [nodes, edges, validate]);
+
+  /* Load template */
+  const loadTemplate = useCallback(key => {
+    const tpl = TEMPLATES[key]();
+    setNodes(tpl.nodes); setEdges(tpl.edges);
+    setSelected(null); renderProps(null);
+    appendLog('ok', `✓ loaded template: ${key} (${tpl.nodes.length} nodes)`);
+    setTimeout(() => validate(), 50);
+  }, [validate]);
+
+  /* Status pill updates */
+  useEffect(() => {
+    document.getElementById('pill-nodes').textContent = nodes.length + ' nodes';
+    document.getElementById('pill-edges').textContent = edges.length + ' edges';
+  }, [nodes.length, edges.length]);
+
+  /* Wire window events for templates + property edits */
+  useEffect(() => {
+    const onLoad = e => loadTemplate(e.detail);
+    const onPatch = e => applyPropPatch(e.detail.id, e.detail.patch);
+    const onDel = e => {
+      const id = e.detail.id;
+      setNodes(ns => ns.filter(n => n.id !== id));
+      setEdges(es => es.filter(e => e.source !== id && e.target !== id));
+      setSelected(null); renderProps(null);
+    };
+    window.addEventListener('wf:load-template', onLoad);
+    window.addEventListener('wf:patch-node', onPatch);
+    window.addEventListener('wf:delete-node', onDel);
+    return () => {
+      window.removeEventListener('wf:load-template', onLoad);
+      window.removeEventListener('wf:patch-node', onPatch);
+      window.removeEventListener('wf:delete-node', onDel);
+    };
+  }, [loadTemplate, applyPropPatch]);
+
+  return (
+    <ReactFlowProvider>
+      <div ref={wrapper} style={{ width:'100%', height:'100%' }}
+           onDrop={onDrop} onDragOver={onDragOver}>
+        <ReactFlow
+          nodes={nodes}
+          edges={styledEdges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onInit={setRfInstance}
+          onSelectionChange={onSelectionChange}
+          nodeTypes={nodeTypes}
+          snapToGrid={showGrid}
+          snapGrid={[16,16]}
+          fitView
+          deleteKeyCode={['Delete','Backspace']}
+          defaultEdgeOptions={{ animated:true, style:{ stroke:'#58a6ff' } }}
+        >
+          <Controls />
+          {showGrid && <Background variant="dots" gap={16} size={1} color="#262d3a" />}
+          {showMini && <MiniMap nodeColor={n => (NODE_KINDS[n.data.kind]||{}).color || '#888'}
+                                maskColor="rgba(11,14,19,0.7)" />}
+        </ReactFlow>
+      </div>
+    </ReactFlowProvider>
+  );
+}
+
+/* ---------- 7. DOM glue (palette, props panel, toolbar) ---------- */
+function esc(s) {
+  return String(s==null?'':s).replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+function renderPalette() {
+  const root = document.getElementById('palette');
+  root.innerHTML = '';
+  KIND_KEYS.forEach(k => {
+    const def = NODE_KINDS[k];
+    const card = document.createElement('div');
+    card.className = 'node-card';
+    card.draggable = true;
+    card.innerHTML = `
+      <div class="dot" style="background:${def.color}"></div>
+      <div class="meta"><b>${def.label}</b><span>${def.desc}</span></div>
+    `;
+    card.addEventListener('dragstart', e => {
+      e.dataTransfer.setData('application/reactflow', k);
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    root.appendChild(card);
+  });
+  document.querySelectorAll('[data-template]').forEach(card => {
+    card.addEventListener('click', () => {
+      window.dispatchEvent(new CustomEvent('wf:load-template', { detail: card.dataset.template }));
+    });
+  });
+}
+
+function renderProps(node) {
+  const root = document.getElementById('props');
+  if (!node) {
+    root.innerHTML = '<div style="color:var(--muted); font-size:12px">No node selected.</div>';
+    return;
+  }
+  const k = NODE_KINDS[node.data.kind] || NODE_KINDS.action;
+  root.innerHTML = `
+    <div class="status ok" style="margin-bottom:10px">
+      <b>${esc(node.data.label)}</b><br>
+      <span class="badge">${k.label}</span>
+      <span class="badge">${esc(node.id)}</span>
+    </div>
+    ${k.fields.map(f => `
+      <div class="field">
+        <label>${f.label}</label>
+        ${f.type === 'select'
+          ? `<select data-k="${f.key}">${f.options.map(o =>
+              `<option value="${o}" ${node.data[f.key]===o?'selected':''}>${o}</option>`).join('')}</select>`
+          : f.type === 'textarea'
+            ? `<textarea data-k="${f.key}" rows="3">${esc(node.data[f.key]||'')}</textarea>`
+            : `<input data-k="${f.key}" value="${esc(node.data[f.key]||'')}" />`}
+      </div>
+    `).join('')}
+    <button id="prop-del" style="width:100%;background:#7a1f24;border:1px solid #a02833;color:#fff;padding:6px;border-radius:5px;cursor:pointer">Delete Node</button>
+  `;
+  root.querySelectorAll('[data-k]').forEach(el => {
+    el.addEventListener('input', e => {
+      window.dispatchEvent(new CustomEvent('wf:patch-node', {
+        detail: { id: node.id, patch: { [el.dataset.k]: e.target.value } }
+      }));
+    });
+  });
+  document.getElementById('prop-del').addEventListener('click', () => {
+    window.dispatchEvent(new CustomEvent('wf:delete-node', { detail: { id: node.id } }));
+  });
+}
+
+function appendLog(kind, msg) {
+  const el = document.getElementById('log');
+  const ts = new Date().toLocaleTimeString('en-GB', { hour12:false });
+  const div = document.createElement('div');
+  div.className = 'line';
+  div.innerHTML = `<span class="t">${ts}</span><span class="${kind}">${esc(msg)}</span>`;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+  document.getElementById('pill-status').textContent =
+    kind === 'err' ? '● error' : kind === 'run' ? '● running' : '● idle';
+}
+
+/* ---------- 8. Mount + bind header buttons ---------- */
+const rootEl = document.getElementById('flow');
+ReactDOM.createRoot(rootEl).render(<App />);
+renderPalette();
+
+/* Imperative accessors for export/import/clear/run */
+function getState() {
+  const w = window.__wf || {};
+  return { nodes: w.nodes || [], edges: w.edges || [] };
+}
+
+document.getElementById('btn-validate').addEventListener('click', () => {
+  /* Re-render panels by clicking the validate button in App — simpler: replicate via window */
+  const { nodes, edges } = getState();
+  const status = document.getElementById('status');
+  const topoEl = document.getElementById('topo');
+  if (!nodes.length) {
+    status.className = 'status warn';
+    status.innerHTML = 'Empty graph.';
+    topoEl.innerHTML = '<div class="line"><span class="t">—</span><span>—</span></div>';
+    return;
+  }
+  const cyc = detectCycle(nodes, edges);
+  const order = topologicalSort(nodes, edges);
+  if (cyc.hasCycle) {
+    status.className = 'status bad';
+    status.innerHTML = `✗ Cycle: <b>${cyc.cyclePath.slice(0,6).join(' → ')}</b>...`;
+    topoEl.innerHTML = '<div class="line"><span class="err">cycle — topological sort impossible</span></div>';
+  } else {
+    status.className = 'status ok';
+    status.innerHTML = `✓ Valid DAG — ${nodes.length} nodes, ${edges.length} edges, ${order.length} steps.`;
+    topoEl.innerHTML = order.map((n,i) =>
+      `<div class="line"><span class="t">${i+1}.</span><span>${esc(n.data.label||n.id)} <span class="badge">${(NODE_KINDS[n.data.kind]||{}).label||n.data.kind}</span></span></div>`
+    ).join('');
+  }
+});
+
+document.getElementById('btn-clear').addEventListener('click', () => {
+  if (!confirm('Clear the entire workflow?')) return;
+  const w = window.__wf;
+  if (w) { w.setNodes([]); w.setEdges([]); }
+  renderProps(null);
+  const status = document.getElementById('status');
+  status.className = 'status ok';
+  status.innerHTML = 'Cleared. Drag nodes from the palette to begin.';
+  document.getElementById('topo').innerHTML =
+    '<div class="line"><span class="t">—</span><span>—</span></div>';
+});
+
+document.getElementById('btn-export').addEventListener('click', () => {
+  const { nodes, edges } = getState();
+  const blob = new Blob([JSON.stringify({ nodes, edges }, null, 2)],
+                        { type:'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'workflow.json'; a.click();
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('btn-import').addEventListener('click', () => {
+  document.getElementById('file-input').click();
+});
+document.getElementById('file-input').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      const w = window.__wf;
+      if (Array.isArray(data.nodes) && w) {
+        w.setNodes(data.nodes);
+        w.setEdges(data.edges || []);
+        appendLog('ok', `✓ Imported ${data.nodes.length} nodes / ${(data.edges||[]).length} edges`);
+        document.getElementById('btn-validate').click();
+      }
+    } catch (err) { appendLog('err', 'Import failed: ' + err.message); }
+  };
+  reader.readAsText(f);
+  e.target.value = '';
+});
+
+document.getElementById('btn-run').addEventListener('click', async () => {
+  const w = window.__wf;
+  if (!w) return;
+  const { nodes, edges } = getState();
+  const cyc = detectCycle(nodes, edges);
+  if (cyc.hasCycle) { appendLog('err', '✗ Refusing to run: cycle in graph'); return; }
+  appendLog('run', `── run start (${nodes.length} nodes) ──`);
+  w.setNodes(ns => ns.map(n => ({...n, data:{...n.data, status:'idle'}})));
+  await executeWorkflow(nodes, edges, w.setNodes, appendLog);
+});
+
+document.getElementById('btn-fit').addEventListener('click', () => {
+  /* fitView exposed on the React Flow instance; easiest is to send a custom event */
+  window.dispatchEvent(new CustomEvent('wf:fit-view'));
+});
+/* React side: subscribe to fit-view event */
+window.addEventListener('wf:fit-view', () => {
+  /* The instance is held by App; instead use the public React Flow API */
+  const ev = new KeyboardEvent('keydown', { key:'f', ctrlKey:true });
+  document.dispatchEvent(ev);
+});
+
+let gridOn = true;
+document.getElementById('btn-toggle-grid').addEventListener('click', e => {
+  gridOn = !gridOn; e.target.textContent = 'Grid: ' + (gridOn?'on':'off');
+  const bg = document.querySelector('.react-flow__background');
+  if (bg) bg.style.display = gridOn ? '' : 'none';
+});
+let miniOn = true;
+document.getElementById('btn-toggle-mini').addEventListener('click', e => {
+  miniOn = !miniOn; e.target.textContent = miniOn ? 'Minimap' : 'Minimap (off)';
+  const m = document.querySelector('.react-flow__minimap');
+  if (m) m.style.display = miniOn ? '' : 'none';
+});
+
+/* Initial log message */
+appendLog('ok', '⚙ Dynamic Workflow Engine initialized');
+appendLog('ok', '→ Click "請假審核" template or drag nodes from palette to start');
+</script>
+</body>
+</html>

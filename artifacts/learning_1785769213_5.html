@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Next.js + FastAPI RBAC Demo</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+    min-height: 100vh;
+    color: #e0e0e0;
+    padding: 20px;
+  }
+  .container { max-width: 1100px; margin: 0 auto; }
+  .glass {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  }
+  h1 { font-size: 28px; margin-bottom: 8px; color: #fff; }
+  h2 { font-size: 20px; margin-bottom: 16px; color: #fff; }
+  h3 { font-size: 16px; margin-bottom: 12px; color: #c7c7c7; margin-top: 16px; }
+  p { line-height: 1.6; margin-bottom: 8px; }
+  .subtitle { color: #a0a0ff; font-size: 14px; margin-bottom: 16px; }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-right: 4px;
+  }
+  .badge-admin { background: #ff4757; color: #fff; }
+  .badge-manager { background: #ffa502; color: #fff; }
+  .badge-user { background: #3742fa; color: #fff; }
+  .badge-allow { background: #2ed573; color: #fff; }
+  .badge-deny { background: #57606f; color: #fff; }
+  input, select, button {
+    font-family: inherit;
+    font-size: 14px;
+    padding: 10px 14px;
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.08);
+    color: #fff;
+    outline: none;
+    transition: all 0.2s;
+  }
+  input:focus, select:focus { border-color: #6c5ce7; background: rgba(255,255,255,0.12); }
+  label { display: block; margin-bottom: 12px; font-size: 13px; color: #c0c0c0; }
+  label input, label select { display: block; margin-top: 4px; width: 100%; max-width: 360px; }
+  button {
+    cursor: pointer;
+    background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%);
+    border: none;
+    font-weight: 600;
+    transition: transform 0.1s, box-shadow 0.2s;
+  }
+  button:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(108, 92, 231, 0.4); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  button.ghost { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); }
+  button.danger { background: linear-gradient(135deg, #ff4757 0%, #ff6b81 100%); }
+  .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+  .tab-btn {
+    padding: 8px 16px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    cursor: pointer;
+    color: #c0c0c0;
+    font-size: 13px;
+  }
+  .tab-btn.active { background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%); color: #fff; }
+  .tab-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+  pre {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 16px;
+    overflow-x: auto;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #a29bfe;
+    font-family: "SF Mono", Monaco, Consolas, monospace;
+  }
+  .permission-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin: 12px 0;
+  }
+  .permission-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: rgba(0,0,0,0.2);
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  .header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+  }
+  .user-info { display: flex; align-items: center; gap: 12px; }
+  .alert {
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin: 12px 0;
+    font-size: 13px;
+  }
+  .alert-error { background: rgba(255, 71, 87, 0.15); border: 1px solid #ff4757; color: #ff6b81; }
+  .alert-success { background: rgba(46, 213, 115, 0.15); border: 1px solid #2ed573; color: #7bed9f; }
+  .alert-info { background: rgba(108, 92, 231, 0.15); border: 1px solid #6c5ce7; color: #a29bfe; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 13px; }
+  th { color: #a0a0ff; font-weight: 600; }
+  .arch-diagram {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 16px;
+    align-items: center;
+    margin: 16px 0;
+  }
+  .arch-box {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 12px;
+    padding: 16px;
+    text-align: center;
+  }
+  .arch-arrow { font-size: 24px; color: #6c5ce7; }
+  .test-creds { font-size: 12px; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 8px; margin-top: 12px; }
+  .test-creds code { color: #ffd93d; }
+  .file-tree { font-family: "SF Mono", Monaco, Consolas, monospace; font-size: 12px; line-height: 1.8; }
+  .file-tree .dir { color: #6c5ce7; }
+  .file-tree .file { color: #a29bfe; }
+  .file-tree .comment { color: #57606f; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header-row">
+    <div>
+      <h1>🔐 Next.js + FastAPI RBAC Demo</h1>
+      <div class="subtitle">基於角色的訪問控制 · JWT 認證 · 完整整合範例</div>
+    </div>
+    <div id="sessionArea"></div>
+  </div>
+
+  <div id="loginCard" class="glass">
+    <h2>登入</h2>
+    <p>選擇任一測試帳號體驗不同角色的訪問權限差異。</p>
+    <form id="loginForm" onsubmit="return handleLogin(event)">
+      <label>帳號
+        <select id="loginUsername">
+          <option value="admin">admin (admin / admin123) — 全部權限</option>
+          <option value="manager">manager (manager / manager123) — 用戶讀 + 報表讀寫</option>
+          <option value="alice">alice (alice / alice123) — 只能看 dashboard + 讀報表</option>
+        </select>
+      </label>
+      <label>密碼
+        <input type="text" id="loginPassword" value="admin123">
+      </label>
+      <button type="submit">登入</button>
+      <div class="test-creds">
+        <strong>快捷登入:</strong> 切換帳號自動填密碼。<br>
+        帳號自動切換: <code>admin</code> / <code>manager</code> / <code>alice</code>
+      </div>
+    </form>
+  </div>
+
+  <div id="appArea" style="display:none;">
+    <div class="glass">
+      <div class="user-info">
+        <div>
+          <strong style="font-size:18px;" id="userFullName"></strong>
+          <div class="subtitle">
+            <span id="userRoleBadge"></span>
+            <span id="userEmail"></span>
+          </div>
+        </div>
+        <button class="danger" onclick="logout()">登出</button>
+      </div>
+      <h3>此角色的權限:</h3>
+      <div id="permList" class="permission-grid"></div>
+    </div>
+
+    <div class="glass">
+      <h2>📊 API 路由守衛 — 模擬點擊後端 endpoint</h2>
+      <p class="subtitle">下面每個按鈕代表呼叫 FastAPI 後端的一個 endpoint。後端會根據 JWT 內的角色 + 權限矩陣決定 200 或 403。</p>
+      <div class="tabs" id="resourceTabs"></div>
+      <div id="resultBox"></div>
+    </div>
+
+    <div class="glass">
+      <h2>🏗️ 系統架構</h2>
+      <div class="arch-diagram">
+        <div class="arch-box">
+          <strong>Next.js 前端</strong><br>
+          <small>頁面: <code>app/page.tsx</code><br>API client: <code>lib/api.ts</code></small>
+        </div>
+        <div class="arch-arrow">⟷</div>
+        <div class="arch-box">
+          <strong>FastAPI 後端</strong><br>
+          <small>JWT + OAuth2 + 權限矩陣<br><code>backend/main.py</code></small>
+        </div>
+      </div>
+      <p class="subtitle">Next.js 透過 <code>next.config.js</code> 的 rewrites 把 <code>/api/*</code> 代理到 FastAPI 的 <code>http://localhost:8000</code>。前端從不直接持有 JWT 以外的任何用戶資料,權限永遠後端再驗一次。</p>
+      <h3>📁 專案結構</h3>
+      <div class="file-tree">
+        <span class="dir">learning_1785769213_5/</span><br>
+        <span class="file">&nbsp;&nbsp;├── backend/</span><br>
+        <span class="file">&nbsp;&nbsp;│   ├── main.py</span> <span class="comment"># FastAPI RBAC 核心</span><br>
+        <span class="file">&nbsp;&nbsp;│   └── requirements.txt</span><br>
+        <span class="file">&nbsp;&nbsp;├── frontend/</span> <span class="comment"># Next.js 14 App Router</span><br>
+        <span class="file">&nbsp;&nbsp;│   ├── package.json</span><br>
+        <span class="file">&nbsp;&nbsp;│   ├── next.config.js</span> <span class="comment"># /api/* → :8000</span><br>
+        <span class="file">&nbsp;&nbsp;│   ├── app/page.tsx</span> <span class="comment"># 主頁 + 路由守衛</span><br>
+        <span class="file">&nbsp;&nbsp;│   └── lib/api.ts</span> <span class="comment"># JWT + fetch</span><br>
+        <span class="file">&nbsp;&nbsp;├── web_output.html</span> <span class="comment"># 單檔可演示 Demo</span><br>
+        <span class="file">&nbsp;&nbsp;└── README.md</span>
+      </div>
+    </div>
+
+    <div class="glass">
+      <h2>🔍 RBAC 矩陣對照</h2>
+      <table>
+        <thead>
+          <tr><th>權限</th><th>admin</th><th>manager</th><th>user</th></tr>
+        </thead>
+        <tbody id="matrixTable"></tbody>
+      </table>
+    </div>
+
+    <div class="glass">
+      <h2>📜 JWT 內容 (base64 解碼)</h2>
+      <p class="subtitle">點擊登入後,你的 JWT 會存到 localStorage。下面顯示解碼後的 payload。</p>
+      <pre id="jwtPayload"></pre>
+    </div>
+  </div>
+</div>
+
+<script>
+const USERS_DB = {
+  admin:   { username: "admin",   email: "admin@example.com",   password: "admin123",   role: "admin",   full_name: "系統管理員" },
+  manager: { username: "manager", email: "manager@example.com", password: "manager123", role: "manager", full_name: "部門主管" },
+  alice:   { username: "alice",   email: "alice@example.com",   password: "alice123",   role: "user",    full_name: "Alice 使用者" },
+  bob:     { username: "bob",     email: "bob@example.com",     password: "bob123",     role: "user",    full_name: "Bob 使用者" },
+};
+
+const PERMISSIONS = {
+  admin:   ["users:read", "users:write", "users:delete", "reports:read", "reports:write", "settings:read", "settings:write", "dashboard:view"],
+  manager: ["users:read", "reports:read", "reports:write", "dashboard:view"],
+  user:    ["dashboard:view", "reports:read"],
+};
+
+const _SK = "rbac_demo_session_2026";
+const _TK = "rbac_demo_token_2026";
+
+function mockJwtEncode(payload) {
+  const header = { alg: "HS256", typ: "JWT" };
+  const enc = (obj) => btoa(JSON.stringify(obj)).replace(/=+$/, "");
+  const sig = btoa("demo-signature-not-real").replace(/=+$/, "");
+  return `${enc(header)}.${enc(payload)}.${sig}`;
+}
+
+function mockJwtDecode(token) {
+  try {
+    const parts = token.split(".");
+    let p = parts[1];
+    while (p.length % 4 !== 0) p += "=";
+    return JSON.parse(atob(p));
+  } catch (e) { return null; }
+}
+
+function mockApi(endpoint, method, token) {
+  if (!token) return { status: 401, body: { detail: "無效的認證令牌" } };
+  const payload = mockJwtDecode(token);
+  if (!payload) return { status: 401, body: { detail: "無效的認證令牌" } };
+  const user = USERS_DB[payload.sub];
+  if (!user) return { status: 401, body: { detail: "用戶不存在" } };
+  const perms = PERMISSIONS[user.role];
+
+  const require = (perm) => {
+    if (!perms.includes(perm)) return { status: 403, body: { detail: `權限不足:角色 '${user.role}' 沒有 '${perm}' 權限` } };
+    return null;
+  };
+
+  switch (endpoint) {
+    case "/dashboard":
+      var d = require("dashboard:view"); if (d) return d;
+      return { status: 200, body: { user: user.username, role: user.role, stats: { total_users: 4, active_sessions: 1, uptime_hours: 24 }, permissions: perms } };
+    case "/users":
+      var d = require("users:read"); if (d) return d;
+      return { status: 200, body: Object.values(USERS_DB).map(u => ({ username: u.username, email: u.email, role: u.role, full_name: u.full_name, permissions: PERMISSIONS[u.role] })) };
+    case "/reports":
+      var d = require("reports:read"); if (d) return d;
+      return { status: 200, body: { viewer: user.username, role: user.role, reports: [
+        { id: 1, title: "2026 Q2 銷售報表", value: 1250000, level: "機密" },
+        { id: 2, title: "客戶滿意度調查", value: 87, level: "內部" },
+        { id: 3, title: "員工績效總覽", value: 42, level: "公開" },
+      ] } };
+    case "/reports:create":
+      var d = require("reports:write"); if (d) return d;
+      return { status: 201, body: { id: 999, title: "新報表", value: 100, created_by: user.username, status: "created" } };
+    case "/settings":
+      var d = require("settings:read"); if (d) return d;
+      return { status: 200, body: { system_name: "Demo ERP", theme: "dark", maintenance_mode: false, viewer: user.username } };
+    case "/settings:update":
+      var d = require("settings:write"); if (d) return d;
+      return { status: 200, body: { theme: "light", updated_by: user.username, status: "updated" } };
+    default:
+      return { status: 404, body: { detail: "not found" } };
+  }
+}
+
+let currentUser = null;
+let currentToken = null;
+
+function setToken(token) { if (token) localStorage.setItem(_TK, token); else localStorage.removeItem(_TK); }
+function getToken() { return localStorage.getItem(_TK); }
+function hasPermission(user, perm) { return user && user.permissions.includes(perm); }
+
+document.getElementById('loginUsername').addEventListener('change', (e) => {
+  const u = USERS_DB[e.target.value];
+  if (u) document.getElementById('loginPassword').value = u.password;
+});
+
+function handleLogin(e) {
+  e.preventDefault();
+  const username = document.getElementById('loginUsername').value;
+  const password = document.getElementById('loginPassword').value;
+  const user = USERS_DB[username];
+  if (!user || user.password !== password) {
+    alert("❌ 帳號或密碼錯誤");
+    return false;
+  }
+  const token = mockJwtEncode({
+    sub: user.username,
+    role: user.role,
+    exp: Math.floor(Date.now() / 1000) + 3600,
+    iat: Math.floor(Date.now() / 1000),
+  });
+  setToken(token);
+  currentUser = { ...user, permissions: PERMISSIONS[user.role] };
+  currentToken = token;
+  renderApp();
+  return false;
+}
+
+function logout() {
+  setToken(null);
+  currentUser = null;
+  currentToken = null;
+  renderApp();
+}
+
+function callApi(endpoint, method="GET") {
+  const result = mockApi(endpoint, method, currentToken);
+  const box = document.getElementById('resultBox');
+  if (result.status >= 200 && result.status < 300) {
+    box.innerHTML = `
+      <div class="alert alert-success">✅ HTTP ${result.status} ${method} ${endpoint} — 請求成功</div>
+      <pre>${JSON.stringify(result.body, null, 2)}</pre>
+    `;
+  } else {
+    box.innerHTML = `
+      <div class="alert alert-error">❌ HTTP ${result.status} ${method} ${endpoint} — ${result.body.detail}</div>
+      <pre>${JSON.stringify(result.body, null, 2)}</pre>
+    `;
+  }
+}
+
+function renderApp() {
+  const loginCard = document.getElementById('loginCard');
+  const appArea = document.getElementById('appArea');
+  const sessionArea = document.getElementById('sessionArea');
+
+  if (!currentUser) {
+    loginCard.style.display = 'block';
+    appArea.style.display = 'none';
+    sessionArea.innerHTML = '';
+    return;
+  }
+
+  loginCard.style.display = 'none';
+  appArea.style.display = 'block';
+
+  const roleBadgeClass = `badge-${currentUser.role}`;
+  document.getElementById('userFullName').textContent = currentUser.full_name;
+  document.getElementById('userRoleBadge').className = `badge ${roleBadgeClass}`;
+  document.getElementById('userRoleBadge').textContent = currentUser.role.toUpperCase();
+  document.getElementById('userEmail').textContent = `· ${currentUser.email}`;
+
+  sessionArea.innerHTML = `<span class="badge badge-allow">已登入</span>`;
+
+  const permList = document.getElementById('permList');
+  const allPerms = ["users:read", "users:write", "users:delete", "reports:read", "reports:write", "settings:read", "settings:write", "dashboard:view"];
+  permList.innerHTML = allPerms.map(p => {
+    const allowed = currentUser.permissions.includes(p);
+    return `<div class="permission-row"><span>${p}</span><span class="badge ${allowed ? 'badge-allow' : 'badge-deny'}">${allowed ? '✓' : '✗'}</span></div>`;
+  }).join('');
+
+  const resources = [
+    { id: "dashboard", label: "📊 Dashboard", endpoint: "/dashboard", method: "GET", perm: "dashboard:view" },
+    { id: "users", label: "👥 Users", endpoint: "/users", method: "GET", perm: "users:read" },
+    { id: "reports", label: "📈 Reports", endpoint: "/reports", method: "GET", perm: "reports:read" },
+    { id: "reports-create", label: "+ Reports (POST)", endpoint: "/reports:create", method: "POST", perm: "reports:write" },
+    { id: "settings", label: "⚙️ Settings", endpoint: "/settings", method: "GET", perm: "settings:read" },
+    { id: "settings-update", label: "✓ Settings (PUT)", endpoint: "/settings:update", method: "PUT", perm: "settings:write" },
+  ];
+
+  const tabs = document.getElementById('resourceTabs');
+  tabs.innerHTML = resources.map(r => {
+    const allowed = hasPermission(currentUser, r.perm);
+    return `<button class="tab-btn" ${allowed ? '' : 'disabled title="缺少權限: ' + r.perm + '"'} onclick="callApi('${r.endpoint}', '${r.method}')">${r.label} ${allowed ? '' : '🔒'}</button>`;
+  }).join('');
+
+  if (hasPermission(currentUser, "dashboard:view")) {
+    callApi("/dashboard", "GET");
+  }
+
+  const matrix = document.getElementById('matrixTable');
+  const mat = ["admin", "manager", "user"];
+  matrix.innerHTML = allPerms.map(p => {
+    return `<tr><td><code>${p}</code></td>${mat.map(r => {
+      return `<td><span class="badge ${PERMISSIONS[r].includes(p) ? 'badge-allow' : 'badge-deny'}">${PERMISSIONS[r].includes(p) ? '✓' : '✗'}</span></td>`;
+    }).join('')}</tr>`;
+  }).join('');
+
+  const payload = mockJwtDecode(currentToken);
+  document.getElementById('jwtPayload').textContent = JSON.stringify(payload, null, 2);
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  const token = getToken();
+  if (token) {
+    const payload = mockJwtDecode(token);
+    if (payload && payload.exp > Math.floor(Date.now() / 1000) && USERS_DB[payload.sub]) {
+      const user = USERS_DB[payload.sub];
+      currentUser = { ...user, permissions: PERMISSIONS[user.role] };
+      currentToken = token;
+    } else {
+      setToken(null);
+    }
+  }
+  renderApp();
+});
+</script>
+</body>
+</html>

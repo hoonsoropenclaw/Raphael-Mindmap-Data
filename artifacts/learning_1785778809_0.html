@@ -1,0 +1,1288 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DAG Editor · React Flow × Next.js</title>
+
+  <!-- 載入 React Flow v12 樣式（@xyflow/react 從 12.x 起改名） -->
+  <link rel="stylesheet" href="https://esm.sh/@xyflow/react@12.11.2/dist/style.css?deps=react@18.3.1,react-dom@18.3.1" />
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+    :root {
+      --bg-0: #07090f;
+      --bg-1: #0d1117;
+      --bg-2: #161b22;
+      --glass-bg: rgba(20, 25, 38, 0.55);
+      --glass-border: rgba(255, 255, 255, 0.08);
+      --glass-border-strong: rgba(255, 255, 255, 0.18);
+      --accent-1: #00f2fe;
+      --accent-2: #4facfe;
+      --accent-3: #a78bfa;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --text-main: #e6edf3;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --shadow-lg: 0 20px 60px -10px rgba(0, 0, 0, 0.5);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body, #root { height: 100%; width: 100%; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-0);
+      background-image:
+        radial-gradient(circle at 12% 20%, rgba(79, 172, 254, 0.10) 0%, transparent 45%),
+        radial-gradient(circle at 88% 70%, rgba(167, 139, 250, 0.10) 0%, transparent 45%),
+        radial-gradient(circle at 50% 100%, rgba(0, 242, 254, 0.06) 0%, transparent 60%);
+      color: var(--text-main);
+      overflow: hidden;
+    }
+
+    /* ─────────────── App Shell ─────────────── */
+    .app {
+      display: grid;
+      grid-template-columns: 280px 1fr 320px;
+      grid-template-rows: 64px 1fr;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    header.topbar {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 1.5rem;
+      background: var(--glass-bg);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--glass-border);
+      z-index: 10;
+    }
+    .brand { display: flex; align-items: center; gap: 0.75rem; }
+    .brand-logo {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent-1), var(--accent-3));
+      display: grid; place-items: center;
+      font-weight: 700; color: #0a0e1a; font-size: 1rem;
+      box-shadow: 0 4px 16px rgba(79, 172, 254, 0.4);
+    }
+    .brand-text h1 {
+      font-size: 1rem; font-weight: 600; letter-spacing: 0.3px;
+      background: linear-gradient(135deg, var(--accent-1), var(--accent-3));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .brand-text .subtitle {
+      font-size: 0.7rem; color: var(--text-dim); letter-spacing: 0.5px; text-transform: uppercase;
+    }
+    .topbar-actions { display: flex; gap: 0.5rem; align-items: center; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      padding: 0.5rem 0.9rem;
+      background: var(--glass-bg);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--glass-border);
+      color: var(--text-main);
+      font-size: 0.8rem; font-weight: 500;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      font-family: inherit;
+    }
+    .btn:hover { border-color: var(--glass-border-strong); background: rgba(255,255,255,0.06); }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent-2), var(--accent-3));
+      border: none;
+      color: #0a0e1a;
+      font-weight: 600;
+    }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(79, 172, 254, 0.4); }
+    .btn-ghost { background: transparent; }
+    .btn-danger { color: var(--danger); border-color: rgba(239, 68, 68, 0.3); }
+    .btn-danger:hover { background: rgba(239, 68, 68, 0.1); }
+    .btn-icon {
+      width: 36px; height: 36px; padding: 0;
+      display: grid; place-items: center;
+    }
+
+    /* ─────────────── Sidebar ─────────────── */
+    .sidebar {
+      background: var(--glass-bg);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-right: 1px solid var(--glass-border);
+      padding: 1.25rem;
+      overflow-y: auto;
+    }
+    .sidebar-right { border-right: none; border-left: 1px solid var(--glass-border); }
+
+    .section-title {
+      font-size: 0.7rem; font-weight: 600; letter-spacing: 1px;
+      text-transform: uppercase; color: var(--text-muted);
+      margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.4rem;
+    }
+    .section-title::before {
+      content: ''; width: 3px; height: 12px;
+      background: linear-gradient(to bottom, var(--accent-1), var(--accent-3));
+      border-radius: 2px;
+    }
+
+    .node-palette { display: grid; gap: 0.5rem; margin-bottom: 1.5rem; }
+    .palette-item {
+      display: flex; align-items: center; gap: 0.75rem;
+      padding: 0.75rem;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--glass-border);
+      border-radius: 10px;
+      cursor: grab;
+      transition: all 0.15s ease;
+      user-select: none;
+    }
+    .palette-item:hover {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: var(--accent-2);
+      transform: translateX(2px);
+    }
+    .palette-item:active { cursor: grabbing; }
+    .palette-icon {
+      width: 32px; height: 32px; border-radius: 8px;
+      display: grid; place-items: center;
+      font-size: 0.9rem; font-weight: 700;
+      flex-shrink: 0;
+    }
+    .palette-item-info { flex: 1; min-width: 0; }
+    .palette-item-name { font-size: 0.85rem; font-weight: 500; }
+    .palette-item-desc { font-size: 0.7rem; color: var(--text-dim); margin-top: 1px; }
+
+    .icon-source { background: linear-gradient(135deg, #4facfe, #00f2fe); color: #0a0e1a; }
+    .icon-transform { background: linear-gradient(135deg, #a78bfa, #ec4899); color: #fff; }
+    .icon-aggregate { background: linear-gradient(135deg, #f59e0b, #ef4444); color: #fff; }
+    .icon-ml { background: linear-gradient(135deg, #10b981, #4facfe); color: #0a0e1a; }
+    .icon-output { background: linear-gradient(135deg, #ec4899, #f59e0b); color: #fff; }
+
+    /* ─────────────── Canvas ─────────────── */
+    .canvas-wrap {
+      position: relative;
+      background:
+        radial-gradient(circle at center, rgba(255,255,255,0.02) 0%, transparent 70%),
+        var(--bg-0);
+      overflow: hidden;
+    }
+    .canvas-info {
+      position: absolute;
+      bottom: 1rem; left: 1rem;
+      display: flex; gap: 0.5rem;
+      z-index: 5;
+    }
+    .info-chip {
+      padding: 0.4rem 0.75rem;
+      background: var(--glass-bg);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--glass-border);
+      border-radius: 999px;
+      font-size: 0.75rem; font-family: 'JetBrains Mono', monospace;
+      color: var(--text-muted);
+      display: flex; align-items: center; gap: 0.4rem;
+    }
+    .info-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
+    .info-chip.warn .dot { background: var(--warning); }
+    .info-chip.danger .dot { background: var(--danger); }
+
+    .nextjs-banner {
+      position: absolute;
+      top: 1rem; left: 50%; transform: translateX(-50%);
+      padding: 0.6rem 1.1rem;
+      background: linear-gradient(135deg, rgba(0,0,0,0.78), rgba(0,0,0,0.55));
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--glass-border);
+      border-radius: 14px;
+      font-size: 0.75rem; color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+      z-index: 5;
+      display: flex; align-items: center; gap: 0.5rem;
+      white-space: nowrap;
+      box-shadow: var(--shadow-lg);
+    }
+    .nextjs-banner kbd {
+      padding: 1px 6px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 4px;
+      font-size: 0.7rem;
+      border: 1px solid var(--glass-border);
+      color: var(--accent-1);
+    }
+
+    /* ─────────────── Custom Nodes ─────────────── */
+    .dag-node {
+      min-width: 180px;
+      background: var(--glass-bg);
+      backdrop-filter: blur(12px);
+      border: 1.5px solid var(--glass-border);
+      border-radius: 12px;
+      padding: 0.75rem;
+      color: var(--text-main);
+      transition: all 0.15s ease;
+      box-shadow: var(--shadow-lg);
+    }
+    .dag-node:hover { border-color: var(--glass-border-strong); }
+    .dag-node.selected {
+      border-color: var(--accent-1);
+      box-shadow: 0 0 0 3px rgba(0, 242, 254, 0.15), var(--shadow-lg);
+    }
+    .dag-node-header {
+      display: flex; align-items: center; gap: 0.5rem;
+      margin-bottom: 0.4rem;
+    }
+    .dag-node-icon {
+      width: 24px; height: 24px; border-radius: 6px;
+      display: grid; place-items: center;
+      font-size: 0.7rem; font-weight: 700;
+      flex-shrink: 0;
+    }
+    .dag-node-type { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .dag-node-label {
+      font-size: 0.9rem; font-weight: 600; line-height: 1.2;
+      margin-bottom: 0.25rem;
+    }
+    .dag-node-meta {
+      font-size: 0.7rem; color: var(--text-dim);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .dag-node-handle {
+      width: 10px !important; height: 10px !important;
+      background: var(--accent-2) !important;
+      border: 2px solid var(--bg-1) !important;
+    }
+    .dag-node-handle.source { background: var(--accent-1) !important; }
+    .dag-node-handle.target { background: var(--accent-3) !important; }
+
+    /* ─────────────── Right Panel ─────────────── */
+    .right-panel-section { margin-bottom: 1.5rem; }
+    .empty-state {
+      padding: 2rem 1rem;
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 0.8rem;
+      background: rgba(255,255,255,0.02);
+      border: 1px dashed var(--glass-border);
+      border-radius: 10px;
+    }
+    .empty-state-icon { font-size: 1.5rem; margin-bottom: 0.5rem; opacity: 0.5; }
+
+    .inspector-form { display: grid; gap: 0.75rem; }
+    .field { display: grid; gap: 0.3rem; }
+    .field label {
+      font-size: 0.7rem; font-weight: 500;
+      color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .field input, .field textarea, .field select {
+      width: 100%;
+      padding: 0.5rem 0.7rem;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--glass-border);
+      border-radius: 8px;
+      color: var(--text-main);
+      font-size: 0.85rem;
+      font-family: inherit;
+      transition: border-color 0.15s ease;
+    }
+    .field input:focus, .field textarea:focus, .field select:focus {
+      outline: none;
+      border-color: var(--accent-2);
+      background: rgba(255,255,255,0.05);
+    }
+    .field textarea { resize: vertical; min-height: 70px; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; }
+
+    /* DAG stats */
+    .stats-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;
+    }
+    .stat-card {
+      padding: 0.6rem;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--glass-border);
+      border-radius: 8px;
+    }
+    .stat-label { font-size: 0.65rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+    .stat-value { font-size: 1.2rem; font-weight: 600; margin-top: 2px; color: var(--text-main); }
+    .stat-value.good { color: var(--success); }
+    .stat-value.bad { color: var(--danger); }
+
+    .topo-list {
+      max-height: 240px;
+      overflow-y: auto;
+      background: rgba(0,0,0,0.3);
+      border-radius: 8px;
+      padding: 0.5rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+    }
+    .topo-list ol { padding-left: 1.2rem; }
+    .topo-list li { padding: 2px 0; color: var(--text-muted); }
+    .topo-list li.empty { color: var(--text-dim); font-style: italic; list-style: none; padding-left: 0; }
+
+    .cycle-warning {
+      padding: 0.6rem 0.75rem;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 8px;
+      color: var(--danger);
+      font-size: 0.75rem;
+      display: flex; align-items: center; gap: 0.4rem;
+    }
+
+    /* ─────────────── Modal ─────────────── */
+    .modal-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(8px);
+      display: grid; place-items: center;
+      z-index: 100;
+    }
+    .modal {
+      width: min(640px, 90vw);
+      max-height: 80vh;
+      background: var(--bg-1);
+      border: 1px solid var(--glass-border);
+      border-radius: 16px;
+      overflow: hidden;
+      display: flex; flex-direction: column;
+      box-shadow: var(--shadow-lg);
+    }
+    .modal-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--glass-border);
+    }
+    .modal-header h3 { font-size: 1rem; font-weight: 600; }
+    .modal-body { padding: 1.25rem; overflow-y: auto; }
+    .modal-footer {
+      padding: 0.75rem 1.25rem;
+      border-top: 1px solid var(--glass-border);
+      display: flex; justify-content: flex-end; gap: 0.5rem;
+    }
+    .code-block {
+      background: rgba(0,0,0,0.4);
+      border: 1px solid var(--glass-border);
+      border-radius: 8px;
+      padding: 0.75rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 360px;
+      overflow-y: auto;
+      color: var(--text-main);
+    }
+
+    /* React Flow 樣式覆寫 — dark theme */
+    .react-flow__background { background-color: transparent !important; }
+    .react-flow__edge-path { stroke: rgba(79, 172, 254, 0.5); stroke-width: 2; }
+    .react-flow__edge.selected .react-flow__edge-path { stroke: var(--accent-1); stroke-width: 2.5; }
+    .react-flow__edge-text { fill: var(--text-main); font-size: 0.7rem; font-family: 'JetBrains Mono', monospace; }
+    .react-flow__edge-textbg { fill: var(--bg-1); }
+    .react-flow__controls {
+      background: var(--glass-bg) !important;
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--glass-border) !important;
+      border-radius: 10px !important;
+      overflow: hidden;
+      box-shadow: var(--shadow-lg);
+    }
+    .react-flow__controls-button {
+      background: transparent !important;
+      border-bottom: 1px solid var(--glass-border) !important;
+      color: var(--text-main) !important;
+      fill: var(--text-main) !important;
+      width: 32px !important; height: 32px !important;
+    }
+    .react-flow__controls-button:hover { background: rgba(255,255,255,0.05) !important; }
+    .react-flow__minimap {
+      background: var(--glass-bg) !important;
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--glass-border) !important;
+      border-radius: 10px !important;
+      overflow: hidden;
+    }
+    .react-flow__attribution { display: none !important; }
+    .react-flow__handle {
+      width: 12px; height: 12px;
+      border: 2px solid var(--bg-1);
+    }
+
+    /* Toast */
+    .toast-container {
+      position: fixed; bottom: 1.5rem; right: 1.5rem;
+      z-index: 200;
+      display: flex; flex-direction: column; gap: 0.5rem;
+    }
+    .toast {
+      padding: 0.75rem 1rem;
+      background: var(--glass-bg);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--glass-border);
+      border-left: 3px solid var(--accent-2);
+      border-radius: 8px;
+      font-size: 0.85rem;
+      box-shadow: var(--shadow-lg);
+      animation: slideIn 0.2s ease;
+    }
+    .toast.success { border-left-color: var(--success); }
+    .toast.error { border-left-color: var(--danger); }
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+    .footer-hint {
+      position: absolute;
+      bottom: 1rem; right: 1rem;
+      padding: 0.4rem 0.75rem;
+      background: var(--glass-bg);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--glass-border);
+      border-radius: 999px;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+      z-index: 5;
+    }
+  </style>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "react": "https://esm.sh/react@18.3.1",
+      "react/": "https://esm.sh/react@18.3.1/",
+      "react-dom": "https://esm.sh/react-dom@18.3.1",
+      "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+      "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.2?deps=react@18.3.1,react-dom@18.3.1&external=react,react-dom"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="root"></div>
+  <div id="toast-root" class="toast-container"></div>
+
+  <script type="module">
+    import React, { useState, useCallback, useMemo, useRef, useEffect, memo } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import {
+      ReactFlow,
+      ReactFlowProvider,
+      Background,
+      Controls,
+      MiniMap,
+      Handle,
+      Position,
+      useNodesState,
+      useEdgesState,
+      useReactFlow,
+      addEdge,
+      MarkerType,
+      Panel,
+    } from '@xyflow/react';
+
+    const h = React.createElement;
+
+    // ────────────────────────────────────────────────────────────────
+    // Node type registry — 5 DAG 任務類型
+    // ────────────────────────────────────────────────────────────────
+    const NODE_TYPES = [
+      { type: 'source',     name: '資料源',     desc: 'DB / API / File', icon: 'SRC',  cls: 'icon-source',    handles: { source: true, target: false } },
+      { type: 'transform',  name: '轉換',       desc: 'ETL / Filter',    icon: 'TR',  cls: 'icon-transform', handles: { source: true, target: true  } },
+      { type: 'aggregate',  name: '聚合',       desc: 'Group / Join',    icon: 'AG',  cls: 'icon-aggregate', handles: { source: true, target: true  } },
+      { type: 'ml',         name: 'ML 模型',    desc: 'Train / Predict', icon: 'ML',  cls: 'icon-ml',        handles: { source: true, target: true  } },
+      { type: 'output',     name: '輸出',       desc: 'Sink / Dashboard', icon: 'OUT', cls: 'icon-output',    handles: { source: false, target: true } },
+    ];
+
+    const NODE_TYPE_MAP = Object.fromEntries(NODE_TYPES.map(n => [n.type, n]));
+
+    // ────────────────────────────────────────────────────────────────
+    // Custom DAG node component
+    // ────────────────────────────────────────────────────────────────
+    const DagNode = memo(({ data, type, selected }) => {
+      const meta = NODE_TYPE_MAP[type] || NODE_TYPES[0];
+      const isSource = meta.handles.source && !meta.handles.target;
+      const isTarget = !meta.handles.source && meta.handles.target;
+      return h('div', { className: `dag-node ${selected ? 'selected' : ''}` },
+        meta.handles.target && h(Handle, {
+          type: 'target',
+          position: Position.Left,
+          className: 'dag-node-handle target',
+        }),
+        h('div', { className: 'dag-node-header' },
+          h('div', { className: `dag-node-icon ${meta.cls}` }, meta.icon),
+          h('div', null,
+            h('div', { className: 'dag-node-type' }, meta.name),
+            h('div', { className: 'dag-node-label' }, data.label || '未命名'),
+          ),
+        ),
+        data.subtitle && h('div', { className: 'dag-node-meta' }, data.subtitle),
+        meta.handles.source && h(Handle, {
+          type: 'source',
+          position: Position.Right,
+          className: 'dag-node-handle source',
+        }),
+      );
+    });
+
+    const nodeTypes = {
+      source: DagNode,
+      transform: DagNode,
+      aggregate: DagNode,
+      ml: DagNode,
+      output: DagNode,
+    };
+
+    // ────────────────────────────────────────────────────────────────
+    // DAG utilities — cycle detection + topological sort
+    // ────────────────────────────────────────────────────────────────
+    function detectCycle(nodes, edges) {
+      const adj = new Map();
+      nodes.forEach(n => adj.set(n.id, []));
+      edges.forEach(e => {
+        if (adj.has(e.source)) adj.get(e.source).push(e.target);
+      });
+
+      const WHITE = 0, GRAY = 1, BLACK = 2;
+      const color = new Map();
+      nodes.forEach(n => color.set(n.id, WHITE));
+
+      const cyclePath = [];
+      function dfs(u) {
+        color.set(u, GRAY);
+        for (const v of adj.get(u) || []) {
+          if (color.get(v) === GRAY) {
+            cyclePath.push(u, v);
+            return true;
+          }
+          if (color.get(v) === WHITE && dfs(v)) {
+            if (cyclePath[cyclePath.length - 1] !== u) cyclePath.push(u);
+            return true;
+          }
+        }
+        color.set(u, BLACK);
+        return false;
+      }
+
+      for (const n of nodes) {
+        if (color.get(n.id) === WHITE && dfs(n.id)) break;
+      }
+      return cyclePath.length > 0 ? cyclePath : null;
+    }
+
+    function topologicalOrder(nodes, edges) {
+      const adj = new Map();
+      const indeg = new Map();
+      nodes.forEach(n => { adj.set(n.id, []); indeg.set(n.id, 0); });
+      edges.forEach(e => {
+        if (adj.has(e.source) && indeg.has(e.target)) {
+          adj.get(e.source).push(e.target);
+          indeg.set(e.target, indeg.get(e.target) + 1);
+        }
+      });
+
+      const queue = [];
+      indeg.forEach((d, id) => { if (d === 0) queue.push(id); });
+      const order = [];
+      while (queue.length) {
+        const u = queue.shift();
+        order.push(u);
+        for (const v of adj.get(u) || []) {
+          indeg.set(v, indeg.get(v) - 1);
+          if (indeg.get(v) === 0) queue.push(v);
+        }
+      }
+      return order;
+    }
+
+    function findSources(nodes, edges) {
+      const hasIncoming = new Set(edges.map(e => e.target));
+      return nodes.filter(n => !hasIncoming.has(n.id)).map(n => n.id);
+    }
+    function findSinks(nodes, edges) {
+      const hasOutgoing = new Set(edges.map(e => e.source));
+      return nodes.filter(n => !hasOutgoing.has(n.id)).map(n => n.id);
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Initial DAG — 一個 ETL + ML pipeline demo
+    // ────────────────────────────────────────────────────────────────
+    const initialNodes = [
+      { id: 'src-1', type: 'source',    position: { x:   40, y: 80  }, data: { label: 'Postgres Users',  subtitle: 'users table · 1.2M rows' } },
+      { id: 'src-2', type: 'source',    position: { x:   40, y: 320 }, data: { label: 'Stripe Events',   subtitle: 'webhook events · 30d' } },
+      { id: 't-1',   type: 'transform', position: { x:  320, y: 200 }, data: { label: '清洗 + Join',      subtitle: 'dropna · left join' } },
+      { id: 'a-1',   type: 'aggregate', position: { x:  620, y: 200 }, data: { label: '特徵聚合',          subtitle: 'groupby(user_id) · 7d window' } },
+      { id: 'm-1',   type: 'ml',        position: { x:  920, y: 80  }, data: { label: 'LTV 預測模型',      subtitle: 'XGBoost · v2.3' } },
+      { id: 'm-2',   type: 'ml',        position: { x:  920, y: 320 }, data: { label: '流失機率模型',      subtitle: 'LightGBM · v1.8' } },
+      { id: 'o-1',   type: 'output',    position: { x: 1220, y: 80  }, data: { label: 'VIP 行銷名單',     subtitle: 'dashboard.csv' } },
+      { id: 'o-2',   type: 'output',    position: { x: 1220, y: 320 }, data: { label: '挽留任務佇列',     subtitle: 'salesforce.task' } },
+    ];
+    const initialEdges = [
+      { id: 'e1', source: 'src-1', target: 't-1', animated: true,  label: 'raw' },
+      { id: 'e2', source: 'src-2', target: 't-1', animated: true,  label: 'raw' },
+      { id: 'e3', source: 't-1',   target: 'a-1' },
+      { id: 'e4', source: 'a-1',   target: 'm-1', label: 'features' },
+      { id: 'e5', source: 'a-1',   target: 'm-2', label: 'features' },
+      { id: 'e6', source: 'm-1',   target: 'o-1', label: 'predictions' },
+      { id: 'e7', source: 'm-2',   target: 'o-2', label: 'predictions' },
+    ];
+
+    // ────────────────────────────────────────────────────────────────
+    // Toast helper
+    // ────────────────────────────────────────────────────────────────
+    function showToast(msg, kind = '') {
+      const root = document.getElementById('toast-root');
+      if (!root) return;
+      const el = document.createElement('div');
+      el.className = `toast ${kind}`;
+      el.textContent = msg;
+      root.appendChild(el);
+      setTimeout(() => {
+        el.style.opacity = '0';
+        el.style.transform = 'translateX(100%)';
+        el.style.transition = 'all 0.25s ease';
+        setTimeout(() => el.remove(), 250);
+      }, 2400);
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Main App
+    // ────────────────────────────────────────────────────────────────
+    function App() {
+      const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+      const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+      const [selectedNode, setSelectedNode] = useState(null);
+      const [modal, setModal] = useState(null); // 'export' | 'import' | 'nextjs' | null
+      const [importText, setImportText] = useState('');
+      const reactFlowWrapper = useRef(null);
+
+      const { screenToFlowPosition, fitView } = useReactFlow();
+
+      // DAG 分析
+      const cycle = useMemo(() => detectCycle(nodes, edges), [nodes, edges]);
+      const topo = useMemo(() => {
+        if (cycle) return [];
+        return topologicalOrder(nodes, edges);
+      }, [nodes, edges, cycle]);
+      const sources = useMemo(() => findSources(nodes, edges), [nodes, edges]);
+      const sinks   = useMemo(() => findSinks(nodes, edges), [nodes, edges]);
+
+      const isValidConnection = useCallback((conn) => {
+        // 禁止自我連線
+        if (conn.source === conn.target) return false;
+        // source 不能接 source, output 不能接 output
+        const srcNode = nodes.find(n => n.id === conn.source);
+        const tgtNode = nodes.find(n => n.id === conn.target);
+        if (!srcNode || !tgtNode) return false;
+        const srcMeta = NODE_TYPE_MAP[srcNode.type];
+        const tgtMeta = NODE_TYPE_MAP[tgtNode.type];
+        if (!srcMeta?.handles.source) return false;
+        if (!tgtMeta?.handles.target) return false;
+        // 禁止重複邊
+        return !edges.some(e => e.source === conn.source && e.target === conn.target);
+      }, [nodes, edges]);
+
+      const onConnect = useCallback((params) => {
+        setEdges(eds => addEdge({
+          ...params,
+          animated: true,
+          type: 'smoothstep',
+          markerEnd: { type: MarkerType.ArrowClosed, color: '#4facfe' },
+          style: { strokeWidth: 2 },
+        }, eds));
+      }, [setEdges]);
+
+      const onNodeClick = useCallback((_, node) => {
+        setSelectedNode(node);
+      }, []);
+
+      const onPaneClick = useCallback(() => {
+        setSelectedNode(null);
+      }, []);
+
+      // 從 palette 拖曳新增節點
+      const onDragOver = useCallback((e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+      }, []);
+
+      const onDrop = useCallback((e) => {
+        e.preventDefault();
+        const type = e.dataTransfer.getData('application/reactflow');
+        if (!type || !NODE_TYPE_MAP[type]) return;
+
+        const meta = NODE_TYPE_MAP[type];
+        const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+        const id = `${type}-${Date.now()}`;
+        const newNode = {
+          id, type, position,
+          data: {
+            label: `${meta.name} #${nodes.filter(n => n.type === type).length + 1}`,
+            subtitle: meta.desc,
+          },
+        };
+        setNodes(ns => [...ns, newNode]);
+        setSelectedNode(newNode);
+        showToast(`新增 ${meta.name}`, 'success');
+      }, [screenToFlowPosition, nodes, setNodes]);
+
+      // 更新選中節點的欄位
+      const updateSelectedNode = useCallback((patch) => {
+        if (!selectedNode) return;
+        setNodes(ns => ns.map(n => n.id === selectedNode.id
+          ? { ...n, data: { ...n.data, ...patch } }
+          : n));
+        setSelectedNode(n => ({ ...n, data: { ...n.data, ...patch } }));
+      }, [selectedNode, setNodes]);
+
+      const deleteSelectedNode = useCallback(() => {
+        if (!selectedNode) return;
+        const id = selectedNode.id;
+        setNodes(ns => ns.filter(n => n.id !== id));
+        setEdges(es => es.filter(e => e.source !== id && e.target !== id));
+        setSelectedNode(null);
+        showToast('已刪除節點與其連線', 'success');
+      }, [selectedNode, setNodes, setEdges]);
+
+      const clearAll = useCallback(() => {
+        if (!confirm('清空整張 DAG?此動作無法復原。')) return;
+        setNodes([]);
+        setEdges([]);
+        setSelectedNode(null);
+        showToast('DAG 已清空', 'success');
+      }, [setNodes, setEdges]);
+
+      const autoLayout = useCallback(() => {
+        // 簡單的分層佈局 (BFS-based level assignment)
+        if (nodes.length === 0) return;
+        const levels = new Map();
+        const indeg = new Map();
+        const adj = new Map();
+        nodes.forEach(n => { indeg.set(n.id, 0); adj.set(n.id, []); });
+        edges.forEach(e => {
+          adj.get(e.source).push(e.target);
+          indeg.set(e.target, (indeg.get(e.target) || 0) + 1);
+        });
+        const queue = [];
+        indeg.forEach((d, id) => { if (d === 0) { queue.push(id); levels.set(id, 0); } });
+        const visited = new Set(queue);
+        while (queue.length) {
+          const u = queue.shift();
+          const lvl = levels.get(u);
+          for (const v of adj.get(u)) {
+            levels.set(v, Math.max(levels.get(v) || 0, lvl + 1));
+            indeg.set(v, indeg.get(v) - 1);
+            if (indeg.get(v) === 0 && !visited.has(v)) {
+              visited.add(v);
+              queue.push(v);
+            }
+          }
+        }
+        // 處理 cycle 內節點
+        nodes.forEach(n => { if (!levels.has(n.id)) levels.set(n.id, 0); });
+
+        const grouped = {};
+        levels.forEach((lvl, id) => {
+          if (!grouped[lvl]) grouped[lvl] = [];
+          grouped[lvl].push(id);
+        });
+        const newNodes = nodes.map(n => {
+          const lvl = levels.get(n.id);
+          const group = grouped[lvl];
+          const idx = group.indexOf(n.id);
+          return {
+            ...n,
+            position: { x: 40 + lvl * 240, y: 40 + idx * 100 },
+          };
+        });
+        setNodes(newNodes);
+        setTimeout(() => fitView({ duration: 400, padding: 0.2 }), 50);
+        showToast('已自動分層佈局', 'success');
+      }, [nodes, edges, setNodes, fitView]);
+
+      // 匯出 JSON
+      const exportJson = useCallback(() => {
+        const payload = {
+          version: '1.0',
+          exportedAt: new Date().toISOString(),
+          nodes, edges,
+          stats: {
+            nodeCount: nodes.length,
+            edgeCount: edges.length,
+            sources: sources.length,
+            sinks: sinks.length,
+            hasCycle: !!cycle,
+            topoOrder: topo,
+          },
+        };
+        return JSON.stringify(payload, null, 2);
+      }, [nodes, edges, sources, sinks, cycle, topo]);
+
+      const downloadJson = useCallback(() => {
+        const blob = new Blob([exportJson()], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `dag-${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('已下載 DAG JSON', 'success');
+      }, [exportJson]);
+
+      const importJson = useCallback(() => {
+        try {
+          const data = JSON.parse(importText);
+          if (!Array.isArray(data.nodes) || !Array.isArray(data.edges)) {
+            throw new Error('缺少 nodes 或 edges 陣列');
+          }
+          setNodes(data.nodes);
+          setEdges(data.edges);
+          setSelectedNode(null);
+          setModal(null);
+          setImportText('');
+          showToast(`匯入成功 · ${data.nodes.length} 節點 / ${data.edges.length} 連線`, 'success');
+          setTimeout(() => fitView({ duration: 400, padding: 0.2 }), 50);
+        } catch (err) {
+          showToast(`匯入失敗: ${err.message}`, 'error');
+        }
+      }, [importText, setNodes, setEdges, fitView]);
+
+      // 鍵盤快捷鍵
+      useEffect(() => {
+        const handler = (e) => {
+          // 避免在 input/textarea 內觸發
+          if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+          if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNode) {
+            e.preventDefault();
+            deleteSelectedNode();
+          }
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+      }, [selectedNode, deleteSelectedNode]);
+
+      // ─────── Render ───────
+      return h(React.Fragment, null,
+        h('div', { className: 'app' },
+          // ─── Topbar ───
+          h('header', { className: 'topbar' },
+            h('div', { className: 'brand' },
+              h('div', { className: 'brand-logo' }, 'D'),
+              h('div', { className: 'brand-text' },
+                h('h1', null, 'DAG Editor'),
+                h('div', { className: 'subtitle' }, 'React Flow × Next.js'),
+              ),
+            ),
+            h('div', { className: 'topbar-actions' },
+              h('button', { className: 'btn', onClick: autoLayout, title: '自動分層佈局' }, '📐 Auto Layout'),
+              h('button', { className: 'btn', onClick: () => setModal('export'), title: '檢視 / 下載 JSON' }, '📤 Export'),
+              h('button', { className: 'btn', onClick: () => setModal('import'), title: '從 JSON 匯入' }, '📥 Import'),
+              h('button', { className: 'btn btn-danger', onClick: clearAll, title: '清空全部' }, '🗑 Clear'),
+              h('button', { className: 'btn btn-primary', onClick: () => setModal('nextjs') }, '⚡ Next.js 整合'),
+            ),
+          ),
+
+          // ─── Left Sidebar (Palette) ───
+          h('aside', { className: 'sidebar' },
+            h('div', { className: 'section-title' }, '節點類型 Palette'),
+            h('div', { className: 'node-palette' },
+              NODE_TYPES.map(meta =>
+                h('div', {
+                  key: meta.type,
+                  className: 'palette-item',
+                  draggable: true,
+                  onDragStart: (e) => {
+                    e.dataTransfer.setData('application/reactflow', meta.type);
+                    e.dataTransfer.effectAllowed = 'move';
+                  },
+                  title: `拖曳到畫布新增「${meta.name}」`,
+                },
+                  h('div', { className: `palette-icon ${meta.cls}` }, meta.icon),
+                  h('div', { className: 'palette-item-info' },
+                    h('div', { className: 'palette-item-name' }, meta.name),
+                    h('div', { className: 'palette-item-desc' }, meta.desc),
+                  ),
+                ),
+              ),
+            ),
+            h('div', { className: 'section-title' }, '操作說明'),
+            h('div', { style: { fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.6 } },
+              h('p', { style: { marginBottom: '0.5rem' } }, '• 從左側拖曳節點類型到畫布'),
+              h('p', { style: { marginBottom: '0.5rem' } }, '• 從節點右側拉線到下一個節點左側'),
+              h('p', { style: { marginBottom: '0.5rem' } }, '• 雙擊節點可重新命名 (右側面板)'),
+              h('p', { style: { marginBottom: '0.5rem' } }, '• 選中節點後按 ', h('kbd', { style: { padding: '1px 5px', background: 'rgba(255,255,255,0.06)', borderRadius: 3, fontSize: '0.7rem' } }, 'Del'), ' 刪除'),
+              h('p', null, '• Auto Layout 自動計算拓樸分層'),
+            ),
+          ),
+
+          // ─── Canvas ───
+          h('div', {
+            className: 'canvas-wrap',
+            ref: reactFlowWrapper,
+            onDrop,
+            onDragOver,
+          },
+            h('div', { className: 'nextjs-banner' },
+              '🤖 此頁面在 Next.js 中對應 ', h('kbd', null, 'app/dag/page.tsx'),
+              ' + ', h('kbd', null, 'DagEditorClient.tsx'), ' 兩個檔案。',
+              h('button', {
+                className: 'btn btn-ghost',
+                style: { padding: '2px 8px', fontSize: '0.7rem', marginLeft: '0.5rem' },
+                onClick: () => setModal('nextjs'),
+              }, '查看整合指南 →'),
+            ),
+            h(ReactFlow, {
+              nodes,
+              edges,
+              onNodesChange,
+              onEdgesChange,
+              onConnect,
+              onNodeClick,
+              onPaneClick,
+              onInit: () => setTimeout(() => fitView({ duration: 0, padding: 0.2 }), 50),
+              nodeTypes,
+              isValidConnection,
+              fitView: true,
+              fitViewOptions: { padding: 0.2 },
+              minZoom: 0.2,
+              maxZoom: 2,
+              defaultEdgeOptions: {
+                type: 'smoothstep',
+                markerEnd: { type: MarkerType.ArrowClosed, color: '#4facfe' },
+              },
+              proOptions: { hideAttribution: true },
+            },
+              h(Background, { color: 'rgba(255,255,255,0.05)', gap: 24, size: 1 }),
+              h(Controls, { position: 'bottom-right', showInteractive: false }),
+              h(MiniMap, {
+                position: 'bottom-left',
+                nodeColor: (n) => {
+                  const m = NODE_TYPE_MAP[n.type];
+                  if (m?.cls === 'icon-source')    return '#4facfe';
+                  if (m?.cls === 'icon-transform') return '#a78bfa';
+                  if (m?.cls === 'icon-aggregate') return '#f59e0b';
+                  if (m?.cls === 'icon-ml')        return '#10b981';
+                  if (m?.cls === 'icon-output')    return '#ec4899';
+                  return '#888';
+                },
+                maskColor: 'rgba(7,9,15,0.7)',
+                style: { width: 180, height: 120 },
+              }),
+            ),
+            // Info chips
+            h('div', { className: 'canvas-info' },
+              h('div', { className: 'info-chip' }, h('span', { className: 'dot' }), `${nodes.length} 節點 · ${edges.length} 連線`),
+              cycle
+                ? h('div', { className: 'info-chip danger' }, h('span', { className: 'dot' }), `⚠ DAG 含循環 (${cycle.length} 節點)`)
+                : h('div', { className: 'info-chip' }, h('span', { className: 'dot' }), `✓ Valid DAG · ${sources.length} 源 / ${sinks.length} 匯`),
+            ),
+            h('div', { className: 'footer-hint' }, '⌘ + scroll = zoom · drag = pan'),
+          ),
+
+          // ─── Right Panel (Inspector + Stats) ───
+          h('aside', { className: 'sidebar sidebar-right' },
+            // 節點 inspector
+            h('div', { className: 'right-panel-section' },
+              h('div', { className: 'section-title' }, '節點 Inspector'),
+              selectedNode
+                ? h('div', { className: 'inspector-form' },
+                    h('div', { className: 'field' },
+                      h('label', null, '類型'),
+                      h('input', { type: 'text', value: NODE_TYPE_MAP[selectedNode.type]?.name || selectedNode.type, disabled: true }),
+                    ),
+                    h('div', { className: 'field' },
+                      h('label', null, '節點 ID'),
+                      h('input', { type: 'text', value: selectedNode.id, disabled: true }),
+                    ),
+                    h('div', { className: 'field' },
+                      h('label', null, '顯示名稱'),
+                      h('input', {
+                        type: 'text',
+                        value: selectedNode.data.label || '',
+                        onChange: (e) => updateSelectedNode({ label: e.target.value }),
+                        placeholder: '輸入節點名稱',
+                      }),
+                    ),
+                    h('div', { className: 'field' },
+                      h('label', null, '副標題 / 描述'),
+                      h('input', {
+                        type: 'text',
+                        value: selectedNode.data.subtitle || '',
+                        onChange: (e) => updateSelectedNode({ subtitle: e.target.value }),
+                        placeholder: '例如: 1.2M rows',
+                      }),
+                    ),
+                    h('div', { className: 'field' },
+                      h('label', null, '位置 (x, y)'),
+                      h('input', {
+                        type: 'text',
+                        value: `(${Math.round(selectedNode.position.x)}, ${Math.round(selectedNode.position.y)})`,
+                        disabled: true,
+                      }),
+                    ),
+                    h('button', {
+                      className: 'btn btn-danger',
+                      onClick: deleteSelectedNode,
+                      style: { marginTop: '0.25rem' },
+                    }, '🗑 刪除此節點 (Del)'),
+                  )
+                : h('div', { className: 'empty-state' },
+                    h('div', { className: 'empty-state-icon' }, '👆'),
+                    h('div', null, '點擊畫布上任一節點'),
+                    h('div', { style: { fontSize: '0.7rem', marginTop: '0.25rem' } }, '在此編輯屬性'),
+                  ),
+            ),
+
+            // DAG 統計
+            h('div', { className: 'right-panel-section' },
+              h('div', { className: 'section-title' }, 'DAG 統計'),
+              h('div', { className: 'stats-grid' },
+                h('div', { className: 'stat-card' },
+                  h('div', { className: 'stat-label' }, '節點數'),
+                  h('div', { className: 'stat-value' }, nodes.length),
+                ),
+                h('div', { className: 'stat-card' },
+                  h('div', { className: 'stat-label' }, '連線數'),
+                  h('div', { className: 'stat-value' }, edges.length),
+                ),
+                h('div', { className: 'stat-card' },
+                  h('div', { className: 'stat-label' }, '來源'),
+                  h('div', { className: 'stat-value' }, sources.length),
+                ),
+                h('div', { className: 'stat-card' },
+                  h('div', { className: 'stat-label' }, '匯出'),
+                  h('div', { className: 'stat-value' }, sinks.length),
+                ),
+                h('div', { className: 'stat-card', style: { gridColumn: '1 / -1' } },
+                  h('div', { className: 'stat-label' }, '拓樸順序'),
+                  cycle
+                    ? h('div', { className: 'stat-value bad' }, '無法排序 (有循環)')
+                    : h('div', { className: 'stat-value good' }, `${topo.length} 步可執行`),
+                ),
+              ),
+              cycle && h('div', { className: 'cycle-warning', style: { marginTop: '0.5rem' } }, '⚠ 偵測到循環,DAG 無法直接執行拓樸排序'),
+            ),
+
+            // 拓樸順序列表
+            h('div', { className: 'right-panel-section' },
+              h('div', { className: 'section-title' }, '執行順序 (Topological)'),
+              h('div', { className: 'topo-list' },
+                topo.length > 0
+                  ? h('ol', null, topo.map((id, i) => {
+                      const n = nodes.find(x => x.id === id);
+                      return h('li', { key: id }, `${i + 1}. ${n?.data?.label || id}`);
+                    }))
+                  : h('li', { className: 'empty' }, cycle ? '因循環而無法計算' : '尚無節點'),
+              ),
+            ),
+          ),
+        ),
+
+        // ─────── Modals ───────
+        modal === 'export' && h('div', {
+          className: 'modal-backdrop',
+          onClick: (e) => { if (e.target === e.currentTarget) setModal(null); },
+        },
+          h('div', { className: 'modal' },
+            h('div', { className: 'modal-header' },
+              h('h3', null, '📤 匯出 DAG JSON'),
+              h('button', { className: 'btn btn-ghost btn-icon', onClick: () => setModal(null) }, '✕'),
+            ),
+            h('div', { className: 'modal-body' },
+              h('div', { className: 'code-block' }, exportJson()),
+            ),
+            h('div', { className: 'modal-footer' },
+              h('button', { className: 'btn', onClick: () => {
+                navigator.clipboard.writeText(exportJson()).then(() => showToast('已複製到剪貼簿', 'success'));
+              } }, '📋 複製'),
+              h('button', { className: 'btn btn-primary', onClick: downloadJson }, '💾 下載 .json'),
+            ),
+          ),
+        ),
+
+        modal === 'import' && h('div', {
+          className: 'modal-backdrop',
+          onClick: (e) => { if (e.target === e.currentTarget) setModal(null); },
+        },
+          h('div', { className: 'modal' },
+            h('div', { className: 'modal-header' },
+              h('h3', null, '📥 匯入 DAG JSON'),
+              h('button', { className: 'btn btn-ghost btn-icon', onClick: () => setModal(null) }, '✕'),
+            ),
+            h('div', { className: 'modal-body' },
+              h('p', { style: { fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '0.75rem' } },
+                '貼上之前匯出的 JSON (需含 ', h('code', { style: { color: 'var(--accent-1)' } }, 'nodes'), ' 與 ', h('code', { style: { color: 'var(--accent-1)' } }, 'edges'), ' 兩個陣列)'),
+              h('div', { className: 'field' },
+                h('textarea', {
+                  value: importText,
+                  onChange: (e) => setImportText(e.target.value),
+                  placeholder: '{"nodes": [...], "edges": [...]}',
+                  rows: 14,
+                  style: { fontFamily: "'JetBrains Mono', monospace", fontSize: '0.78rem' },
+                }),
+              ),
+            ),
+            h('div', { className: 'modal-footer' },
+              h('button', { className: 'btn', onClick: () => setModal(null) }, '取消'),
+              h('button', { className: 'btn btn-primary', onClick: importJson, disabled: !importText.trim() }, '匯入並套用'),
+            ),
+          ),
+        ),
+
+        modal === 'nextjs' && h(NextJsModal, { onClose: () => setModal(null) }),
+      );
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Next.js 整合指南 modal — 對應到實際的 Next.js 專案結構
+    // ────────────────────────────────────────────────────────────────
+    function NextJsModal({ onClose }) {
+      const codeApp = `// app/dag/page.tsx — Next.js App Router 入口 (Server Component)
+import DagEditorClient from './DagEditorClient';
+
+export const metadata = {
+  title: 'DAG Editor · React Flow × Next.js',
+  description: '視覺化 DAG pipeline 編輯器',
+};
+
+export default function DagPage() {
+  return <DagEditorClient />;
+}`;
+
+      const codeClient = `// app/dag/DagEditorClient.tsx — 'use client' 邊界
+'use client';
+
+import { useState, useCallback, useMemo } from 'react';
+import {
+  ReactFlow,
+  ReactFlowProvider,
+  Background,
+  Controls,
+  MiniMap,
+  Handle,
+  Position,
+  useNodesState,
+  useEdgesState,
+  useReactFlow,
+  addEdge,
+  MarkerType,
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+
+// 從 web_output.html 的 <script type="module"> 區塊搬:
+//   - NODE_TYPES / NODE_TYPE_MAP
+//   - DagNode (custom node)
+//   - detectCycle / topologicalOrder / findSources / findSinks
+//   - initialNodes / initialEdges
+//   - App 主元件邏輯 (state + handlers)
+// 唯一要改的:把 showToast 從全域 DOM 操作改成 useState/useEffect 觸發的 React toast 元件。
+
+export default function DagEditorClient() {
+  // ... 完全等同 web_output.html 的 App() 函式本體 ...
+  return (
+    <ReactFlowProvider>
+      <App />
+    </ReactFlowProvider>
+  );
+}`;
+
+      const codeInstall = `# 在 Next.js 專案根目錄執行
+npm install @xyflow/react
+# 或 pnpm / yarn
+
+# 驗證
+npx next --version   # 需要 Next.js 13.4+ (app router)
+npm ls @xyflow/react # 應顯示 12.x`;
+
+      const codeServer = `// 若需要 server-side 持久化,把整個 DAG 序列化到 DB
+// app/api/dag/route.ts
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
+
+const DagSchema = z.object({
+  nodes: z.array(z.object({ id: z.string(), type: z.string(), position: z.object({ x: z.number(), y: z.number() }) }).passthrough()),
+  edges: z.array(z.object({ id: z.string(), source: z.string(), target: z.string() }).passthrough()),
+});
+
+export async function POST(req: Request) {
+  const body = await req.json();
+  const parsed = DagSchema.parse(body);
+  // TODO: 寫進 Postgres / Prisma / SQLite
+  return NextResponse.json({ ok: true, count: parsed.nodes.length });
+}`;
+
+      return h('div', {
+        className: 'modal-backdrop',
+        onClick: (e) => { if (e.target === e.currentTarget) onClose(); },
+      },
+        h('div', { className: 'modal', style: { width: 'min(820px, 92vw)' } },
+          h('div', { className: 'modal-header' },
+            h('h3', null, '⚡ Next.js 15 App Router 整合指南'),
+            h('button', { className: 'btn btn-ghost btn-icon', onClick: onClose }, '✕'),
+          ),
+          h('div', { className: 'modal-body' },
+            h('p', { style: { fontSize: '0.88rem', color: 'var(--text-muted)', marginBottom: '1rem', lineHeight: 1.6 } },
+              '這個 single-file HTML 對應到 Next.js App Router 只需要 ', h('strong', { style: { color: 'var(--text-main)' } }, '2 個檔案'), ' + 一個可選的 API route。以下是 1:1 移植範本,直接把 ',
+              h('code', { style: { color: 'var(--accent-1)' } }, 'App()'), ' 函式本體複製到 ', h('code', { style: { color: 'var(--accent-1)' } }, 'DagEditorClient.tsx'), ' 即可。'),
+
+            h('h4', { style: { fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--accent-1)' } }, '① 安裝依賴'),
+            h('div', { className: 'code-block', style: { marginBottom: '1rem' } }, codeInstall),
+
+            h('h4', { style: { fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--accent-1)' } }, '② app/dag/page.tsx (Server Component)'),
+            h('div', { className: 'code-block', style: { marginBottom: '1rem' } }, codeApp),
+
+            h('h4', { style: { fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--accent-1)' } }, "③ app/dag/DagEditorClient.tsx ('use client')"),
+            h('div', { className: 'code-block', style: { marginBottom: '1rem' } }, codeClient),
+
+            h('h4', { style: { fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--accent-1)' } }, '④ (選用) app/api/dag/route.ts — 後端持久化'),
+            h('div', { className: 'code-block', style: { marginBottom: '1rem' } }, codeServer),
+
+            h('div', { style: { padding: '0.75rem 1rem', background: 'rgba(79,172,254,0.08)', border: '1px solid rgba(79,172,254,0.3)', borderRadius: 8, fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.6 } },
+              h('strong', { style: { color: 'var(--accent-1)' } }, '關鍵對應:'),
+              h('br'),
+              '• ', h('code', null, 'web_output.html 的 <script type="module">'), ' → ', h('code', null, 'DagEditorClient.tsx 的函式本體'),
+              h('br'),
+              '• ', h('code', null, 'importmap'), ' (ESM CDN) → ', h('code', null, 'npm install @xyflow/react'), ' (本地依賴)',
+              h('br'),
+              '• ', h('code', null, 'document.getElementById("root")'), ' → React Flow 的 ', h('code', null, '<ReactFlowProvider>'), ' 包裹',
+              h('br'),
+              '• ', h('code', null, '全局 showToast'), ' (DOM 操作) → ', h('code', null, 'useState + JSX toast 元件'),
+              h('br'),
+              '• Topbar / Sidebar / Inspector 的 CSS 直接搬進 ', h('code', null, 'globals.css'), ' 或 ', h('code', null, 'dag.module.css'),
+            ),
+          ),
+          h('div', { className: 'modal-footer' },
+            h('button', { className: 'btn btn-primary', onClick: onClose }, '了解'),
+          ),
+        ),
+      );
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Mount — React Flow v12 必須包在 ReactFlowProvider 內才能用 useReactFlow
+    // ────────────────────────────────────────────────────────────────
+    const root = createRoot(document.getElementById('root'));
+    root.render(
+      h(React.StrictMode, null,
+        h(ReactFlowProvider, null, h(App))
+      )
+    );
+  </script>
+</body>
+</html>

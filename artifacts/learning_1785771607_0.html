@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Playwright 跨瀏覽器自動化測試 + 視覺回歸測試控制台</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #161a22; --panel-2: #1c222c; --border: #2a3140;
+    --text: #e6e9ef; --muted: #8a93a6; --accent: #5b8def; --accent-2: #4ec9b0;
+    --warn: #f0b03a; --err: #ef5b5b; --ok: #4ec98b; --code: #cbe8ff;
+    --shadow: 0 1px 0 rgba(255,255,255,.04), 0 8px 24px rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
+    font-family: ui-sans-serif, -apple-system, "Segoe UI", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif; }
+  header { padding: 18px 24px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: baseline; gap: 16px; background: var(--panel); }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  .layout { display: grid; grid-template-columns: 320px 1fr; gap: 16px; padding: 16px; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
+  .panel h2 { margin: 0; padding: 12px 14px; font-size: 13px; text-transform: uppercase; letter-spacing: .12em;
+    color: var(--muted); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+  .panel h2 .pill { font-size: 11px; padding: 2px 6px; border: 1px solid var(--border); border-radius: 999px; color: var(--text); text-transform: none; }
+  .panel .body { padding: 12px 14px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  input[type=text], input[type=url], select, textarea {
+    width: 100%; background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px;
+    font-size: 13px; font-family: inherit; }
+  textarea { min-height: 80px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+  .btnrow { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  button { background: var(--accent); color: #fff; border: 0; border-radius: 6px;
+    padding: 8px 12px; font-size: 13px; cursor: pointer; font-weight: 500; }
+  button.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
+  button.warn { background: var(--warn); color: #1a1a1a; }
+  button.ok { background: var(--ok); color: #0d1d14; }
+  button:disabled { opacity: .55; cursor: not-allowed; }
+  .browser-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .bcard { padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2);
+    display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; user-select: none; }
+  .bcard input { accent-color: var(--accent); }
+  .log { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px;
+    background: #0a0d12; color: var(--code); padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border);
+    max-height: 360px; overflow: auto; line-height: 1.55; white-space: pre-wrap; word-break: break-all; }
+  .log .ok { color: var(--ok); } .log .err { color: var(--err); } .log .warn { color: var(--warn); }
+  .log .muted { color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 11.5px; text-transform: uppercase; letter-spacing: .08em; }
+  tr:hover td { background: rgba(255,255,255,.02); }
+  .status { display: inline-block; padding: 2px 6px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .status.pass { background: rgba(78,201,139,.15); color: var(--ok); }
+  .status.fail { background: rgba(239,91,91,.15); color: var(--err); }
+  .status.skip { background: rgba(138,147,166,.18); color: var(--muted); }
+  .status.warn { background: rgba(240,176,58,.15); color: var(--warn); }
+  .diff-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+  .diff-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
+  .diff-card h4 { margin: 0 0 6px; font-size: 12px; color: var(--muted); font-weight: 500; }
+  .diff-card img { display: block; width: 100%; border-radius: 4px; border: 1px solid var(--border); margin-top: 4px; }
+  .diff-card .pct { font-size: 11px; color: var(--muted); margin-top: 4px; display: flex; justify-content: space-between; }
+  .diff-card .pct b { color: var(--text); }
+  .tabs { display: flex; gap: 4px; padding: 0 14px; border-bottom: 1px solid var(--border); }
+  .tabs button { background: transparent; color: var(--muted); border: 0; padding: 10px 12px; font-size: 13px;
+    cursor: pointer; border-bottom: 2px solid transparent; border-radius: 0; }
+  .tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+  .tab-pane { display: none; padding: 14px; }
+  .tab-pane.active { display: block; }
+  .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 12px; }
+  .kpi { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .kpi .v { font-size: 20px; font-weight: 600; }
+  .kpi .l { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-top: 2px; }
+  .kpi.ok .v { color: var(--ok); } .kpi.err .v { color: var(--err); } .kpi.warn .v { color: var(--warn); }
+  .help { color: var(--muted); font-size: 12px; line-height: 1.55; }
+  .help code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; color: var(--code); font-size: 11.5px; }
+  details { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin-top: 10px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  details pre { margin: 6px 0 0; font-size: 11.5px; color: var(--code); white-space: pre-wrap; word-break: break-all; }
+  .toast { position: fixed; right: 16px; bottom: 16px; background: var(--panel-2); border: 1px solid var(--border);
+    padding: 10px 14px; border-radius: 8px; box-shadow: var(--shadow); max-width: 360px; font-size: 13px;
+    opacity: 0; transform: translateY(8px); transition: all .25s ease; }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.err { border-color: var(--err); } .toast.ok { border-color: var(--ok); }
+  .progress { height: 4px; background: var(--panel-2); border-radius: 999px; overflow: hidden; margin-top: 8px; }
+  .progress > div { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    width: 0%; transition: width .25s ease; }
+  #boot-status { padding: 8px 12px; border-radius: 6px; font-size: 12.5px; margin-bottom: 10px; }
+  #boot-status.loading { background: rgba(91,141,239,.1); color: var(--accent); border: 1px solid rgba(91,141,239,.3); }
+  #boot-status.ready { background: rgba(78,201,176,.1); color: var(--accent-2); border: 1px solid rgba(78,201,176,.3); }
+  #boot-status.error { background: rgba(239,91,91,.1); color: var(--err); border: 1px solid rgba(239,91,91,.3); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Playwright 跨瀏覽器自動化測試 + 視覺回歸測試控制台</h1>
+  <span class="sub">pure-frontend · chromium / firefox / webkit · pixelmatch diff</span>
+</header>
+
+<div class="layout">
+
+  <section class="panel">
+    <h2>測試設定 <span class="pill">config</span></h2>
+    <div class="body">
+      <div id="boot-status" class="loading">⏳ 載入 ESM 模組…</div>
+
+      <label>目標 URL</label>
+      <input id="url" type="url" value="https://example.com" />
+
+      <label>選擇瀏覽器 (跨瀏覽器矩陣)</label>
+      <div class="browser-grid" id="browser-grid">
+        <label class="bcard"><input type="checkbox" value="chromium" checked /> Chromium</label>
+        <label class="bcard"><input type="checkbox" value="firefox" checked /> Firefox</label>
+        <label class="bcard"><input type="checkbox" value="webkit" checked /> WebKit</label>
+      </div>
+
+      <label>Viewport 矩陣 (寬 × 高,逗號分隔)</label>
+      <input id="viewports" type="text" value="1280x800, 768x1024, 375x667" />
+      <div class="help">預設涵蓋 Desktop / Tablet / Mobile 三段</div>
+
+      <label>測試腳本 (Playwright Code,async 函式體)</label>
+      <textarea id="script" spellcheck="false">// 進到頁面後取標題 + 檢查 DOM 完整性
+const title = await page.title();
+const linkCount = await page.evaluate(() => document.querySelectorAll('a').length);
+return { title, linkCount, ok: title.length > 0 && linkCount > 0 };</textarea>
+      <div class="help">
+        可用 <code>page</code>(title/goto/click/fill/evaluate/screenshot/waitForSelector)、
+        <code>browser</code>(name/userAgent)、<code>context</code>(viewport)。
+        回傳 <code>{ ok: true/false, ... }</code> 會被當作該 cell 的測試結果。
+      </div>
+
+      <div class="btnrow">
+        <button id="run-e2e" disabled>▶ 跑 E2E 矩陣</button>
+        <button id="run-snap" class="secondary" disabled>📸 截圖 + Baseline</button>
+        <button id="run-diff" class="warn" disabled>🔍 跑視覺 Diff</button>
+        <button id="export" class="secondary" disabled>💾 匯出 Baseline</button>
+        <button id="import" class="secondary" disabled>📥 匯入 Baseline</button>
+        <input type="file" id="import-file" accept="application/json" style="display:none" />
+      </div>
+      <div class="progress"><div id="bar"></div></div>
+
+      <details>
+        <summary>ℹ 架構說明</summary>
+        <pre>前端版 Playwright 風格測試控制台:
+
+· 跨瀏覽器模擬: 每個 cell 開 sandboxed iframe,配 engine 對應的
+  user-agent + 字體 hint (chromium=Helvetica/firefox=Liberation/webkit=Apple)
+· Viewport 矩陣: 自動展開 N (引擎) × M (viewport) 矩陣
+· 視覺回歸: page.snapshot() 產生 canvas 指紋圖
+  (title + body text + URL hash + 視覺 hash)
+  → 第二次跑用 pixelmatch 著色差異
+· Baseline 存 localStorage, 可匯出 / 匯入 JSON 跨環境同步
+
+<pre>底層依賴:
+· esm.sh 提供 pixelmatch + pngjs ESM bundles
+· 使用 script type="importmap" 把 npm 模組 map 成 import 別名</pre>
+      </details>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>執行結果</h2>
+    <div class="tabs">
+      <button data-tab="summary" class="active">摘要</button>
+      <button data-tab="matrix">E2E 矩陣</button>
+      <button data-tab="diff">視覺 Diff</button>
+      <button data-tab="log">Log</button>
+    </div>
+
+    <div class="tab-pane active" id="tab-summary">
+      <div class="kpi-row">
+        <div class="kpi ok"><div class="v" id="kpi-pass">0</div><div class="l">PASS</div></div>
+        <div class="kpi err"><div class="v" id="kpi-fail">0</div><div class="l">FAIL</div></div>
+        <div class="kpi warn"><div class="v" id="kpi-skip">0</div><div class="l">SKIP</div></div>
+        <div class="kpi"><div class="v" id="kpi-diff">0%</div><div class="l">平均像素差</div></div>
+      </div>
+      <div id="summary" class="help">尚未執行。設定左側參數後,按「跑 E2E 矩陣」或「跑視覺 Diff」開始。</div>
+    </div>
+
+    <div class="tab-pane" id="tab-matrix">
+      <table id="matrix-tbl">
+        <thead>
+          <tr><th>#</th><th>Browser</th><th>Viewport</th><th>Status</th><th>耗時</th><th>細節</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="tab-pane" id="tab-diff">
+      <div class="diff-grid" id="diff-grid"></div>
+      <div class="help" id="diff-help" style="margin-top:10px">尚未產生 diff。執行「截圖 + Baseline」後,再執行「跑視覺 Diff」就會比對。</div>
+    </div>
+
+    <div class="tab-pane" id="tab-log">
+      <div class="log" id="log"></div>
+    </div>
+  </section>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- ========== ESM import map (讓 npm 模組直接用 import 別名) ========== -->
+<script type="importmap">
+{
+  "imports": {
+    "pixelmatch": "https://cdn.jsdelivr.net/npm/pixelmatch@5.3.0/+esm"
+  }
+}
+</script>
+
+<!-- ========== App entry (as ESM so we can import) ========== -->
+<script type="module">
+import pixelmatch from "pixelmatch";
+/* Expose for non-module debugging + import verification */
+window.__libs = { pixelmatch, ready: true };
+
+const $  = (s, p=document) => p.querySelector(s);
+const $$ = (s, p=document) => Array.from(p.querySelectorAll(s));
+const STORAGE_KEY = "pw-visual-regression-baseline-v1";
+const RESULTS_KEY = "pw-visual-regression-results-v1";
+
+/* ===================== logging ===================== */
+const logEl = $("#log");
+function log(msg, kind="") {
+  const ts = new Date().toISOString().slice(11,19);
+  const span = document.createElement("div");
+  span.innerHTML = `<span style="color:var(--muted)">${ts}</span> ${escapeHtml(msg)}`;
+  if (kind) span.classList.add(kind);
+  logEl.appendChild(span);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+function escapeHtml(s) { return String(s).replace(/[&<>]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;" }[c])); }
+
+/* ===================== tabs ===================== */
+$$(".tabs button").forEach(b => b.addEventListener("click", () => {
+  $$(".tabs button").forEach(x => x.classList.remove("active"));
+  $$(".tab-pane").forEach(x => x.classList.remove("active"));
+  b.classList.add("active");
+  $("#tab-" + b.dataset.tab).classList.add("active");
+}));
+
+/* ===================== toast ===================== */
+const toastEl = $("#toast");
+let toastTimer = null;
+function toast(msg, kind="") {
+  toastEl.className = "toast show " + kind;
+  toastEl.textContent = msg;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove("show"), 3500);
+}
+
+/* ===================== progress ===================== */
+function setProgress(p) { $("#bar").style.width = (p*100).toFixed(0) + "%"; }
+
+/* ===================== Cross-browser engine emulation =====================
+   Pure-frontend stand-in for Playwright's { chromium, firefox, webkit }.
+   Each engine is a thin wrapper around a sandboxed iframe with:
+     - engine-specific user-agent (recorded on the browser object)
+     - engine-specific default font (so render output differs)
+   Exposes a `page` object that mimics Playwright's most common verbs. */
+const ENGINES = {
+  chromium: { label: "Chromium",
+    ua: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 (Hermes-Chromium)",
+    engineCSS: "html { font-family: 'Helvetica Neue', Arial, sans-serif; }" },
+  firefox: { label: "Firefox",
+    ua: "Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0 (Hermes-Firefox)",
+    engineCSS: "html { font-family: 'Liberation Sans', Arial, sans-serif; }" },
+  webkit: { label: "WebKit",
+    ua: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15 (Hermes-WebKit)",
+    engineCSS: "html { font-family: -apple-system, BlinkMacSystemFont, sans-serif; }" },
+};
+
+function makeEngineRunner(engineName, viewport) {
+  const cfg = ENGINES[engineName];
+  const iframe = document.createElement("iframe");
+  // Use srcdoc-friendly approach: load the URL as a real navigation.
+  // We do NOT sandbox because we need access to contentDocument for
+  // page.evaluate (fn -> DOM access). The trade-off is documented:
+  // this means the tested URL is rendered in a same-origin iframe,
+  // which is fine for public URLs (no auth cookies etc.).
+  iframe.style.cssText = `position:fixed;left:-99999px;top:0;width:${viewport.w}px;height:${viewport.h}px;border:0;`;
+  document.body.appendChild(iframe);
+
+  const styleTag = document.createElement("style");
+  styleTag.textContent = cfg.engineCSS;
+  iframe.addEventListener("load", () => {
+    try { iframe.contentDocument.head.appendChild(styleTag); } catch(e) {}
+  });
+
+  const page = {
+    _iframe: iframe, _url: null, _viewport: viewport,
+    async goto(url) {
+      this._url = url;
+      // For data: URLs use srcdoc (same-origin, allows contentDocument access)
+      // For http(s) URLs use src (cross-origin; page.evaluate will hit security)
+      // Either way, snapshotCurrentPage gracefully handles access errors.
+      if (url.startsWith("data:") || url.startsWith("about:")) {
+        // Strip "data:text/html," prefix and put payload in srcdoc for same-origin
+        const payload = url.replace(/^data:text\/html,?/, "");
+        iframe.srcdoc = payload;
+        iframe.removeAttribute("src");
+      } else {
+        iframe.src = url;
+        iframe.removeAttribute("srcdoc");
+      }
+      await new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error("goto timeout")), 15000);
+        iframe.addEventListener("load", () => { clearTimeout(t); resolve(); }, { once: true });
+      });
+      await new Promise(r => setTimeout(r, 80));
+    },
+    async title() { return iframe.contentDocument?.title || ""; },
+    async url() { return iframe.contentWindow?.location.href || this._url; },
+    async click(selector) {
+      const el = iframe.contentDocument?.querySelector(selector);
+      if (!el) throw new Error("click: selector not found: " + selector);
+      el.click();
+      await new Promise(r => setTimeout(r, 30));
+    },
+    async fill(selector, value) {
+      const el = iframe.contentDocument?.querySelector(selector);
+      if (!el) throw new Error("fill: selector not found: " + selector);
+      el.focus();
+      el.value = value;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    },
+    async waitForSelector(selector, opts={}) {
+      const timeout = opts.timeout || 5000;
+      const t0 = performance.now();
+      while (performance.now() - t0 < timeout) {
+        if (iframe.contentDocument?.querySelector(selector)) return;
+        await new Promise(r => setTimeout(r, 50));
+      }
+      throw new Error("waitForSelector timeout: " + selector);
+    },
+    async waitForLoadState(state) {
+      if (state === "networkidle") await new Promise(r => setTimeout(r, 120));
+    },
+    async evaluate(fn, ...args) {
+      // Run fn in the iframe's window context so `document`, `window`, etc.
+      // resolve naturally (just like Playwright's page.evaluate).
+      // The key: the function must be created *inside* the iframe's realm,
+      // otherwise bare `document` resolves to the outer page's document.
+      const win = iframe.contentWindow;
+      if (!win) throw new Error("evaluate: iframe contentWindow not available (cross-origin?)");
+      // eslint-disable-next-line no-new-func
+      const IFrameFunction = win.Function;
+      const argNames = args.map((_, i) => "__arg" + i);
+      const wrapped = new IFrameFunction(...argNames,
+        `try { return (${fn.toString()})(${argNames.join(",")}); } catch(e) { throw new Error(e.message); }`);
+      return wrapped.apply(win, args);
+    },
+    async screenshot() { return await snapshotCurrentPage(iframe, viewport, engineName, this._url); },
+    async close() { try { iframe.remove(); } catch(e) {} },
+  };
+  return { page, dispose: () => { try { iframe.remove(); } catch(e) {} } };
+}
+
+/* ===================== canvas-based snapshot =====================
+   Cross-origin iframes can't be captured directly. We synthesize a
+   visual fingerprint from title + body text + URL hash, then render
+   it deterministically on a canvas. The same input → same output.
+   Different inputs (URL change, title change, layout drift) → visually
+   distinct output, which pixelmatch will catch.
+   For real cross-origin testing, replace this with a backend that
+   uses Playwright's real `page.screenshot()`. */
+async function snapshotCurrentPage(iframe, viewport, engineName, url) {
+  const W = Math.min(viewport.w, 1280), H = Math.min(viewport.h, 800);
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+
+  const grd = ctx.createLinearGradient(0,0,0,H);
+  grd.addColorStop(0, "#ffffff"); grd.addColorStop(1, "#eef1f5");
+  ctx.fillStyle = grd; ctx.fillRect(0,0,W,H);
+
+  let title = "", bodyText = "", links = 0, headings = "";
+  try {
+    title = iframe.contentDocument?.title || "(no title)";
+    bodyText = (iframe.contentDocument?.body?.innerText || "").slice(0, 200);
+    links = iframe.contentDocument?.querySelectorAll("a").length || 0;
+    headings = Array.from(iframe.contentDocument?.querySelectorAll("h1,h2") || [])
+      .slice(0,3).map(h => h.textContent.trim()).join(" | ");
+  } catch(e) { title = "(cross-origin)"; }
+
+  const tint = { chromium: "#4285f4", firefox: "#ff7139", webkit: "#1d72e8" }[engineName] || "#888";
+  ctx.fillStyle = tint; ctx.fillRect(0,0,W, 6);
+
+  ctx.fillStyle = "#0f1115";
+  ctx.font = "bold 22px -apple-system, Segoe UI, sans-serif";
+  ctx.textBaseline = "top";
+  ctx.fillText(`[${engineName}] ${title}`, 24, 24);
+
+  ctx.fillStyle = "#5b6478";
+  ctx.font = "13px ui-monospace, Menlo, monospace";
+  ctx.fillText(url || "", 24, 56);
+  ctx.fillText(`viewport: ${viewport.w}x${viewport.h}  ·  links: ${links}`, 24, 76);
+
+  ctx.fillStyle = "#1a1f29";
+  ctx.font = "14px -apple-system, Segoe UI, sans-serif";
+  wrapText(ctx, headings || "(no headings)", 24, 110, W - 48, 22);
+  wrapText(ctx, bodyText, 24, 170, W - 48, 20);
+
+  const hash = await sha256Hex(`${engineName}|${url}|${title}|${bodyText}|${links}`);
+  ctx.fillStyle = "#0f1115"; ctx.fillRect(0, H - 60, W, 60);
+  ctx.fillStyle = "#aab1c0";
+  ctx.font = "11px ui-monospace, Menlo, monospace";
+  ctx.fillText("fingerprint:", 24, H - 44);
+  ctx.fillStyle = "#4ec9b0";
+  ctx.fillText(hash.slice(0, 64), 24, H - 28);
+
+  return new Promise(resolve => {
+    canvas.toBlob(async (blob) => {
+      resolve({ width: W, height: H, buffer: await blob.arrayBuffer() });
+    }, "image/png");
+  });
+}
+function wrapText(ctx, text, x, y, maxW, lineH) {
+  const words = (text || "").split(/\s+/);
+  let line = "", yy = y;
+  for (const w of words) {
+    const t = line ? line + " " + w : w;
+    if (ctx.measureText(t).width > maxW && line) {
+      ctx.fillText(line, x, yy); line = w; yy += lineH;
+    } else line = t;
+  }
+  if (line) ctx.fillText(line, x, yy);
+}
+async function sha256Hex(s) {
+  const buf = new TextEncoder().encode(s);
+  const h = await crypto.subtle.digest("SHA-256", buf);
+  return Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2,"0")).join("");
+}
+
+/* ===================== matrix runner ===================== */
+function getConfig() {
+  const url = $("#url").value.trim();
+  const engines = $$("#browser-grid input:checked").map(i => i.value);
+  const viewports = $("#viewports").value.split(/[\s,]+/).filter(Boolean).map(s => {
+    const [w,h] = s.split(/x/i).map(Number);
+    return (w>0 && h>0) ? { w, h, label: s } : null;
+  }).filter(Boolean);
+  const script = $("#script").value;
+  return { url, engines, viewports, script };
+}
+
+async function runMatrix({ url, engines, viewports, script }, label="E2E") {
+  const cells = [];
+  for (const e of engines) for (const v of viewports) cells.push({ engine: e, viewport: v });
+  if (cells.length === 0) { toast("請至少選一個瀏覽器 + 一個 viewport", "err"); return; }
+  log(`▶ 開始 ${label}: ${cells.length} 個 cell (${engines.length} 引擎 × ${viewports.length} viewport)`);
+
+  setProgress(0);
+  let pass = 0, fail = 0;
+  const matrixTbl = $("#matrix-tbl tbody");
+  matrixTbl.innerHTML = "";
+
+  for (let i=0; i<cells.length; i++) {
+    const cell = cells[i];
+    log(`  · [${i+1}/${cells.length}] ${label} ${cell.engine} @ ${cell.viewport.label}`);
+    const row = document.createElement("tr");
+    row.innerHTML = `<td>${i+1}</td><td>${cell.engine}</td><td>${cell.viewport.label}</td>
+      <td><span class="status skip">…</span></td><td>–</td><td>–</td>`;
+    matrixTbl.appendChild(row);
+
+    const runner = makeEngineRunner(cell.engine, cell.viewport);
+    const t0 = performance.now();
+    let status = "skip", detail = "skipped", err = null, snap = null;
+    try {
+      const browser = { name: cell.engine, userAgent: ENGINES[cell.engine].ua };
+      const context = { viewport: cell.viewport };
+      await runner.page.goto(url);
+      const fn = new Function("page", "browser", "context", `"use strict"; return (async () => { ${script} })();`);
+      const result = await fn(runner.page, browser, context);
+      if (result && typeof result === "object" && "ok" in result) {
+        status = result.ok ? "pass" : "fail";
+        const cleaned = JSON.parse(JSON.stringify(result, (k,v) => typeof v === "string" && v.length > 60 ? v.slice(0,60)+"…" : v));
+        detail = JSON.stringify(cleaned);
+      } else {
+        status = "pass";
+        detail = "script OK (no `ok` flag)";
+      }
+      if (status === "pass") pass++; else fail++;
+      try { snap = await runner.page.screenshot(); } catch(e) {}
+    } catch (e) {
+      status = "fail"; fail++; err = e; detail = e.message;
+      log(`    ✗ [${cell.engine} @ ${cell.viewport.label}] ${e.message}`, "err");
+    } finally {
+      await runner.dispose();
+    }
+    const dur = ((performance.now()-t0)/1000).toFixed(2) + "s";
+    row.innerHTML = `<td>${i+1}</td><td>${cell.engine}</td><td>${cell.viewport.label}</td>
+      <td><span class="status ${status}">${status.toUpperCase()}</span></td>
+      <td>${dur}</td>
+      <td><code style="font-size:11px">${escapeHtml(detail).slice(0,200)}</code></td>`;
+    cells[i].status = status; cells[i].duration = dur; cells[i].snap = snap;
+    setProgress((i+1)/cells.length);
+  }
+
+  $("#kpi-pass").textContent = pass;
+  $("#kpi-fail").textContent = fail;
+  $("#kpi-skip").textContent = 0;
+  $("#summary").innerHTML = `<b>${label} 完成</b> · ${cells.length} cell · <span style="color:var(--ok)">${pass} PASS</span> · <span style="color:${fail?'var(--err)':'var(--muted)'}">${fail} FAIL</span>`;
+  log(`✓ ${label} 完成: ${pass} PASS / ${fail} FAIL`, fail ? "err" : "ok");
+  toast(`${label}: ${pass} PASS / ${fail} FAIL`, fail ? "err" : "ok");
+  return cells;
+}
+
+/* ===================== visual regression ===================== */
+function loadBaseline() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"); } catch { return {}; }
+}
+function saveBaseline(obj) { localStorage.setItem(STORAGE_KEY, JSON.stringify(obj)); }
+function keyOf(engine, viewport) { return `${engine}@${viewport.label}`; }
+
+async function runSnapshotBaseline(cells) {
+  const baseline = loadBaseline();
+  let created = 0, replaced = 0;
+  for (const c of cells) {
+    if (!c.snap) continue;
+    const k = keyOf(c.engine, c.viewport);
+    if (baseline[k]) replaced++; else created++;
+    baseline[k] = {
+      engine: c.engine, viewport: c.viewport,
+      width: c.snap.width, height: c.snap.height,
+      data: arrayBufferToBase64(c.snap.buffer),
+    };
+  }
+  saveBaseline(baseline);
+  log(`📸 Baseline 已儲存: ${created} 新增 / ${replaced} 覆蓋`, "ok");
+  toast(`Baseline 已建立 (${created + replaced} 張)`, "ok");
+}
+
+async function runVisualDiff(cells) {
+  const baseline = loadBaseline();
+  if (Object.keys(baseline).length === 0) {
+    toast("尚無 baseline,請先按「截圖 + Baseline」", "err");
+    return;
+  }
+  const grid = $("#diff-grid");
+  grid.innerHTML = "";
+  let totalPct = 0, compared = 0;
+  for (const c of cells) {
+    if (!c.snap) continue;
+    const k = keyOf(c.engine, c.viewport);
+    const b = baseline[k];
+    const card = document.createElement("div");
+    card.className = "diff-card";
+    if (!b) {
+      card.innerHTML = `<h4>${c.engine} @ ${c.viewport.label}</h4><div class="help">無 baseline</div>`;
+      grid.appendChild(card);
+      continue;
+    }
+    const a = c.snap;
+    if (a.width !== b.width || a.height !== b.height) {
+      card.innerHTML = `<h4>${c.engine} @ ${c.viewport.label}</h4>
+        <div class="help">尺寸不一致 (${a.width}x${a.height} vs ${b.width}x${b.height})</div>`;
+      grid.appendChild(card);
+      continue;
+    }
+    const { diffPct, diffPngUrl } = await pixelDiff(b.data, a.buffer, a.width, a.height);
+    totalPct += diffPct; compared++;
+    const curUrl = URL.createObjectURL(new Blob([a.buffer], {type:"image/png"}));
+    card.innerHTML = `
+      <h4>${c.engine} @ ${c.viewport.label}</h4>
+      <img src="${curUrl}" alt="current" />
+      <div class="pct"><span>current vs baseline</span><b>${diffPct.toFixed(3)}%</b></div>
+      <img src="${diffPngUrl}" alt="diff" />`;
+    grid.appendChild(card);
+  }
+  $("#diff-help").textContent = compared > 0
+    ? `比對了 ${compared} 組 · 平均像素差 ${(totalPct/compared).toFixed(3)}%`
+    : "無可比對 cell";
+  $("#kpi-diff").textContent = (compared>0 ? (totalPct/compared).toFixed(2) : "0") + "%";
+  log(`🔍 Visual diff 完成: ${compared} 組 · 平均 ${(totalPct/compared||0).toFixed(3)}%`, "ok");
+  toast("Visual diff 完成", "ok");
+}
+
+function arrayBufferToBase64(buf) {
+  const bytes = new Uint8Array(buf);
+  let s = "";
+  const CHUNK = 0x8000;
+  for (let i=0;i<bytes.length;i+=CHUNK) s += String.fromCharCode.apply(null, bytes.subarray(i,i+CHUNK));
+  return btoa(s);
+}
+function base64ToArrayBuffer(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+  return bytes.buffer;
+}
+
+async function pixelDiff(b64Baseline, currentBuf, width, height) {
+  // Decode baseline PNG via Image element + canvas (browsers natively
+  // render PNG, so this works without any PNG decoder library).
+  // Then pixelmatch baseline-pixels vs current-pixels to compute diff.
+  const baselineImg = await loadPngToImageData(b64Baseline);
+  const currentImg  = await loadPngToImageDataFromArrayBuffer(currentBuf);
+  const w = baselineImg.width, h = baselineImg.height;
+  const diff = new Uint8ClampedArray(w * h * 4);
+  const numDiff = pixelmatch(baselineImg.data, currentImg.data, diff, w, h, { threshold: 0.1 });
+  const pct = (numDiff / (w * h)) * 100;
+  // Render diff onto a canvas so we can export as PNG via toBlob.
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  canvas.getContext("2d").putImageData(new ImageData(diff, w, h), 0, 0);
+  const diffPngUrl = await canvasToPngUrl(canvas);
+  return { diffPct: pct, diffPngUrl };
+}
+
+/* Decode a base64-encoded PNG to ImageData (RGBA) via <img> + canvas. */
+async function loadPngToImageData(b64) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement("canvas");
+      c.width = img.naturalWidth; c.height = img.naturalHeight;
+      c.getContext("2d").drawImage(img, 0, 0);
+      resolve(c.getContext("2d").getImageData(0, 0, c.width, c.height));
+    };
+    img.onerror = (e) => reject(new Error("PNG decode failed (baseline)"));
+    img.src = "data:image/png;base64," + b64;
+  });
+}
+async function loadPngToImageDataFromArrayBuffer(arrayBuf) {
+  return new Promise((resolve, reject) => {
+    const blob = new Blob([arrayBuf], { type: "image/png" });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement("canvas");
+      c.width = img.naturalWidth; c.height = img.naturalHeight;
+      c.getContext("2d").drawImage(img, 0, 0);
+      resolve(c.getContext("2d").getImageData(0, 0, c.width, c.height));
+    };
+    img.onerror = () => reject(new Error("PNG decode failed (current)"));
+    img.src = url;
+  });
+}
+function canvasToPngUrl(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(URL.createObjectURL(blob));
+      else reject(new Error("canvas.toBlob failed"));
+    }, "image/png");
+  });
+}
+
+/* ===================== wire up UI ===================== */
+function enableButtons() {
+  ["#run-e2e", "#run-snap", "#run-diff", "#export", "#import"].forEach(s => $(s).disabled = false);
+  const status = $("#boot-status");
+  status.className = "ready";
+  status.textContent = "✓ ESM 模組就緒 (pixelmatch via jsdelivr +esm)";
+}
+
+function setBootError(msg) {
+  const status = $("#boot-status");
+  status.className = "error";
+  status.textContent = "✗ " + msg;
+  status.title = msg;
+}
+
+$("#run-e2e").addEventListener("click", async () => {
+  const cfg = getConfig();
+  const cells = await runMatrix(cfg, "E2E");
+  sessionStorage.setItem(RESULTS_KEY, JSON.stringify(cells.map(c => ({
+    engine: c.engine, viewport: c.viewport, snap: c.snap ? {
+      width: c.snap.width, height: c.snap.height,
+      data: arrayBufferToBase64(c.snap.buffer)
+    } : null
+  }))));
+});
+
+$("#run-snap").addEventListener("click", async () => {
+  const cfg = getConfig();
+  const cells = await runMatrix(cfg, "Snapshot");
+  await runSnapshotBaseline(cells);
+});
+
+$("#run-diff").addEventListener("click", async () => {
+  const raw = sessionStorage.getItem(RESULTS_KEY);
+  if (!raw) { toast("請先跑一次 E2E 矩陣取得 current 截圖", "err"); return; }
+  const cells = JSON.parse(raw);
+  for (const c of cells) {
+    if (c.snap) c.snap = { width: c.snap.width, height: c.snap.height, buffer: base64ToArrayBuffer(c.snap.data) };
+  }
+  await runVisualDiff(cells);
+});
+
+$("#export").addEventListener("click", () => {
+  const data = loadBaseline();
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `baseline-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  log(`💾 Baseline 已匯出 (${Object.keys(data).length} 張)`, "ok");
+  toast(`Baseline 已匯出 (${Object.keys(data).length} 張)`, "ok");
+});
+
+$("#import").addEventListener("click", () => $("#import-file").click());
+$("#import-file").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const text = await file.text();
+  try {
+    const data = JSON.parse(text);
+    saveBaseline(data);
+    log(`📥 Baseline 已匯入 (${Object.keys(data).length} 張)`, "ok");
+    toast(`Baseline 已匯入 (${Object.keys(data).length} 張)`, "ok");
+  } catch (err) {
+    log(`✗ Baseline 匯入失敗: ${err.message}`, "err");
+    toast("Baseline JSON 解析失敗", "err");
+  }
+});
+
+/* boot */
+enableButtons();
+log("就緒 · 選擇瀏覽器 + viewport 矩陣,按「跑 E2E 矩陣」或「跑視覺 Diff」開始");
+log("提示: 視覺回歸需要先跑「截圖 + Baseline」,然後再跑「跑視覺 Diff」才會有差異");
+
+// Boot error reporter (catches import errors)
+window.addEventListener("error", (e) => {
+  if (e.message && /pixelmatch|pngjs|import|module/i.test(e.message)) {
+    setBootError(e.message);
+  }
+});
+</script>
+</body>
+</html>

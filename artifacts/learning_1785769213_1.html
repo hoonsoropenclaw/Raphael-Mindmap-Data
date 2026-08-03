@@ -1,0 +1,1156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>DAG Workflow Studio · Google Calendar Integration</title>
+
+<style>
+  :root {
+    --bg-0: #0b1020;
+    --bg-1: #11172e;
+    --bg-2: #1a2243;
+    --line: rgba(255,255,255,0.10);
+    --text: #e7ecf5;
+    --text-dim: #9aa3bb;
+    --accent: #7c9cff;
+    --accent-2: #6df0d4;
+    --danger: #ff7a8a;
+    --ok: #6df0d4;
+    --warn: #ffc36d;
+    --shadow: 0 8px 28px rgba(0,0,0,0.35);
+  }
+  * { box-sizing: border-box; }
+  html, body, #root { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC",
+                 "Noto Sans TC", "Microsoft JhengHei", Roboto, sans-serif;
+    background:
+      radial-gradient(1200px 600px at 10% -10%, rgba(124,156,255,0.18), transparent 60%),
+      radial-gradient(900px 500px at 110% 10%, rgba(109,240,212,0.12), transparent 60%),
+      var(--bg-0);
+    color: var(--text);
+    overflow: hidden;
+  }
+  .glass {
+    background: rgba(20, 28, 56, 0.55);
+    border: 1px solid var(--line);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+  }
+  .topbar {
+    height: 56px;
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(11,16,32,0.7);
+    backdrop-filter: blur(10px);
+  }
+  .topbar h1 { font-size: 15px; margin: 0; letter-spacing: 0.4px; font-weight: 600; }
+  .topbar .pill {
+    font-size: 11px; padding: 3px 8px; border-radius: 999px;
+    background: rgba(124,156,255,0.18); color: var(--accent);
+    border: 1px solid rgba(124,156,255,0.35);
+  }
+  .topbar .spacer { flex: 1; }
+  .topbar button, .topbar select, .topbar input {
+    background: rgba(255,255,255,0.04); color: var(--text);
+    border: 1px solid var(--line);
+    padding: 7px 12px; border-radius: 8px; font-size: 13px;
+    cursor: pointer; transition: background .15s ease;
+    font-family: inherit;
+  }
+  .topbar button:hover { background: rgba(255,255,255,0.08); }
+  .topbar button.primary {
+    background: linear-gradient(135deg, var(--accent), #4f74ff);
+    border-color: transparent; color: white; font-weight: 600;
+  }
+  .topbar button.primary:hover { filter: brightness(1.1); }
+  .topbar button.danger {
+    background: rgba(255,122,138,0.12);
+    border-color: rgba(255,122,138,0.4); color: var(--danger);
+  }
+  .topbar input.clientid {
+    width: 280px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 240px 1fr 320px;
+    height: calc(100% - 56px);
+  }
+  .sidebar-left, .sidebar-right {
+    padding: 14px; overflow: auto;
+    border-right: 1px solid var(--line);
+  }
+  .sidebar-right { border-right: none; border-left: 1px solid var(--line); }
+  .sidebar-left h3, .sidebar-right h3 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--text-dim); margin: 4px 0 10px;
+  }
+
+  .palette-item {
+    padding: 10px 12px; margin-bottom: 8px; border-radius: 10px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--line);
+    cursor: grab; font-size: 13px;
+    display: flex; align-items: center; gap: 8px;
+    user-select: none;
+    transition: transform .1s ease, background .15s ease;
+  }
+  .palette-item:hover { background: rgba(255,255,255,0.08); transform: translateX(2px); }
+  .palette-item .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .palette-item.start   .dot { background: var(--ok); }
+  .palette-item.task    .dot { background: var(--accent); }
+  .palette-item.branch  .dot { background: var(--warn); }
+  .palette-item.gcal    .dot { background: #ff8a4c; }
+  .palette-item.end     .dot { background: var(--danger); }
+
+  .canvas-wrap {
+    position: relative;
+    background:
+      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px) 0 0/24px 24px,
+      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px) 0 0/24px 24px,
+      var(--bg-1);
+    overflow: hidden;
+  }
+  svg.canvas {
+    width: 100%; height: 100%;
+    display: block; user-select: none;
+  }
+  svg.canvas .grid-dot { fill: rgba(255,255,255,0.06); }
+  svg.canvas .edge-hit { stroke: transparent; stroke-width: 14; fill: none; cursor: pointer; }
+  svg.canvas .edge-line { stroke: rgba(255,255,255,0.55); stroke-width: 2; fill: none; }
+  svg.canvas .edge-line.cycle { stroke: var(--warn); stroke-dasharray: 6 4; }
+  svg.canvas .edge-label { fill: var(--text-dim); font-size: 10px; }
+  svg.canvas .arrow { fill: rgba(255,255,255,0.55); }
+  svg.canvas .node-rect { fill: rgba(20,28,56,0.92); stroke: var(--line); stroke-width: 1; }
+  svg.canvas .node-rect.selected { stroke: var(--accent); stroke-width: 2; }
+  svg.canvas .node-rect.running { stroke: var(--accent); stroke-width: 2; }
+  svg.canvas .node-rect.done    { stroke: var(--ok); stroke-width: 2; }
+  svg.canvas .node-rect.failed  { stroke: var(--danger); stroke-width: 2; }
+  svg.canvas .node-rect.cycle   { stroke: var(--warn); stroke-width: 2; stroke-dasharray: 5 3; }
+  svg.canvas .node-kind { font-size: 9px; fill: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
+  svg.canvas .node-label { font-size: 13px; fill: var(--text); font-weight: 600; }
+  svg.canvas .node-meta { font-size: 10px; fill: var(--text-dim); }
+  svg.canvas .handle {
+    fill: var(--accent-2); stroke: var(--bg-1); stroke-width: 1.5;
+    cursor: crosshair; opacity: 0;
+    transition: opacity .15s;
+  }
+  svg.canvas .node-grp:hover .handle { opacity: 1; }
+  svg.canvas .node-grp { cursor: grab; }
+  svg.canvas .node-grp.dragging { cursor: grabbing; }
+  svg.canvas .ghost-edge { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 4 3; fill: none; }
+  svg.canvas .ghost-arrow { fill: var(--accent); }
+
+  .panel-section {
+    padding: 12px; border-radius: 10px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--line);
+    margin-bottom: 12px;
+  }
+  .panel-section label {
+    display: block; font-size: 11px; color: var(--text-dim);
+    margin-bottom: 4px; margin-top: 8px;
+  }
+  .panel-section input, .panel-section select, .panel-section textarea {
+    width: 100%;
+    background: rgba(0,0,0,0.25); color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 7px 9px; font-size: 12px; font-family: inherit;
+  }
+  .panel-section textarea { min-height: 64px; resize: vertical; }
+  .panel-section .row { display: flex; gap: 6px; margin-top: 8px; }
+  .panel-section .row button {
+    flex: 1; padding: 6px 8px; font-size: 12px; border-radius: 6px;
+    background: rgba(255,255,255,0.06); color: var(--text);
+    border: 1px solid var(--line); cursor: pointer;
+  }
+  .panel-section .row button:hover { background: rgba(255,255,255,0.12); }
+  .panel-section .row button.del { background: rgba(255,122,138,0.12); color: var(--danger); border-color: rgba(255,122,138,0.3); }
+
+  .tree {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px; line-height: 1.6;
+  }
+  .tree .depth { display: inline-block; width: 14px; text-align: center; color: var(--text-dim); }
+  .tree .leaf { cursor: pointer; }
+  .tree .leaf:hover { color: var(--accent); }
+  .tree .leaf.active { color: var(--accent-2); }
+
+  .toast-wrap {
+    position: fixed; bottom: 18px; right: 18px;
+    display: flex; flex-direction: column; gap: 8px; z-index: 9999;
+  }
+  .toast {
+    padding: 10px 14px; border-radius: 10px;
+    background: rgba(20,28,56,0.92);
+    border: 1px solid var(--line); box-shadow: var(--shadow);
+    font-size: 13px; animation: slidein .25s ease;
+  }
+  .toast.ok    { border-left: 3px solid var(--ok); }
+  .toast.warn  { border-left: 3px solid var(--warn); }
+  .toast.err   { border-left: 3px solid var(--danger); }
+  @keyframes slidein { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 9998; backdrop-filter: blur(4px);
+  }
+  .modal { width: min(480px, 90vw); padding: 22px; }
+  .modal h2 { margin: 0 0 6px; font-size: 16px; }
+  .modal p  { margin: 0 0 12px; color: var(--text-dim); font-size: 13px; }
+  .modal .user-code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 22px; text-align: center; padding: 14px; border-radius: 10px;
+    background: rgba(0,0,0,0.35); border: 1px dashed var(--accent); letter-spacing: 2px;
+  }
+  .modal a { color: var(--accent); }
+  .modal .status { font-size: 12px; color: var(--text-dim); margin-top: 10px; }
+
+  .log {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px; color: var(--text-dim);
+    max-height: 140px; overflow: auto;
+    background: rgba(0,0,0,0.25); border-radius: 8px;
+    padding: 8px; border: 1px solid var(--line); white-space: pre-wrap;
+  }
+  .log .t { color: var(--accent); }
+  .log .ok { color: var(--ok); }
+  .log .err { color: var(--danger); }
+
+  .cycle-banner {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    padding: 8px 14px; border-radius: 999px;
+    background: rgba(255,195,109,0.18); color: var(--warn);
+    border: 1px solid rgba(255,195,109,0.4);
+    font-size: 12px; font-weight: 600; z-index: 5;
+  }
+
+  .legend {
+    position: absolute; bottom: 14px; left: 14px;
+    padding: 8px 12px; border-radius: 10px;
+    background: rgba(11,16,32,0.78); border: 1px solid var(--line);
+    font-size: 11px; color: var(--text-dim);
+    backdrop-filter: blur(8px);
+  }
+  .legend .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+  .legend .row { display: flex; align-items: center; gap: 4px; margin: 2px 0; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+/* ===========================================================================
+ *  DAG Workflow Studio — pure HTML+SVG+vanilla JS
+ *  No React, no React Flow, no build step. Works offline.
+ *  Reuses DAG + Google Calendar patterns from skills/trial-and-error:
+ *    - Kahn topological sort + cycle detection (from DAG-Based Workflow skill)
+ *    - Device Code Flow OAuth polling with 3 error code branches
+ *      (from API Integration and Authentication with Google Calendar API skill)
+ * =========================================================================== */
+(function () {
+  'use strict';
+
+  /* ---------- DAG CORE (Kahn's algorithm + cycle detection) ---------- */
+  function kahnTopologicalSort(nodes, edges) {
+    const inDegree = {};
+    nodes.forEach(n => { inDegree[n.id] = 0; });
+    edges.forEach(e => {
+      if (inDegree[e.source] === undefined || inDegree[e.target] === undefined) return;
+      inDegree[e.target] = (inDegree[e.target] || 0) + 1;
+    });
+    let queue = nodes.filter(n => (inDegree[n.id] || 0) === 0).map(n => n.id);
+    const order = [];
+    const layers = [];
+    let currentLayer = queue.slice();
+    while (currentLayer.length > 0) {
+      layers.push(currentLayer);
+      order.push(...currentLayer);
+      const nextLayer = [];
+      currentLayer.forEach(id => {
+        edges.forEach(e => {
+          if (e.source === id) {
+            inDegree[e.target] -= 1;
+            if (inDegree[e.target] === 0) nextLayer.push(e.target);
+          }
+        });
+      });
+      currentLayer = nextLayer;
+    }
+    if (order.length !== nodes.length) return { order: null, layers: null, hasCycle: true };
+    return { order, layers, hasCycle: false };
+  }
+
+  function wouldCreateCycle(nodes, edges, src, tgt) {
+    if (src === tgt) return true;
+    const adj = {};
+    edges.forEach(e => { (adj[e.source] = adj[e.source] || []).push(e.target); });
+    const seen = new Set([tgt]);
+    const stack = [tgt];
+    while (stack.length) {
+      const cur = stack.pop();
+      if (cur === src) return true;
+      (adj[cur] || []).forEach(n => { if (!seen.has(n)) { seen.add(n); stack.push(n); } });
+    }
+    return false;
+  }
+
+  /* ---------- Google Calendar — Device Code Flow OAuth ---------- */
+  const GCAL_SCOPES = [
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/calendar.readonly",
+  ].join(" ");
+
+  async function gcalStartDeviceCode(clientId) {
+    const res = await fetch("https://oauth2.googleapis.com/device/code", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: clientId, scope: GCAL_SCOPES }),
+    });
+    if (!res.ok) throw new Error(`device/code ${res.status}: ${await res.text()}`);
+    return res.json();
+  }
+
+  async function gcalPollToken(clientId, deviceCode) {
+    const res = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: clientId,
+        device_code: deviceCode,
+        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+      }),
+    });
+    // NB: do NOT raise_for_status — pending errors are normal states
+    return res.json();
+  }
+
+  async function gcalCreateEvent(accessToken, event) {
+    const res = await fetch(
+      "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(event),
+      }
+    );
+    if (!res.ok) throw new Error(`events.insert ${res.status}: ${await res.text()}`);
+    return res.json();
+  }
+
+  /* ---------- Node kind definitions ---------- */
+  const NODE_KINDS = {
+    start:  { label: "Start",           cls: "start",
+              defaults: () => ({ label: "Start", payload: "" }) },
+    task:   { label: "Task (Custom)",   cls: "task",
+              defaults: () => ({ label: "New Task", payload: "echo 'hello'" }) },
+    branch: { label: "Branch (If)",     cls: "branch",
+              defaults: () => ({ label: "If / Else", condition: "x > 0", trueBranch: "", falseBranch: "" }) },
+    gcal:   { label: "Google Calendar", cls: "gcal",
+              defaults: () => ({ label: "Create Event",
+                                  summary: "DAG workflow event",
+                                  description: "Triggered by DAG Workflow Studio",
+                                  startISO: new Date(Date.now()+3600*1000).toISOString().slice(0,19)+"-07:00",
+                                  endISO:   new Date(Date.now()+7200*1000).toISOString().slice(0,19)+"-07:00",
+                                  calendarId: "primary",
+                                  timezone: "America/Los_Angeles" }) },
+    end:    { label: "End",             cls: "end",
+              defaults: () => ({ label: "End" }) },
+  };
+  const KIND_KEYS = Object.keys(NODE_KINDS);
+  const NODE_W = 180, NODE_H = 78;
+
+  function makeNode(kind, x, y, idOverride) {
+    const id = idOverride || ("n_" + Math.random().toString(36).slice(2, 9));
+    return {
+      id, kind,
+      x, y,
+      data: Object.assign({ _status: undefined }, NODE_KINDS[kind].defaults()),
+    };
+  }
+
+  /* ---------- App state ---------- */
+  const state = {
+    clientId: localStorage.getItem("dag_gcal_client_id") || "",
+    accessToken: null,
+    oauthInfo: null,
+    toasts: [],
+    log: [],
+    nodes: [
+      makeNode("start", 80,  220, "n_start"),
+      makeNode("task",  360, 120, "n_prep"),
+      makeNode("gcal",  360, 300, "n_event"),
+      makeNode("end",   700, 220, "n_end"),
+    ],
+    edges: [
+      { id: "e1", source: "n_start", target: "n_prep",  label: "" },
+      { id: "e2", source: "n_start", target: "n_event", label: "" },
+      { id: "e3", source: "n_prep",  target: "n_end",   label: "" },
+      { id: "e4", source: "n_event", target: "n_end",   label: "" },
+    ],
+    selected: null,
+    running: false,
+    runMode: "simulate",  // "simulate" | "live"
+    dragging: null,       // { type: "node"|"edge", ... }
+    cycle: false,
+  };
+
+  /* ---------- DOM helpers ---------- */
+  function el(tag, attrs, ...children) {
+    const e = document.createElementNS(tag === "svg" || tag === "g" || tag === "rect" || tag === "path" || tag === "text" || tag === "circle" || tag === "line" || tag === "polygon" || tag === "defs" || tag === "marker" ? "http://www.w3.org/2000/svg" : "http://www.w3.org/1999/xhtml", tag);
+    if (attrs) for (const k of Object.keys(attrs)) {
+      const v = attrs[k];
+      if (v === undefined || v === null) continue;
+      if (k === "class") e.setAttribute("class", v);
+      else if (k === "text") e.textContent = v;
+      else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+      else e.setAttribute(k, v);
+    }
+    children.forEach(c => { if (c != null) e.appendChild(c); });
+    return e;
+  }
+
+  function svgEl(tag, attrs, ...children) {
+    const e = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    if (attrs) for (const k of Object.keys(attrs)) {
+      const v = attrs[k];
+      if (v === undefined || v === null) continue;
+      if (k === "class") e.setAttribute("class", v);
+      else if (k === "text") e.textContent = v;
+      else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+      else e.setAttribute(k, v);
+    }
+    children.forEach(c => { if (c != null) e.appendChild(c); });
+    return e;
+  }
+
+  function toast(msg, kind = "ok") {
+    const id = Math.random().toString(36).slice(2, 9);
+    state.toasts.push({ id, msg, kind });
+    renderToasts();
+    setTimeout(() => {
+      state.toasts = state.toasts.filter(t => t.id !== id);
+      renderToasts();
+    }, 3500);
+  }
+
+  function logLine(line, cls = "") {
+    const t = new Date().toISOString().slice(11, 19);
+    state.log.push({ t, line, cls });
+    if (state.log.length > 100) state.log = state.log.slice(-100);
+    renderLog();
+  }
+
+  /* ---------- Main render ---------- */
+  const root = document.getElementById("root");
+
+  function render() {
+    root.innerHTML = "";
+    const topo = kahnTopologicalSort(state.nodes, state.edges);
+    state.cycle = topo.hasCycle;
+
+    // ---- topbar ----
+    const top = el("div", { class: "topbar glass" });
+    top.appendChild(el("h1", { text: "⚙ DAG Workflow Studio" }));
+    top.appendChild(el("span", { class: "pill", text: "DAG + Google Calendar" }));
+    top.appendChild(el("div", { class: "spacer" }));
+
+    top.appendChild(el("span", { style: "font-size:11px;color:var(--text-dim)", text: "Client ID:" }));
+    const clientInput = el("input", {
+      class: "clientid",
+      placeholder: "xxxxx.apps.googleusercontent.com",
+      value: state.clientId,
+      oninput: (e) => {
+        state.clientId = e.target.value;
+        localStorage.setItem("dag_gcal_client_id", state.clientId);
+      },
+    });
+    top.appendChild(clientInput);
+    top.appendChild(el("button", {
+      text: "🔐 Authorize",
+      onclick: startOAuth,
+      disabled: !state.clientId.trim() || undefined,
+    }));
+    top.appendChild(el("span", {
+      style: `font-size:11px;color:${state.accessToken ? "var(--ok)" : "var(--text-dim)"}`,
+      text: state.accessToken ? "● authorized" : "○ no token",
+    }));
+    top.appendChild(el("span", { style: "width:8px" }));
+
+    const modeSel = el("select", {
+      onchange: (e) => { state.runMode = e.target.value; },
+    });
+    modeSel.appendChild(el("option", { value: "simulate", text: "Simulate mode", selected: state.runMode === "simulate" ? "selected" : null }));
+    modeSel.appendChild(el("option", { value: "live",     text: "Live Google Calendar", selected: state.runMode === "live" ? "selected" : null }));
+    top.appendChild(modeSel);
+
+    if (state.running) {
+      top.appendChild(el("button", { class: "danger", text: "■ Stop", onclick: () => { state.running = false; toast("Stop requested", "warn"); } }));
+    } else {
+      top.appendChild(el("button", {
+        class: "primary",
+        text: "▶ Run DAG",
+        onclick: runWorkflow,
+        disabled: topo.hasCycle || undefined,
+      }));
+    }
+    top.appendChild(el("button", { text: "↓ Export", onclick: exportJson }));
+    const fileLabel = el("label", {
+      style: "background:rgba(255,255,255,0.04);color:var(--text);border:1px solid var(--line);padding:7px 12px;border-radius:8px;font-size:13px;cursor:pointer",
+    });
+    fileLabel.appendChild(el("span", { text: "↑ Import" }));
+    const fileInput = el("input", { type: "file", accept: "application/json", style: "display:none",
+      onchange: (e) => { if (e.target.files?.[0]) importJson(e.target.files[0]); } });
+    fileLabel.appendChild(fileInput);
+    top.appendChild(fileLabel);
+
+    root.appendChild(top);
+
+    // ---- layout ----
+    const layout = el("div", { class: "layout" });
+
+    // ---- left palette ----
+    const left = el("div", { class: "sidebar-left" });
+    left.appendChild(el("h3", { text: "Node Palette" }));
+    KIND_KEYS.forEach(k => {
+      const item = el("div", {
+        class: `palette-item ${k}`,
+        draggable: "true",
+        ondragstart: (e) => {
+          e.dataTransfer.setData("application/dag-kind", k);
+          e.dataTransfer.effectAllowed = "move";
+        },
+      }, el("span", { class: "dot" }), document.createTextNode(NODE_KINDS[k].label));
+      left.appendChild(item);
+    });
+    left.appendChild(el("div", {
+      style: "font-size:11px;color:var(--text-dim);margin-top:16px",
+      text: "Drag a node onto the canvas. Drag from a node's right edge to another node's left edge to connect. The engine refuses connections that would create a cycle.",
+    }));
+    layout.appendChild(left);
+
+    // ---- canvas ----
+    const canvasWrap = el("div", {
+      class: "canvas-wrap",
+      ondragover: (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; },
+      ondrop: (e) => {
+        e.preventDefault();
+        const kind = e.dataTransfer.getData("application/dag-kind");
+        if (!kind || !KIND_KEYS.includes(kind)) return;
+        const rect = canvasWrap.getBoundingClientRect();
+        const n = makeNode(kind, e.clientX - rect.left - NODE_W/2, e.clientY - rect.top - NODE_H/2);
+        state.nodes.push(n);
+        state.selected = n.id;
+        render();
+        toast(`Added ${NODE_KINDS[kind].label}`, "ok");
+      },
+    });
+    if (topo.hasCycle) {
+      canvasWrap.appendChild(el("div", { class: "cycle-banner",
+        text: "⚠ Cycle detected — execution disabled, resolve connections to continue" }));
+    }
+    canvasWrap.appendChild(renderCanvas(topo));
+    canvasWrap.appendChild(el("div", { class: "legend" },
+      el("div", { class: "row" }, el("span", { class: "dot", style: "background:var(--ok)" }), document.createTextNode("Start")),
+      el("div", { class: "row" }, el("span", { class: "dot", style: "background:var(--accent)" }), document.createTextNode("Task")),
+      el("div", { class: "row" }, el("span", { class: "dot", style: "background:var(--warn)" }), document.createTextNode("Branch")),
+      el("div", { class: "row" }, el("span", { class: "dot", style: "background:#ff8a4c" }), document.createTextNode("Google Calendar")),
+      el("div", { class: "row" }, el("span", { class: "dot", style: "background:var(--danger)" }), document.createTextNode("End")),
+    ));
+    layout.appendChild(canvasWrap);
+
+    // ---- right panel ----
+    const right = el("div", { class: "sidebar-right" });
+    right.appendChild(el("h3", { text: "Selected Node" }));
+    right.appendChild(renderNodeEditor());
+    right.appendChild(el("h3", { text: "Blueprint (Topological Layers)" }));
+    const treePanel = el("div", { class: "panel-section" });
+    treePanel.appendChild(renderBlueprintTree(topo));
+    right.appendChild(treePanel);
+    right.appendChild(el("h3", { text: "Execution Log" }));
+    const logPanel = el("div", { class: "log", id: "log-panel" });
+    state.log.forEach(l => logPanel.appendChild(renderLogLine(l)));
+    if (state.log.length === 0) logPanel.appendChild(el("span", { style: "opacity:0.5", text: "(empty — click ▶ Run DAG)" }));
+    right.appendChild(logPanel);
+    layout.appendChild(right);
+
+    root.appendChild(layout);
+
+    if (state.oauthInfo) renderOAuthModal();
+    renderToasts();
+  }
+
+  function renderCanvas(topo) {
+    const svg = svgEl("svg", { class: "canvas", viewBox: "0 0 2000 1000", preserveAspectRatio: "xMidYMid meet" });
+
+    // arrow marker
+    const defs = svgEl("defs");
+    defs.appendChild(svgEl("marker", {
+      id: "arrow", viewBox: "0 0 10 10", refX: "10", refY: "5",
+      markerWidth: "8", markerHeight: "8", orient: "auto-start-reverse",
+    }, svgEl("path", { d: "M 0 0 L 10 5 L 0 10 z", fill: "rgba(255,255,255,0.55)" })));
+    defs.appendChild(svgEl("marker", {
+      id: "arrow-warn", viewBox: "0 0 10 10", refX: "10", refY: "5",
+      markerWidth: "8", markerHeight: "8", orient: "auto-start-reverse",
+    }, svgEl("path", { d: "M 0 0 L 10 5 L 0 10 z", fill: "var(--warn)" })));
+    defs.appendChild(svgEl("marker", {
+      id: "arrow-ghost", viewBox: "0 0 10 10", refX: "10", refY: "5",
+      markerWidth: "8", markerHeight: "8", orient: "auto-start-reverse",
+    }, svgEl("path", { d: "M 0 0 L 10 5 L 0 10 z", fill: "var(--accent)" })));
+    svg.appendChild(defs);
+
+    // edges
+    state.edges.forEach(edge => {
+      const src = state.nodes.find(n => n.id === edge.source);
+      const tgt = state.nodes.find(n => n.id === edge.target);
+      if (!src || !tgt) return;
+      const x1 = src.x + NODE_W, y1 = src.y + NODE_H/2;
+      const x2 = tgt.x,          y2 = tgt.y + NODE_H/2;
+      const cx = (x1+x2)/2;
+      const path = `M ${x1} ${y1} C ${cx} ${y1}, ${cx} ${y2}, ${x2} ${y2}`;
+      svg.appendChild(svgEl("path", {
+        class: "edge-hit", d: path,
+        onclick: () => {
+          if (confirm("Delete this connection?")) {
+            state.edges = state.edges.filter(e => e.id !== edge.id);
+            render();
+          }
+        },
+      }));
+      svg.appendChild(svgEl("path", {
+        class: "edge-line" + (topo.hasCycle && isEdgeInCycle(edge) ? " cycle" : ""),
+        d: path, "marker-end": topo.hasCycle && isEdgeInCycle(edge) ? "url(#arrow-warn)" : "url(#arrow)",
+      }));
+      if (edge.label) {
+        svg.appendChild(svgEl("text", {
+          class: "edge-label",
+          x: cx, y: (y1+y2)/2 - 6,
+          "text-anchor": "middle",
+          text: edge.label,
+        }));
+      }
+    });
+
+    // ghost edge while connecting
+    if (state.dragging && state.dragging.type === "edge") {
+      const d = state.dragging;
+      const src = state.nodes.find(n => n.id === d.sourceId);
+      if (src) {
+        const x1 = src.x + NODE_W, y1 = src.y + NODE_H/2;
+        const x2 = d.curX, y2 = d.curY;
+        const cx = (x1+x2)/2;
+        const path = `M ${x1} ${y1} C ${cx} ${y1}, ${cx} ${y2}, ${x2} ${y2}`;
+        svg.appendChild(svgEl("path", {
+          class: "ghost-edge", d: path, "marker-end": "url(#arrow-ghost)",
+        }));
+      }
+    }
+
+    // nodes
+    state.nodes.forEach(n => {
+      const g = svgEl("g", {
+        class: "node-grp",
+        onmousedown: (e) => beginDragNode(e, n),
+      });
+      const statusClass = n.data._status === "running" ? "running"
+                       : n.data._status === "done"    ? "done"
+                       : n.data._status === "failed"  ? "failed"
+                       : topo.hasCycle                 ? "cycle"
+                       : "";
+      g.appendChild(svgEl("rect", {
+        class: `node-rect ${statusClass} ${state.selected === n.id ? "selected" : ""}`,
+        x: n.x, y: n.y, width: NODE_W, height: NODE_H, rx: "10",
+      }));
+      // left accent bar (per kind)
+      const colors = { start: "#6df0d4", task: "#7c9cff", branch: "#ffc36d", gcal: "#ff8a4c", end: "#ff7a8a" };
+      g.appendChild(svgEl("rect", {
+        x: n.x, y: n.y, width: "3", height: NODE_H, rx: "1",
+        fill: colors[n.kind] || "#7c9cff",
+      }));
+      g.appendChild(svgEl("text", {
+        class: "node-kind", x: n.x + 14, y: n.y + 18, text: NODE_KINDS[n.kind].label,
+      }));
+      g.appendChild(svgEl("text", {
+        class: "node-label", x: n.x + 14, y: n.y + 38, text: truncate(n.data.label || "", 22),
+      }));
+      let meta = "";
+      if (n.kind === "gcal")   meta = `${n.data.calendarId || "primary"} · ${truncate(n.data.summary || "", 22)}`;
+      if (n.kind === "task")   meta = truncate(n.data.payload || "", 28);
+      if (n.kind === "branch") meta = `if ${truncate(n.data.condition || "?", 24)}`;
+      if (n.kind === "end" && n.data._status === "done") meta = "✓ complete";
+      if (meta) g.appendChild(svgEl("text", {
+        class: "node-meta", x: n.x + 14, y: n.y + 56, text: meta,
+      }));
+
+      // output handle (right edge)
+      g.appendChild(svgEl("circle", {
+        class: "handle",
+        cx: n.x + NODE_W, cy: n.y + NODE_H/2, r: "7",
+        onmousedown: (e) => { e.stopPropagation(); beginDragEdge(e, n); },
+      }));
+
+      // input handle (left edge) — drop target
+      g.appendChild(svgEl("circle", {
+        cx: n.x, cy: n.y + NODE_H/2, r: "12",
+        fill: "transparent",
+        style: "cursor:crosshair",
+        onmouseup: (e) => { e.stopPropagation(); completeDragEdge(e, n); },
+      }));
+
+      svg.appendChild(g);
+    });
+
+    return svg;
+  }
+
+  function isEdgeInCycle(edge) {
+    // Approx: an edge is part of a cycle if adding it back would create a cycle in (current graph minus this edge)
+    const others = state.edges.filter(e => e.id !== edge.id);
+    return wouldCreateCycle(state.nodes, others, edge.source, edge.target);
+  }
+
+  function truncate(s, n) { return s.length > n ? s.slice(0, n - 1) + "…" : s; }
+
+  /* ---------- Node editor ---------- */
+  function renderNodeEditor() {
+    const sec = el("div", { class: "panel-section" });
+    const node = state.selected ? state.nodes.find(n => n.id === state.selected) : null;
+    if (!node) {
+      sec.appendChild(el("div", { style: "font-size:12px;color:var(--text-dim)", text: "Select a node on the canvas to edit its properties." }));
+      return sec;
+    }
+    sec.appendChild(el("div", { style: "font-size:12px;color:var(--text-dim)", text: `${NODE_KINDS[node.kind].label} · ` }));
+    const idCode = el("code", { text: node.id });
+    sec.lastChild.appendChild(idCode);
+
+    function addLabel(text, ctrl) {
+      sec.appendChild(el("label", { text }));
+      sec.appendChild(ctrl);
+    }
+
+    const labelInput = el("input", { value: node.data.label || "",
+      oninput: (e) => { node.data.label = e.target.value; render(); } });
+    addLabel("Label", labelInput);
+
+    if (node.kind === "task") {
+      const ta = el("textarea", {
+        oninput: (e) => { node.data.payload = e.target.value; render(); },
+      });
+      ta.value = node.data.payload || "";
+      addLabel("Payload (JS expression — evaluated in browser)", ta);
+    }
+    if (node.kind === "branch") {
+      const ci = el("input", { value: node.data.condition || "",
+        oninput: (e) => { node.data.condition = e.target.value; render(); } });
+      addLabel("Condition (JS expression)", ci);
+      const ti = el("input", { value: node.data.trueBranch || "",
+        oninput: (e) => { node.data.trueBranch = e.target.value; render(); } });
+      addLabel("True branch label", ti);
+      const fi = el("input", { value: node.data.falseBranch || "",
+        oninput: (e) => { node.data.falseBranch = e.target.value; render(); } });
+      addLabel("False branch label", fi);
+    }
+    if (node.kind === "gcal") {
+      function bind(field, label, multiline) {
+        const c = multiline ? el("textarea", { oninput: (e) => { node.data[field] = e.target.value; render(); } })
+                            : el("input",   { oninput: (e) => { node.data[field] = e.target.value; render(); } });
+        c.value = node.data[field] || "";
+        addLabel(label, c);
+      }
+      bind("calendarId",  "Calendar ID");
+      bind("summary",     "Event summary");
+      bind("description", "Description", true);
+      bind("startISO",    "Start (ISO with offset, e.g. 2025-08-03T10:00:00-07:00)");
+      bind("endISO",      "End (ISO with offset)");
+      bind("timezone",    "Timezone (e.g. America/Los_Angeles)");
+    }
+
+    const row = el("div", { class: "row" });
+    row.appendChild(el("button", { class: "del", text: "Delete node",
+      onclick: () => {
+        state.nodes = state.nodes.filter(n => n.id !== node.id);
+        state.edges = state.edges.filter(e => e.source !== node.id && e.target !== node.id);
+        state.selected = null;
+        render();
+      },
+    }));
+    sec.appendChild(row);
+    return sec;
+  }
+
+  function renderBlueprintTree(topo) {
+    if (topo.hasCycle) {
+      return el("div", { style: "color:var(--warn);font-size:12px",
+        text: "⚠ Cycle detected — workflow cannot be executed." });
+    }
+    if (!topo.layers || topo.layers.length === 0) {
+      return el("div", { style: "color:var(--text-dim);font-size:12px", text: "(no nodes)" });
+    }
+    const wrap = el("div", { class: "tree" });
+    topo.layers.forEach((layer, i) => {
+      layer.forEach((id, j) => {
+        const span = el("span", { class: "leaf" + (state.selected === id ? " active" : ""),
+          text: " " + id,
+          onclick: () => { state.selected = id; render(); },
+        });
+        const row = el("div", null, el("span", { class: "depth", text: j === 0 ? `L${i}` : "│" }), span);
+        wrap.appendChild(row);
+      });
+    });
+    return wrap;
+  }
+
+  function renderLogLine(l) {
+    const div = el("div", { class: l.cls },
+      el("span", { class: "t", text: `[${l.t}] ` }),
+      document.createTextNode(l.line),
+    );
+    return div;
+  }
+
+  function renderLog() {
+    const p = document.getElementById("log-panel");
+    if (!p) return;
+    p.innerHTML = "";
+    if (state.log.length === 0) {
+      p.appendChild(el("span", { style: "opacity:0.5", text: "(empty — click ▶ Run DAG)" }));
+    } else {
+      state.log.forEach(l => p.appendChild(renderLogLine(l)));
+      p.scrollTop = p.scrollHeight;
+    }
+  }
+
+  function renderToasts() {
+    let wrap = document.querySelector(".toast-wrap");
+    if (!wrap) {
+      wrap = el("div", { class: "toast-wrap" });
+      document.body.appendChild(wrap);
+    }
+    wrap.innerHTML = "";
+    state.toasts.forEach(t => {
+      wrap.appendChild(el("div", { class: `toast ${t.kind}`, text: t.msg }));
+    });
+  }
+
+  /* ---------- Drag handlers ---------- */
+  let dragOffset = null;
+
+  function beginDragNode(e, n) {
+    if (e.button !== 0) return;
+    state.selected = n.id;
+    dragOffset = { dx: e.clientX - n.x, dy: e.clientY - n.y };
+    e.preventDefault();
+    const onMove = (ev) => {
+      const wrap = e.target.ownerSVGElement.parentElement.getBoundingClientRect();
+      n.x = ev.clientX - dragOffset.dx - wrap.left;
+      n.y = ev.clientY - dragOffset.dy - wrap.top;
+      n.x = Math.max(0, Math.min(2000 - NODE_W, n.x));
+      n.y = Math.max(0, Math.min(1000 - NODE_H, n.y));
+      // Throttled re-render: just update SVG transforms to avoid full re-render on every mousemove
+      const g = ev.target.closest(".node-grp");
+      if (g) {
+        g.querySelectorAll("rect").forEach(r => {
+          if (r.classList.contains("node-rect")) {
+            r.setAttribute("x", n.x); r.setAttribute("y", n.y);
+          } else {
+            // accent bar
+            r.setAttribute("x", n.x); r.setAttribute("y", n.y); r.setAttribute("height", NODE_H);
+          }
+        });
+        g.querySelectorAll("text").forEach(t => {
+          const cls = t.getAttribute("class");
+          const dy = cls === "node-kind" ? 18 : cls === "node-label" ? 38 : 56;
+          t.setAttribute("x", n.x + 14); t.setAttribute("y", n.y + dy);
+        });
+        g.querySelectorAll("circle").forEach(c => {
+          if (c.classList.contains("handle")) {
+            c.setAttribute("cx", n.x + NODE_W); c.setAttribute("cy", n.y + NODE_H/2);
+          } else {
+            c.setAttribute("cx", n.x); c.setAttribute("cy", n.y + NODE_H/2);
+          }
+        });
+        // redraw edges that touch this node
+        redrawEdges();
+      }
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      render();
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+
+  function redrawEdges() {
+    const svg = document.querySelector("svg.canvas");
+    if (!svg) return;
+    // Re-render only edge paths in place (simplest: full re-render after drag is more reliable)
+    render();
+  }
+
+  function beginDragEdge(e, src) {
+    e.preventDefault();
+    const svg = e.target.ownerSVGElement;
+    const wrap = svg.parentElement.getBoundingClientRect();
+    state.dragging = { type: "edge", sourceId: src.id, curX: 0, curY: 0 };
+    const onMove = (ev) => {
+      state.dragging.curX = ev.clientX - wrap.left;
+      state.dragging.curY = ev.clientY - wrap.top;
+      render();
+    };
+    const onUp = (ev) => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      // If released on empty area, cancel
+      const tgt = ev.target;
+      if (tgt && tgt.closest && tgt.closest(".node-grp")) {
+        // mousedown would have triggered completeDragEdge on the input handle instead
+      }
+      state.dragging = null;
+      render();
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+
+  function completeDragEdge(e, tgt) {
+    if (state.dragging && state.dragging.type === "edge") {
+      const srcId = state.dragging.sourceId;
+      if (srcId === tgt.id) {
+        toast("Cannot connect a node to itself", "warn");
+      } else if (state.edges.some(x => x.source === srcId && x.target === tgt.id)) {
+        toast("Connection already exists", "warn");
+      } else if (wouldCreateCycle(state.nodes, state.edges, srcId, tgt.id)) {
+        toast("Refused — would create a cycle", "warn");
+      } else {
+        state.edges.push({ id: "e_" + Math.random().toString(36).slice(2,8), source: srcId, target: tgt.id, label: "" });
+        toast("Connected", "ok");
+      }
+      state.dragging = null;
+      render();
+    }
+  }
+
+  /* ---------- Export / Import ---------- */
+  function exportJson() {
+    const blob = new Blob([JSON.stringify({ nodes: state.nodes, edges: state.edges }, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "dag-workflow.json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast("Exported dag-workflow.json", "ok");
+  }
+
+  function importJson(file) {
+    const fr = new FileReader();
+    fr.onload = () => {
+      try {
+        const obj = JSON.parse(fr.result);
+        if (Array.isArray(obj.nodes) && Array.isArray(obj.edges)) {
+          state.nodes = obj.nodes;
+          state.edges = obj.edges;
+          state.selected = null;
+          toast(`Imported ${obj.nodes.length} nodes / ${obj.edges.length} edges`, "ok");
+          render();
+        } else throw new Error("Invalid shape");
+      } catch (e) {
+        toast("Import failed: " + e.message, "err");
+      }
+    };
+    fr.readAsText(file);
+  }
+
+  /* ---------- OAuth flow ---------- */
+  async function startOAuth() {
+    if (!state.clientId.trim()) { toast("Set a Google OAuth client_id first", "warn"); return; }
+    try {
+      const info = await gcalStartDeviceCode(state.clientId.trim());
+      state.oauthInfo = { ...info, clientId: state.clientId.trim() };
+      render();
+    } catch (e) {
+      toast("Device code request failed: " + e.message, "err");
+    }
+  }
+
+  function renderOAuthModal() {
+    const bg = el("div", { class: "modal-bg" });
+    const modal = el("div", { class: "modal glass" });
+    modal.appendChild(el("h2", { text: "Authorize Google Calendar" }));
+    modal.appendChild(el("p", { text: "Visit the URL below on any device, then enter the code:" }));
+    const linkWrap = el("div", { style: "text-align:center;margin-bottom:10px" });
+    linkWrap.appendChild(el("a", { href: state.oauthInfo.verification_url, target: "_blank", rel: "noreferrer", text: state.oauthInfo.verification_url }));
+    modal.appendChild(linkWrap);
+    modal.appendChild(el("div", { class: "user-code", text: state.oauthInfo.user_code }));
+    const statusDiv = el("div", { class: "status", text: "Waiting for you to grant access in your browser…" });
+    modal.appendChild(statusDiv);
+
+    const row = el("div", { class: "row", style: "margin-top:14px" });
+    row.appendChild(el("button", { text: "Cancel", onclick: () => { state.oauthInfo = null; render(); } }));
+    modal.appendChild(row);
+    bg.appendChild(modal);
+    document.body.appendChild(bg);
+
+    let pollTimer = null;
+    let interval = (state.oauthInfo.interval || 5);
+    let cancelled = false;
+
+    const tick = async () => {
+      if (cancelled) return;
+      try {
+        const body = await gcalPollToken(state.oauthInfo.clientId, state.oauthInfo.device_code);
+        if (body.access_token) {
+          state.accessToken = body.access_token;
+          state.oauthInfo = null;
+          toast("✅ Google Calendar authorized", "ok");
+          render();
+          return;
+        }
+        if (body.error === "authorization_pending") {
+          statusDiv.textContent = "Waiting for you to grant access in your browser…";
+          pollTimer = setTimeout(tick, interval * 1000);
+        } else if (body.error === "slow_down") {
+          interval += 5;
+          statusDiv.textContent = "Slowing polling interval (per Google's request)…";
+          pollTimer = setTimeout(tick, (interval + 5) * 1000);
+        } else if (body.error === "access_denied") {
+          statusDiv.textContent = "❌ Access denied in browser.";
+          state.oauthInfo = null;
+          toast("OAuth: access_denied", "err");
+          render();
+        } else if (body.error === "expired_token") {
+          statusDiv.textContent = "⏱ Device code expired.";
+          state.oauthInfo = null;
+          toast("OAuth: device code expired", "err");
+          render();
+        } else {
+          statusDiv.textContent = `Polling… (${body.error || "?"})`;
+          pollTimer = setTimeout(tick, interval * 1000);
+        }
+      } catch (e) {
+        statusDiv.textContent = "Network error: " + e.message;
+        pollTimer = setTimeout(tick, interval * 1000);
+      }
+    };
+    pollTimer = setTimeout(tick, interval * 1000);
+
+    bg.addEventListener("click", (e) => {
+      if (e.target === bg) {
+        cancelled = true;
+        if (pollTimer) clearTimeout(pollTimer);
+        state.oauthInfo = null;
+        render();
+      }
+    });
+  }
+
+  /* ---------- Execution engine ---------- */
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+  function setNodeStatus(id, status) {
+    const n = state.nodes.find(x => x.id === id);
+    if (!n) return;
+    n.data._status = status;
+    render();
+  }
+
+  async function executeNode(node) {
+    setNodeStatus(node.id, "running");
+    logLine(`▶ ${node.kind}: ${node.data.label}`, "t");
+    try {
+      if (node.kind === "start") {
+        await sleep(150);
+        logLine("   start acknowledged", "ok");
+      } else if (node.kind === "task") {
+        const expr = node.data.payload || "true";
+        let result;
+        try { result = new Function(`return (${expr});`)(); }
+        catch (e) { result = "[error: " + e.message + "]"; }
+        logLine(`   task result: ${String(result).slice(0, 80)}`, "ok");
+        await sleep(120);
+      } else if (node.kind === "branch") {
+        await sleep(80);
+        logLine(`   branch: ${node.data.condition || "?"}`, "ok");
+      } else if (node.kind === "gcal") {
+        if (state.runMode === "live") {
+          if (!state.accessToken) throw new Error("No access token — click Authorize first");
+          const evt = {
+            summary: node.data.summary || "(no summary)",
+            description: node.data.description || "",
+            start: { dateTime: node.data.startISO, timeZone: node.data.timezone || undefined },
+            end:   { dateTime: node.data.endISO,   timeZone: node.data.timezone || undefined },
+          };
+          const created = await gcalCreateEvent(state.accessToken, evt);
+          logLine(`   ✓ event created: id=${created.id}`, "ok");
+        } else {
+          logLine(`   [simulate] would POST to calendars/${node.data.calendarId}/events`, "ok");
+          await sleep(120);
+        }
+      } else if (node.kind === "end") {
+        await sleep(100);
+        logLine("   workflow complete", "ok");
+      }
+      setNodeStatus(node.id, "done");
+    } catch (e) {
+      logLine("   ✗ " + e.message, "err");
+      setNodeStatus(node.id, "failed");
+      throw e;
+    }
+  }
+
+  async function runWorkflow() {
+    if (state.running) return;
+    const topo = kahnTopologicalSort(state.nodes, state.edges);
+    if (topo.hasCycle) { toast("Cannot execute — cycle detected", "err"); return; }
+    if (state.runMode === "live" && !state.accessToken) {
+      toast("Live mode needs Google OAuth — click Authorize first", "warn");
+      return;
+    }
+    state.running = true;
+    state.log = [];
+    state.nodes.forEach(n => { n.data._status = undefined; });
+    renderLog();
+    logLine(`workflow run started (mode=${state.runMode})`, "t");
+    try {
+      for (const layer of topo.layers) {
+        logLine(`layer: ${layer.join(", ")}`, "t");
+        if (!state.running) { toast("Stopped", "warn"); break; }
+        await Promise.all(layer.map(id => {
+          const node = state.nodes.find(n => n.id === id);
+          return executeNode(node);
+        }));
+      }
+      if (state.running) toast("Workflow completed", "ok");
+    } catch (e) {
+      toast("Workflow failed: " + e.message, "err");
+    } finally {
+      state.running = false;
+      render();
+    }
+  }
+
+  /* ---------- Boot ---------- */
+  render();
+  // Periodic refresh of topo so cycle banner / blueprint stays live when user edits via palette
+  setInterval(() => {
+    if (!state.running) {
+      const topo = kahnTopologicalSort(state.nodes, state.edges);
+      if (topo.hasCycle !== state.cycle) render();
+    }
+  }, 1500);
+})();
+</script>
+</body>
+</html>

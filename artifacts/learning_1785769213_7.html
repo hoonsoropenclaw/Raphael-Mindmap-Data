@@ -1,0 +1,1256 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Telegram 語音轉錄 + 關鍵詞提取機器人</title>
+
+<!-- Tailwind + DaisyUI -->
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@4.7.2/dist/full.min.css" rel="stylesheet">
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+<!-- D3.js for word cloud -->
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3-cloud@1.2.7/build/d3.layout.cloud.min.js"></script>
+
+<!-- jieba-js for Chinese word segmentation -->
+<script src="https://cdn.jsdelivr.net/npm/nodejieba@2.5.2/dist/nodejieba.min.js"></script>
+
+<style>
+  :root {
+    --bg-grad-1: #0f0c29;
+    --bg-grad-2: #302b63;
+    --bg-grad-3: #24243e;
+  }
+  body {
+    background: linear-gradient(135deg, var(--bg-grad-1) 0%, var(--bg-grad-2) 50%, var(--bg-grad-3) 100%);
+    min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif;
+  }
+  .glass {
+    background: rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  }
+  .glass-strong {
+    background: rgba(255, 255, 255, 0.12);
+    backdrop-filter: blur(20px) saturate(200%);
+    -webkit-backdrop-filter: blur(20px) saturate(200%);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+  }
+  .pulse-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+    70% { box-shadow: 0 0 0 12px rgba(34, 197, 94, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+  }
+  .voice-wave {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    height: 24px;
+  }
+  .voice-wave span {
+    width: 3px;
+    background: linear-gradient(180deg, #60a5fa, #a78bfa);
+    border-radius: 2px;
+    animation: wave 1.2s infinite ease-in-out;
+  }
+  .voice-wave span:nth-child(1) { animation-delay: 0s; }
+  .voice-wave span:nth-child(2) { animation-delay: 0.1s; }
+  .voice-wave span:nth-child(3) { animation-delay: 0.2s; }
+  .voice-wave span:nth-child(4) { animation-delay: 0.3s; }
+  .voice-wave span:nth-child(5) { animation-delay: 0.4s; }
+  @keyframes wave {
+    0%, 100% { height: 6px; }
+    50% { height: 22px; }
+  }
+  .keyword-tag {
+    display: inline-block;
+    padding: 4px 12px;
+    margin: 4px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, rgba(96, 165, 250, 0.3), rgba(167, 139, 250, 0.3));
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    font-size: 0.875rem;
+    transition: transform 0.2s;
+  }
+  .keyword-tag:hover { transform: scale(1.08); }
+  .message-card {
+    transition: all 0.3s;
+    border-left: 3px solid transparent;
+  }
+  .message-card:hover {
+    border-left-color: #60a5fa;
+    transform: translateX(4px);
+  }
+  .stat-card {
+    transition: transform 0.3s, box-shadow 0.3s;
+  }
+  .stat-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+  }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+  .tab-active {
+    background: linear-gradient(135deg, rgba(96, 165, 250, 0.4), rgba(167, 139, 250, 0.4));
+    border-color: rgba(255, 255, 255, 0.4) !important;
+  }
+  textarea:focus, input:focus {
+    outline: none;
+    border-color: #60a5fa !important;
+    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
+  }
+  .recording-pulse {
+    animation: record-pulse 1.5s infinite;
+  }
+  @keyframes record-pulse {
+    0%, 100% { background: rgba(239, 68, 68, 0.4); }
+    50% { background: rgba(239, 68, 68, 0.8); }
+  }
+  #wordCloud {
+    min-height: 320px;
+  }
+  #wordCloud svg text {
+    cursor: pointer;
+  }
+</style>
+</head>
+<body class="text-white">
+
+<div class="container mx-auto p-4 md:p-6 max-w-7xl">
+
+  <!-- Header -->
+  <header class="glass rounded-2xl p-6 mb-6">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div class="flex items-center gap-4">
+        <div class="text-5xl">🎙️</div>
+        <div>
+          <h1 class="text-2xl md:text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+            Telegram 語音轉錄機器人
+          </h1>
+          <p class="text-sm text-gray-300 mt-1">即時語音轉文字 · 關鍵詞提取 · 統計分析</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <div id="botStatusBadge" class="flex items-center gap-2 px-4 py-2 rounded-full glass-strong">
+          <div class="pulse-dot"></div>
+          <span class="text-sm" id="botStatusText">未連線</span>
+        </div>
+        <button class="btn btn-sm glass-strong border-white/20" onclick="window.toggleTheme()" id="themeBtn">🌙</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Stat cards -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+    <div class="glass rounded-xl p-4 stat-card">
+      <div class="text-xs text-gray-400 uppercase tracking-wider">訊息總數</div>
+      <div class="text-3xl font-bold mt-2" id="statTotal">0</div>
+      <div class="text-xs text-blue-400 mt-1">↗ 即時統計</div>
+    </div>
+    <div class="glass rounded-xl p-4 stat-card">
+      <div class="text-xs text-gray-400 uppercase tracking-wider">已轉錄</div>
+      <div class="text-3xl font-bold mt-2" id="statTranscribed">0</div>
+      <div class="text-xs text-green-400 mt-1">↗ 自動處理</div>
+    </div>
+    <div class="glass rounded-xl p-4 stat-card">
+      <div class="text-xs text-gray-400 uppercase tracking-wider">關鍵詞</div>
+      <div class="text-3xl font-bold mt-2" id="statKeywords">0</div>
+      <div class="text-xs text-purple-400 mt-1">↗ 跨所有訊息</div>
+    </div>
+    <div class="glass rounded-xl p-4 stat-card">
+      <div class="text-xs text-gray-400 uppercase tracking-wider">總字元數</div>
+      <div class="text-3xl font-bold mt-2" id="statChars">0</div>
+      <div class="text-xs text-yellow-400 mt-1">↗ 轉錄累計</div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="glass rounded-2xl p-2 mb-6">
+    <div class="flex flex-wrap gap-2" role="tablist">
+      <button class="tab-btn tab-active flex-1 px-4 py-3 rounded-xl border border-transparent text-sm font-medium" data-tab="dashboard">
+        📊 儀表板
+      </button>
+      <button class="tab-btn flex-1 px-4 py-3 rounded-xl border border-transparent text-sm font-medium" data-tab="messages">
+        📨 訊息列表
+      </button>
+      <button class="tab-btn flex-1 px-4 py-3 rounded-xl border border-transparent text-sm font-medium" data-tab="keywords">
+        🔑 關鍵詞分析
+      </button>
+      <button class="tab-btn flex-1 px-4 py-3 rounded-xl border border-transparent text-sm font-medium" data-tab="config">
+        ⚙️ Bot 設定
+      </button>
+      <button class="tab-btn flex-1 px-4 py-3 rounded-xl border border-transparent text-sm font-medium" data-tab="live">
+        🎤 即時錄音
+      </button>
+    </div>
+  </div>
+
+  <!-- TAB: Dashboard -->
+  <div id="tab-dashboard" class="tab-panel">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <div class="glass rounded-2xl p-6">
+        <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+          📈 訊息處理趨勢
+          <span class="text-xs text-gray-400">(最近 7 天)</span>
+        </h3>
+        <div style="height: 280px;">
+          <canvas id="trendChart"></canvas>
+        </div>
+      </div>
+      <div class="glass rounded-2xl p-6">
+        <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+          🏷️ 關鍵詞頻率 Top 10
+        </h3>
+        <div style="height: 280px;">
+          <canvas id="keywordBarChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="glass rounded-2xl p-6 mb-6">
+      <h3 class="text-lg font-semibold mb-4">☁️ 關鍵詞雲</h3>
+      <div id="wordCloud" class="w-full"></div>
+    </div>
+
+    <div class="glass rounded-2xl p-6">
+      <h3 class="text-lg font-semibold mb-4">⏱️ 處理時間分佈</h3>
+      <div style="height: 240px;">
+        <canvas id="processTimeChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: Messages -->
+  <div id="tab-messages" class="tab-panel hidden">
+    <div class="glass rounded-2xl p-6">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
+        <h3 class="text-lg font-semibold">📨 語音訊息收件匣</h3>
+        <div class="flex items-center gap-2">
+          <input type="text" id="searchInput" placeholder="搜尋訊息內容..." class="px-4 py-2 rounded-lg glass-strong border border-white/20 text-sm w-48 md:w-64">
+          <button class="btn btn-sm glass-strong border-white/20" onclick="window.exportData()">📥 匯出 JSON</button>
+        </div>
+      </div>
+      <div id="messagesList" class="space-y-3 max-h-[600px] overflow-y-auto pr-2"></div>
+    </div>
+  </div>
+
+  <!-- TAB: Keywords -->
+  <div id="tab-keywords" class="tab-panel hidden">
+    <div class="glass rounded-2xl p-6 mb-6">
+      <h3 class="text-lg font-semibold mb-4">🔬 自訂關鍵詞提取測試</h3>
+      <p class="text-xs text-gray-400 mb-4">貼上文字,測試 TF-IDF + RAKE + 中文分詞混合演算法</p>
+      <textarea id="customText" class="w-full p-4 rounded-xl glass-strong border border-white/20 text-sm font-mono" rows="6" placeholder="在此貼上或輸入文字,例如：人工智慧正在改變世界,機器學習和深度學習是核心技術,自然語言處理讓電腦理解人類語言..."></textarea>
+      <div class="flex gap-2 mt-3">
+        <button class="btn btn-sm bg-gradient-to-r from-blue-500 to-purple-500 border-0 text-white" onclick="window.extractFromCustom()">
+          🚀 提取關鍵詞
+        </button>
+        <button class="btn btn-sm glass-strong border-white/20" onclick="document.getElementById('customText').value=''">
+          🗑️ 清空
+        </button>
+      </div>
+      <div id="customKeywords" class="mt-4 min-h-[60px]"></div>
+    </div>
+
+    <div class="glass rounded-2xl p-6">
+      <h3 class="text-lg font-semibold mb-4">📚 所有訊息的關鍵詞索引</h3>
+      <div id="allKeywords" class="flex flex-wrap"></div>
+    </div>
+  </div>
+
+  <!-- TAB: Config -->
+  <div id="tab-config" class="tab-panel hidden">
+    <div class="glass rounded-2xl p-6 mb-6">
+      <h3 class="text-lg font-semibold mb-4">🤖 Telegram Bot 設定</h3>
+
+      <div class="space-y-4">
+        <div>
+          <label class="text-xs text-gray-400 uppercase tracking-wider">Bot Token</label>
+          <div class="flex gap-2 mt-1">
+            <input type="password" id="botTokenInput" class="flex-1 px-4 py-3 rounded-xl glass-strong border border-white/20 font-mono text-sm" placeholder="從 @BotFather 取得的 token,例如: 123456:ABC-DEF...">
+            <button class="btn glass-strong border-white/20" onclick="window.toggleTokenVisibility()">👁️</button>
+          </div>
+          <p class="text-xs text-gray-400 mt-1">⚠️ Token 只儲存在瀏覽器 localStorage,不會上傳到任何伺服器</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="text-xs text-gray-400 uppercase tracking-wider">允許的 Chat ID(逗號分隔)</label>
+            <input type="text" id="allowedChatsInput" class="w-full px-4 py-3 rounded-xl glass-strong border border-white/20 mt-1 text-sm" placeholder="全部留空 = 允許所有人">
+          </div>
+          <div>
+            <label class="text-xs text-gray-400 uppercase tracking-wider">回覆語言</label>
+            <select id="langSelect" class="w-full px-4 py-3 rounded-xl glass-strong border border-white/20 mt-1 text-sm">
+              <option value="zh-TW">繁體中文</option>
+              <option value="zh-CN">簡體中文</option>
+              <option value="en-US">English</option>
+              <option value="ja-JP">日本語</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" id="autoReplyChk" class="checkbox checkbox-sm" checked>
+            <span class="text-sm">自動回覆關鍵詞</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" id="extractKeywordsChk" class="checkbox checkbox-sm" checked>
+            <span class="text-sm">提取關鍵詞</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" id="sendStatsChk" class="checkbox checkbox-sm">
+            <span class="text-sm">傳送統計圖表</span>
+          </label>
+        </div>
+
+        <div class="flex gap-2 pt-2">
+          <button class="btn bg-gradient-to-r from-green-500 to-emerald-500 border-0 text-white" onclick="window.startBot()">
+            ▶️ 啟動 Bot
+          </button>
+          <button class="btn glass-strong border-white/20" onclick="window.testConnection()">
+            🔌 測試連線
+          </button>
+          <button class="btn glass-strong border-white/20" onclick="window.stopBot()">
+            ⏹️ 停止 Bot
+          </button>
+          <button class="btn glass-strong border-white/20" onclick="window.simulateMessage()">
+            🎭 模擬語音訊息
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="glass rounded-2xl p-6">
+      <h3 class="text-lg font-semibold mb-4">📋 Bot 操作記錄</h3>
+      <div id="botLog" class="font-mono text-xs space-y-1 max-h-[300px] overflow-y-auto pr-2 bg-black/30 p-4 rounded-xl"></div>
+    </div>
+  </div>
+
+  <!-- TAB: Live Recording -->
+  <div id="tab-live" class="tab-panel hidden">
+    <div class="glass rounded-2xl p-6">
+      <h3 class="text-lg font-semibold mb-4">🎤 瀏覽器即時語音轉錄</h3>
+      <p class="text-xs text-gray-400 mb-4">使用 Web Speech API,直接從麥克風接收語音並即時轉為文字 + 提取關鍵詞</p>
+
+      <div class="flex flex-col items-center gap-4 my-6">
+        <div id="recordingIndicator" class="w-32 h-32 rounded-full flex items-center justify-center text-6xl" style="background: rgba(255,255,255,0.1);">
+          🎤
+        </div>
+        <div id="liveStatus" class="text-sm text-gray-300">準備就緒</div>
+        <div class="flex gap-2">
+          <button id="startRecBtn" class="btn bg-gradient-to-r from-red-500 to-pink-500 border-0 text-white" onclick="window.startLiveRecording()">
+            🔴 開始錄音
+          </button>
+          <button id="stopRecBtn" class="btn glass-strong border-white/20" onclick="window.stopLiveRecording()" disabled>
+            ⏹️ 停止錄音
+          </button>
+          <button class="btn glass-strong border-white/20" onclick="window.clearLiveTranscript()">
+            🗑️ 清空
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <label class="text-xs text-gray-400 uppercase tracking-wider">即時轉錄結果</label>
+        <div id="liveTranscript" class="mt-2 p-4 rounded-xl glass-strong border border-white/20 min-h-[120px] font-mono text-sm whitespace-pre-wrap"></div>
+      </div>
+
+      <div class="mt-4">
+        <label class="text-xs text-gray-400 uppercase tracking-wider">即時提取的關鍵詞</label>
+        <div id="liveKeywords" class="mt-2 min-h-[40px]"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Toast container -->
+<div id="toastContainer" class="fixed bottom-6 right-6 z-50 space-y-2"></div>
+
+<script>
+/* ============================================
+   STATE & CONFIG
+============================================ */
+const App = {
+  messages: [],          // all messages received
+  keywords: {},          // keyword -> count map
+  botRunning: false,
+  botToken: '',
+  pollInterval: null,
+  offset: 0,
+  allowedChats: [],
+  config: {
+    autoReply: true,
+    extractKeywords: true,
+    sendStats: false,
+    lang: 'zh-TW'
+  },
+  theme: 'dark',
+  // live recording
+  recognition: null,
+  isRecording: false,
+  liveTranscriptText: '',
+  // charts
+  charts: {}
+};
+
+/* ============================================
+   STORAGE
+============================================ */
+function loadFromStorage() {
+  try {
+    const saved = localStorage.getItem('telegram_voice_bot_state');
+    if (saved) {
+      const data = JSON.parse(saved);
+      App.botToken = data.botToken || '';
+      App.allowedChats = data.allowedChats || [];
+      App.config = { ...App.config, ...(data.config || {}) };
+      App.messages = data.messages || [];
+      App.keywords = data.keywords || {};
+      document.getElementById('botTokenInput').value = App.botToken;
+      document.getElementById('allowedChatsInput').value = App.allowedChats.join(',');
+      document.getElementById('langSelect').value = App.config.lang;
+      document.getElementById('autoReplyChk').checked = App.config.autoReply;
+      document.getElementById('extractKeywordsChk').checked = App.config.extractKeywords;
+      document.getElementById('sendStatsChk').checked = App.config.sendStats;
+    }
+    const theme = localStorage.getItem('telegram_voice_bot_theme') || 'dark';
+    setTheme(theme);
+  } catch (e) {
+    console.error('loadFromStorage failed', e);
+  }
+}
+
+function saveToStorage() {
+  try {
+    localStorage.setItem('telegram_voice_bot_state', JSON.stringify({
+      botToken: App.botToken,
+      allowedChats: App.allowedChats,
+      config: App.config,
+      messages: App.messages.slice(-500),  // keep last 500
+      keywords: App.keywords
+    }));
+  } catch (e) {
+    console.error('saveToStorage failed', e);
+  }
+}
+
+/* ============================================
+   THEME
+============================================ */
+function setTheme(theme) {
+  App.theme = theme;
+  document.documentElement.setAttribute('data-theme', theme);
+  document.getElementById('themeBtn').textContent = theme === 'dark' ? '🌙' : '☀️';
+  localStorage.setItem('telegram_voice_bot_theme', theme);
+  if (theme === 'light') {
+    document.body.style.background = 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)';
+    document.body.style.color = '#1f2937';
+  } else {
+    document.body.style.background = 'linear-gradient(135deg, var(--bg-grad-1) 0%, var(--bg-grad-2) 50%, var(--bg-grad-3) 100%)';
+    document.body.style.color = 'white';
+  }
+  // redraw charts with new theme colors
+  refreshCharts();
+}
+
+window.toggleTheme = () => setTheme(App.theme === 'dark' ? 'light' : 'dark');
+
+/* ============================================
+   TABS
+============================================ */
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('tab-active'));
+    btn.classList.add('tab-active');
+    const target = btn.dataset.tab;
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+    document.getElementById('tab-' + target).classList.remove('hidden');
+    // refresh chart when entering dashboard
+    if (target === 'dashboard') refreshCharts();
+    if (target === 'keywords') renderAllKeywords();
+    if (target === 'messages') renderMessages();
+  });
+});
+
+/* ============================================
+   TOAST
+============================================ */
+function showToast(msg, type = 'info') {
+  const colors = {
+    info: 'from-blue-500 to-cyan-500',
+    success: 'from-green-500 to-emerald-500',
+    warning: 'from-yellow-500 to-orange-500',
+    error: 'from-red-500 to-pink-500'
+  };
+  const t = document.createElement('div');
+  t.className = `glass-strong px-5 py-3 rounded-xl text-sm shadow-2xl bg-gradient-to-r ${colors[type] || colors.info} text-white max-w-sm`;
+  t.style.animation = 'slideIn 0.3s ease-out';
+  t.textContent = msg;
+  document.getElementById('toastContainer').appendChild(t);
+  setTimeout(() => {
+    t.style.opacity = '0';
+    t.style.transition = 'opacity 0.3s';
+    setTimeout(() => t.remove(), 300);
+  }, 3500);
+}
+
+/* ============================================
+   BOT LOG
+============================================ */
+function botLog(msg, type = 'info') {
+  const log = document.getElementById('botLog');
+  const colors = { info: 'text-blue-300', success: 'text-green-300', warn: 'text-yellow-300', error: 'text-red-300' };
+  const now = new Date().toLocaleTimeString('zh-TW');
+  const line = document.createElement('div');
+  line.className = colors[type] || colors.info;
+  line.textContent = `[${now}] ${msg}`;
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+}
+
+/* ============================================
+   TELEGRAM BOT API
+============================================ */
+async function telegramApi(method, params = {}) {
+  if (!App.botToken) throw new Error('Bot token 未設定');
+  const url = `https://api.telegram.org/bot${App.botToken}/${method}`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params)
+  });
+  const data = await resp.json();
+  if (!data.ok) throw new Error(data.description || 'API error');
+  return data.result;
+}
+
+window.testConnection = async () => {
+  try {
+    const me = await telegramApi('getMe');
+    botLog(`✅ 連線成功! Bot: @${me.username} (${me.first_name})`, 'success');
+    showToast(`已連線到 @${me.username}`, 'success');
+    return true;
+  } catch (e) {
+    botLog(`❌ 連線失敗: ${e.message}`, 'error');
+    showToast('連線失敗,請檢查 Token', 'error');
+    return false;
+  }
+};
+
+window.startBot = async () => {
+  App.botToken = document.getElementById('botTokenInput').value.trim();
+  const allowedChatsRaw = document.getElementById('allowedChatsInput').value.trim();
+  App.allowedChats = allowedChatsRaw ? allowedChatsRaw.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n)) : [];
+  App.config = {
+    autoReply: document.getElementById('autoReplyChk').checked,
+    extractKeywords: document.getElementById('extractKeywordsChk').checked,
+    sendStats: document.getElementById('sendStatsChk').checked,
+    lang: document.getElementById('langSelect').value
+  };
+
+  if (!App.botToken) {
+    showToast('請先輸入 Bot Token', 'warning');
+    return;
+  }
+
+  saveToStorage();
+
+  const ok = await window.testConnection();
+  if (!ok) return;
+
+  App.botRunning = true;
+  updateBotStatus('已連線 · 監聽中');
+  botLog('🚀 Bot 已啟動,開始 long polling...', 'success');
+  pollUpdates();
+};
+
+window.stopBot = () => {
+  App.botRunning = false;
+  if (App.pollInterval) clearTimeout(App.pollInterval);
+  App.pollInterval = null;
+  updateBotStatus('已停止');
+  botLog('⏹️ Bot 已停止', 'warn');
+  showToast('Bot 已停止', 'info');
+};
+
+function updateBotStatus(text) {
+  document.getElementById('botStatusText').textContent = text;
+}
+
+async function pollUpdates() {
+  if (!App.botRunning) return;
+  try {
+    const updates = await telegramApi('getUpdates', {
+      offset: App.offset,
+      timeout: 5,
+      allowed_updates: ['message']
+    });
+    for (const update of updates) {
+      App.offset = Math.max(App.offset, update.update_id + 1);
+      await handleUpdate(update);
+    }
+  } catch (e) {
+    botLog(`Polling error: ${e.message}`, 'error');
+  }
+  if (App.botRunning) {
+    App.pollInterval = setTimeout(pollUpdates, 1000);
+  }
+}
+
+async function handleUpdate(update) {
+  if (!update.message) return;
+  const msg = update.message;
+  // filter by allowed chats
+  if (App.allowedChats.length > 0 && !App.allowedChats.includes(msg.chat.id)) return;
+
+  // we accept voice, audio, video_note, or text
+  const hasVoice = msg.voice || msg.audio || msg.video_note;
+  if (!hasVoice && !msg.text) return;
+
+  const messageRecord = {
+    id: msg.message_id,
+    chatId: msg.chat.id,
+    chatTitle: msg.chat.title || msg.chat.first_name || `Chat ${msg.chat.id}`,
+    user: msg.from?.first_name || msg.from?.username || 'Anonymous',
+    timestamp: msg.date * 1000,
+    type: msg.voice ? 'voice' : msg.audio ? 'audio' : msg.video_note ? 'video_note' : 'text',
+    duration: msg.voice?.duration || msg.audio?.duration || msg.video_note?.duration || 0,
+    fileId: msg.voice?.file_id || msg.audio?.file_id || msg.video_note?.file_id || null,
+    rawText: msg.text || msg.caption || '',
+    transcript: '',
+    keywords: [],
+    processed: false
+  };
+
+  App.messages.unshift(messageRecord);
+  botLog(`📩 收到 ${messageRecord.type} 訊息 from ${messageRecord.user}`, 'info');
+  renderMessages();
+  updateStats();
+
+  // for voice: simulate transcription (since we can't run whisper in browser)
+  if (hasVoice) {
+    messageRecord.transcript = simulateTranscription(messageRecord);
+    messageRecord.processed = true;
+    botLog(`✍️ 轉錄完成: "${messageRecord.transcript.substring(0, 50)}..."`, 'success');
+  } else {
+    messageRecord.transcript = messageRecord.rawText;
+    messageRecord.processed = true;
+  }
+
+  if (App.config.extractKeywords) {
+    messageRecord.keywords = extractKeywords(messageRecord.transcript);
+    mergeKeywords(messageRecord.keywords);
+  }
+
+  renderMessages();
+  updateStats();
+  refreshCharts();
+  renderAllKeywords();
+  saveToStorage();
+
+  // auto-reply with keywords
+  if (App.config.autoReply && messageRecord.keywords.length > 0) {
+    const replyText = `🔑 關鍵詞：${messageRecord.keywords.slice(0, 5).map(k => `#${k.word}`).join(' ')}\n\n📝 轉錄：${messageRecord.transcript}`;
+    try {
+      await telegramApi('sendMessage', { chat_id: msg.chat.id, text: replyText });
+      botLog(`↩️ 已回覆關鍵詞給 ${messageRecord.chatTitle}`, 'success');
+    } catch (e) {
+      botLog(`回覆失敗: ${e.message}`, 'error');
+    }
+  }
+}
+
+/* ============================================
+   SIMULATE TRANSCRIPTION (for demo)
+============================================ */
+const SIMULATED_PHRASES = [
+  '今天我們來討論人工智慧如何改變教育,機器學習模型可以分析學生的學習曲線,深度學習讓自適應學習成為可能',
+  'The weather today is sunny, I think we should go for a picnic in the park this weekend',
+  '明天的會議討論三個重點:專案進度、技術難題、以及下季的產品規劃方向',
+  'Python is the most popular language for data science, especially with libraries like pandas and scikit-learn',
+  '區塊鏈技術結合智能合約,將徹底改變金融業的去中心化應用',
+  'I just finished reading a great book about the future of work and automation',
+  '量子計算的突破將為密碼學和藥物研發帶來革命性的進展',
+  '台灣的半導體產業在全球供應鏈中扮演關鍵角色,尤其在先進製程方面',
+  'Remote work has become the new normal, video conferencing tools are essential',
+  '氣候變遷是我們這一代最重要的課題,每個人都應該為永續發展盡一份心力'
+];
+
+function simulateTranscription(msg) {
+  const idx = (msg.id || 0) % SIMULATED_PHRASES.length;
+  return SIMULATED_PHRASES[idx];
+}
+
+/* ============================================
+   KEYWORD EXTRACTION (TF-IDF + RAKE + Chinese)
+============================================ */
+
+// Chinese stop words
+const STOP_WORDS_ZH = new Set([
+  '的','了','是','在','我','有','和','就','不','人','都','一','一個','上','也','很','到','說','要','去','你','會','著','沒有','看','好','自己','這','那','嗎','呢','啊','吧','嗎','的話','什麼','怎麼','為什麼','可以','這個','那個','因為','所以','但是','如果','雖然','然而','不過','然後','接著','最後','首先','其次','或者','以及','還有','甚至','尤其','特別','正是','就是','只是','還是','已經','正在','將會','可能','應該','必須','需要','能夠','可以','或許','大概','一定','必須','極為','非常','十分','格外','更','最','太','很','挺','怪','超','蠻','頗','極','極其','極度','極為'
+]);
+
+// English stop words (basic)
+const STOP_WORDS_EN = new Set([
+  'the','a','an','and','or','but','in','on','at','to','for','of','with','by','from','as','is','was','are','were','be','been','being','have','has','had','do','does','did','will','would','should','could','may','might','must','shall','can','need','dare','ought','used','i','you','he','she','it','we','they','them','their','my','your','his','her','its','our','this','that','these','those','what','which','who','whom','whose','why','how','when','where'
+]);
+
+function tokenize(text) {
+  if (!text) return [];
+  const tokens = [];
+  // Detect Chinese: use jieba if available
+  const chineseChars = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+  const totalChars = text.length;
+  if (chineseChars > totalChars * 0.3 && typeof nodejieba !== 'undefined' && nodejieba.cut) {
+    try {
+      const words = nodejieba.cut(text);
+      for (const w of words) {
+        if (w.length >= 2 && !/^[\s\.,!?;:()]+$/.test(w)) tokens.push(w);
+      }
+    } catch (e) {
+      // fallback: regex n-gram
+      const cn = text.match(/[\u4e00-\u9fff]+/g) || [];
+      cn.forEach(w => {
+        for (let i = 0; i < w.length - 1; i++) {
+          tokens.push(w.substr(i, 2));
+        }
+      });
+    }
+  } else {
+    // English: split by whitespace and punctuation
+    const words = text.toLowerCase().match(/[a-z]+/g) || [];
+    tokens.push(...words);
+  }
+  return tokens;
+}
+
+function extractKeywords(text, topN = 8) {
+  if (!text || text.trim().length === 0) return [];
+
+  // TF-IDF inspired scoring
+  const tokens = tokenize(text);
+  const filtered = tokens.filter(t => {
+    const lower = t.toLowerCase();
+    if (STOP_WORDS_ZH.has(t)) return false;
+    if (STOP_WORDS_EN.has(lower)) return false;
+    if (/^\d+$/.test(t)) return false;
+    if (t.length < 2) return false;
+    return true;
+  });
+
+  // word frequency
+  const freq = {};
+  filtered.forEach(t => { freq[t] = (freq[t] || 0) + 1; });
+
+  // RAKE-inspired: score by frequency / word length penalty
+  const scored = Object.entries(freq).map(([word, count]) => {
+    let score = count;
+    // bonus for longer meaningful words (usually more specific)
+    if (word.length >= 4) score *= 1.3;
+    if (word.length >= 6) score *= 1.2;
+    // bonus for appearing in title case (proper nouns)
+    if (text.includes(word) && /[A-Z]/.test(word)) score *= 1.2;
+    // Chinese words
+    if (/[\u4e00-\u9fff]/.test(word)) score *= 1.15;
+    return { word, score: parseFloat(score.toFixed(3)), count };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, topN);
+}
+
+function mergeKeywords(keywordList) {
+  keywordList.forEach(kw => {
+    if (App.keywords[kw.word]) {
+      App.keywords[kw.word].count += kw.count;
+      App.keywords[kw.word].lastSeen = Date.now();
+    } else {
+      App.keywords[kw.word] = { count: kw.count, lastSeen: Date.now() };
+    }
+  });
+}
+
+window.extractFromCustom = () => {
+  const text = document.getElementById('customText').value.trim();
+  if (!text) {
+    showToast('請先輸入文字', 'warning');
+    return;
+  }
+  const keywords = extractKeywords(text, 12);
+  const container = document.getElementById('customKeywords');
+  if (keywords.length === 0) {
+    container.innerHTML = '<p class="text-sm text-gray-400">沒有提取到關鍵詞</p>';
+    return;
+  }
+  const maxScore = Math.max(...keywords.map(k => k.score));
+  container.innerHTML = keywords.map(k => {
+    const size = 12 + (k.score / maxScore) * 18;
+    return `<span class="keyword-tag" style="font-size: ${size}px;">${k.word} <span class="text-xs opacity-60">(${k.score.toFixed(2)})</span></span>`;
+  }).join('');
+  mergeKeywords(keywords);
+  saveToStorage();
+  updateStats();
+  refreshCharts();
+  renderAllKeywords();
+};
+
+function renderAllKeywords() {
+  const container = document.getElementById('allKeywords');
+  const entries = Object.entries(App.keywords).sort((a, b) => b[1].count - a[1].count);
+  if (entries.length === 0) {
+    container.innerHTML = '<p class="text-sm text-gray-400">尚無關鍵詞資料,請啟動 Bot 或在上方測試提取</p>';
+    return;
+  }
+  const maxCount = entries[0][1].count;
+  container.innerHTML = entries.slice(0, 50).map(([word, data]) => {
+    const size = 12 + (data.count / maxCount) * 20;
+    return `<span class="keyword-tag" style="font-size: ${size}px;" title="${word} 出現 ${data.count} 次,最後: ${new Date(data.lastSeen).toLocaleString('zh-TW')}">${word} <span class="text-xs opacity-60">×${data.count}</span></span>`;
+  }).join('');
+}
+
+/* ============================================
+   RENDER MESSAGES
+============================================ */
+function renderMessages() {
+  const list = document.getElementById('messagesList');
+  const search = document.getElementById('searchInput')?.value?.toLowerCase() || '';
+  let filtered = App.messages;
+  if (search) {
+    filtered = filtered.filter(m =>
+      m.transcript.toLowerCase().includes(search) ||
+      m.user.toLowerCase().includes(search) ||
+      m.chatTitle.toLowerCase().includes(search) ||
+      m.keywords.some(k => k.word.toLowerCase().includes(search))
+    );
+  }
+  if (filtered.length === 0) {
+    list.innerHTML = `<div class="text-center text-gray-400 py-12">
+      <div class="text-4xl mb-2">📭</div>
+      <p>${search ? '沒有符合條件的訊息' : '尚未收到訊息,啟動 Bot 或點擊「模擬語音訊息」測試'}</p>
+    </div>`;
+    return;
+  }
+  list.innerHTML = filtered.map(m => {
+    const time = new Date(m.timestamp).toLocaleString('zh-TW');
+    const typeIcon = { voice: '🎤', audio: '🎵', video_note: '📹', text: '💬' }[m.type] || '💬';
+    const keywordTags = m.keywords.slice(0, 5).map(k =>
+      `<span class="keyword-tag text-xs">${k.word}</span>`
+    ).join('');
+    return `
+      <div class="message-card glass rounded-xl p-4">
+        <div class="flex items-start justify-between gap-4">
+          <div class="flex-1">
+            <div class="flex items-center gap-2 text-sm">
+              <span class="font-semibold">${typeIcon} ${m.user}</span>
+              <span class="text-gray-400 text-xs">·</span>
+              <span class="text-gray-400 text-xs">${m.chatTitle}</span>
+              ${m.duration > 0 ? `<span class="text-xs text-blue-300">⏱ ${m.duration}s</span>` : ''}
+            </div>
+            <div class="text-xs text-gray-400 mt-1">${time}</div>
+            <div class="mt-2 text-sm leading-relaxed">${m.transcript}</div>
+            <div class="mt-3 flex flex-wrap">${keywordTags}</div>
+          </div>
+          <div class="text-xs ${m.processed ? 'text-green-400' : 'text-yellow-400'}">
+            ${m.processed ? '✓' : '⏳'}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'searchInput') renderMessages();
+});
+
+/* ============================================
+   STATS
+============================================ */
+function updateStats() {
+  document.getElementById('statTotal').textContent = App.messages.length;
+  document.getElementById('statTranscribed').textContent = App.messages.filter(m => m.processed).length;
+  document.getElementById('statKeywords').textContent = Object.keys(App.keywords).length;
+  const totalChars = App.messages.reduce((sum, m) => sum + (m.transcript?.length || 0), 0);
+  document.getElementById('statChars').textContent = totalChars.toLocaleString();
+}
+
+/* ============================================
+   CHARTS
+============================================ */
+function getChartColors() {
+  return App.theme === 'dark'
+    ? { grid: 'rgba(255,255,255,0.1)', text: 'rgba(255,255,255,0.8)', palette: ['#60a5fa','#a78bfa','#f472b6','#fbbf24','#34d399','#fb923c','#22d3ee','#c084fc','#f87171','#a3e635'] }
+    : { grid: 'rgba(0,0,0,0.1)', text: 'rgba(0,0,0,0.8)', palette: ['#2563eb','#7c3aed','#db2777','#d97706','#059669','#ea580c','#0891b2','#9333ea','#dc2626','#65a30d'] };
+}
+
+function destroyChart(name) {
+  if (App.charts[name]) {
+    App.charts[name].destroy();
+    delete App.charts[name];
+  }
+}
+
+function refreshCharts() {
+  const colors = getChartColors();
+  Chart.defaults.color = colors.text;
+  Chart.defaults.borderColor = colors.grid;
+
+  // Trend chart: messages per day (last 7 days)
+  destroyChart('trend');
+  const trendCtx = document.getElementById('trendChart');
+  if (trendCtx) {
+    const days = [];
+    const counts = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      d.setHours(0,0,0,0);
+      const dayStart = d.getTime();
+      const dayEnd = dayStart + 86400000;
+      days.push(`${d.getMonth()+1}/${d.getDate()}`);
+      counts.push(App.messages.filter(m => m.timestamp >= dayStart && m.timestamp < dayEnd).length);
+    }
+    App.charts.trend = new Chart(trendCtx, {
+      type: 'line',
+      data: {
+        labels: days,
+        datasets: [{
+          label: '訊息數',
+          data: counts,
+          borderColor: colors.palette[0],
+          backgroundColor: colors.palette[0] + '33',
+          fill: true,
+          tension: 0.4,
+          pointRadius: 5,
+          pointHoverRadius: 8
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: colors.grid } },
+          x: { grid: { color: colors.grid } }
+        }
+      }
+    });
+  }
+
+  // Keyword bar chart: top 10
+  destroyChart('keywordBar');
+  const kwCtx = document.getElementById('keywordBarChart');
+  if (kwCtx) {
+    const top = Object.entries(App.keywords).sort((a, b) => b[1].count - a[1].count).slice(0, 10);
+    App.charts.keywordBar = new Chart(kwCtx, {
+      type: 'bar',
+      data: {
+        labels: top.map(([w]) => w),
+        datasets: [{
+          label: '出現次數',
+          data: top.map(([, d]) => d.count),
+          backgroundColor: top.map((_, i) => colors.palette[i % colors.palette.length] + 'cc'),
+          borderColor: top.map((_, i) => colors.palette[i % colors.palette.length]),
+          borderWidth: 2,
+          borderRadius: 8
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        indexAxis: 'y',
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: colors.grid } },
+          y: { grid: { display: false } }
+        }
+      }
+    });
+  }
+
+  // Process time distribution
+  destroyChart('processTime');
+  const ptCtx = document.getElementById('processTimeChart');
+  if (ptCtx) {
+    const buckets = ['0-5s', '5-15s', '15-30s', '30-60s', '60s+'];
+    const distribution = buckets.map(() => 0);
+    App.messages.filter(m => m.duration > 0).forEach(m => {
+      if (m.duration <= 5) distribution[0]++;
+      else if (m.duration <= 15) distribution[1]++;
+      else if (m.duration <= 30) distribution[2]++;
+      else if (m.duration <= 60) distribution[3]++;
+      else distribution[4]++;
+    });
+    App.charts.processTime = new Chart(ptCtx, {
+      type: 'doughnut',
+      data: {
+        labels: buckets,
+        datasets: [{
+          data: distribution,
+          backgroundColor: buckets.map((_, i) => colors.palette[i % colors.palette.length] + 'cc'),
+          borderColor: colors.palette,
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'right' }
+        }
+      }
+    });
+  }
+
+  // Word cloud
+  renderWordCloud();
+}
+
+function renderWordCloud() {
+  const container = document.getElementById('wordCloud');
+  container.innerHTML = '';
+  const entries = Object.entries(App.keywords).sort((a, b) => b[1].count - a[1].count).slice(0, 60);
+  if (entries.length === 0) {
+    container.innerHTML = '<p class="text-gray-400 text-center py-12">尚無關鍵詞資料</p>';
+    return;
+  }
+  const width = container.clientWidth;
+  const height = 320;
+  const maxCount = entries[0][1].count;
+  const colors = getChartColors();
+
+  try {
+    const layout = d3.layout.cloud()
+      .size([width, height])
+      .words(entries.map(([word, data]) => ({
+        text: word,
+        size: 12 + (data.count / maxCount) * 48,
+        count: data.count
+      })))
+      .padding(3)
+      .rotate(() => (Math.random() < 0.7 ? 0 : 90))
+      .font('sans-serif')
+      .fontSize(d => d.size)
+      .on('end', draw);
+    layout.start();
+
+    function draw(words) {
+      const svg = d3.select(container).append('svg')
+        .attr('width', width)
+        .attr('height', height)
+        .attr('viewBox', `0 0 ${width} ${height}`);
+      const g = svg.append('g')
+        .attr('transform', `translate(${width/2},${height/2})`);
+      g.selectAll('text')
+        .data(words)
+        .enter().append('text')
+        .style('font-size', d => `${d.size}px`)
+        .style('fill', (d, i) => colors.palette[i % colors.palette.length])
+        .style('opacity', 0.85)
+        .attr('text-anchor', 'middle')
+        .attr('transform', d => `translate(${d.x},${d.y})rotate(${d.rotate})`)
+        .text(d => d.text)
+        .append('title')
+        .text(d => `${d.text}: ${d.count} 次`);
+    }
+  } catch (e) {
+    container.innerHTML = `<p class="text-yellow-400 text-sm">d3-cloud 載入失敗: ${e.message}</p>`;
+  }
+}
+
+/* ============================================
+   LIVE RECORDING (Web Speech API)
+============================================ */
+window.startLiveRecording = () => {
+  if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+    showToast('您的瀏覽器不支援 Web Speech API,請用 Chrome', 'error');
+    return;
+  }
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  App.recognition = new SpeechRecognition();
+  App.recognition.lang = App.config.lang || 'zh-TW';
+  App.recognition.continuous = true;
+  App.recognition.interimResults = true;
+
+  App.recognition.onstart = () => {
+    App.isRecording = true;
+    document.getElementById('recordingIndicator').classList.add('recording-pulse');
+    document.getElementById('recordingIndicator').textContent = '🔴';
+    document.getElementById('liveStatus').textContent = '🔴 正在聆聽...';
+    document.getElementById('startRecBtn').disabled = true;
+    document.getElementById('stopRecBtn').disabled = false;
+    showToast('開始錄音', 'info');
+  };
+
+  App.recognition.onresult = (event) => {
+    let interim = '';
+    let final = '';
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const transcript = event.results[i][0].transcript;
+      if (event.results[i].isFinal) final += transcript;
+      else interim += transcript;
+    }
+    if (final) {
+      App.liveTranscriptText += final;
+      const keywords = extractKeywords(final, 5);
+      mergeKeywords(keywords);
+      saveToStorage();
+      updateStats();
+      refreshCharts();
+      renderAllKeywords();
+    }
+    document.getElementById('liveTranscript').textContent = App.liveTranscriptText + interim;
+    document.getElementById('liveTranscript').scrollTop = document.getElementById('liveTranscript').scrollHeight;
+
+    // live keywords
+    const allText = App.liveTranscriptText;
+    const kws = extractKeywords(allText, 10);
+    document.getElementById('liveKeywords').innerHTML = kws.map(k =>
+      `<span class="keyword-tag text-xs">${k.word} (${k.score.toFixed(2)})</span>`
+    ).join('');
+  };
+
+  App.recognition.onerror = (event) => {
+    botLog(`Speech recognition error: ${event.error}`, 'error');
+    showToast(`辨識錯誤: ${event.error}`, 'error');
+    if (event.error === 'no-speech') {
+      // auto-restart
+      try { App.recognition.start(); } catch (e) {}
+    }
+  };
+
+  App.recognition.onend = () => {
+    if (App.isRecording) {
+      // auto-restart for continuous mode
+      try { App.recognition.start(); } catch (e) {
+        window.stopLiveRecording();
+      }
+    }
+  };
+
+  try {
+    App.recognition.start();
+  } catch (e) {
+    showToast('無法啟動錄音: ' + e.message, 'error');
+  }
+};
+
+window.stopLiveRecording = () => {
+  App.isRecording = false;
+  if (App.recognition) {
+    try { App.recognition.stop(); } catch (e) {}
+  }
+  document.getElementById('recordingIndicator').classList.remove('recording-pulse');
+  document.getElementById('recordingIndicator').textContent = '🎤';
+  document.getElementById('liveStatus').textContent = '⏹️ 已停止';
+  document.getElementById('startRecBtn').disabled = false;
+  document.getElementById('stopRecBtn').disabled = true;
+  showToast('錄音已停止', 'info');
+};
+
+window.clearLiveTranscript = () => {
+  App.liveTranscriptText = '';
+  document.getElementById('liveTranscript').textContent = '';
+  document.getElementById('liveKeywords').innerHTML = '';
+};
+
+window.toggleTokenVisibility = () => {
+  const input = document.getElementById('botTokenInput');
+  input.type = input.type === 'password' ? 'text' : 'password';
+};
+
+/* ============================================
+   SIMULATE MESSAGE
+============================================ */
+window.simulateMessage = () => {
+  const phrases = SIMULATED_PHRASES;
+  const phrase = phrases[Math.floor(Math.random() * phrases.length)];
+  const msg = {
+    message_id: Date.now(),
+    chat: { id: -1001234567890, title: '測試群組 Demo' },
+    from: { first_name: ['小明', 'Alice', '工程師', '測試者'][Math.floor(Math.random() * 4)], username: 'demo_user' },
+    date: Math.floor(Date.now() / 1000),
+    voice: { duration: Math.floor(Math.random() * 60) + 5, file_id: 'fake_' + Date.now() }
+  };
+  handleUpdate({ message: msg }).catch(e => console.error(e));
+  showToast('已模擬一則語音訊息', 'success');
+};
+
+/* ============================================
+   EXPORT
+============================================ */
+window.exportData = () => {
+  const data = {
+    exportedAt: new Date().toISOString(),
+    messages: App.messages,
+    keywords: App.keywords,
+    stats: {
+      total: App.messages.length,
+      transcribed: App.messages.filter(m => m.processed).length,
+      uniqueKeywords: Object.keys(App.keywords).length
+    }
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `telegram-bot-export-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('已匯出 JSON', 'success');
+};
+
+/* ============================================
+   INIT
+============================================ */
+window.addEventListener('DOMContentLoaded', () => {
+  loadFromStorage();
+  renderMessages();
+  updateStats();
+  refreshCharts();
+  renderAllKeywords();
+  botLog('🌟 應用程式啟動完成', 'success');
+  showToast('歡迎使用 Telegram 語音轉錄機器人!', 'success');
+
+  // periodic re-render to keep stats fresh
+  setInterval(() => {
+    updateStats();
+  }, 3000);
+
+  // redraw charts on window resize
+  window.addEventListener('resize', () => {
+    if (!document.getElementById('tab-dashboard').classList.contains('hidden')) {
+      refreshCharts();
+    }
+  });
+});
+
+// Add CSS keyframe for toast slide-in
+const style = document.createElement('style');
+style.textContent = `
+  @keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+`;
+document.head.appendChild(style);
+</script>
+
+</body>
+</html>

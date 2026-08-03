@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Async Crawler Dashboard — Raphael Hermes Agent</title>
+<style>
+  /* ============= 設計系統 ============= */
+  :root {
+    --bg-0: #0b0d12;
+    --bg-1: #12151c;
+    --bg-2: #1a1e28;
+    --bg-3: #232836;
+    --border: #2a3041;
+    --text-1: #e7ecf3;
+    --text-2: #aab2c0;
+    --text-3: #6b7280;
+    --accent: #4f8bff;
+    --accent-2: #6ad0ff;
+    --ok: #34d399;
+    --warn: #fbbf24;
+    --err: #f87171;
+    --retry: #c084fc;
+    --radius: 12px;
+    --shadow: 0 4px 24px rgba(0,0,0,0.4);
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg-0); color: var(--text-1); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", sans-serif; line-height: 1.55; }
+  a { color: var(--accent-2); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre, .mono { font-family: var(--mono); }
+
+  /* ============= 布局 ============= */
+  .app {
+    display: grid;
+    grid-template-columns: 1fr;
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 24px;
+    gap: 20px;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 24px; background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow);
+  }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: 0.2px; }
+  header h1 .sub { color: var(--text-3); font-weight: 400; font-size: 13px; margin-left: 10px; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 999px; font-size: 12px;
+    background: var(--bg-3); color: var(--text-2); border: 1px solid var(--border);
+  }
+  .badge .dot { width: 6px; height: 6px; border-radius: 999px; background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .badge .dot.err { background: var(--err); box-shadow: 0 0 6px var(--err); }
+
+  .grid {
+    display: grid; gap: 16px;
+    grid-template-columns: repeat(4, 1fr);
+  }
+  @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 520px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 18px 20px; box-shadow: var(--shadow);
+  }
+  .card h2 {
+    margin: 0 0 12px; font-size: 12px; font-weight: 500; color: var(--text-3);
+    text-transform: uppercase; letter-spacing: 0.8px;
+  }
+  .kpi .v { font-size: 32px; font-weight: 600; color: var(--text-1); line-height: 1.1; }
+  .kpi .v.ok { color: var(--ok); }
+  .kpi .v.warn { color: var(--warn); }
+  .kpi .v.err { color: var(--err); }
+  .kpi .v.retry { color: var(--retry); }
+  .kpi .l { font-size: 12px; color: var(--text-3); margin-top: 6px; }
+
+  .row { display: grid; gap: 16px; grid-template-columns: 1.2fr 0.8fr; }
+  @media (max-width: 900px) { .row { grid-template-columns: 1fr; } }
+
+  /* 表 */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-3); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--bg-2); }
+  .url { color: var(--accent-2); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle; }
+  .url:hover { white-space: normal; word-break: break-all; }
+
+  /* 狀態 chip */
+  .chip {
+    display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px;
+    font-family: var(--mono); font-weight: 500;
+  }
+  .chip.s2 { background: rgba(52, 211, 153, 0.15); color: var(--ok); }
+  .chip.s3 { background: rgba(107, 114, 128, 0.2); color: var(--text-2); }
+  .chip.s4 { background: rgba(251, 191, 36, 0.15); color: var(--warn); }
+  .chip.s5 { background: rgba(248, 113, 113, 0.15); color: var(--err); }
+  .chip.s0 { background: rgba(248, 113, 113, 0.1); color: var(--err); }
+
+  /* 進度條 */
+  .bar { background: var(--bg-3); border-radius: 6px; height: 8px; overflow: hidden; }
+  .bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+  .bar.ok > span { background: var(--ok); }
+  .bar.err > span { background: var(--err); }
+  .bar.retry > span { background: var(--retry); }
+
+  /* 流程圖(crawler 架構) */
+  .arch { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  @media (max-width: 700px) { .arch { grid-template-columns: 1fr 1fr; } }
+  .arch .step {
+    background: var(--bg-2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px; position: relative;
+  }
+  .arch .step .n {
+    position: absolute; top: -10px; left: 12px; width: 24px; height: 24px;
+    border-radius: 999px; background: var(--accent); color: white; font-size: 12px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 3px var(--bg-1);
+  }
+  .arch .step h3 { margin: 6px 0 4px; font-size: 14px; }
+  .arch .step p { margin: 0; font-size: 12px; color: var(--text-2); line-height: 1.4; }
+  .arch .step .key { margin-top: 8px; font-family: var(--mono); font-size: 11px; color: var(--accent-2); }
+
+  /* Timeline (retry backoff) */
+  .timeline { display: flex; align-items: flex-end; gap: 4px; height: 80px; padding-top: 8px; }
+  .timeline .b { flex: 1; background: var(--accent); border-radius: 4px 4px 0 0; min-width: 12px; position: relative; }
+  .timeline .b .l { position: absolute; bottom: -18px; left: 50%; transform: translateX(-50%); font-size: 10px; color: var(--text-3); white-space: nowrap; font-family: var(--mono); }
+  .timeline .b .v { position: absolute; top: -16px; left: 50%; transform: translateX(-50%); font-size: 10px; color: var(--text-2); font-family: var(--mono); }
+
+  /* retry animation 跑馬燈 */
+  .pulse {
+    display: inline-block; width: 8px; height: 8px; border-radius: 999px;
+    background: var(--retry); margin-right: 6px; vertical-align: middle;
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 0.4; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.2); } }
+
+  /* 模組樹 */
+  .tree { font-family: var(--mono); font-size: 12px; line-height: 1.7; color: var(--text-2); }
+  .tree .file { color: var(--accent-2); }
+  .tree .dir { color: var(--text-1); font-weight: 600; }
+  .tree .comment { color: var(--text-3); }
+
+  /* footer */
+  footer { padding: 16px 24px; text-align: center; color: var(--text-3); font-size: 12px; }
+  footer code { color: var(--accent-2); }
+
+  /* 互動:展開卡片 */
+  details { margin-top: 8px; }
+  details summary { cursor: pointer; color: var(--text-2); font-size: 12px; padding: 4px 0; }
+  details summary:hover { color: var(--text-1); }
+  details[open] summary { color: var(--text-1); }
+
+  .empty { color: var(--text-3); font-size: 12px; font-style: italic; padding: 12px 0; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Async Crawler Dashboard <span class="sub">Raphael Hermes Agent · learning_1785783608_2</span></h1>
+    <span class="badge" id="statusBadge"><span class="dot"></span>離線 demo 模式</span>
+  </header>
+
+  <!-- KPI 區 -->
+  <section class="grid">
+    <div class="card kpi">
+      <h2>成功頁數</h2>
+      <div class="v ok" id="kpiSuccess">—</div>
+      <div class="l" id="kpiSuccessSub">200 / 3xx 全部命中</div>
+    </div>
+    <div class="card kpi">
+      <h2>失敗頁數</h2>
+      <div class="v err" id="kpiErrors">—</div>
+      <div class="l" id="kpiErrorsSub">永久錯誤(4xx/解析失敗)</div>
+    </div>
+    <div class="card kpi">
+      <h2>重試次數</h2>
+      <div class="v retry" id="kpiRetries">—</div>
+      <div class="l"><span class="pulse"></span>指數回退觸發</div>
+    </div>
+    <div class="card kpi">
+      <h2>總耗時</h2>
+      <div class="v" id="kpiDuration">—</div>
+      <div class="l" id="kpiDurationSub">整個 BFS 跑完</div>
+    </div>
+  </section>
+
+  <!-- 架構圖 + 配置 -->
+  <section class="row">
+    <div class="card">
+      <h2>爬蟲架構(Worker-Pump BFS Frontie)</h2>
+      <div class="arch">
+        <div class="step">
+          <div class="n">1</div>
+          <h3>Seeds</h3>
+          <p>起始 URL 進入 asyncio.Queue</p>
+          <div class="key">frontier.put((url, 0))</div>
+        </div>
+        <div class="step">
+          <div class="n">2</div>
+          <h3>Pump Worker ×N</h3>
+          <p>併發消費 frontier → dedup → depth 檢查</p>
+          <div class="key">asyncio.create_task</div>
+        </div>
+        <div class="step">
+          <div class="n">3</div>
+          <h3>Retry + Rate Limit</h3>
+          <p>指數回退 + 429 Retry-After + per-host token bucket</p>
+          <div class="key">wait_exponential(0.05→1.0s)</div>
+        </div>
+        <div class="step">
+          <div class="n">4</div>
+          <h3>Parse + Enqueue</h3>
+          <p>bs4 抽連結 → 回 frontier (depth+1)</p>
+          <div class="key">BeautifulSoup &lt;a href&gt;</div>
+        </div>
+      </div>
+      <details>
+        <summary>看 5 個核心微技能模組</summary>
+        <div class="tree">
+          <div><span class="dir">async_crawler/</span></div>
+          <div>├── <span class="file">__init__.py</span>           <span class="comment">v1.0.0</span></div>
+          <div>├── <span class="file">retry.py</span>              <span class="comment"># #17 RetryPolicy + RateLimitedError + 429</span></div>
+          <div>├── <span class="file">deduper.py</span>            <span class="comment"># #61 URLDeduper + asyncio.Lock + 正規化</span></div>
+          <div>├── <span class="file">http_client.py</span>        <span class="comment"># #16 / #49 ClientSession + TCPConnector + error 分類</span></div>
+          <div>├── <span class="file">parser.py</span>             <span class="comment"># bs4 link extraction + title/preview</span></div>
+          <div>├── <span class="file">crawler.py</span>            <span class="comment"># Worker-Pump BFS Frontie + HostRateLimiter</span></div>
+          <div>└── <span class="file">stats.py</span>              <span class="comment"># per-host metrics + summary</span></div>
+        </div>
+      </details>
+    </div>
+
+    <div class="card">
+      <h2>本次執行配置</h2>
+      <div id="configBlock" style="font-family: var(--mono); font-size: 12.5px; line-height: 1.8; color: var(--text-2);">
+        <div class="empty">載入中…</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 結果表 + 重試 timeline -->
+  <section class="row">
+    <div class="card">
+      <h2>抓取結果 <span style="text-transform: none; color: var(--text-3); font-size: 11px;" id="resultCount"></span></h2>
+      <div style="overflow-x: auto; max-height: 480px; overflow-y: auto;">
+        <table id="resultsTable">
+          <thead>
+            <tr>
+              <th style="width: 32px;">d</th>
+              <th>URL</th>
+              <th style="width: 64px;">Status</th>
+              <th style="width: 60px;">嘗試</th>
+              <th style="width: 70px;">延遲</th>
+              <th>標題 / 預覽</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="6" class="empty">載入中…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>重試行為觀察</h2>
+      <p style="margin: 0 0 8px; font-size: 12px; color: var(--text-2);">每次失敗的等待時間(展示指數回退)</p>
+      <div class="timeline" id="retryTimeline">
+        <div class="empty">無重試資料</div>
+      </div>
+      <div style="margin-top: 28px;">
+        <p style="margin: 0 0 6px; font-size: 12px; color: var(--text-2);">永久錯誤 vs 暫時錯誤 vs 速率限制</p>
+        <div id="errorBreakdown" style="font-family: var(--mono); font-size: 12px;"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 來源 / 怎麼跑 -->
+  <section class="card">
+    <h2>怎麼跑這個 demo</h2>
+    <pre style="margin: 0; padding: 14px 16px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px; font-size: 12.5px; overflow-x: auto; line-height: 1.7;"><code><span style="color: var(--text-3);"># 安裝依賴(本環境已有)</span>
+pip install aiohttp beautifulsoup4
+
+<span style="color: var(--text-3);"># 跑單元測試(retry + deduper 共 10 個 case)</span>
+python3 test_retry.py
+python3 test_deduper.py
+
+<span style="color: var(--text-3);"># 跑整合測試(本地 server + 端對端 BFS,驗證重試/dedup/錯誤分類)</span>
+python3 integration_test.py
+
+<span style="color: var(--text-3);"># 跑完整 demo(啟動 mock site,跑 25 頁 BFS,存 JSON 報告)</span>
+python3 demo.py
+
+<span style="color: var(--text-3);"># 直接拿來用</span>
+python3 -c "
+import asyncio
+from async_crawler import Crawler, AsyncHTTPClient, ClientConfig, CrawlerConfig, RetryPolicy
+
+async def main():
+    async with AsyncHTTPClient(ClientConfig()) as http:
+        crawler = Crawler(
+            http,
+            CrawlerConfig(max_pages=50, max_depth=2, concurrency=8),
+            RetryPolicy(max_attempts=5, initial_wait=0.5, multiplier=2.0, jitter=0.2),
+        )
+        results = await crawler.crawl(['https://example.com'])
+        for r in results:
+            print(r.status, r.url, r.attempts)
+
+asyncio.run(main())
+"</code></pre>
+    <p style="margin: 12px 0 0; font-size: 12px; color: var(--text-3);">
+      所有檔案位於 <code style="color: var(--accent-2);">/home/hoonsoropenclaw/.hermes/projects/learning_1785783608_2/</code>
+      · 資料輸出在 <code style="color: var(--accent-2);">data/crawl_report.json</code>
+    </p>
+  </section>
+</div>
+
+<footer>
+  設計系統 · 暗色 Glass · Inter-style stack · 單檔可離線開啟 ·
+  <code>web_output.html</code> 由 Raphael Hermes Agent 自動生成
+</footer>
+
+<script>
+// ============= Demo 模式:內嵌最近的 demo 結果 =============
+// 真實部署時,把這段換成 fetch('data/crawl_report.json') 即可。
+// 為了讓 web_output.html 離線可用,這裡直接 embed 一份。
+
+const EMBEDDED_REPORT = {"config": {"base_url": "http://127.0.0.1:32883", "max_depth": 3, "max_pages": 25, "concurrency": 4, "retry": {"max_attempts": 4, "initial_wait": 0.05, "max_wait": 1.0, "multiplier": 2.0}}, "stats": {"duration_s": 0.27, "success": 10, "errors": 2, "retries": 2, "hosts": [{"host": "127.0.0.1:32883", "requests": 12, "errors": 2, "avg_latency_ms": 15.0, "status_codes": {"200": 10}}]}, "elapsed_s": 0.27, "results": [{"url": "http://127.0.0.1:32883/", "status": 200, "title": "Raphael Async Crawler Demo", "preview": "Raphael Async Crawler Demo Asyncio Crawler Demo Home About Products Blog Post 1 Blog Post 2 Flaky endpoint (fails 2x then OK) Missing (404) Forbidden (403) About (duplicate, dedup test) Visit /blog for nested crawl test.", "depth": 0, "attempts": 1, "latency_ms": 3.5, "error": null}, {"url": "http://127.0.0.1:32883/about", "status": 200, "title": "About", "preview": "About About page. We make async crawlers.", "depth": 1, "attempts": 1, "latency_ms": 2.2, "error": null}, {"url": "http://127.0.0.1:32883/products", "status": 200, "title": "Products", "preview": "Products Widget A Widget B", "depth": 1, "attempts": 1, "latency_ms": 3.7, "error": null}, {"url": "http://127.0.0.1:32883/blog/post-1", "status": 200, "title": "Post post-1", "preview": "Post post-1 Blog post post-1 content", "depth": 1, "attempts": 1, "latency_ms": 3.3, "error": null}, {"url": "http://127.0.0.1:32883/blog/post-2", "status": 200, "title": "Post post-2", "preview": "Post post-2 Blog post post-2 content", "depth": 1, "attempts": 1, "latency_ms": 3.7, "error": null}, {"url": "http://127.0.0.1:32883/missing", "status": 404, "title": "", "preview": "", "depth": 1, "attempts": 1, "latency_ms": 2.3, "error": "404 from http://127.0.0.1:32883/missing"}, {"url": "http://127.0.0.1:32883/forbidden", "status": 403, "title": "", "preview": "", "depth": 1, "attempts": 1, "latency_ms": 1.7, "error": "403 from http://127.0.0.1:32883/forbidden"}, {"url": "http://127.0.0.1:32883/blog", "status": 200, "title": "Blog", "preview": "Blog Post 1 Post 2 Post 3 (deep)", "depth": 1, "attempts": 1, "latency_ms": 4.3, "error": null}, {"url": "http://127.0.0.1:32883/products/widget-a", "status": 200, "title": "widget-a", "preview": "widget-a Product: widget-a", "depth": 2, "attempts": 1, "latency_ms": 2.5, "error": null}, {"url": "http://127.0.0.1:32883/products/widget-b", "status": 200, "title": "widget-b", "preview": "widget-b Product: widget-b", "depth": 2, "attempts": 1, "latency_ms": 3.5, "error": null}, {"url": "http://127.0.0.1:32883/blog/post-3", "status": 200, "title": "Post post-3", "preview": "Post post-3 Blog post post-3 content", "depth": 2, "attempts": 1, "latency_ms": 3.2, "error": null}, {"url": "http://127.0.0.1:32883/flaky", "status": 200, "title": "Flaky", "preview": "Flaky Finally OK!", "depth": 1, "attempts": 3, "latency_ms": 164.2, "error": null}]};
+
+function fmtStatus(s) {
+  if (s === 0) return '<span class="chip s0">FAIL</span>';
+  if (s >= 200 && s < 300) return `<span class="chip s2">${s}</span>`;
+  if (s >= 300 && s < 400) return `<span class="chip s3">${s}</span>`;
+  if (s >= 400 && s < 500) return `<span class="chip s4">${s}</span>`;
+  if (s >= 500) return `<span class="chip s5">${s}</span>`;
+  return `<span class="chip s0">${s}</span>`;
+}
+
+function render() {
+  const r = EMBEDDED_REPORT;
+  if (!r || !r.stats) {
+    document.getElementById('statusBadge').innerHTML =
+      '<span class="dot err"></span>無資料';
+    return;
+  }
+  // 狀態
+  document.getElementById('statusBadge').innerHTML =
+    '<span class="dot"></span>Demo 模式 · 內嵌資料';
+
+  // KPI
+  document.getElementById('kpiSuccess').textContent = r.stats.success;
+  document.getElementById('kpiSuccessSub').textContent =
+    `${r.results.filter(x => x.status >= 200 && x.status < 300).length} 個 2xx`;
+  document.getElementById('kpiErrors').textContent = r.stats.errors;
+  const errs = r.results.filter(x => x.error);
+  document.getElementById('kpiErrorsSub').textContent =
+    errs.length ? errs[0].error.split(':')[0] : '本次無永久錯誤';
+  document.getElementById('kpiRetries').textContent = r.stats.retries;
+  document.getElementById('kpiDuration').textContent = r.elapsed_s + 's';
+  document.getElementById('kpiDurationSub').textContent =
+    `每頁平均 ${(r.elapsed_s * 1000 / r.results.length).toFixed(1)}ms`;
+
+  // 配置
+  const cfg = r.config;
+  document.getElementById('configBlock').innerHTML = `
+    <div>base_url: <span style="color: var(--accent-2)">${cfg.base_url}</span></div>
+    <div>max_depth: <b>${cfg.max_depth}</b> · max_pages: <b>${cfg.max_pages}</b> · concurrency: <b>${cfg.concurrency}</b></div>
+    <div>retry: attempts=<b>${cfg.retry.max_attempts}</b> initial=${cfg.retry.initial_wait}s max=${cfg.retry.max_wait}s mult=${cfg.retry.multiplier}</div>
+    <div>hosts: <b>${r.stats.hosts.length}</b> · unique URLs 去重後</div>
+  `;
+
+  // 結果表
+  const tbody = document.querySelector('#resultsTable tbody');
+  if (r.results.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">無結果</td></tr>';
+  } else {
+    tbody.innerHTML = r.results.map(x => {
+      const stChip = x.status === 0
+        ? '<span class="chip s0">—</span>'
+        : fmtStatus(x.status);
+      const titleOrErr = x.error
+        ? `<span style="color: var(--err)">${x.error}</span>`
+        : `<b>${x.title || '(無標題)'}</b><br><span style="color: var(--text-3); font-size: 11px;">${(x.preview || '').slice(0, 80)}…</span>`;
+      return `<tr>
+        <td><span class="chip s3">d${x.depth}</span></td>
+        <td><a class="url" href="${x.url}" target="_blank">${x.url}</a></td>
+        <td>${stChip}</td>
+        <td><b>${x.attempts}</b></td>
+        <td>${x.latency_ms}ms</td>
+        <td>${titleOrErr}</td>
+      </tr>`;
+    }).join('');
+  }
+  document.getElementById('resultCount').textContent = `(${r.results.length})`;
+
+  // Retry timeline: 模擬指數回退 (展示用)
+  // 假設 retry 序列:0.05 → 0.1 → 0.2 → 0.4(對應 4 attempts 的 backoff)
+  const retryPolicy = cfg.retry;
+  const attempts = retryPolicy.max_attempts;
+  const waits = [];
+  let cur = retryPolicy.initial_wait;
+  for (let i = 1; i < attempts; i++) {
+    waits.push(cur);
+    cur = Math.min(cur * retryPolicy.multiplier, retryPolicy.max_wait);
+  }
+  const maxW = Math.max(...waits, 0.1);
+  const tl = document.getElementById('retryTimeline');
+  if (waits.length === 0) {
+    tl.innerHTML = '<div class="empty">無重試(全部第一次就成功)</div>';
+  } else {
+    tl.innerHTML = waits.map((w, i) => `
+      <div class="b" style="height: ${(w / maxW) * 60 + 8}px;" title="第 ${i+1} 次失敗後等 ${w}s">
+        <span class="v">${w}s</span>
+        <span class="l">#${i+1}</span>
+      </div>
+    `).join('');
+  }
+
+  // Error breakdown
+  const errsByType = {};
+  r.results.forEach(x => {
+    if (x.error) {
+      const k = x.error.split(':')[0];
+      errsByType[k] = (errsByType[k] || 0) + 1;
+    }
+  });
+  const ebEl = document.getElementById('errorBreakdown');
+  if (Object.keys(errsByType).length === 0) {
+    ebEl.innerHTML = '<span style="color: var(--ok)">✓ 本次無錯誤</span>';
+  } else {
+    ebEl.innerHTML = Object.entries(errsByType).map(([k, v]) =>
+      `<div><span style="color: var(--err)">${k}</span>: ${v} 個</div>`
+    ).join('');
+  }
+}
+
+// 啟動
+document.addEventListener('DOMContentLoaded', render);
+</script>
+</body>
+</html>

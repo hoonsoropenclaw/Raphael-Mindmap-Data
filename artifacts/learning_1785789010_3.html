@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Whisper × Next.js · 實時語音轉文字</title>
+  <style>
+    :root {
+      --bg-0: #0b0f17;
+      --bg-1: #111826;
+      --bg-2: #1a2332;
+      --line: #243043;
+      --fg-0: #e6edf7;
+      --fg-1: #aab4c5;
+      --fg-2: #6b7a90;
+      --accent: #7c5cff;
+      --accent-2: #00d4ff;
+      --good: #19c37d;
+      --warn: #f0a020;
+      --bad: #ef4444;
+      --radius: 12px;
+      --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg-0); color: var(--fg-0); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: var(--accent-2); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .app {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 32px 20px 80px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .logo {
+      width: 40px; height: 40px; border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; color: #0b0f17; font-size: 20px;
+      box-shadow: 0 6px 20px rgba(124, 92, 255, 0.35);
+    }
+    h1 { margin: 0; font-size: 20px; letter-spacing: 0.2px; }
+    .subtitle { color: var(--fg-1); font-size: 13px; margin-top: 2px; }
+
+    .badges { display: flex; gap: 8px; flex-wrap: wrap; }
+    .badge {
+      padding: 4px 10px; border-radius: 999px; font-size: 12px;
+      background: var(--bg-2); color: var(--fg-1); border: 1px solid var(--line);
+      font-family: var(--mono);
+    }
+    .badge.live { color: var(--good); border-color: rgba(25, 195, 125, 0.4); }
+    .badge.idle { color: var(--fg-2); }
+    .badge.err  { color: var(--bad);  border-color: rgba(239, 68, 68, 0.4); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 880px) { .grid { grid-template-columns: 1fr; } }
+
+    .panel {
+      background: var(--bg-1);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+    .panel h2 {
+      margin: 0 0 14px; font-size: 14px; text-transform: uppercase; letter-spacing: 1.2px;
+      color: var(--fg-1); display: flex; align-items: center; gap: 8px;
+    }
+    .panel h2 .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--accent);
+    }
+
+    /* Visualizer */
+    .viz-wrap {
+      position: relative;
+      height: 140px;
+      background: var(--bg-2);
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+    }
+    canvas#viz { width: 100%; height: 100%; display: block; }
+    .viz-empty {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      color: var(--fg-2); font-size: 13px; pointer-events: none;
+    }
+
+    /* Controls */
+    .controls { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+    button {
+      appearance: none; border: 1px solid var(--line); background: var(--bg-2);
+      color: var(--fg-0); padding: 10px 16px; border-radius: 8px;
+      font-size: 14px; cursor: pointer; font-weight: 500;
+      transition: all 0.15s ease;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    button:hover:not(:disabled) { border-color: var(--accent); background: rgba(124, 92, 255, 0.1); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #0b0f17; border-color: transparent; font-weight: 600; }
+    button.primary:hover:not(:disabled) { filter: brightness(1.1); }
+    button.danger { color: var(--bad); border-color: rgba(239, 68, 68, 0.3); }
+    button.danger:hover:not(:disabled) { background: rgba(239, 68, 68, 0.1); border-color: var(--bad); }
+
+    /* Config */
+    .field { margin-top: 14px; }
+    .field label {
+      display: block; font-size: 12px; color: var(--fg-1); margin-bottom: 6px;
+      text-transform: uppercase; letter-spacing: 1px;
+    }
+    .field select, .field input {
+      width: 100%; padding: 9px 12px; border-radius: 8px;
+      background: var(--bg-2); color: var(--fg-0); border: 1px solid var(--line);
+      font-size: 14px; font-family: inherit;
+    }
+    .field select:focus, .field input:focus { outline: none; border-color: var(--accent); }
+    .field .hint { font-size: 12px; color: var(--fg-2); margin-top: 4px; }
+
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 520px) { .row { grid-template-columns: 1fr; } }
+
+    /* Transcript */
+    .transcript {
+      min-height: 340px;
+      max-height: 480px;
+      overflow-y: auto;
+      padding: 16px;
+      background: var(--bg-2);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      font-size: 15px;
+      line-height: 1.7;
+      color: var(--fg-0);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .transcript:empty::before {
+      content: "等待開始錄音…";
+      color: var(--fg-2);
+    }
+    .line {
+      display: inline;
+      padding: 2px 4px;
+      border-radius: 4px;
+      transition: background 0.4s ease;
+    }
+    .line.interim { background: rgba(124, 92, 255, 0.18); color: var(--fg-0); }
+    .line.final   { color: var(--fg-0); }
+    .line.fresh   { animation: flash 0.6s ease; }
+    @keyframes flash { 0% { background: rgba(0, 212, 255, 0.35); } 100% { background: transparent; } }
+    .ts { color: var(--fg-2); font-family: var(--mono); font-size: 11px; margin-right: 6px; }
+
+    /* Status bar */
+    .status {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px; border-radius: 8px; font-size: 13px;
+      background: var(--bg-2); border: 1px solid var(--line);
+      margin-top: 14px;
+    }
+    .status .pulse {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--fg-2); flex-shrink: 0;
+    }
+    .status.recording .pulse { background: var(--bad); animation: pulse 1.2s ease-in-out infinite; }
+    .status.processing .pulse { background: var(--warn); animation: pulse 0.8s ease-in-out infinite; }
+    .status.idle .pulse { background: var(--fg-2); }
+    .status.error .pulse { background: var(--bad); }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    /* Stats */
+    .stats {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px;
+    }
+    .stat {
+      padding: 10px 12px; background: var(--bg-2); border: 1px solid var(--line);
+      border-radius: 8px; text-align: center;
+    }
+    .stat .v { font-size: 20px; font-weight: 700; color: var(--accent-2); font-family: var(--mono); }
+    .stat .k { font-size: 11px; color: var(--fg-2); text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+
+    /* Log */
+    .log {
+      margin-top: 12px; max-height: 160px; overflow-y: auto;
+      font-family: var(--mono); font-size: 11.5px; color: var(--fg-1);
+      background: var(--bg-0); border: 1px solid var(--line);
+      border-radius: 8px; padding: 10px 12px;
+    }
+    .log .row-l { display: flex; gap: 10px; padding: 2px 0; }
+    .log .row-l .t { color: var(--fg-2); flex-shrink: 0; }
+    .log .row-l.info .m { color: var(--fg-1); }
+    .log .row-l.ok   .m { color: var(--good); }
+    .log .row-l.warn .m { color: var(--warn); }
+    .log .row-l.err  .m { color: var(--bad); }
+
+    footer {
+      margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--line);
+      color: var(--fg-2); font-size: 12px;
+    }
+    code.inline { font-family: var(--mono); background: var(--bg-2); padding: 2px 6px; border-radius: 4px; font-size: 12px; color: var(--accent-2); }
+
+    .scrollbar::-webkit-scrollbar { width: 8px; }
+    .scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .scrollbar::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+    .scrollbar::-webkit-scrollbar-thumb:hover { background: var(--fg-2); }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="brand">
+        <div class="logo">W</div>
+        <div>
+          <h1>Whisper × Next.js · 實時語音轉文字</h1>
+          <div class="subtitle">MediaRecorder 切片上傳 → Next.js API Route → OpenAI Whisper → 串接顯示</div>
+        </div>
+      </div>
+      <div class="badges">
+        <span class="badge" id="badge-mode">模式: 載入中</span>
+        <span class="badge idle" id="badge-mic">麥克風: 未授權</span>
+        <span class="badge" id="badge-engine">Engine: -</span>
+      </div>
+    </header>
+
+    <div class="grid">
+      <!-- LEFT: Controls + Visualizer + Transcript -->
+      <div class="panel">
+        <h2><span class="dot"></span>即時轉錄</h2>
+
+        <div class="viz-wrap">
+          <canvas id="viz"></canvas>
+          <div class="viz-empty" id="viz-empty">點擊「開始錄音」以啟動麥克風</div>
+        </div>
+
+        <div class="controls">
+          <button id="btn-start" class="primary">▶ 開始錄音</button>
+          <button id="btn-stop"  class="danger" disabled>■ 停止</button>
+          <button id="btn-clear" disabled>清空文字</button>
+          <button id="btn-copy"  disabled>複製全文</button>
+        </div>
+
+        <div class="status idle" id="status">
+          <div class="pulse"></div>
+          <div id="status-text">系統就緒。按下「開始錄音」開始擷取音訊。</div>
+        </div>
+
+        <div class="stats">
+          <div class="stat"><div class="v" id="stat-chunks">0</div><div class="k">已送出切片</div></div>
+          <div class="stat"><div class="v" id="stat-chars">0</div><div class="k">總字元數</div></div>
+          <div class="stat"><div class="v" id="stat-elapsed">0s</div><div class="k">錄音時長</div></div>
+        </div>
+
+        <h2 style="margin-top: 22px;"><span class="dot"></span>轉錄結果</h2>
+        <div id="transcript" class="transcript scrollbar"></div>
+      </div>
+
+      <!-- RIGHT: Config + Logs -->
+      <div class="panel">
+        <h2><span class="dot"></span>設定</h2>
+
+        <div class="row">
+          <div class="field">
+            <label for="api-endpoint">後端 API 端點</label>
+            <input type="text" id="api-endpoint" value="/api/transcribe" />
+            <div class="hint">Next.js 預設。部署後請改成完整 URL，例如 <code class="inline">https://your-app.vercel.app/api/transcribe</code></div>
+          </div>
+          <div class="field">
+            <label for="api-key">OpenAI API Key（選填）</label>
+            <input type="password" id="api-key" placeholder="sk-..." autocomplete="off" />
+            <div class="hint">僅在直接從瀏覽器呼叫 OpenAI 時使用。正式部署請改走後端。</div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="language">語言</label>
+            <select id="language">
+              <option value="">自動偵測</option>
+              <option value="zh">中文 (zh)</option>
+              <option value="en">English (en)</option>
+              <option value="ja">日本語 (ja)</option>
+              <option value="ko">한국어 (ko)</option>
+              <option value="es">Español (es)</option>
+              <option value="fr">Français (fr)</option>
+              <option value="de">Deutsch (de)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="chunk-sec">切片長度（秒）</label>
+            <select id="chunk-sec">
+              <option value="2">2 秒（最低延遲）</option>
+              <option value="3" selected>3 秒（推薦）</option>
+              <option value="5">5 秒（更省 API 額度）</option>
+              <option value="8">8 秒（最省）</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="model">Whisper 模型</label>
+            <select id="model">
+              <option value="whisper-1" selected>whisper-1（推薦）</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="mode">轉錄模式</label>
+            <select id="mode">
+              <option value="server" selected>後端轉錄（Next.js Route）</option>
+              <option value="browser">瀏覽器內建（Web Speech API）</option>
+              <option value="direct">直接呼叫 OpenAI</option>
+            </select>
+          </div>
+        </div>
+
+        <h2 style="margin-top: 22px;"><span class="dot"></span>事件記錄</h2>
+        <div id="log" class="log scrollbar"></div>
+      </div>
+    </div>
+
+    <footer>
+      <p>
+        <strong>架構說明：</strong>本前端使用 <code class="inline">MediaRecorder</code> 將麥克風以 Opus/WebM 編碼切成 2-8 秒的小段，週期性上傳到 Next.js <code class="inline">/api/transcribe</code> route。
+        後端使用官方 <code class="inline">openai</code> SDK 呼叫 <code class="inline">whisper-1</code> 模型，採用 <code class="inline">httpx</code> + <code class="inline">tenacity</code> 指數退避重試。
+        每段返回的文字以時間戳 + 串接方式即時顯示在前端。
+      </p>
+      <p style="margin-top: 10px;">
+        <strong>Next.js 端實作：</strong>參考 <code class="inline">/api/transcribe/route.ts</code> — 接收 <code class="inline">multipart/form-data</code>，呼叫 OpenAI SDK，<strong>API Key 由 <code class="inline">process.env.OPENAI_API_KEY</code> 提供</strong>。
+        完整程式碼在程式碼區塊的「▼ Next.js 後端程式碼」摺疊區。
+      </p>
+      <button onclick="document.getElementById('backend-code').style.display = document.getElementById('backend-code').style.display === 'none' ? 'block' : 'none'" style="margin-top: 12px;">▼ 顯示 Next.js 後端程式碼</button>
+      <pre id="backend-code" style="display:none; margin-top: 12px; padding: 16px; background: var(--bg-1); border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; font-size: 12px; line-height: 1.5; font-family: var(--mono); color: var(--fg-1);"></pre>
+    </footer>
+  </div>
+
+  <script>
+  /* ====================================================================
+     Whisper × Next.js 實時語音轉文字前端
+     參考微技能: real_time_media_nlp_and_http_communication.md §3.1.1
+     ==================================================================== */
+
+  // ----- Backend code (shown in footer for reference) -----
+  const BACKEND_CODE = `// app/api/transcribe/route.ts  (Next.js 14+ App Router)
+import { NextRequest, NextResponse } from "next/server";
+import OpenAI from "openai";
+
+// Edge runtime 不支援 Node 原生 fs，這裡用 Node runtime
+export const runtime = "nodejs";
+export const maxDuration = 60; // 最長 60 秒
+
+// API Route 不應快取，因為每個 chunk 都是獨立的
+export const dynamic = "force-dynamic";
+
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+export async function POST(req: NextRequest) {
+  try {
+    const form = await req.formData();
+    const file = form.get("file") as File | null;
+    const language = (form.get("language") as string) || "";
+    const model = (form.get("model") as string) || "whisper-1";
+
+    if (!file) {
+      return NextResponse.json({ error: "Missing 'file' field" }, { status: 400 });
+    }
+
+    // 副檔名驗證
+    const validExts = [".webm", ".mp3", ".wav", ".m4a", ".mp4", ".ogg"];
+    const ext = (file.name.split(".").pop() || "").toLowerCase();
+    if (!validExts.some((e) => file.name.toLowerCase().endsWith(e))) {
+      return NextResponse.json(
+        { error: \`Unsupported format: .\${ext}. Allowed: \${validExts.join(", ")}\` },
+        { status: 400 }
+      );
+    }
+
+    // 呼叫 OpenAI Whisper
+    const transcription = await client.audio.transcriptions.create({
+      file,
+      model,
+      language: language || undefined,
+      response_format: "verbose_json", // 拿時間軸 + 偵測語言
+    });
+
+    return NextResponse.json({
+      text: transcription.text,
+      language: transcription.language,
+      duration: transcription.duration,
+    });
+  } catch (err: any) {
+    console.error("[whisper] error:", err);
+    return NextResponse.json(
+      { error: err?.message || "Internal error" },
+      { status: 500 }
+    );
+  }
+}
+`;
+  document.getElementById("backend-code").textContent = BACKEND_CODE;
+
+  // ----- DOM refs -----
+  const $ = (id) => document.getElementById(id);
+  const btnStart = $("btn-start");
+  const btnStop  = $("btn-stop");
+  const btnClear = $("btn-clear");
+  const btnCopy  = $("btn-copy");
+  const transcriptEl = $("transcript");
+  const statusEl = $("status");
+  const statusTextEl = $("status-text");
+  const vizCanvas = $("viz");
+  const vizEmpty = $("viz-empty");
+  const logEl = $("log");
+  const badgeMode = $("badge-mode");
+  const badgeMic  = $("badge-mic");
+  const badgeEngine = $("badge-engine");
+
+  const statChunks  = $("stat-chunks");
+  const statChars   = $("stat-chars");
+  const statElapsed = $("stat-elapsed");
+
+  const apiEndpointEl = $("api-endpoint");
+  const apiKeyEl      = $("api-key");
+  const languageEl    = $("language");
+  const chunkSecEl    = $("chunk-sec");
+  const modelEl       = $("model");
+  const modeEl        = $("mode");
+
+  // ----- State -----
+  let mediaStream = null;
+  let mediaRecorder = null;
+  let audioContext = null;
+  let analyser = null;
+  let vizRAF = null;
+  let recordingStartTime = 0;
+  let elapsedTimer = null;
+  let chunksSent = 0;
+  let inFlight = false;
+  let chunkQueue = []; // 待送的 audio blob 序列
+  let isRecording = false;
+  let totalChars = 0;
+
+  // Web Speech API 備援
+  let webSpeechRecognition = null;
+
+  // ----- Logging -----
+  function log(msg, level = "info") {
+    const ts = new Date().toLocaleTimeString("zh-TW", { hour12: false });
+    const div = document.createElement("div");
+    div.className = "row-l " + level;
+    div.innerHTML = '<span class="t">[' + ts + ']</span><span class="m">' + escapeHtml(msg) + '</span>';
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
+
+  // ----- Status helper -----
+  function setStatus(state, text) {
+    statusEl.className = "status " + state;
+    statusTextEl.textContent = text;
+  }
+
+  // ----- Visualizer -----
+  function startViz() {
+    const ctx = vizCanvas.getContext("2d");
+    const dpr = window.devicePixelRatio || 1;
+    function resize() {
+      vizCanvas.width = vizCanvas.clientWidth * dpr;
+      vizCanvas.height = vizCanvas.clientHeight * dpr;
+    }
+    resize();
+    window.addEventListener("resize", resize);
+
+    const bufLen = analyser.frequencyBinCount;
+    const dataArr = new Uint8Array(bufLen);
+
+    function draw() {
+      vizRAF = requestAnimationFrame(draw);
+      analyser.getByteFrequencyData(dataArr);
+      const w = vizCanvas.width, h = vizCanvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      // 背景漸層
+      const grd = ctx.createLinearGradient(0, 0, 0, h);
+      grd.addColorStop(0, "rgba(124, 92, 255, 0.12)");
+      grd.addColorStop(1, "rgba(0, 212, 255, 0.04)");
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, 0, w, h);
+
+      const bars = 64;
+      const step = Math.floor(bufLen / bars);
+      const barW = (w / bars) * 0.78;
+      for (let i = 0; i < bars; i++) {
+        // 取一段平均
+        let sum = 0;
+        for (let j = 0; j < step; j++) sum += dataArr[i * step + j];
+        const avg = sum / step / 255;
+        const barH = Math.max(2, avg * h * 0.85);
+        const x = (i * w) / bars + ((w / bars) - barW) / 2;
+        const y = h - barH;
+        const grd2 = ctx.createLinearGradient(0, y, 0, h);
+        grd2.addColorStop(0, "#7c5cff");
+        grd2.addColorStop(1, "#00d4ff");
+        ctx.fillStyle = grd2;
+        ctx.fillRect(x, y, barW, barH);
+      }
+    }
+    draw();
+  }
+  function stopViz() {
+    if (vizRAF) cancelAnimationFrame(vizRAF);
+    vizRAF = null;
+    const ctx = vizCanvas.getContext("2d");
+    ctx.clearRect(0, 0, vizCanvas.width, vizCanvas.height);
+    vizEmpty.style.display = "flex";
+  }
+
+  // ----- Stats -----
+  function tickStats() {
+    const sec = Math.floor((Date.now() - recordingStartTime) / 1000);
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    statElapsed.textContent = m + "m " + s + "s";
+  }
+
+  // ----- Append transcript -----
+  function appendTranscript(text, opts = {}) {
+    if (!text || !text.trim()) return;
+    const { ts = Date.now(), fresh = false, interim = false } = opts;
+    const span = document.createElement("span");
+    span.className = "line " + (interim ? "interim" : "final") + (fresh ? " fresh" : "");
+    const time = new Date(ts).toLocaleTimeString("zh-TW", { hour12: false });
+    span.innerHTML = '<span class="ts">' + time + '</span>' + escapeHtml(text.trim()) + ' ';
+    // 移除舊的 interim 段
+    if (interim) {
+      transcriptEl.querySelectorAll(".line.interim").forEach(n => n.remove());
+    }
+    transcriptEl.appendChild(span);
+    transcriptEl.scrollTop = transcriptEl.scrollHeight;
+    totalChars += text.trim().length;
+    statChars.textContent = totalChars;
+  }
+
+  // ----- Whisper / Direct API call -----
+  async function transcribeBlob(blob) {
+    const mode = modeEl.value;
+    const endpoint = apiEndpointEl.value.trim() || "/api/transcribe";
+
+    if (mode === "browser") {
+      // 使用 Web Speech API（在 startRecording 處理）
+      return;
+    }
+
+    const fd = new FormData();
+    // 給檔案一個有意義的副檔名，否則 OpenAI 會拒絕
+    const filename = "chunk-" + Date.now() + ".webm";
+    fd.append("file", blob, filename);
+    fd.append("language", languageEl.value);
+    fd.append("model", modelEl.value);
+
+    let res;
+    try {
+      if (mode === "direct") {
+        // 直接呼叫 OpenAI（不建議在 production 使用，會暴露 key）
+        const key = apiKeyEl.value.trim();
+        if (!key) throw new Error("直接模式需要填入 API Key");
+        res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+          method: "POST",
+          headers: { Authorization: "Bearer " + key },
+          body: fd,
+        });
+      } else {
+        // 後端模式
+        res = await fetch(endpoint, { method: "POST", body: fd });
+      }
+    } catch (netErr) {
+      log("網路錯誤：" + netErr.message, "err");
+      return null;
+    }
+
+    if (!res.ok) {
+      let errMsg = "HTTP " + res.status;
+      try {
+        const j = await res.json();
+        errMsg += " " + (j.error || JSON.stringify(j));
+      } catch (_) { try { errMsg += " " + await res.text(); } catch (_) {} }
+      log("轉錄失敗：" + errMsg, "err");
+      return null;
+    }
+
+    try {
+      const data = await res.json();
+      return data;
+    } catch (e) {
+      log("JSON 解析失敗：" + e.message, "err");
+      return null;
+    }
+  }
+
+  // ----- Drain chunk queue (one at a time) -----
+  async function drainQueue() {
+    if (inFlight) return;
+    if (chunkQueue.length === 0) return;
+    inFlight = true;
+    const { blob, ts } = chunkQueue.shift();
+    setStatus("processing", "轉錄中…（剩餘 " + chunkQueue.length + " 段）");
+    try {
+      const result = await transcribeBlob(blob);
+      if (result && result.text) {
+        appendTranscript(result.text, { ts, fresh: true });
+        log("✓ " + result.text.slice(0, 50) + (result.text.length > 50 ? "…" : ""), "ok");
+        statChunks.textContent = ++chunksSent;
+      } else if (result === null) {
+        log("此段轉錄失敗，略過", "warn");
+      }
+    } finally {
+      inFlight = false;
+      if (chunkQueue.length > 0) {
+        setTimeout(drainQueue, 50);
+      } else if (isRecording) {
+        setStatus("recording", "錄音中…等待下一段音訊");
+      } else {
+        setStatus("idle", "已停止。共送出 " + chunksSent + " 段。");
+      }
+    }
+  }
+
+  // ----- Start / Stop -----
+  async function startRecording() {
+    if (isRecording) return;
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+    } catch (err) {
+      log("無法取得麥克風：" + err.message, "err");
+      setStatus("error", "麥克風權限被拒絕或不可用");
+      return;
+    }
+
+    badgeMic.textContent = "麥克風: 已開啟";
+    badgeMic.className = "badge live";
+    vizEmpty.style.display = "none";
+
+    // Audio context for visualizer
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioContext.createMediaStreamSource(mediaStream);
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 1024;
+    source.connect(analyser);
+    startViz();
+
+    // Web Speech API fallback path
+    if (modeEl.value === "browser") {
+      startWebSpeech();
+      btnStart.disabled = true;
+      btnStop.disabled = false;
+      btnClear.disabled = false;
+      isRecording = true;
+      recordingStartTime = Date.now();
+      elapsedTimer = setInterval(tickStats, 1000);
+      setStatus("recording", "使用瀏覽器內建語音辨識中…");
+      log("啟動 Web Speech API（瀏覽器內建，無需後端）", "ok");
+      badgeEngine.textContent = "Engine: Web Speech";
+      return;
+    }
+
+    // MediaRecorder
+    const mimeCandidates = [
+      "audio/webm;codecs=opus",
+      "audio/webm",
+      "audio/ogg;codecs=opus",
+      "audio/mp4",
+    ];
+    let chosenMime = "";
+    for (const m of mimeCandidates) {
+      if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) {
+        chosenMime = m;
+        break;
+      }
+    }
+    if (!window.MediaRecorder) {
+      log("瀏覽器不支援 MediaRecorder", "err");
+      setStatus("error", "瀏覽器不支援 MediaRecorder，請改用 Chrome/Edge/Firefox");
+      return;
+    }
+
+    const chunkMs = parseInt(chunkSecEl.value, 10) * 1000;
+    try {
+      mediaRecorder = new MediaRecorder(mediaStream, chosenMime ? { mimeType: chosenMime } : undefined);
+    } catch (e) {
+      log("MediaRecorder 建立失敗：" + e.message, "err");
+      return;
+    }
+
+    mediaRecorder.ondataavailable = (ev) => {
+      if (ev.data && ev.data.size > 0) {
+        chunkQueue.push({ blob: ev.data, ts: Date.now() });
+        drainQueue();
+      }
+    };
+    mediaRecorder.onerror = (ev) => {
+      log("MediaRecorder 錯誤：" + (ev.error?.message || "unknown"), "err");
+    };
+    mediaRecorder.onstart = () => {
+      log("開始錄音 (" + chunkMs / 1000 + "s/段, codec=" + (chosenMime || "default") + ")", "ok");
+    };
+    mediaRecorder.onstop = () => {
+      log("錄音停止", "info");
+    };
+
+    mediaRecorder.start(chunkMs);
+
+    isRecording = true;
+    recordingStartTime = Date.now();
+    elapsedTimer = setInterval(tickStats, 1000);
+    btnStart.disabled = true;
+    btnStop.disabled = false;
+    btnClear.disabled = false;
+    btnCopy.disabled = false;
+    setStatus("recording", "錄音中…每 " + (chunkMs / 1000) + " 秒送出一段音訊到 " + apiEndpointEl.value);
+    badgeEngine.textContent = "Engine: Whisper " + modelEl.value;
+  }
+
+  function stopRecording() {
+    if (!isRecording) return;
+    isRecording = false;
+    if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+
+    if (modeEl.value === "browser" && webSpeechRecognition) {
+      try { webSpeechRecognition.stop(); } catch (_) {}
+      webSpeechRecognition = null;
+    }
+
+    if (mediaRecorder && mediaRecorder.state !== "inactive") {
+      try { mediaRecorder.stop(); } catch (_) {}
+    }
+    mediaRecorder = null;
+
+    if (mediaStream) {
+      mediaStream.getTracks().forEach(t => t.stop());
+      mediaStream = null;
+    }
+    if (audioContext) {
+      try { audioContext.close(); } catch (_) {}
+      audioContext = null;
+    }
+    analyser = null;
+    stopViz();
+
+    badgeMic.textContent = "麥克風: 已關閉";
+    badgeMic.className = "badge idle";
+
+    btnStart.disabled = false;
+    btnStop.disabled = true;
+    setStatus("processing", "停止中…等待剩餘音訊轉錄完成");
+    log("已停止，等待 queue 排空", "info");
+
+    // 等待 queue 排空
+    const wait = setInterval(() => {
+      if (chunkQueue.length === 0 && !inFlight) {
+        clearInterval(wait);
+        setStatus("idle", "已停止。共送出 " + chunksSent + " 段，總計 " + totalChars + " 字。");
+        log("全部完成。" + chunksSent + " 段 / " + totalChars + " 字", "ok");
+      }
+    }, 250);
+  }
+
+  // ----- Web Speech API fallback -----
+  function startWebSpeech() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      log("瀏覽器不支援 Web Speech API（請用 Chrome）", "err");
+      setStatus("error", "瀏覽器不支援 Web Speech API");
+      return;
+    }
+    webSpeechRecognition = new SR();
+    webSpeechRecognition.continuous = true;
+    webSpeechRecognition.interimResults = true;
+    webSpeechRecognition.lang = languageEl.value
+      ? (languageEl.value === "zh" ? "zh-TW" : languageEl.value)
+      : "zh-TW";
+
+    webSpeechRecognition.onresult = (ev) => {
+      let interim = "", final = "";
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const r = ev.results[i];
+        if (r.isFinal) final += r[0].transcript;
+        else interim += r[0].transcript;
+      }
+      if (final) {
+        appendTranscript(final, { ts: Date.now(), fresh: true });
+        log("✓ " + final.slice(0, 50), "ok");
+        chunksSent++;
+        statChunks.textContent = chunksSent;
+      }
+      if (interim) {
+        appendTranscript(interim, { ts: Date.now(), interim: true });
+      }
+    };
+    webSpeechRecognition.onerror = (ev) => {
+      log("Web Speech 錯誤：" + ev.error, "err");
+    };
+    webSpeechRecognition.onend = () => {
+      if (isRecording && modeEl.value === "browser") {
+        // 自動重啟（部分瀏覽器會在閒置後停）
+        try { webSpeechRecognition.start(); } catch (_) {}
+      }
+    };
+    try {
+      webSpeechRecognition.start();
+    } catch (e) {
+      log("啟動 Web Speech 失敗：" + e.message, "err");
+    }
+  }
+
+  // ----- Event listeners -----
+  btnStart.addEventListener("click", startRecording);
+  btnStop.addEventListener("click", stopRecording);
+  btnClear.addEventListener("click", () => {
+    transcriptEl.innerHTML = "";
+    totalChars = 0;
+    statChars.textContent = "0";
+    log("已清空轉錄文字", "info");
+  });
+  btnCopy.addEventListener("click", async () => {
+    const txt = transcriptEl.innerText.trim();
+    if (!txt) return;
+    try {
+      await navigator.clipboard.writeText(txt);
+      log("已複製 " + txt.length + " 字到剪貼簿", "ok");
+    } catch (e) {
+      log("複製失敗：" + e.message, "err");
+    }
+  });
+  modeEl.addEventListener("change", () => {
+    if (isRecording) {
+      log("請先停止錄音再切換模式", "warn");
+      modeEl.value = isRecording ? (modeEl.value === "browser" ? "browser" : "server") : modeEl.value;
+      return;
+    }
+    const m = modeEl.value;
+    badgeMode.textContent = "模式: " + (m === "browser" ? "瀏覽器" : m === "direct" ? "直接呼叫" : "Next.js 後端");
+    apiKeyEl.disabled = m !== "direct";
+    apiEndpointEl.disabled = m === "browser" || m === "direct";
+  });
+
+  // ----- Init -----
+  function init() {
+    const m = modeEl.value;
+    badgeMode.textContent = "模式: " + (m === "browser" ? "瀏覽器" : m === "direct" ? "直接呼叫" : "Next.js 後端");
+    badgeEngine.textContent = "Engine: " + (m === "browser" ? "Web Speech" : "Whisper " + modelEl.value);
+    apiKeyEl.disabled = m !== "direct";
+    apiEndpointEl.disabled = m === "browser" || m === "direct";
+
+    setStatus("idle", "系統就緒。按下「開始錄音」開始擷取音訊。");
+    log("前端初始化完成", "ok");
+    log("預設模式：Next.js 後端（呼叫 /api/transcribe）", "info");
+    log("如需立即體驗請切換到「瀏覽器內建」模式（無需 API Key）", "info");
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus("error", "瀏覽器不支援 getUserMedia，請改用 Chrome/Edge/Firefox");
+      log("瀏覽器不支援 getUserMedia", "err");
+    }
+  }
+  init();
+  </script>
+</body>
+</html>

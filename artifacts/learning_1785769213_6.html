@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>docwatch · 系統級文件監控儀表板</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  /* ===== Reset & Tokens ===== */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg-0: #0a0a14;
+    --bg-1: #0f1020;
+    --bg-2: #161729;
+    --glass-bg: rgba(255, 255, 255, 0.04);
+    --glass-bg-strong: rgba(255, 255, 255, 0.08);
+    --glass-border: rgba(255, 255, 255, 0.10);
+    --glass-border-hover: rgba(255, 255, 255, 0.22);
+    --text-0: #f5f5fa;
+    --text-1: #c8c9d4;
+    --text-2: #8a8c9c;
+    --text-3: #5a5c6b;
+    --accent: #7c5cff;
+    --accent-2: #00d4ff;
+    --accent-3: #ff5c8a;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --err: #f87171;
+    --radius: 14px;
+    --radius-sm: 8px;
+    --shadow-glow: 0 8px 32px 0 rgba(124, 92, 255, 0.15);
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+    --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+  html, body { background: var(--bg-0); color: var(--text-0); font-family: var(--font-sans); line-height: 1.5; }
+  body {
+    min-height: 100vh;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% -10%, rgba(124, 92, 255, 0.15), transparent 60%),
+      radial-gradient(ellipse 60% 50% at 90% 100%, rgba(0, 212, 255, 0.10), transparent 60%),
+      radial-gradient(ellipse 60% 50% at 10% 90%, rgba(255, 92, 138, 0.08), transparent 60%),
+      var(--bg-0);
+  }
+
+  /* ===== Layout ===== */
+  .app { display: grid; grid-template-rows: auto 1fr; min-height: 100vh; }
+  header.topbar {
+    position: sticky; top: 0; z-index: 10;
+    backdrop-filter: blur(16px) saturate(180%);
+    background: rgba(10, 10, 20, 0.7);
+    border-bottom: 1px solid var(--glass-border);
+    padding: 14px 24px;
+    display: flex; align-items: center; gap: 16px;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 1.05rem; }
+  .brand .logo {
+    width: 32px; height: 32px; border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    display: grid; place-items: center; color: white; font-weight: 800;
+    box-shadow: 0 4px 12px rgba(124, 92, 255, 0.4);
+  }
+  .brand .sub { color: var(--text-2); font-weight: 400; font-size: 0.85rem; }
+  .topbar-spacer { flex: 1; }
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 14px; border-radius: 999px;
+    background: var(--glass-bg); border: 1px solid var(--glass-border);
+    font-size: 0.82rem; color: var(--text-1);
+    font-family: var(--font-mono);
+  }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--text-3); box-shadow: 0 0 0 0 rgba(0,0,0,0);
+    transition: background 0.2s, box-shadow 0.2s;
+  }
+  .status-dot.connected { background: var(--ok); box-shadow: 0 0 12px rgba(74, 222, 128, 0.6); }
+  .status-dot.error { background: var(--err); box-shadow: 0 0 12px rgba(248, 113, 113, 0.6); }
+
+  /* ===== Main Grid ===== */
+  main {
+    padding: 24px; display: grid; gap: 18px;
+    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-rows: auto auto auto 1fr;
+    grid-template-areas:
+      "stat1 stat2 stat3"
+      "chart  chart  backend"
+      "events events actions"
+      "rules  rules  rules";
+  }
+  @media (max-width: 1100px) {
+    main { grid-template-columns: 1fr 1fr; grid-template-areas: "stat1 stat2" "stat3 stat3" "chart chart" "backend backend" "events events" "actions actions" "rules rules"; }
+  }
+  @media (max-width: 720px) {
+    main { grid-template-columns: 1fr; grid-template-areas: "stat1" "stat2" "stat3" "chart" "backend" "events" "actions" "rules"; }
+  }
+
+  /* ===== Card / Glass ===== */
+  .card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(16px) saturate(180%);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius);
+    padding: 18px;
+    transition: border-color 0.2s, transform 0.15s;
+    display: flex; flex-direction: column;
+    min-height: 0;
+  }
+  .card:hover { border-color: var(--glass-border-hover); }
+  .card .title {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--text-2); font-weight: 600; margin-bottom: 12px;
+  }
+  .card .title .badge {
+    font-size: 0.7rem; padding: 2px 8px; border-radius: 999px;
+    background: var(--glass-bg-strong); border: 1px solid var(--glass-border);
+    color: var(--text-1); font-weight: 500; text-transform: none;
+  }
+
+  /* ===== Stat Cards ===== */
+  .stat .value { font-size: 2.4rem; font-weight: 700; font-family: var(--font-mono); letter-spacing: -0.02em; }
+  .stat .label { color: var(--text-2); font-size: 0.85rem; margin-top: 4px; }
+  .stat .delta { font-size: 0.78rem; color: var(--ok); margin-top: 8px; font-family: var(--font-mono); }
+  .stat .delta.warn { color: var(--warn); }
+  .stat .delta.err { color: var(--err); }
+
+  /* ===== Chart ===== */
+  .chart-wrap { height: 220px; position: relative; }
+
+  /* ===== Backend ===== */
+  .backend-list { display: flex; flex-direction: column; gap: 8px; }
+  .backend-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border-radius: var(--radius-sm);
+    background: var(--glass-bg-strong); border: 1px solid var(--glass-border);
+    font-family: var(--font-mono); font-size: 0.85rem;
+  }
+  .backend-item .marker {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--text-3); flex-shrink: 0;
+  }
+  .backend-item.online .marker { background: var(--ok); box-shadow: 0 0 10px rgba(74, 222, 128, 0.6); }
+  .backend-item .name { font-weight: 600; color: var(--text-0); }
+  .backend-item .meta { color: var(--text-2); font-size: 0.75rem; margin-left: auto; }
+
+  /* ===== Log lists ===== */
+  .log-list {
+    flex: 1; overflow-y: auto; max-height: 360px;
+    display: flex; flex-direction: column; gap: 6px;
+    padding-right: 4px;
+  }
+  .log-list::-webkit-scrollbar { width: 6px; }
+  .log-list::-webkit-scrollbar-thumb { background: var(--glass-border-hover); border-radius: 3px; }
+  .log-entry {
+    display: grid; grid-template-columns: auto 1fr auto; gap: 10px;
+    padding: 8px 10px; border-radius: var(--radius-sm);
+    background: var(--glass-bg-strong); border: 1px solid var(--glass-border);
+    font-family: var(--font-mono); font-size: 0.78rem;
+    animation: slideIn 0.25s ease-out;
+  }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .log-entry .tag {
+    width: 4px; height: 100%; min-height: 16px; border-radius: 2px;
+    background: var(--text-3);
+  }
+  .log-entry.event-created .tag { background: var(--ok); }
+  .log-entry.event-modified .tag { background: var(--accent); }
+  .log-entry.event-deleted .tag { background: var(--err); }
+  .log-entry.event-moved .tag { background: var(--warn); }
+  .log-entry.action-ok .tag { background: var(--ok); }
+  .log-entry.action-fail .tag { background: var(--err); }
+  .log-entry .main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .log-entry .path {
+    color: var(--text-0); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .log-entry .meta { color: var(--text-2); font-size: 0.7rem; }
+  .log-entry .time { color: var(--text-3); font-size: 0.7rem; white-space: nowrap; }
+
+  /* ===== Rules ===== */
+  .rules-grid {
+    display: grid; gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+  .rule-card {
+    padding: 14px; border-radius: var(--radius-sm);
+    background: var(--glass-bg-strong); border: 1px solid var(--glass-border);
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .rule-card .rule-name { font-weight: 600; color: var(--text-0); font-size: 0.92rem; }
+  .rule-card .rule-desc { color: var(--text-2); font-size: 0.78rem; }
+  .rule-card .when, .rule-card .then {
+    background: rgba(0, 0, 0, 0.25); padding: 6px 8px; border-radius: 6px;
+    font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-1);
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .rule-card .when strong, .rule-card .then strong { color: var(--accent-2); }
+
+  /* ===== Action Buttons ===== */
+  .btn {
+    background: var(--glass-bg-strong); border: 1px solid var(--glass-border);
+    color: var(--text-0); padding: 8px 14px; border-radius: var(--radius-sm);
+    font-family: var(--font-sans); font-size: 0.85rem; cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+  }
+  .btn:hover { background: rgba(124, 92, 255, 0.15); border-color: var(--accent); }
+  .btn:active { transform: translateY(1px); }
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* Area placements */
+  .area-stat1 { grid-area: stat1; }
+  .area-stat2 { grid-area: stat2; }
+  .area-stat3 { grid-area: stat3; }
+  .area-chart { grid-area: chart; }
+  .area-backend { grid-area: backend; }
+  .area-events { grid-area: events; }
+  .area-actions { grid-area: actions; }
+  .area-rules { grid-area: rules; }
+
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 24px; right: 24px;
+    padding: 12px 16px; border-radius: var(--radius-sm);
+    background: var(--glass-bg-strong); backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border);
+    color: var(--text-0); font-size: 0.85rem;
+    box-shadow: var(--shadow-glow);
+    opacity: 0; transform: translateY(20px);
+    transition: opacity 0.25s, transform 0.25s;
+    z-index: 100;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.success { border-color: var(--ok); }
+  .toast.error { border-color: var(--err); }
+
+  /* Layout helpers */
+  .empty { color: var(--text-3); font-size: 0.85rem; padding: 16px; text-align: center; font-style: italic; }
+  .stat-spark { display: flex; gap: 8px; align-items: baseline; }
+  .stat-spark .value { line-height: 1; }
+  .sheet {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    padding: 14px 24px; border-bottom: 1px solid var(--glass-border);
+    background: rgba(15, 16, 32, 0.5);
+  }
+  .sheet label { color: var(--text-2); font-size: 0.82rem; }
+  .sheet input[type=text] {
+    background: var(--glass-bg-strong); border: 1px solid var(--glass-border);
+    color: var(--text-0); padding: 6px 10px; border-radius: 6px;
+    font-family: var(--font-mono); font-size: 0.82rem; min-width: 240px;
+  }
+  .sheet input[type=text]:focus { outline: none; border-color: var(--accent); }
+
+  /* Subtle pulse when an event arrives */
+  .pulse { animation: pulse 0.6s ease-out; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(124, 92, 255, 0.6); } 100% { box-shadow: 0 0 0 18px rgba(124, 92, 255, 0); } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">⌘</div>
+      <div>
+        docwatch
+        <div class="sub">系統級文件監控 + xdotool 自動化 儀表板</div>
+      </div>
+    </div>
+    <div class="topbar-spacer"></div>
+    <div class="status-pill" id="healthPill">
+      <span class="status-dot" id="healthDot"></span>
+      <span id="healthText">連線中…</span>
+    </div>
+    <div class="status-pill" id="monitorPill">
+      <span class="status-dot" id="monitorDot"></span>
+      <span id="monitorText">—</span>
+    </div>
+  </header>
+
+  <div class="sheet">
+    <label>監控路徑</label>
+    <input type="text" id="watchPath" placeholder="/home/user/Documents" />
+    <label>後端</label>
+    <select id="backendSelect" class="btn">
+      <option value="auto">auto</option>
+      <option value="xdotool">xdotool (X11)</option>
+      <option value="ydotool">ydotool (Wayland)</option>
+      <option value="wtype">wtype (Wayland text)</option>
+      <option value="atspi">atspi (a11y)</option>
+      <option value="mock">mock (dry-run)</option>
+    </select>
+    <div class="btn-row">
+      <button class="btn" id="btnRefresh">↻ 重新整理</button>
+      <button class="btn" id="btnDryRun">▶︎ Dry-run 測試</button>
+    </div>
+  </div>
+
+  <main>
+    <section class="card area-stat1 stat" id="statEvents">
+      <div class="title">總事件數 <span class="badge" id="statEventsBadge">events</span></div>
+      <div class="value">0</div>
+      <div class="label">自系統啟動後所有檔案系統事件</div>
+      <div class="delta" id="statEventsDelta">+0 last min</div>
+    </section>
+
+    <section class="card area-stat2 stat" id="statActions">
+      <div class="title">觸發動作 <span class="badge">actions</span></div>
+      <div class="value">0</div>
+      <div class="label">由規則引擎自動觸發的動作次數</div>
+      <div class="delta" id="statActionsDelta">+0 last min</div>
+    </section>
+
+    <section class="card area-stat3 stat" id="statSuccess">
+      <div class="title">成功率 <span class="badge">success rate</span></div>
+      <div class="value">—</div>
+      <div class="label">所有執行中的動作之成功比例</div>
+      <div class="delta" id="statSuccessDelta">—</div>
+    </section>
+
+    <section class="card area-chart">
+      <div class="title">事件分佈 <span class="badge">last 24h</span></div>
+      <div class="chart-wrap"><canvas id="chartEvents"></canvas></div>
+    </section>
+
+    <section class="card area-backend">
+      <div class="title">自動化後端 <span class="badge">backends</span></div>
+      <div class="backend-list" id="backendList">
+        <div class="empty">載入中…</div>
+      </div>
+    </section>
+
+    <section class="card area-events">
+      <div class="title">即時事件流 <span class="badge" id="wsBadge">websocket</span></div>
+      <div class="log-list" id="eventLog">
+        <div class="empty">等待事件…</div>
+      </div>
+    </section>
+
+    <section class="card area-actions">
+      <div class="title">動作觸發紀錄 <span class="badge">actions</span></div>
+      <div class="log-list" id="actionLog">
+        <div class="empty">等待動作…</div>
+      </div>
+    </section>
+
+    <section class="card area-rules">
+      <div class="title">已載入規則 <span class="badge" id="ruleCount">0 rules</span></div>
+      <div class="rules-grid" id="rulesGrid">
+        <div class="empty">尚未載入規則</div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ====================================================================== *
+ *  docwatch UI — vanilla JS, no build step                               *
+ * ====================================================================== */
+
+const $ = (id) => document.getElementById(id);
+const fmt = (n) => Number(n).toLocaleString('en-US');
+const short = (s, n=64) => s.length > n ? '…' + s.slice(-n) : s;
+const nowTime = () => {
+  const d = new Date();
+  return d.toTimeString().slice(0, 8);
+};
+
+/* ---- Toast ---- */
+let toastTimer = null;
+function toast(msg, kind = '') {
+  const el = $('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + kind;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2400);
+}
+
+/* ---- REST helpers ---- */
+async function api(path, opts = {}) {
+  try {
+    const r = await fetch(path, {
+      headers: { 'Content-Type': 'application/json' },
+      ...opts,
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
+  } catch (e) {
+    console.error('api error', path, e);
+    toast('API 失敗：' + e.message, 'error');
+    throw e;
+  }
+}
+
+/* ---- State ---- */
+const state = {
+  events: [],
+  actions: [],
+  stats: { events_total: 0, actions_total: 0, ok_actions: 0 },
+  backends: [],
+  rules: [],
+  perf_seconds: [],
+  event_rate: 0,
+  lastMinEvents: 0,
+  lastMinActions: 0,
+  lastMinTs: Date.now(),
+  socketConnected: false,
+};
+
+/* ---- Rendering ---- */
+function renderStats() {
+  $('statEvents').querySelector('.value').textContent = fmt(state.stats.events_total || 0);
+  $('statActions').querySelector('.value').textContent = fmt(state.stats.actions_total || 0);
+  const rate = state.stats.actions_total > 0
+    ? ((state.stats.ok_actions / state.stats.actions_total) * 100).toFixed(1) + '%'
+    : '—';
+  $('statSuccess').querySelector('.value').textContent = rate;
+  const okDelta = state.stats.actions_total > 0 ? 'var(--ok)' : 'var(--text-3)';
+  $('statSuccess').querySelector('.value').style.color = okDelta;
+  $('statEventsDelta').textContent = '+' + state.lastMinEvents + ' last min';
+  $('statActionsDelta').textContent = '+' + state.lastMinActions + ' last min';
+}
+
+function renderBackends() {
+  const list = $('backendList');
+  if (!state.backends.length) {
+    list.innerHTML = '<div class="empty">沒有可用的後端</div>';
+    return;
+  }
+  list.innerHTML = state.backends.map(b => {
+    const cls = b.available ? 'online' : '';
+    const meta = [
+      b.binary ? `bin=${(b.binary.split('/').pop() || '').slice(0, 12)}` : null,
+      b.display ? `DISPLAY=${(b.display || '').slice(0, 10)}` : null,
+      b.version ? `v=${(b.version || '').slice(0, 12)}` : null,
+    ].filter(Boolean).join(' · ');
+    return `
+      <div class="backend-item ${cls}">
+        <span class="marker"></span>
+        <span class="name">${b.backend}</span>
+        <span class="meta">${meta || '—'}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderEvent(evt) {
+  const list = $('eventLog');
+  if (list.querySelector('.empty')) list.innerHTML = '';
+  const el = document.createElement('div');
+  el.className = `log-entry event-${evt.primary_type || 'unknown'}`;
+  el.innerHTML = `
+    <span class="tag"></span>
+    <div class="main">
+      <div class="path" title="${evt.path}">${short(evt.path, 80)}</div>
+      <div class="meta">${evt.primary_type} · count=${evt.count} · ${evt.is_dir ? 'dir' : 'file'}</div>
+    </div>
+    <span class="time">${nowTime()}</span>
+  `;
+  list.prepend(el);
+  while (list.children.length > 80) list.removeChild(list.lastChild);
+}
+
+function renderAction(ruleName, result) {
+  const list = $('actionLog');
+  if (list.querySelector('.empty')) list.innerHTML = '';
+  const el = document.createElement('div');
+  el.className = `log-entry action-${result.ok ? 'ok' : 'fail'}`;
+  el.innerHTML = `
+    <span class="tag"></span>
+    <div class="main">
+      <div class="path">${ruleName} → ${result.action}</div>
+      <div class="meta">${result.backend} · ${result.duration_ms.toFixed(1)}ms · ${short(result.detail || '', 60)}</div>
+    </div>
+    <span class="time">${nowTime()}</span>
+  `;
+  list.prepend(el);
+  while (list.children.length > 80) list.removeChild(list.lastChild);
+}
+
+function renderRules() {
+  const grid = $('rulesGrid');
+  $('ruleCount').textContent = state.rules.length + ' rules';
+  if (!state.rules.length) {
+    grid.innerHTML = '<div class="empty">尚未載入規則</div>';
+    return;
+  }
+  grid.innerHTML = state.rules.map(r => `
+    <div class="rule-card">
+      <div class="rule-name">${r.name}${r.enabled ? '' : ' <span style="color:var(--err)">(disabled)</span>'}</div>
+      <div class="rule-desc">${r.description || '—'}</div>
+      <div class="when"><strong>when</strong>  ${JSON.stringify(r.when)}</div>
+      <div class="then"><strong>then</strong>  ${r.then.map(a => a.replace(/(\w+)\(/, '<span style="color:var(--accent-3)">$1</span>(')).join('\n')}</div>
+    </div>
+  `).join('');
+}
+
+/* ---- Chart ---- */
+let chartObj = null;
+function renderChart() {
+  const ctx = document.getElementById('chartEvents').getContext('2d');
+  const labels = state.perf_seconds.map((_, i) => i);
+  const data = state.perf_seconds.slice();
+  if (chartObj) {
+    chartObj.data.labels = labels;
+    chartObj.data.datasets[0].data = data;
+    chartObj.update('none');
+    return;
+  }
+  chartObj = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'events/sec',
+        data,
+        borderColor: '#7c5cff',
+        backgroundColor: 'rgba(124, 92, 255, 0.18)',
+        fill: true,
+        tension: 0.35,
+        borderWidth: 2,
+        pointRadius: 0,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      animation: { duration: 200 },
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { display: false },
+        y: {
+          grid: { color: 'rgba(255,255,255,0.05)' },
+          ticks: { color: '#8a8c9c', font: { family: 'JetBrains Mono', size: 10 } },
+          beginAtZero: true,
+        },
+      },
+    },
+  });
+}
+
+/* ---- Refresh ---- */
+async function refreshAll() {
+  try {
+    const [stats, evtCounts, actionCounts, events, actions, backends, rules] = await Promise.all([
+      api('/api/stats'),
+      api('/api/event_counts'),
+      api('/api/action_counts'),
+      api('/api/events?limit=20'),
+      api('/api/actions?limit=20'),
+      api('/api/backends'),
+      api('/api/rules'),
+    ]);
+    state.stats = stats;
+    state.events = events.events || [];
+    state.actions = actions.actions || [];
+    state.backends = backends.backends || [];
+    state.rules = rules.rules || [];
+
+    // Pre-seed log lists with historical events (most recent first)
+    const evtLog = $('eventLog');
+    evtLog.innerHTML = '';
+    state.events.slice().reverse().forEach(e => {
+      evtLog.innerHTML += `
+        <div class="log-entry event-${e.event_type}">
+          <span class="tag"></span>
+          <div class="main">
+            <div class="path" title="${e.path}">${short(e.path, 80)}</div>
+            <div class="meta">${e.event_type} · ${e.is_dir ? 'dir' : 'file'}</div>
+          </div>
+          <span class="time">${new Date(e.ts * 1000).toTimeString().slice(0,8)}</span>
+        </div>
+      `;
+    });
+    const actLog = $('actionLog');
+    actLog.innerHTML = '';
+    state.actions.slice().reverse().forEach(a => {
+      actLog.innerHTML += `
+        <div class="log-entry action-${a.ok ? 'ok' : 'fail'}">
+          <span class="tag"></span>
+          <div class="main">
+            <div class="path">${a.rule_name} → ${a.action}</div>
+            <div class="meta">${a.backend} · ${a.duration_ms.toFixed(1)}ms · ${short(a.detail || '', 60)}</div>
+          </div>
+          <span class="time">${new Date(a.ts * 1000).toTimeString().slice(0,8)}</span>
+        </div>
+      `;
+    });
+
+    renderStats();
+    renderBackends();
+    renderRules();
+    toast('已更新', 'success');
+  } catch (e) {
+    // toast already shown
+  }
+}
+
+/* ---- WebSocket ---- */
+let socket = null;
+function connectWS() {
+  socket = io({ transports: ['websocket', 'polling'], reconnection: true, reconnectionDelay: 1000 });
+  socket.on('connect', () => {
+    state.socketConnected = true;
+    $('healthDot').classList.add('connected');
+    $('healthText').textContent = '已連線';
+    $('wsBadge').textContent = 'websocket · live';
+    toast('WebSocket 已連線', 'success');
+  });
+  socket.on('disconnect', () => {
+    state.socketConnected = false;
+    $('healthDot').classList.remove('connected');
+    $('healthDot').classList.add('error');
+    $('healthText').textContent = '已斷線';
+    $('wsBadge').textContent = 'websocket · offline';
+  });
+  socket.on('reconnect', () => {
+    $('healthDot').classList.remove('error');
+  });
+  socket.on('event', (evt) => {
+    state.events.unshift(evt);
+    state.lastMinEvents++;
+    renderEvent(evt);
+    state.perf_seconds[state.perf_seconds.length - 1]++;
+    renderChart();
+    $('statEvents').classList.remove('pulse');
+    void $('statEvents').offsetWidth;  // restart animation
+    $('statEvents').classList.add('pulse');
+  });
+  socket.on('action', (payload) => {
+    state.lastMinActions++;
+    renderAction(payload.rule, payload.result);
+    $('statActions').classList.remove('pulse');
+    void $('statActions').offsetWidth;
+    $('statActions').classList.add('pulse');
+  });
+}
+window.addEventListener('beforeunload', () => socket?.disconnect());
+
+/* ---- Buttons ---- */
+$('btnRefresh').addEventListener('click', refreshAll);
+$('btnDryRun').addEventListener('click', async () => {
+  const sample = {
+    action: 'type_text',
+    args: { text: 'Hello from docwatch dashboard — ' + new Date().toTimeString().slice(0,8) },
+  };
+  try {
+    const r = await api('/api/backend/dry-run', { method: 'POST', body: JSON.stringify(sample) });
+    toast(`Dry-run: ${r.action} ok=${r.ok} (${r.duration_ms.toFixed(1)}ms)`, 'success');
+  } catch (e) {}
+});
+$('backendSelect').addEventListener('change', (e) => {
+  toast('後端偏好：' + e.target.value, '');
+});
+
+/* ---- Periodic refresh ---- */
+function tick() {
+  // 事件速率窗口
+  if (Date.now() - state.lastMinTs >= 60_000) {
+    state.lastMinEvents = 0;
+    state.lastMinActions = 0;
+    state.lastMinTs = Date.now();
+  }
+  state.perf_seconds.push(0);
+  if (state.perf_seconds.length > 60) state.perf_seconds.shift();
+  renderChart();
+  renderStats();
+}
+setInterval(tick, 1000);
+
+/* ---- Boot ---- */
+document.addEventListener('DOMContentLoaded', () => {
+  for (let i = 0; i < 60; i++) state.perf_seconds.push(0);
+  renderChart();
+  refreshAll();
+  connectWS();
+  // refresh full stats every 8s
+  setInterval(refreshAll, 8000);
+});
+</script>
+</body>
+</html>

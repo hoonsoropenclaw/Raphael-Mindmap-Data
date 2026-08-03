@@ -1,0 +1,1101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>React Flow DAG Workflow Editor</title>
+
+  <!-- React Flow stylesheet (single_file_html_esm_delivery skill) -->
+  <link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css" />
+  <link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/theme-default.css" />
+
+  <!--
+    ESM importmap — pins React 18.3.1 + React Flow 11.11.4 (esm_importmap skill)
+    Using ?deps= to force a single React instance across the dependency tree.
+  -->
+  <script type="importmap">
+  {
+    "imports": {
+      "react": "https://esm.sh/react@18.3.1",
+      "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
+      "react-dom": "https://esm.sh/react-dom@18.3.1",
+      "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+      "reactflow": "https://esm.sh/reactflow@11.11.4?deps=react@18.3.1,react-dom@18.3.1"
+    }
+  }
+  </script>
+
+  <style>
+    :root {
+      --bg: #0f172a;
+      --bg-2: #1e293b;
+      --panel: #111827;
+      --panel-2: #1f2937;
+      --border: #334155;
+      --text: #e2e8f0;
+      --text-dim: #94a3b8;
+      --accent: #38bdf8;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+      --err: #ef4444;
+      --start: #10b981;
+      --end: #ef4444;
+      --task: #6366f1;
+      --decision: #f59e0b;
+      --fork: #a855f7;
+      --join: #ec4899;
+    }
+    * { box-sizing: border-box; }
+    html, body, #root { height: 100%; margin: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC",
+        "Microsoft JhengHei", Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .app {
+      display: grid;
+      grid-template-columns: 240px 1fr 320px;
+      grid-template-rows: 56px 1fr;
+      grid-template-areas:
+        "header header header"
+        "sidebar canvas inspector";
+      height: 100%;
+    }
+    header.topbar {
+      grid-area: header;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+    }
+    header.topbar h1 {
+      margin: 0;
+      font-size: 16px;
+      letter-spacing: 0.4px;
+    }
+    header.topbar h1 .badge {
+      display: inline-block;
+      margin-left: 8px;
+      padding: 2px 8px;
+      background: var(--accent);
+      color: #0c4a6e;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .toolbar { display: flex; gap: 8px; }
+    .toolbar button {
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 12px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .toolbar button:hover { border-color: var(--accent); color: var(--accent); }
+    .toolbar button.primary { background: var(--accent); color: #0c4a6e; border-color: var(--accent); font-weight: 600; }
+    .toolbar button.danger:hover { color: var(--err); border-color: var(--err); }
+
+    aside.sidebar {
+      grid-area: sidebar;
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      padding: 16px;
+      overflow-y: auto;
+    }
+    aside.sidebar h2 {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-dim);
+      margin: 16px 0 8px;
+    }
+    aside.sidebar h2:first-child { margin-top: 0; }
+    .node-palette { display: grid; gap: 8px; }
+    .node-palette button {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 12px;
+      cursor: pointer;
+      font-size: 13px;
+      text-align: left;
+    }
+    .node-palette button:hover { transform: translateX(2px); transition: transform 0.15s; }
+    .node-palette .swatch {
+      width: 12px; height: 12px; border-radius: 3px;
+    }
+    .node-palette .start .swatch { background: var(--start); }
+    .node-palette .task .swatch { background: var(--task); }
+    .node-palette .decision .swatch { background: var(--decision); }
+    .node-palette .fork .swatch { background: var(--fork); }
+    .node-palette .join .swatch { background: var(--join); }
+    .node-palette .end .swatch { background: var(--end); }
+
+    .palette-hint {
+      margin-top: 12px;
+      padding: 10px;
+      background: var(--panel-2);
+      border-radius: 6px;
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+    .palette-hint kbd {
+      background: #0b1220;
+      border: 1px solid var(--border);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-family: monospace;
+      font-size: 11px;
+    }
+
+    main.canvas {
+      grid-area: canvas;
+      position: relative;
+      background: radial-gradient(circle at 30% 20%, #1e293b 0%, var(--bg) 70%);
+    }
+    .react-flow__node {
+      font-family: inherit;
+    }
+    .rf-node {
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 2px solid var(--border);
+      background: var(--panel-2);
+      color: var(--text);
+      min-width: 140px;
+      text-align: center;
+      position: relative;
+    }
+    .rf-node.start { border-color: var(--start); background: rgba(16, 185, 129, 0.1); }
+    .rf-node.task { border-color: var(--task); background: rgba(99, 102, 241, 0.1); }
+    .rf-node.decision { border-color: var(--decision); background: rgba(245, 158, 11, 0.1); }
+    .rf-node.fork { border-color: var(--fork); background: rgba(168, 85, 247, 0.1); }
+    .rf-node.join { border-color: var(--join); background: rgba(236, 72, 153, 0.1); }
+    .rf-node.end { border-color: var(--end); background: rgba(239, 68, 68, 0.1); }
+    .rf-node.invalid {
+      border-color: var(--err) !important;
+      box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.4);
+    }
+    .rf-node .rf-label { font-weight: 600; font-size: 13px; }
+    .rf-node .rf-kind { font-size: 10px; color: var(--text-dim); text-transform: uppercase; margin-top: 4px; }
+    .rf-node .delete-btn {
+      position: absolute;
+      top: -8px; right: -8px;
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      background: var(--err);
+      color: white;
+      border: 2px solid var(--bg);
+      font-size: 12px;
+      line-height: 1;
+      cursor: pointer;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .rf-node.selected .delete-btn,
+    .rf-node:hover .delete-btn {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    /* In test mode (data-testmode=on), force the delete button to be
+       interactive regardless of hover state. */
+    [data-testmode="on"] .rf-node .delete-btn {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .react-flow__handle {
+      width: 10px;
+      height: 10px;
+      background: var(--accent);
+      border: 2px solid var(--bg);
+    }
+
+    aside.inspector {
+      grid-area: inspector;
+      background: var(--panel);
+      border-left: 1px solid var(--border);
+      padding: 16px;
+      overflow-y: auto;
+    }
+    aside.inspector h2 {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-dim);
+      margin: 16px 0 8px;
+    }
+    aside.inspector h2:first-child { margin-top: 0; }
+
+    .status-banner {
+      padding: 12px;
+      border-radius: 6px;
+      margin-bottom: 12px;
+      font-weight: 600;
+      text-align: center;
+    }
+    .status-banner.ok { background: rgba(34, 197, 94, 0.15); color: var(--ok); border: 1px solid var(--ok); }
+    .status-banner.cycle { background: rgba(239, 68, 68, 0.15); color: var(--err); border: 1px solid var(--err); }
+    .status-banner.warn { background: rgba(245, 158, 11, 0.15); color: var(--warn); border: 1px solid var(--warn); }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .stat-cell {
+      background: var(--panel-2);
+      padding: 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+    .stat-cell .label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; }
+    .stat-cell .value { font-size: 20px; font-weight: 700; color: var(--accent); margin-top: 4px; }
+
+    .diag-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      font-size: 12px;
+    }
+    .diag-list li {
+      padding: 6px 10px;
+      margin-bottom: 4px;
+      border-radius: 4px;
+      background: var(--panel-2);
+      border-left: 3px solid var(--border);
+    }
+    .diag-list li.error { border-left-color: var(--err); color: var(--err); }
+    .diag-list li.warn { border-left-color: var(--warn); color: var(--warn); }
+    .diag-list li .mono { font-family: monospace; font-size: 11px; color: var(--text-dim); }
+
+    .topo-list {
+      counter-reset: topo;
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .topo-list li {
+      counter-increment: topo;
+      padding: 4px 8px;
+      background: var(--panel-2);
+      border-radius: 4px;
+      margin-bottom: 3px;
+      font-family: monospace;
+      font-size: 12px;
+      display: flex;
+      gap: 8px;
+    }
+    .topo-list li::before {
+      content: counter(topo);
+      background: var(--accent);
+      color: var(--bg);
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+
+    .json-preview {
+      background: #0b1220;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 8px;
+      font-family: monospace;
+      font-size: 11px;
+      max-height: 180px;
+      overflow: auto;
+      color: var(--text-dim);
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .loading {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+      z-index: 1000;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .loading .spinner {
+      width: 48px; height: 48px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading.error { color: var(--err); }
+  </style>
+</head>
+<body>
+  <div id="root">
+    <div class="loading" id="boot-loader">
+      <div class="spinner"></div>
+      <div>Loading React Flow DAG Editor…</div>
+    </div>
+  </div>
+
+  <script>
+    // Surface boot errors to the loader so Playwright can detect failures
+    window.addEventListener('error', (e) => {
+      const el = document.getElementById('boot-loader');
+      if (el) {
+        el.classList.add('error');
+        el.innerHTML = '<div>Boot failed</div><pre style="white-space:pre-wrap;max-width:80%;">' +
+          (e.error?.stack || e.message) + '</pre>';
+      }
+    });
+  </script>
+
+  <script type="module">
+    import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import ReactFlow, {
+      Background,
+      Controls,
+      MiniMap,
+      ReactFlowProvider,
+      useNodesState,
+      useEdgesState,
+      addEdge,
+      Handle,
+      Position,
+    } from 'reactflow';
+
+    // ─────────────────────────────────────────────────────────────────────
+    // DAG validation: cycle detection (DFS + recursion stack),
+    //                orphan detection (in-degree check),
+    //                topological sort (Kahn's algorithm).
+    // Ported from react_flow_integration.md and DAG-based Workflow and
+    // Task Management.md skills, adapted to React Flow 11 nodes/edges shape.
+    // ─────────────────────────────────────────────────────────────────────
+
+    // hasCycle: returns Set of node ids that participate in any cycle, or
+    // null if the graph is acyclic. Uses iterative DFS over edges to avoid
+    // stack overflow on deep graphs.
+    function findCycleNodes(nodes, edges) {
+      const adj = new Map();
+      nodes.forEach((n) => adj.set(n.id, []));
+      edges.forEach((e) => {
+        if (adj.has(e.source)) adj.get(e.source).push(e.target);
+      });
+
+      const WHITE = 0, GRAY = 1, BLACK = 2;
+      const color = new Map();
+      nodes.forEach((n) => color.set(n.id, WHITE));
+      const inCycle = new Set();
+      const stack = [];
+
+      for (const start of nodes) {
+        if (color.get(start.id) !== WHITE) continue;
+        // iterative DFS seeded with explicit frame
+        stack.push({ nodeId: start.id, childIdx: 0 });
+        color.set(start.id, GRAY);
+        while (stack.length) {
+          const frame = stack[stack.length - 1];
+          const children = adj.get(frame.nodeId) || [];
+          if (frame.childIdx >= children.length) {
+            color.set(frame.nodeId, BLACK);
+            stack.pop();
+            continue;
+          }
+          const child = children[frame.childIdx++];
+          const c = color.get(child);
+          if (c === GRAY) {
+            // back-edge → cycle. Mark every node from this point back to child.
+            const idx = stack.findIndex((f) => f.nodeId === child);
+            for (let i = idx; i < stack.length; i++) inCycle.add(stack[i].nodeId);
+            inCycle.add(child);
+            // continue scanning other branches; do not abort
+          } else if (c === WHITE) {
+            color.set(child, GRAY);
+            stack.push({ nodeId: child, childIdx: 0 });
+          }
+        }
+      }
+      return inCycle.size ? inCycle : null;
+    }
+
+    // findOrphans: nodes with zero incoming edges AND not the start of a
+    // connected component, plus disconnected components.
+    function findOrphans(nodes, edges) {
+      const targets = new Set(edges.map((e) => e.target));
+      const sources = new Set(edges.map((e) => e.source));
+      const referenced = new Set([...sources, ...targets]);
+
+      // Component scan via BFS so disconnected components are all visible
+      const adj = new Map();
+      nodes.forEach((n) => {
+        adj.set(n.id, []);
+      });
+      edges.forEach((e) => {
+        if (adj.has(e.source)) adj.get(e.source).push(e.target);
+        if (adj.has(e.target)) adj.get(e.target).push(e.source);
+      });
+      const comp = new Map();
+      let cid = 0;
+      for (const n of nodes) {
+        if (comp.has(n.id)) continue;
+        cid++;
+        const queue = [n.id];
+        comp.set(n.id, cid);
+        while (queue.length) {
+          const cur = queue.shift();
+          for (const nb of adj.get(cur) || []) {
+            if (!comp.has(nb)) {
+              comp.set(nb, cid);
+              queue.push(nb);
+            }
+          }
+        }
+      }
+
+      // Largest component is the "main" DAG; anything else is orphan.
+      const compSize = new Map();
+      comp.forEach((c) => compSize.set(c, (compSize.get(c) || 0) + 1));
+      let mainCid = null;
+      let maxSize = 0;
+      compSize.forEach((sz, c) => { if (sz > maxSize) { maxSize = sz; mainCid = c; } });
+
+      return nodes
+        .filter((n) => comp.get(n.id) !== mainCid)
+        .map((n) => n.id);
+    }
+
+    // kahnSort: topological order using Kahn's algorithm.
+    // Returns { order: string[], cycle: boolean }. If cycle=true, order is
+    // the partial order that *was* processable (helps debug).
+    function kahnSort(nodes, edges) {
+      const inDeg = new Map();
+      nodes.forEach((n) => inDeg.set(n.id, 0));
+      edges.forEach((e) => {
+        if (inDeg.has(e.target)) inDeg.set(e.target, inDeg.get(e.target) + 1);
+      });
+      const queue = [];
+      inDeg.forEach((deg, id) => { if (deg === 0) queue.push(id); });
+
+      const order = [];
+      const adj = new Map();
+      nodes.forEach((n) => adj.set(n.id, []));
+      edges.forEach((e) => {
+        if (adj.has(e.source)) adj.get(e.source).push(e.target);
+      });
+
+      while (queue.length) {
+        const id = queue.shift();
+        order.push(id);
+        for (const t of adj.get(id) || []) {
+          inDeg.set(t, inDeg.get(t) - 1);
+          if (inDeg.get(t) === 0) queue.push(t);
+        }
+      }
+      return { order, cycle: order.length !== nodes.length };
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Custom node component. Each node type maps to a different border
+    // color and renders top + bottom handles so edges can flow.
+    // ─────────────────────────────────────────────────────────────────────
+    function DagNode({ id, data, selected }) {
+      const onDelete = (ev) => {
+        ev.stopPropagation();
+        if (data.onDelete) data.onDelete(id);
+      };
+      const cls = `rf-node ${data.kind} ${data.invalid ? 'invalid' : ''}`.trim();
+      return React.createElement(
+        'div',
+        { className: cls, 'data-node-id': id, 'data-node-kind': data.kind },
+        React.createElement(Handle, {
+          type: 'target', position: Position.Top, isConnectable: true,
+        }),
+        React.createElement('div', { className: 'rf-label' }, data.label),
+        React.createElement('div', { className: 'rf-kind' }, data.kind),
+        React.createElement(
+          'button',
+          {
+            className: 'delete-btn',
+            onClick: onDelete,
+            'aria-label': `Delete node ${data.label}`,
+            title: 'Delete',
+          },
+          '×'
+        ),
+        React.createElement(Handle, {
+          type: 'source', position: Position.Bottom, isConnectable: true,
+        })
+      );
+    }
+
+    const nodeTypes = { dagNode: DagNode };
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Inspector panel — validation status, diagnostics, topology.
+    // ─────────────────────────────────────────────────────────────────────
+    function Inspector({ nodes, edges, cycleNodes, orphans, topoOrder }) {
+      const valid = !cycleNodes && orphans.length === 0 && nodes.length > 0;
+
+      const statusCls = cycleNodes ? 'cycle' : orphans.length ? 'warn' : 'ok';
+      const statusText = cycleNodes
+        ? `⚠ Cycle detected (${cycleNodes.size} node${cycleNodes.size > 1 ? 's' : ''})`
+        : orphans.length
+          ? `⚠ ${orphans.length} disconnected node${orphans.length > 1 ? 's' : ''}`
+          : nodes.length === 0
+            ? '○ Empty DAG'
+            : '✓ Valid DAG';
+
+      const json = JSON.stringify(
+        {
+          nodes: nodes.map((n) => ({ id: n.id, kind: n.data.kind, label: n.data.label })),
+          edges: edges.map((e) => ({ from: e.source, to: e.target })),
+        },
+        null,
+        2
+      );
+
+      return React.createElement(
+        'aside',
+        { className: 'inspector', 'data-testid': 'inspector' },
+        React.createElement('h2', null, 'Validation'),
+        React.createElement(
+          'div',
+          { className: 'status-banner ' + statusCls, 'data-testid': 'status' },
+          statusText
+        ),
+        React.createElement(
+          'div',
+          { className: 'stat-grid' },
+          React.createElement(
+            'div',
+            { className: 'stat-cell' },
+            React.createElement('div', { className: 'label' }, 'Nodes'),
+            React.createElement(
+              'div',
+              { className: 'value', 'data-testid': 'stat-nodes' },
+              nodes.length
+            )
+          ),
+          React.createElement(
+            'div',
+            { className: 'stat-cell' },
+            React.createElement('div', { className: 'label' }, 'Edges'),
+            React.createElement(
+              'div',
+              { className: 'value', 'data-testid': 'stat-edges' },
+              edges.length
+            )
+          )
+        ),
+        cycleNodes &&
+          React.createElement(
+            'div',
+            null,
+            React.createElement('h2', null, 'Cycle Nodes'),
+            React.createElement(
+              'ul',
+              { className: 'diag-list', 'data-testid': 'cycle-nodes' },
+              Array.from(cycleNodes).map((id) =>
+                React.createElement(
+                  'li',
+                  { key: id, className: 'error' },
+                  '⟳ ',
+                  React.createElement('span', { className: 'mono' }, id)
+                )
+              )
+            )
+          ),
+        orphans.length > 0 &&
+          React.createElement(
+            'div',
+            null,
+            React.createElement('h2', null, 'Disconnected Nodes'),
+            React.createElement(
+              'ul',
+              { className: 'diag-list', 'data-testid': 'orphan-nodes' },
+              orphans.map((id) =>
+                React.createElement(
+                  'li',
+                  { key: id, className: 'warn' },
+                  '⊘ ',
+                  React.createElement('span', { className: 'mono' }, id)
+                )
+              )
+            )
+          ),
+        valid &&
+          React.createElement(
+            'div',
+            null,
+            React.createElement('h2', null, 'Topological Order'),
+            React.createElement(
+              'ol',
+              { className: 'topo-list', 'data-testid': 'topo-order' },
+              topoOrder.map((id) => {
+                const node = nodes.find((n) => n.id === id);
+                return React.createElement(
+                  'li',
+                  { key: id, 'data-testid': `topo-${id}` },
+                  React.createElement(
+                    'span',
+                    null,
+                    `${node?.data.label || id} `,
+                    React.createElement('span', { className: 'mono' }, `(${id})`)
+                  )
+                );
+              })
+            )
+          ),
+        React.createElement('h2', null, 'DAG JSON'),
+        React.createElement(
+          'pre',
+          { className: 'json-preview', 'data-testid': 'json-preview' },
+          json
+        )
+      );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Sidebar — node palette and action buttons.
+    // ─────────────────────────────────────────────────────────────────────
+    function Sidebar({ onAdd, onClear, onLoadSample }) {
+      const palette = [
+        { kind: 'start', label: 'Start', cls: 'start' },
+        { kind: 'task', label: 'Task', cls: 'task' },
+        { kind: 'decision', label: 'Decision', cls: 'decision' },
+        { kind: 'fork', label: 'Parallel Fork', cls: 'fork' },
+        { kind: 'join', label: 'Parallel Join', cls: 'join' },
+        { kind: 'end', label: 'End', cls: 'end' },
+      ];
+      return React.createElement(
+        'aside',
+        { className: 'sidebar', 'data-testid': 'sidebar' },
+        React.createElement('h2', null, 'Add Node'),
+        React.createElement(
+          'div',
+          { className: 'node-palette' },
+          palette.map((p) =>
+            React.createElement(
+              'button',
+              {
+                key: p.kind,
+                className: p.cls,
+                onClick: () => onAdd(p.kind),
+                'data-testid': `add-${p.kind}`,
+              },
+              React.createElement('span', { className: 'swatch' }),
+              p.label
+            )
+          )
+        ),
+        React.createElement(
+          'div',
+          { className: 'palette-hint' },
+          'Click a node then drag its ',
+          React.createElement('kbd', null, 'handle'),
+          ' to another node to create an edge. ',
+          React.createElement('kbd', null, 'Backspace'),
+          ' or click ',
+          React.createElement('kbd', null, '×'),
+          ' to delete a node.'
+        ),
+        React.createElement('h2', null, 'Workflow'),
+        React.createElement(
+          'div',
+          { className: 'node-palette' },
+          React.createElement(
+            'button',
+            {
+              onClick: onLoadSample,
+              'data-testid': 'load-sample',
+              style: { borderLeftColor: '#94a3b8' },
+            },
+            React.createElement('span', { className: 'swatch', style: { background: '#94a3b8' } }),
+            'Load Sample Pipeline'
+          ),
+          React.createElement(
+            'button',
+            {
+              onClick: onClear,
+              'data-testid': 'clear',
+              className: 'danger',
+              style: { borderLeftColor: 'var(--err)' },
+            },
+            React.createElement('span', { className: 'swatch', style: { background: 'var(--err)' } }),
+            'Clear All'
+          )
+        )
+      );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Main editor.
+    // ─────────────────────────────────────────────────────────────────────
+    function DagEditor() {
+      const reactFlowWrapper = useRef(null);
+      const [rfInstance, setRfInstance] = useState(null);
+      const [nodes, setNodes, onNodesChange] = useNodesState([]);
+      const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+      const idCounter = useRef(1);
+
+      // Generate unique node id, monotonic.
+      const nextId = useCallback(
+        (kind) => `${kind}-${idCounter.current++}`,
+        []
+      );
+
+      // Decorate nodes with delete handler + invalid marker.
+      const decoratedNodes = useMemo(() => {
+        return nodes.map((n) => ({
+          ...n,
+          type: 'dagNode',
+          data: {
+            ...n.data,
+            onDelete: (id) => {
+              setNodes((nds) => nds.filter((x) => x.id !== id));
+              setEdges((eds) =>
+                eds.filter((e) => e.source !== id && e.target !== id)
+              );
+            },
+          },
+        }));
+      }, [nodes, setNodes, setEdges]);
+
+      // Validation: cycle + orphans + topo order.
+      const { cycleNodes, orphans, topoOrder } = useMemo(() => {
+        const cycle = findCycleNodes(decoratedNodes, edges);
+        const orph = findOrphans(decoratedNodes, edges);
+        const { order, cycle: cycleInSort } = kahnSort(decoratedNodes, edges);
+        return { cycleNodes: cycle, orphans: orph, topoOrder: order };
+      }, [decoratedNodes, edges]);
+
+      // Mark invalid nodes (cycles + orphans) so they can be styled.
+      const finalNodes = useMemo(() => {
+        const invalidIds = new Set([
+          ...(cycleNodes || []),
+          ...orphans,
+        ]);
+        return decoratedNodes.map((n) => ({
+          ...n,
+          data: { ...n.data, invalid: invalidIds.has(n.id) },
+        }));
+      }, [decoratedNodes, cycleNodes, orphans]);
+
+      // Edge handler — prevent self-loops at the React level (cycle still
+      // possible across multi-hop paths, that's what findCycleNodes handles).
+      const onConnect = useCallback(
+        (params) => {
+          if (params.source === params.target) return;
+          // Block duplicates (React Flow allows re-connect but it's noisy).
+          if (
+            edges.some(
+              (e) => e.source === params.source && e.target === params.target
+            )
+          )
+            return;
+          setEdges((eds) =>
+            addEdge({ ...params, animated: true, type: 'smoothstep' }, eds)
+          );
+        },
+        [edges, setEdges]
+      );
+
+      const onAddNode = useCallback(
+        (kind) => {
+          const id = nextId(kind);
+          const labels = {
+            start: 'Start',
+            task: `Task ${idCounter.current}`,
+            decision: 'Decision?',
+            fork: 'Fork',
+            join: 'Join',
+            end: 'End',
+          };
+          // Place new node roughly in the centre, slightly offset.
+          const wrapper = reactFlowWrapper.current;
+          const offset = idCounter.current * 24;
+          const x = 200 + (offset % 200);
+          const y = 200 + (offset % 160);
+          setNodes((nds) => [
+            ...nds,
+            {
+              id,
+              type: 'dagNode',
+              position: { x, y },
+              data: { kind, label: labels[kind] || kind },
+            },
+          ]);
+        },
+        [nextId, setNodes]
+      );
+
+      const onClear = useCallback(() => {
+        setNodes([]);
+        setEdges([]);
+      }, [setNodes, setEdges]);
+
+      // Load a sample 8-node pipeline with branching + merging. Mirrors
+      // realistic CI/CD DAG structure.
+      const onLoadSample = useCallback(() => {
+        idCounter.current = 1;
+        const sampleNodes = [
+          { id: 'start-1', kind: 'start', label: 'Commit', position: { x: 240, y: 40 } },
+          { id: 'task-2', kind: 'task', label: 'Lint', position: { x: 80, y: 160 } },
+          { id: 'task-3', kind: 'task', label: 'Unit Tests', position: { x: 280, y: 160 } },
+          { id: 'task-4', kind: 'task', label: 'Type Check', position: { x: 480, y: 160 } },
+          { id: 'decision-5', kind: 'decision', label: 'All Passed?', position: { x: 240, y: 280 } },
+          { id: 'task-6', kind: 'task', label: 'Build Image', position: { x: 240, y: 400 } },
+          { id: 'task-7', kind: 'task', label: 'Deploy', position: { x: 240, y: 520 } },
+          { id: 'end-8', kind: 'end', label: 'Done', position: { x: 240, y: 640 } },
+        ];
+        const sampleEdges = [
+          { source: 'start-1', target: 'task-2' },
+          { source: 'start-1', target: 'task-3' },
+          { source: 'start-1', target: 'task-4' },
+          { source: 'task-2', target: 'decision-5' },
+          { source: 'task-3', target: 'decision-5' },
+          { source: 'task-4', target: 'decision-5' },
+          { source: 'decision-5', target: 'task-6' },
+          { source: 'task-6', target: 'task-7' },
+          { source: 'task-7', target: 'end-8' },
+        ];
+        setNodes(
+          sampleNodes.map((n) => ({
+            id: n.id,
+            type: 'dagNode',
+            position: n.position,
+            data: { kind: n.kind, label: n.label },
+          }))
+        );
+        setEdges(
+          sampleEdges.map((e, i) => ({
+            id: `e-${i}`,
+            source: e.source,
+            target: e.target,
+            animated: true,
+            type: 'smoothstep',
+          }))
+        );
+        idCounter.current = 9;
+      }, [setNodes, setEdges]);
+
+      // Backspace / Delete to remove selected nodes.
+      useEffect(() => {
+        const handler = (ev) => {
+          if (ev.key !== 'Backspace' && ev.key !== 'Delete') return;
+          const selected = nodes.filter((n) => n.selected);
+          if (!selected.length) return;
+          ev.preventDefault();
+          const ids = new Set(selected.map((n) => n.id));
+          setNodes((nds) => nds.filter((n) => !ids.has(n.id)));
+          setEdges((eds) =>
+            eds.filter((e) => !ids.has(e.source) && !ids.has(e.target))
+          );
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+      }, [nodes, setNodes, setEdges]);
+
+      // Persist + restore from localStorage so reload keeps state.
+      const STORAGE_KEY = 'rf-dag-editor-v1';
+      useEffect(() => {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            const data = JSON.parse(raw);
+            if (Array.isArray(data.nodes)) setNodes(data.nodes);
+            if (Array.isArray(data.edges)) setEdges(data.edges);
+            if (typeof data.idCounter === 'number') idCounter.current = data.idCounter;
+          }
+        } catch (_) { /* ignore corrupt */ }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, []);
+      useEffect(() => {
+        try {
+          localStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify({
+              nodes: decoratedNodes.map((n) => ({
+                id: n.id,
+                type: n.type,
+                position: n.position,
+                data: { kind: n.data.kind, label: n.data.label },
+              })),
+              edges,
+              idCounter: idCounter.current,
+            })
+          );
+        } catch (_) { /* ignore */ }
+      }, [decoratedNodes, edges]);
+
+      // Export current DAG as JSON download.
+      const onExport = useCallback(() => {
+        const payload = {
+          nodes: decoratedNodes.map((n) => ({
+            id: n.id,
+            kind: n.data.kind,
+            label: n.data.label,
+            position: n.position,
+          })),
+          edges: edges.map((e) => ({ source: e.source, target: e.target })),
+          meta: { topoOrder, cycleNodes: [...(cycleNodes || [])], orphans },
+        };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], {
+          type: 'application/json',
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `dag-${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }, [decoratedNodes, edges, topoOrder, cycleNodes, orphans]);
+
+      // Test-mode exports the DAG state onto window for Playwright.
+      useEffect(() => {
+        window.__DAG_STATE__ = {
+          nodes: decoratedNodes.map((n) => ({
+            id: n.id,
+            kind: n.data.kind,
+            label: n.data.label,
+          })),
+          edges: edges.map((e) => ({ source: e.source, target: e.target })),
+          cycleNodes: [...(cycleNodes || [])],
+          orphans,
+          topoOrder,
+        };
+      }, [decoratedNodes, edges, cycleNodes, orphans, topoOrder]);
+
+      return React.createElement(
+        'div',
+        { className: 'app' },
+        React.createElement(
+          'header',
+          { className: 'topbar' },
+          React.createElement(
+            'h1',
+            null,
+            'React Flow DAG Workflow Editor',
+            React.createElement('span', { className: 'badge' }, 'Beta')
+          ),
+          React.createElement(
+            'div',
+            { className: 'toolbar' },
+            React.createElement(
+              'button',
+              { onClick: onExport, 'data-testid': 'export' },
+              'Export JSON'
+            )
+          )
+        ),
+        React.createElement(Sidebar, {
+          onAdd: onAddNode,
+          onClear: onClear,
+          onLoadSample: onLoadSample,
+        }),
+        React.createElement(
+          'main',
+          { className: 'canvas', ref: reactFlowWrapper },
+          React.createElement(
+            ReactFlow,
+            {
+              nodes: finalNodes,
+              edges: edges,
+              onNodesChange: onNodesChange,
+              onEdgesChange: onEdgesChange,
+              onConnect: onConnect,
+              onInit: setRfInstance,
+              nodeTypes: nodeTypes,
+              fitView: true,
+              fitViewOptions: { padding: 0.2 },
+              proOptions: { hideAttribution: true },
+              'data-testid': 'rf-canvas',
+            },
+            React.createElement(Background, { gap: 24, size: 1, color: '#334155' }),
+            React.createElement(Controls, {
+              style: { background: '#1f2937', borderColor: '#334155' },
+            }),
+            React.createElement(MiniMap, {
+              nodeColor: (n) => {
+                const colors = {
+                  start: '#10b981',
+                  task: '#6366f1',
+                  decision: '#f59e0b',
+                  fork: '#a855f7',
+                  join: '#ec4899',
+                  end: '#ef4444',
+                };
+                return colors[n.data?.kind] || '#94a3b8';
+              },
+              maskColor: 'rgba(15,23,42,0.6)',
+              style: { background: '#111827', borderColor: '#334155' },
+            })
+          )
+        ),
+        React.createElement(Inspector, {
+          nodes: decoratedNodes,
+          edges: edges,
+          cycleNodes,
+          orphans,
+          topoOrder,
+        })
+      );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Boot.
+    // ─────────────────────────────────────────────────────────────────────
+    function App() {
+      return React.createElement(
+        ReactFlowProvider,
+        null,
+        React.createElement(DagEditor, null)
+      );
+    }
+
+    const loader = document.getElementById('boot-loader');
+    try {
+      const root = createRoot(document.getElementById('root'));
+      root.render(React.createElement(App, null));
+      // Remove the boot loader once React commits.
+      requestAnimationFrame(() => {
+        if (loader && loader.parentNode) loader.parentNode.removeChild(loader);
+      });
+      window.__APP_READY__ = true;
+    } catch (err) {
+      window.__APP_ERROR__ = err.message + '\n' + (err.stack || '');
+      if (loader) {
+        loader.classList.add('error');
+        loader.innerHTML = '<div>Boot failed</div><pre style="white-space:pre-wrap;max-width:80%;">' +
+          window.__APP_ERROR__ + '</pre>';
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Smart Crawler / 三層抓取策略展示</title>
+<meta name="description" content="BeautifulSoup + Scrapling + Playwright 三層抓取策略的實作 demo，從 books.toscrape.com 抓出 20 本結構化書籍資料。">
+<style>
+/* ===================================================================
+   Reset + tokens
+   =================================================================== */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0b;--bg-2:#111114;--bg-3:#18181c;--line:#26262c;--line-2:#1d1d22;
+  --ink:#f5f5f7;--ink-2:#a1a1aa;--ink-3:#71717a;--ink-4:#52525b;
+  --accent:#4ade80;--accent-dim:rgba(74,222,128,.15);--accent-line:rgba(74,222,128,.4);
+  --warn:#fbbf24;--danger:#f87171;
+  --mono:"JetBrains Mono","SF Mono","Menlo","Consolas",ui-monospace,monospace;
+  --sans:"Geist","SF Pro Display","Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --r:6px;
+}
+html{background:var(--bg);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;scroll-behavior:smooth}
+body{min-height:100dvh;line-height:1.5;font-size:15px;overflow-x:hidden}
+a{color:inherit;text-decoration:none}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+
+/* Subtle grid background, fixed, pointer-events off */
+body::before{content:"";position:fixed;inset:0;z-index:-1;
+  background-image:
+    linear-gradient(to right,rgba(255,255,255,.014) 1px,transparent 1px),
+    linear-gradient(to bottom,rgba(255,255,255,.014) 1px,transparent 1px);
+  background-size:48px 48px;
+  mask-image:radial-gradient(ellipse 80% 60% at 50% 0%,#000 30%,transparent 80%);
+}
+
+/* ===================================================================
+   Layout primitives
+   =================================================================== */
+.container{max-width:1280px;margin:0 auto;padding:0 32px}
+.divider{height:1px;background:var(--line);width:100%}
+.stack-2 > * + *{margin-top:8px}
+.stack-4 > * + *{margin-top:16px}
+.stack-6 > * + *{margin-top:24px}
+.stack-8 > * + *{margin-top:32px}
+.mono{font-family:var(--mono);font-feature-settings:"ss01","cv11"}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* ===================================================================
+   Nav
+   =================================================================== */
+.nav{height:64px;border-bottom:1px solid var(--line);display:flex;align-items:center;position:sticky;top:0;background:rgba(10,10,11,.78);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);z-index:50}
+.nav-inner{max-width:1280px;width:100%;margin:0 auto;padding:0 32px;display:flex;align-items:center;justify-content:space-between}
+.nav-brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:14px;letter-spacing:-.01em}
+.nav-brand-mark{width:18px;height:18px;border-radius:4px;background:linear-gradient(135deg,#4ade80 0%,#22c55e 100%);display:flex;align-items:center;justify-content:center;color:#052e16;font-size:11px;font-weight:700;font-family:var(--mono)}
+.nav-links{display:flex;gap:24px;font-size:13px;color:var(--ink-2)}
+.nav-links a:hover{color:var(--ink)}
+@media(max-width:640px){.nav-links{display:none}}
+
+/* ===================================================================
+   Hero
+   =================================================================== */
+.hero{padding:96px 0 80px;border-bottom:1px solid var(--line)}
+.hero-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:64px;align-items:start}
+@media(max-width:900px){.hero-grid{grid-template-columns:1fr;gap:32px}.hero{padding:48px 0 40px}}
+.hero-eyebrow{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.16em;color:var(--ink-3);margin-bottom:20px}
+.hero-eyebrow::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px var(--accent-dim);animation:pulse 2.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 4px var(--accent-dim)}50%{box-shadow:0 0 0 8px transparent}}
+.hero-title{font-size:54px;line-height:1.04;letter-spacing:-.035em;font-weight:600;margin-bottom:20px}
+.hero-title em{font-style:italic;color:var(--accent)}
+@media(max-width:900px){.hero-title{font-size:36px}}
+.hero-sub{font-size:17px;line-height:1.55;color:var(--ink-2);max-width:46ch;margin-bottom:32px}
+.hero-meta{display:flex;flex-wrap:wrap;gap:14px;font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+.hero-meta span{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg-2)}
+.hero-meta span b{color:var(--ink);font-weight:500}
+
+/* hero right: terminal-style stat panel */
+.terminal{background:var(--bg-2);border:1px solid var(--line);border-radius:10px;overflow:hidden;font-family:var(--mono);font-size:12.5px}
+.terminal-bar{display:flex;align-items:center;gap:6px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--bg-3)}
+.terminal-bar span{width:9px;height:9px;border-radius:50%;background:#3f3f46}
+.terminal-bar span:nth-child(1){background:#f87171}
+.terminal-bar span:nth-child(2){background:#fbbf24}
+.terminal-bar span:nth-child(3){background:#4ade80}
+.terminal-bar .t-name{margin-left:auto;color:var(--ink-3);font-size:11px;letter-spacing:.05em;padding-right:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.terminal-body{padding:16px 18px;line-height:1.7}
+.terminal-body .ln{display:block;color:var(--ink-3);margin-bottom:2px}
+.terminal-body .ln b{color:var(--ink);font-weight:500}
+.terminal-body .ln .ok{color:var(--accent)}
+.terminal-body .ln .dim{color:var(--ink-4)}
+.terminal-body .ln .num{color:#fbbf24}
+
+/* ===================================================================
+   Stats strip
+   =================================================================== */
+.stats{border-bottom:1px solid var(--line);padding:48px 0}
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:0}
+@media(max-width:900px){.stats-grid{grid-template-columns:repeat(2,1fr)}}
+.stat{padding:0 32px;border-left:1px solid var(--line)}
+.stat:first-child{border-left:none;padding-left:0}
+.stat-label{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.16em;color:var(--ink-3);margin-bottom:10px}
+.stat-value{font-family:var(--mono);font-size:34px;font-weight:500;letter-spacing:-.02em;line-height:1;margin-bottom:6px}
+.stat-value sup{font-size:14px;color:var(--ink-3);margin-left:4px;font-weight:400}
+.stat-meta{font-size:12px;color:var(--ink-3);font-family:var(--mono)}
+
+/* ===================================================================
+   Section
+   =================================================================== */
+section{padding:96px 0;border-bottom:1px solid var(--line)}
+.section-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:48px;gap:24px;flex-wrap:wrap}
+.section-head .sh-left{max-width:62ch}
+.section-num{font-family:var(--mono);font-size:11px;color:var(--ink-4);letter-spacing:.16em;margin-bottom:10px}
+.section-title{font-size:30px;line-height:1.15;letter-spacing:-.02em;font-weight:600;margin-bottom:12px}
+.section-sub{font-size:15px;color:var(--ink-2);line-height:1.55}
+
+/* ===================================================================
+   3-tier architecture
+   =================================================================== */
+.tiers{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;align-items:stretch}
+@media(max-width:900px){.tiers{grid-template-columns:1fr}}
+.tier{padding:24px;border:1px solid var(--line);border-radius:10px;background:var(--bg-2);display:flex;flex-direction:column;gap:16px;position:relative;transition:border-color .2s ease,transform .2s ease}
+.tier:hover{border-color:var(--accent-line);transform:translateY(-2px)}
+.tier-head{display:flex;align-items:center;justify-content:space-between}
+.tier-num{font-family:var(--mono);font-size:11px;color:var(--ink-4);letter-spacing:.16em}
+.tier-pill{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;padding:3px 8px;border-radius:99px;border:1px solid var(--line);color:var(--ink-3)}
+.tier-pill.t1{color:#4ade80;border-color:rgba(74,222,128,.3);background:rgba(74,222,128,.06)}
+.tier-pill.t2{color:#fbbf24;border-color:rgba(251,191,36,.3);background:rgba(251,191,36,.06)}
+.tier-pill.t3{color:#60a5fa;border-color:rgba(96,165,250,.3);background:rgba(96,165,250,.06)}
+.tier-name{font-size:18px;font-weight:600;letter-spacing:-.01em}
+.tier-engine{font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+.tier-desc{font-size:13.5px;color:var(--ink-2);line-height:1.55;flex:1}
+.tier-metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding-top:16px;border-top:1px solid var(--line)}
+.tier-metric{font-family:var(--mono);font-size:11px;color:var(--ink-3);letter-spacing:.04em}
+.tier-metric b{display:block;font-size:18px;color:var(--ink);font-weight:500;letter-spacing:-.01em;margin-top:2px;font-variant-numeric:tabular-nums}
+
+/* ===================================================================
+   Code block
+   =================================================================== */
+.code-section{display:grid;grid-template-columns:1fr 1.2fr;gap:48px;align-items:start}
+@media(max-width:900px){.code-section{grid-template-columns:1fr}}
+.code-card{background:var(--bg-2);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.code-head{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--bg-3)}
+.code-head .filename{font-family:var(--mono);font-size:12px;color:var(--ink-2)}
+.code-head .tag{font-family:var(--mono);font-size:10px;padding:2px 8px;border-radius:99px;background:var(--accent-dim);color:var(--accent);letter-spacing:.1em}
+.code-body{padding:18px;font-family:var(--mono);font-size:12.5px;line-height:1.75;overflow-x:auto;white-space:pre;color:var(--ink-2)}
+.code-body .c{color:var(--ink-4);font-style:italic}
+.code-body .k{color:#c084fc}
+.code-body .s{color:#4ade80}
+.code-body .n{color:#fbbf24}
+.code-body .f{color:#60a5fa}
+.code-body .b{font-weight:600;color:var(--ink)}
+
+/* ===================================================================
+   Book grid
+   =================================================================== */
+.controls{display:flex;align-items:center;justify-content:space-between;margin-bottom:32px;gap:16px;flex-wrap:wrap}
+.filter-bar{display:flex;flex-wrap:wrap;gap:6px}
+.filter{padding:6px 12px;border:1px solid var(--line);border-radius:99px;background:var(--bg-2);font-size:12.5px;color:var(--ink-2);font-family:var(--mono);transition:all .15s ease;cursor:pointer}
+.filter:hover{border-color:var(--ink-4);color:var(--ink)}
+.filter.active{background:var(--ink);color:#0a0a0b;border-color:var(--ink);font-weight:500}
+.sort-bar{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+.sort-bar select{background:var(--bg-2);border:1px solid var(--line);border-radius:var(--r);padding:6px 10px;color:var(--ink);font-family:var(--mono);font-size:12px;cursor:pointer}
+.book-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.book{background:var(--bg);padding:20px;display:flex;flex-direction:column;gap:12px;transition:background .15s ease;position:relative}
+.book:hover{background:var(--bg-2)}
+.book:hover .book-img{transform:scale(1.04)}
+.book-img-wrap{aspect-ratio:1;background:var(--bg-3);border-radius:6px;overflow:hidden;display:flex;align-items:center;justify-content:center;position:relative}
+.book-img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .4s ease}
+.book-meta-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.book-rating{font-family:var(--mono);font-size:11px;color:var(--warn);letter-spacing:1px}
+.book-tier{font-family:var(--mono);font-size:9.5px;padding:2px 6px;border-radius:99px;background:var(--bg-3);color:var(--ink-3);text-transform:uppercase;letter-spacing:.1em;white-space:nowrap}
+.book-tier.verified{background:rgba(74,222,128,.08);color:var(--accent)}
+.book-title{font-size:14px;font-weight:500;line-height:1.35;letter-spacing:-.005em;color:var(--ink);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.book-cat{font-family:var(--mono);font-size:11px;color:var(--ink-4);text-transform:uppercase;letter-spacing:.08em}
+.book-snippet{font-size:12.5px;color:var(--ink-3);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;flex:1}
+.book-foot{display:flex;justify-content:space-between;align-items:center;padding-top:12px;margin-top:auto;border-top:1px solid var(--line-2)}
+.book-price{font-family:var(--mono);font-size:18px;font-weight:500;color:var(--ink);letter-spacing:-.01em}
+.book-stock{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.book-stock b{color:var(--accent);font-weight:500}
+
+/* ===================================================================
+   Pricing split visual
+   =================================================================== */
+.split-vis{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+@media(max-width:700px){.split-vis{grid-template-columns:1fr}}
+.split-card{padding:28px;border:1px solid var(--line);border-radius:10px;background:var(--bg-2)}
+.split-card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+.split-card-name{font-size:16px;font-weight:600;letter-spacing:-.01em}
+.split-card-tag{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;padding:3px 8px;border-radius:99px;border:1px solid var(--line);color:var(--ink-3)}
+.split-card.premium .split-card-tag{background:rgba(251,191,36,.06);border-color:rgba(251,191,36,.3);color:var(--warn)}
+.split-card.affordable .split-card-tag{background:rgba(74,222,128,.06);border-color:rgba(74,222,128,.3);color:var(--accent)}
+.split-list{display:flex;flex-direction:column;gap:8px;font-family:var(--mono);font-size:12.5px}
+.split-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line-2);color:var(--ink-2)}
+.split-row:last-child{border-bottom:none}
+.split-row b{color:var(--ink);font-weight:500}
+.split-row .price{color:var(--ink);font-variant-numeric:tabular-nums}
+
+/* ===================================================================
+   Footer
+   =================================================================== */
+footer{padding:48px 0;color:var(--ink-3);font-family:var(--mono);font-size:11.5px;letter-spacing:.04em}
+.foot-row{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px}
+.foot-row a{color:var(--ink-2);border-bottom:1px dashed var(--ink-4);padding-bottom:1px}
+.foot-row a:hover{color:var(--ink)}
+.foot-dot{display:inline-block;width:4px;height:4px;background:var(--ink-4);border-radius:50%;margin:0 8px;vertical-align:middle}
+
+/* ===================================================================
+   Motion: respect prefers-reduced-motion
+   =================================================================== */
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}
+  .book:hover .book-img{transform:none}
+  .tier:hover{transform:none}
+}
+
+/* Mobile collapse */
+@media(max-width:640px){
+  .container{padding:0 20px}
+  .stat{padding:0 16px}
+  .stat:first-child{padding-left:0}
+  .stat-value{font-size:26px}
+  .book-grid{grid-template-columns:1fr 1fr}
+  .book{padding:14px}
+  .book-title{font-size:13px}
+  .book-price{font-size:15px}
+}
+@media(max-width:420px){.book-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<!-- ============ NAV ============ -->
+<nav class="nav">
+  <div class="nav-inner">
+    <div class="nav-brand">
+      <div class="nav-brand-mark">H</div>
+      <span>Smart Crawler</span>
+      <span style="font-family:var(--mono);font-size:11px;color:var(--ink-4);margin-left:8px">/ demo</span>
+    </div>
+    <div class="nav-links">
+      <a href="#arch">架構</a>
+      <a href="#code">程式碼</a>
+      <a href="#data">資料</a>
+      <a href="#split">分群</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ============ HERO ============ -->
+<header class="hero">
+  <div class="container">
+    <div class="hero-grid">
+      <div>
+        <div class="hero-eyebrow">HERMES / LEARNING 1785787211 7</div>
+        <h1 class="hero-title">三層抓取策略，<em>同一個目標</em>，三種保證。</h1>
+        <p class="hero-sub">從 books.toscrape.com 抓出 20 本書籍的完整結構化資料：先用 requests + BeautifulSoup 拿到 SSR HTML，再用 Playwright 等價的 DynamicFetcher 對前 3 本做 hydrated DOM 對照，最後展示 Scrapling 自適應重定位機制。</p>
+        <div class="hero-meta">
+          <span>目標站 <b>books.toscrape.com</b></span>
+          <span>抓取 <b>20</b> 筆</span>
+          <span>耗時 <b>~33s</b></span>
+          <span>Python <b>3.12.3</b></span>
+        </div>
+      </div>
+      <div class="terminal">
+        <div class="terminal-bar">
+          <span></span><span></span><span></span>
+          <span class="t-name">smart_crawler.py</span>
+        </div>
+        <div class="terminal-body">
+          <span class="ln">$ python3 smart_crawler.py</span>
+          <span class="ln"><b>[Tier 1]</b> GET /catalogue/page-1.html</span>
+          <span class="ln">        抓到 <span class="num">20</span> 筆，耗時 <span class="num">1165</span>ms</span>
+          <span class="ln"><b>[Tier 2]</b> DynamicFetcher.fetch hydrated DOM</span>
+          <span class="ln">        title='A Light in the Attic' <span class="ok">match</span></span>
+          <span class="ln">        title='Tipping the Velvet' <span class="ok">match</span></span>
+          <span class="ln">        title='Soumission' <span class="ok">match</span></span>
+          <span class="ln"><b>[Tier 3]</b> adaptive 重定位 demo</span>
+          <span class="ln">        <span class="num">20</span> → <span class="num">20</span> books <span class="ok">passed</span></span>
+          <span class="ln"><span class="dim">---</span></span>
+          <span class="ln"><span class="ok">✓</span> smart_crawler_output.json (20 books)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ============ STATS STRIP ============ -->
+<section class="stats" style="padding:48px 0">
+  <div class="container">
+    <div class="stats-grid">
+      <div class="stat">
+        <div class="stat-label">Books scraped</div>
+        <div class="stat-value">20</div>
+        <div class="stat-meta">20 / 20 目標</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Total catalog value</div>
+        <div class="stat-value">£760.97</div>
+        <div class="stat-meta">平均 £38.05</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Avg rating</div>
+        <div class="stat-value">2.85<sup>/5</sup></div>
+        <div class="stat-meta">387 件庫存</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Tier-2 verified</div>
+        <div class="stat-value">3</div>
+        <div class="stat-meta">前 3 本 hydrated 對照</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ARCHITECTURE / 3 TIERS ============ -->
+<section id="arch">
+  <div class="container">
+    <div class="section-head">
+      <div class="sh-left">
+        <div class="section-num">/ 01</div>
+        <h2 class="section-title">三層抓取，各司其職</h2>
+        <p class="section-sub">不是「哪個最好」，是「哪個適合」。同一個目標站，可以用三種策略驗證三次，產出交叉對照的結構化資料。</p>
+      </div>
+    </div>
+    <div class="tiers">
+      <div class="tier">
+        <div class="tier-head">
+          <div class="tier-num">TIER 01</div>
+          <div class="tier-pill t1">FAST</div>
+        </div>
+        <div>
+          <div class="tier-name">requests + BeautifulSoup</div>
+          <div class="tier-engine">純 HTTP / SSR HTML 解析</div>
+        </div>
+        <div class="tier-desc">直接打 HTTP、parse HTML。最快、最輕、但拿不到 JS 渲染後的內容。適合結構穩定的靜態頁面、開放資料、API 沒公開但 HTML 有資料的場景。</div>
+        <div class="tier-metrics">
+          <div class="tier-metric">速度<b>~1165ms</b></div>
+          <div class="tier-metric">20 筆 / 1 頁<b>20 筆</b></div>
+        </div>
+      </div>
+      <div class="tier">
+        <div class="tier-head">
+          <div class="tier-num">TIER 02</div>
+          <div class="tier-pill t2">HEAVY</div>
+        </div>
+        <div>
+          <div class="tier-name">DynamicFetcher (Playwright)</div>
+          <div class="tier-engine">JS 渲染後的 hydrated DOM</div>
+        </div>
+        <div class="tier-desc">底層是 Playwright Chromium，跑 JS、等 network idle 再抓 DOM。hydrated DOM 的 title/price/availability 跟 Tier 1 對照驗證，確保 Tier 1 沒漏資料。</div>
+        <div class="tier-metrics">
+          <div class="tier-metric">每頁<b>~5-8s</b></div>
+          <div class="tier-metric">已驗證<b>3 / 3</b></div>
+        </div>
+      </div>
+      <div class="tier">
+        <div class="tier-head">
+          <div class="tier-num">TIER 03</div>
+          <div class="tier-pill t3">RESILIENT</div>
+        </div>
+        <div>
+          <div class="tier-name">adaptive=True</div>
+          <div class="tier-engine">Scrapling 自適應重定位</div>
+        </div>
+        <div class="tier-desc">第一次抓會自動存元素指紋，第二次用 adaptive 重新配對。網站改版、CSS class 改名、DOM 結構變動時，Scrapling 會自動找新位置而非直接壞掉。</div>
+        <div class="tier-metrics">
+          <div class="tier-metric">首次 / 重抓<b>20 → 20</b></div>
+          <div class="tier-metric">指紋類型<b>auto_save</b></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CODE SAMPLE ============ -->
+<section id="code">
+  <div class="container">
+    <div class="section-head">
+      <div class="sh-left">
+        <div class="section-num">/ 02</div>
+        <h2 class="section-title">三層怎麼寫</h2>
+        <p class="section-sub">真實跑起來的程式碼片段。完整版在 <code style="font-family:var(--mono);background:var(--bg-2);padding:2px 6px;border-radius:4px;border:1px solid var(--line)">smart_crawler.py</code>。</p>
+      </div>
+    </div>
+    <div class="code-section">
+      <div class="stack-6">
+        <div>
+          <div class="tier-num" style="margin-bottom:6px">TIER 01</div>
+          <h3 style="font-size:18px;font-weight:600;letter-spacing:-.01em;margin-bottom:8px">requests + BeautifulSoup</h3>
+          <p style="font-size:13.5px;color:var(--ink-2);line-height:1.55">直接 HTTP 抓 SSR HTML，BeautifulSoup 用 CSS selector parse 結構化欄位。1.2 秒抓 20 筆，沒有任何瀏覽器開銷。</p>
+        </div>
+        <div>
+          <div class="tier-num" style="margin-bottom:6px">TIER 02</div>
+          <h3 style="font-size:18px;font-weight:600;letter-spacing:-.01em;margin-bottom:8px">Scrapling DynamicFetcher</h3>
+          <p style="font-size:13.5px;color:var(--ink-2);line-height:1.55">底層 Playwright，headless=True + network_idle=True。hydrated DOM 拿到的 title 跟 Tier 1 完全一致，確認 SSR 沒缺漏。</p>
+        </div>
+        <div>
+          <div class="tier-num" style="margin-bottom:6px">TIER 03</div>
+          <h3 style="font-size:18px;font-weight:600;letter-spacing:-.01em;margin-bottom:8px">adaptive=True</h3>
+          <p style="font-size:13.5px;color:var(--ink-2);line-height:1.55">網站改版、CSS class 改名，Scrapling 會自動從指紋庫找新對應。這個 demo 跑 20 → 20 證明 adaptive 真的能 parse。</p>
+        </div>
+      </div>
+      <div class="code-card">
+        <div class="code-head">
+          <span class="filename">smart_crawler.py</span>
+          <span class="tag">python</span>
+        </div>
+        <pre class="code-body"><span class="c"># Tier <span class="n">1</span> - requests + BeautifulSoup（純 HTTP/SSR）</span>
+resp = requests.<span class="f">get</span>(url, timeout=<span class="n">15</span>)
+soup = BeautifulSoup(resp.text, <span class="s">&quot;html.parser&quot;</span>)
+<span class="k">for</span> article <span class="k">in</span> soup.<span class="f">select</span>(<span class="s">&quot;article.product_pod&quot;</span>):
+    title = article.h3.a.<span class="f">get</span>(<span class="s">&quot;title&quot;</span>)
+    price = <span class="f">parse_price</span>(article.<span class="f">select_one</span>(<span class="s">&quot;.price_color&quot;</span>).<span class="f">get_text</span>())
+    rating = <span class="f">parse_rating</span>(article.<span class="f">select_one</span>(<span class="s">&quot;.star-rating&quot;</span>).<span class="f">get</span>(<span class="s">&quot;class&quot;</span>))
+    <span class="c"># ...<span class="n">20</span> 筆 <span class="n">1.2</span> 秒抓完</span>
+
+<span class="c"># Tier <span class="n">2</span> - Scrapling DynamicFetcher（Playwright JS 渲染）</span>
+page = DynamicFetcher.<span class="f">fetch</span>(product_url, headless=<span class="k"><span class="k">True</span></span>, network_idle=<span class="k"><span class="k">True</span></span>)
+<span class="c"># hydrated DOM: title、price、availability 對照 Tier <span class="n">1</span> 一致</span>
+
+<span class="c"># Tier <span class="n">3</span> - Scrapling adaptive=<span class="k"><span class="k">True</span></span>（自適應重定位）</span>
+p.<span class="f">css</span>(<span class="s">&quot;article.product_pod&quot;</span>, adaptive=<span class="k"><span class="k">True</span></span>)  <span class="c"># 網站改版時自動找新位置</span></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ DATA ============ -->
+<section id="data">
+  <div class="container">
+    <div class="section-head">
+      <div class="sh-left">
+        <div class="section-num">/ 03</div>
+        <h2 class="section-title">抓回來的 20 本書</h2>
+        <p class="section-sub">點分類過濾、切排序看分群。標 <span style="color:var(--accent);font-family:var(--mono);font-size:13px">verified</span> 是 Tier 2 hydrated DOM 對照過的。</p>
+      </div>
+    </div>
+    <div class="controls">
+      <div class="filter-bar" id="filterBar"></div>
+      <div class="sort-bar">
+        <span>sort by</span>
+        <select id="sortSel">
+          <option value="idx">original</option>
+          <option value="price-desc">price ↓</option>
+          <option value="price-asc">price ↑</option>
+          <option value="rating-desc">rating ↓</option>
+          <option value="rating-asc">rating ↑</option>
+          <option value="stock-desc">stock ↓</option>
+        </select>
+      </div>
+    </div>
+    <div class="book-grid" id="bookGrid"></div>
+  </div>
+</section>
+
+<!-- ============ SPLIT VISUAL ============ -->
+<section id="split">
+  <div class="container">
+    <div class="section-head">
+      <div class="sh-left">
+        <div class="section-num">/ 04</div>
+        <h2 class="section-title">以價格中位數切兩群</h2>
+        <p class="section-sub">demo 用最簡單的規則把資料切兩堆，給你看「同樣的爬蟲邏輯、加上後處理，就能做出分析視角」。真實應用：依 rating、availability、tax 等欄位自由切。</p>
+      </div>
+    </div>
+    <div class="split-vis">
+      <div class="split-card premium">
+        <div class="split-card-head">
+          <div>
+            <div class="section-num" style="margin-bottom:4px">ABOVE MEDIAN</div>
+            <div class="split-card-name">Premium 區</div>
+          </div>
+          <div class="split-card-tag">£45.17+</div>
+        </div>
+        <div class="split-list">        <div class="split-row"><span>A Light in the Attic</span><span class="price">£51.77</span></div>
+        <div class="split-row"><span>Tipping the Velvet</span><span class="price">£53.74</span></div>
+        <div class="split-row"><span>Soumission</span><span class="price">£50.10</span></div>
+        <div class="split-row"><span>Sharp Objects</span><span class="price">£47.82</span></div>
+        <div class="split-row"><span>Sapiens: A Brief History of Humankind</span><span class="price">£54.23</span></div>
+        <div class="split-row"><span>The Black Maria</span><span class="price">£52.15</span></div>
+        <div class="split-row"><span>Scott Pilgrim&#x27;s Precious Little Life (Scot</span><span class="price">£52.29</span></div>
+        <div class="split-row"><span>Our Band Could Be Your Life: Scenes from t</span><span class="price">£57.25</span></div>
+        <div class="split-row"><span>Libertarianism for Beginners</span><span class="price">£51.33</span></div>
+        <div class="split-row"><span>It&#x27;s Only the Himalayas</span><span class="price">£45.17</span></div></div>
+      </div>
+      <div class="split-card affordable">
+        <div class="split-card-head">
+          <div>
+            <div class="section-num" style="margin-bottom:4px">BELOW MEDIAN</div>
+            <div class="split-card-name">Affordable 區</div>
+          </div>
+          <div class="split-card-tag">&lt; £45.17</div>
+        </div>
+        <div class="split-list">        <div class="split-row"><span>The Requiem Red</span><span class="price">£22.65</span></div>
+        <div class="split-row"><span>The Dirty Little Secrets of Getting Your D</span><span class="price">£33.34</span></div>
+        <div class="split-row"><span>The Coming Woman: A Novel Based on the Lif</span><span class="price">£17.93</span></div>
+        <div class="split-row"><span>The Boys in the Boat: Nine Americans and T</span><span class="price">£22.60</span></div>
+        <div class="split-row"><span>Starving Hearts (Triangular Trade Trilogy,</span><span class="price">£13.99</span></div>
+        <div class="split-row"><span>Shakespeare&#x27;s Sonnets</span><span class="price">£20.66</span></div>
+        <div class="split-row"><span>Set Me Free</span><span class="price">£17.46</span></div>
+        <div class="split-row"><span>Rip it Up and Start Again</span><span class="price">£35.02</span></div>
+        <div class="split-row"><span>Olio</span><span class="price">£23.88</span></div>
+        <div class="split-row"><span>Mesaerion: The Best Science Fiction Storie</span><span class="price">£37.59</span></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="container">
+    <div class="foot-row">
+      <div>HERMES <span class="foot-dot"></span> learning_1785787211_7 <span class="foot-dot"></span> 三層抓取 demo</div>
+      <div>
+        <a href="smart_crawler.py">smart_crawler.py</a>
+        <span class="foot-dot"></span>
+        <a href="smart_crawler_output.json">JSON output</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<!-- ============ DATA + RENDERING ============ -->
+<script>
+const DATA = {"target":"http://books.toscrape.com/catalogue/page-1.html","scraped_count":20,"tier_strategy":{"tier1":"requests + BeautifulSoup（純 SSR）","tier2":"Scrapling DynamicFetcher（Playwright JS 渲染，前 3 本做 hydrated 對照）","tier3":"Scrapling adaptive=True（自適應重定位 demo）"},"tier3_result":{"tier3_first_run_books":20,"tier3_adaptive_run_books":20,"tier3_sample_title":"A Light in the Attic"},"books":[{"title":"A Light in the Attic","price_gbp":51.77,"rating":3,"availability":"In stock","stock_count":22,"category":"A Light in the Attic","upc":"a897fe39b1053632","tax_gbp":0.0,"product_url":"http://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html","cover_image_url":"http://books.toscrape.com/media/cache/2c/da/2cdad67c44b002e7ead0cc35693c0e8b.jpg","snippet":"It's hard to imagine a world without A Light in the Attic. This now-classic collection of poetry and drawings from Shel Silverstein celebrates its 20th...","tier_source":"tier1_bs4 + tier2_dynamic_verified"},{"title":"Tipping the Velvet","price_gbp":53.74,"rating":1,"availability":"In stock","stock_count":20,"category":"Tipping the Velvet","upc":"90fa61229261140a","tax_gbp":0.0,"product_url":"http://books.toscrape.com/catalogue/tipping-the-velvet_999/index.html","cover_image_url":"http://books.toscrape.com/media/cache/26/0c/260c6ae16bce31c8f8c95daddd9f4a1c.jpg","snippet":"\"Erotic and absorbing...Written with starling power.\"--\"The New York Times Book Review \" Nan King, an oyster girl, is captivated by the music hall phenomenon...","tier_source":"tier1_bs4 + tier2_dynamic_verified"},{"title":"Soumission","price_gbp":50.1,"rating":1,"availability":"In stock","stock_count":20,"category":"Soumission","upc":"6957f44c3847a760","tax_gbp":0.0,"product_url":"http://books.toscrape.com/catalogue/soumission_998/index.html","cover_image_url":"http://books.toscrape.com/media/cache/3e/ef/3eef99c9d9adef34639f510662022830.jpg","snippet":"Dans une France assez proche de la nÃ´tre, un homme sâengage dans la carriÃ¨re universitaire. Peu motivÃ© par lâenseignement, il sâattend Ã  une vie...","tier_source":"tier1_bs4 + tier2_dynamic_verified"},{"title":"Sharp Objects","price_gbp":47.82,"rating":4,"availability":"In stock","stock_count":20,"category":"Sharp Objects","upc":"e00eb4fd7b871a48","tax_gbp":0.0,"product_url":"http://books.toscrape.com/catalogue/sharp-objects_997/index.html","cover_image_url":"http://books.toscrape.com/media/cache/32/51/3251cf3a3412f53f339e42cac2134093.jpg","snippet":"WICKED above her hipbone, GIRL across her heart Words are like a road map to reporter Camille Preakerâs troubled past. Fresh from a brief stay at a psych...","tier_source":"tier1_bs4"},{"title":"Sapiens: A Brief History of Humankind","price_gbp":54.23,"rating":5,"availability":"In stock","stock_count":20,"category":"Sapiens: A Brief History of Humankind","upc":"4165285e1663650f","tax_gbp":0.0,"product_url":"http://books.toscrape.com/catalogue/sapiens-a-brief-history-of-humankind_996/index.html","cover_image_url":"http://books.toscrape.com/media/cache/be/a5/bea5697f2534a2f86a3ef27b5a8c12a6.jpg","snippet":"From a renowned historian comes a groundbreaking narrative of humanityâs creation and evolutionâa #1 international bestsellerâthat explores the ways in...","tier_source":"tier1_bs4"},{"title":"The Requiem Red","price_gbp":22.65,"rating":1,"availability":"In stock","stock_count":19,"category":"The Requiem Red","upc":"f77dbf2323deb740","tax_gbp":0.0,"product_url":"http://books.toscrape.com/catalogue/the-requiem-red_995/index.html","cover_image_url":"http://books.toscrape.com/media/cache/68/33/68339b4c9bc034267e1da611ab3b34f8.jpg","snippet":"Patient Twenty-nine.A monster roams the halls of Soothing Hills Asylum. Three girls dead. 29 is endowed with the curseâ¦or gift of perception. She hears...","tier_source":"tier1_bs4"},{"title":"The Dirty Little Secrets of Getting Your Dream Job","price_gbp":33.34,"rating":4,"availability":"In stock","stock_count":19,"category":"The Dirty Little Secrets of Getting Your Dream Job","upc":"2597b5a345f45e1b","tax_gbp":0.0,"product_url":"http://books.toscrape.com/catalogue/the-dirty-little-secrets-of-getting-your-dream-job_994/index.html","cover_image_url":"http://books.toscrape.com/media/cache/92/27/92274a95b7c251fea59a2b8a78275ab4.jpg","snippet":"Drawing on his extensive experience evaluating applicants for his marketing agency, and featuring stories based on real-life situations, sample cover letters,...","tier_source":"tier1_bs4"},{"title":"The Coming Woman: A Novel Based on the Life of the Infamous Feminist, Victoria Woodhull","price_gbp":17.93,"rating":3,"availability":"In stock","stock_count":19,"category":"The Coming Woman: A Novel Based on the Life of the Infamous Feminist, Victoria Woodhull","upc":"e72a5dfc7e9267b2","tax_gbp":0.0,"product_url":"http://books.toscrape.com/catalogue/the-coming-woman-a-novel-based-on-the-life-of-the-infamous-feminist-victoria-woodhull_993/index.html","cover_image_url":"http://books.toscrape.com/media/cache/3d/54/3d54940e57e662c4dd1f3ff00c78cc64.jpg","snippet":"\"If you have a heart, if you have a soul, Karen Hicks' The Coming Woman will make you fall in love with Victoria Woodhull.\"-Kinky Friedman, author and Governor...","tier_source":"tier1_bs4"},{"title":"The Boys in the Boat: Nine Americans and Their Epic Quest for Gold at the 1936 Berlin Olympics","price_gbp":22.6,"rating":4,"availability":"In stock","stock_count":19,"category":"The Boys in the Boat: Nine Americans and Their Epic Quest for Gold at the 1936 Berlin Olympics","upc":"e10e1e165dc8be4a","tax_gbp":0.0,"product_url":"http://books.toscrape.com/catalogue/the-boys-in-the-boat-nine-americans-and-their-epic-quest-for-gold-at-the-1936-berlin-olympics_992/index.html","cover_image_url":"http://books.toscrape.com/media/cache/66/88/66883b91f6804b2323c8369331cb7dd1.jpg","snippet":"For readers of Laura Hillenbrand's Seabiscuit and Unbroken, the dramatic story of the American rowing team that stunned the world at Hitler's 1936 Berlin...","tier_source":"tier1_bs4"},{"title":"The Black Maria","price_gbp":52.15,"rating":1,"availability":"In stock","stock_count":19,"category":"The Black Maria","upc":"1dfe412b8ac00530","tax_gbp":0.0,"product_url":"http://books.toscrape.com/catalogue/the-black-maria_991/index.html","cover_image_url":"http://books.toscrape.com/media/cache/58/46/5846057e28022268153beff6d352b06c.jpg","snippet":"Praise for Aracelis Girmay:\"[Girmay's] every lossâshe calls them estrangementsâis a yearning for connection across time and place; her every fragment is a...","tier_source":"tier1_bs4"},{"title":"Starving Hearts (Triangular Trade Trilogy, #1)","price_gbp":13.99,"rating":2,"availability":"In stock","stock_count":19,"category":"Starving Hearts (Triangular Trade Trilogy, #1)","upc":"0312262ecafa5a40","tax_gbp":0.0,"product_url":"http://books.toscrape.com/catalogue/starving-hearts-triangular-trade-trilogy-1_990/index.html","cover_image_url":"http://books.toscrape.com/media/cache/be/f4/bef44da28c98f905a3ebec0b87be8530.jpg","snippet":"Since her assault, Miss Annette Chetwynd has been plagued by nightmares and worries about an arranged marriage. But she yearns to find her anonymous rescuer....","tier_source":"tier1_bs4"},{"title":"Shakespeare's Sonnets","price_gbp":20.66,"rating":4,"availability":"In stock","stock_count":19,"category":"Shakespeare's Sonnets","upc":"30a7f60cd76ca58c","tax_gbp":0.0,"product_url":"http://books.toscrape.com/catalogue/shakespeares-sonnets_989/index.html","cover_image_url":"http://books.toscrape.com/media/cache/10/48/1048f63d3b5061cd2f424d20b3f9b666.jpg","snippet":"This book is an important and complete collection of the Sonnets of William Shakespeare. Most readers are aware of the great plays and manuscripts written for...","tier_source":"tier1_bs4"},{"title":"Set Me Free","price_gbp":17.46,"rating":5,"availability":"In stock","stock_count":19,"category":"Set Me Free","upc":"ce6396b0f23f6ecc","tax_gbp":0.0,"product_url":"http://books.toscrape.com/catalogue/set-me-free_988/index.html","cover_image_url":"http://books.toscrape.com/media/cache/5b/88/5b88c52633f53cacf162c15f4f823153.jpg","snippet":"Aaron Ledbetterâs future had been planned out for him since before he was born. Each year, the Ledbetter family vacation on Tybee Island gave Aaron a chance...","tier_source":"tier1_bs4"},{"title":"Scott Pilgrim's Precious Little Life (Scott Pilgrim #1)","price_gbp":52.29,"rating":5,"availability":"In stock","stock_count":19,"category":"Scott Pilgrim's Precious Little Life (Scott Pilgrim #1)","upc":"3b1c02bac2a429e6","tax_gbp":0.0,"product_url":"http://books.toscrape.com/catalogue/scott-pilgrims-precious-little-life-scott-pilgrim-1_987/index.html","cover_image_url":"http://books.toscrape.com/media/cache/94/b1/94b1b8b244bce9677c2f29ccc890d4d2.jpg","snippet":"Scott Pilgrim's life is totally sweet. He's 23 years old, he's in a rockband, he's \"between jobs\" and he's dating a cute high school girl. Nothing could...","tier_source":"tier1_bs4"},{"title":"Rip it Up and Start Again","price_gbp":35.02,"rating":5,"availability":"In stock","stock_count":19,"category":"Rip it Up and Start Again","upc":"a34ba96d4081e6a4","tax_gbp":0.0,"product_url":"http://books.toscrape.com/catalogue/rip-it-up-and-start-again_986/index.html","cover_image_url":"http://books.toscrape.com/media/cache/81/c4/81c4a973364e17d01f217e1188253d5e.jpg","snippet":"Punk's raw power rejuvenated rock, but by the summer of 1977 the movement had become a parody of itself. RIP IT UP AND START AGAIN is a celebration of what...","tier_source":"tier1_bs4"},{"title":"Our Band Could Be Your Life: Scenes from the American Indie Underground, 1981-1991","price_gbp":57.25,"rating":3,"availability":"In stock","stock_count":19,"category":"Our Band Could Be Your Life: Scenes from the American Indie Underground, 1981-1991","upc":"deda3e61b9514b83","tax_gbp":0.0,"product_url":"http://books.toscrape.com/catalogue/our-band-could-be-your-life-scenes-from-the-american-indie-underground-1981-1991_985/index.html","cover_image_url":"http://books.toscrape.com/media/cache/54/60/54607fe8945897cdcced0044103b10b6.jpg","snippet":"This is the never-before-told story of the musical revolution that happened right under the nose of the Reagan Eighties--when a small but sprawling network of...","tier_source":"tier1_bs4"},{"title":"Olio","price_gbp":23.88,"rating":1,"availability":"In stock","stock_count":19,"category":"Olio","upc":"feb7cc7701ecf901","tax_gbp":0.0,"product_url":"http://books.toscrape.com/catalogue/olio_984/index.html","cover_image_url":"http://books.toscrape.com/media/cache/55/33/553310a7162dfbc2c6d19a84da0df9e1.jpg","snippet":"Part fact, part fiction, Tyehimba Jess's much anticipated second book weaves sonnet, song, and narrative to examine the lives of mostly unrecorded African...","tier_source":"tier1_bs4"},{"title":"Mesaerion: The Best Science Fiction Stories 1800-1849","price_gbp":37.59,"rating":1,"availability":"In stock","stock_count":19,"category":"Mesaerion: The Best Science Fiction Stories 1800-1849","upc":"e30f54cea9b38190","tax_gbp":0.0,"product_url":"http://books.toscrape.com/catalogue/mesaerion-the-best-science-fiction-stories-1800-1849_983/index.html","cover_image_url":"http://books.toscrape.com/media/cache/09/a3/09a3aef48557576e1a85ba7efea8ecb7.jpg","snippet":"Andrew Barger, award-winning author and engineer, has extensively researched forgotten journals and magazines of the early 19th century to locate...","tier_source":"tier1_bs4"},{"title":"Libertarianism for Beginners","price_gbp":51.33,"rating":2,"availability":"In stock","stock_count":19,"category":"Libertarianism for Beginners","upc":"a18a4f574854aced","tax_gbp":0.0,"product_url":"http://books.toscrape.com/catalogue/libertarianism-for-beginners_982/index.html","cover_image_url":"http://books.toscrape.com/media/cache/0b/bc/0bbcd0a6f4bcd81ccb1049a52736406e.jpg","snippet":"Libertarianism isn't about winning elections; it is first and foremost a political philosophy--a description of how, in the opinion of libertarians, free...","tier_source":"tier1_bs4"},{"title":"It's Only the Himalayas","price_gbp":45.17,"rating":2,"availability":"In stock","stock_count":19,"category":"It's Only the Himalayas","upc":"a22124811bfa8350","tax_gbp":0.0,"product_url":"http://books.toscrape.com/catalogue/its-only-the-himalayas_981/index.html","cover_image_url":"http://books.toscrape.com/media/cache/27/a5/27a53d0bb95bdd88288eaf66c9230d7e.jpg","snippet":"âWherever you go, whatever you do, just . . . donât do anything stupid.â âMy MotherDuring her yearlong adventure backpacking from South Africa to...","tier_source":"tier1_bs4"}]};
+const BOOKS = DATA.books;
+const CATEGORIES = ["all", ...Array.from(new Set(BOOKS.map(b => b.category))).sort()];
+
+// ---------- render stats ----------
+document.querySelector('.stats').innerHTML = `
+  <div class="container">
+    <div class="stats-grid">
+      <div class="stat">
+        <div class="stat-label">Books scraped</div>
+        <div class="stat-value num">${DATA.scraped_count}</div>
+        <div class="stat-meta">目標站: books.toscrape.com</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Total catalog value</div>
+        <div class="stat-value num">£${760.97.toFixed(2)}</div>
+        <div class="stat-meta">avg £${38.05.toFixed(2)} / book</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Avg rating</div>
+        <div class="stat-value num">${2.85.toFixed(2)}<sup>/5</sup></div>
+        <div class="stat-meta">${387} 件庫存總和</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Tier-2 verified</div>
+        <div class="stat-value num">${3} / 3</div>
+        <div class="stat-meta">前 3 本 hydrated 對照</div>
+      </div>
+    </div>
+  </div>`;
+
+// ---------- filter bar ----------
+const filterBar = document.getElementById("filterBar");
+let currentCat = "all";
+let currentSort = "idx";
+
+function renderFilters() {
+  filterBar.innerHTML = CATEGORIES.map(c =>
+    `<button class="filter ${c === currentCat ? "active" : ""}" data-cat="${c}">${c === "all" ? "all categories" : c}</button>`
+  ).join("");
+  filterBar.querySelectorAll(".filter").forEach(b => b.addEventListener("click", e => {
+    currentCat = b.dataset.cat;
+    renderFilters();
+    renderBooks();
+  }));
+}
+
+document.getElementById("sortSel").addEventListener("change", e => {
+  currentSort = e.target.value;
+  renderBooks();
+});
+
+// ---------- book grid ----------
+const STARS_FULL = "★", STARS_EMPTY = "☆";
+function renderStars(n) { return STARS_FULL.repeat(n) + STARS_EMPTY.repeat(5 - n); }
+
+function renderBooks() {
+  let list = currentCat === "all" ? BOOKS : BOOKS.filter(b => b.category === currentCat);
+  if (currentSort === "price-desc") list = [...list].sort((a, b) => b.price_gbp - a.price_gbp);
+  else if (currentSort === "price-asc") list = [...list].sort((a, b) => a.price_gbp - b.price_gbp);
+  else if (currentSort === "rating-desc") list = [...list].sort((a, b) => b.rating - a.rating);
+  else if (currentSort === "rating-asc") list = [...list].sort((a, b) => a.rating - b.rating);
+  else if (currentSort === "stock-desc") list = [...list].sort((a, b) => (b.stock_count || 0) - (a.stock_count || 0));
+
+  document.getElementById("bookGrid").innerHTML = list.map(b => {
+    const verified = b.tier_source.includes("tier2");
+    return `
+    <a class="book" href="${b.product_url}" target="_blank" rel="noopener">
+      <div class="book-img-wrap">
+        <img class="book-img" src="${b.cover_image_url}" alt="${b.title}" loading="lazy">
+      </div>
+      <div class="book-meta-top">
+        <div class="book-rating">${renderStars(b.rating)}</div>
+        <div class="book-tier ${verified ? "verified" : ""}">${verified ? "verified" : "tier-1"}</div>
+      </div>
+      <div class="book-title">${b.title}</div>
+      <div class="book-cat">${b.category}</div>
+      <div class="book-snippet">${b.snippet}</div>
+      <div class="book-foot">
+        <div class="book-price num">£${b.price_gbp.toFixed(2)}</div>
+        <div class="book-stock">stock <b>${b.stock_count || 0}</b></div>
+      </div>
+    </a>`;
+  }).join("");
+}
+
+renderFilters();
+renderBooks();
+</script>
+</body>
+</html>

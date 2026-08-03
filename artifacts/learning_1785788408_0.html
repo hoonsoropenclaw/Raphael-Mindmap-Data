@@ -1,0 +1,1358 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FlowForge · React Flow 動態工作流編輯器</title>
+
+<!-- React 18 + ReactDOM 18 (UMD) -->
+<script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+
+<!-- React Flow 11 (UMD build) -->
+<script src="https://unpkg.com/reactflow@11.10.1/dist/umd/index.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/reactflow@11.10.1/dist/style.css" />
+
+<!-- Babel standalone for in-browser JSX (development only) -->
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+
+<!-- html-to-image for PNG export -->
+<script src="https://unpkg.com/html-to-image@1.11.11/dist/html-to-image.js"></script>
+
+<style>
+  :root {
+    --bg-0: #0a0e1a;
+    --bg-1: #0f1525;
+    --bg-2: #161d33;
+    --bg-3: #1d2742;
+    --ink-0: #f1f5ff;
+    --ink-1: #c5cee0;
+    --ink-2: #8a93ad;
+    --ink-3: #5b6480;
+    --line: rgba(255, 255, 255, 0.08);
+    --line-strong: rgba(255, 255, 255, 0.16);
+    --brand: #8b5cf6;
+    --brand-2: #ec4899;
+    --brand-3: #38bdf8;
+    --accent: #22d3ee;
+    --warn: #fb923c;
+    --danger: #ef4444;
+    --ok: #10b981;
+    --shadow-1: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 8px 24px rgba(0, 0, 0, 0.45);
+    --shadow-2: 0 1px 0 rgba(255, 255, 255, 0.06) inset, 0 16px 48px rgba(0, 0, 0, 0.55);
+    --radius: 12px;
+    --radius-sm: 8px;
+    --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body, #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background: var(--bg-0);
+    color: var(--ink-1);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  /* Animated background grid */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(800px 500px at 20% -10%, rgba(139, 92, 246, 0.18), transparent 60%),
+      radial-gradient(600px 400px at 90% 10%, rgba(236, 72, 153, 0.14), transparent 60%),
+      radial-gradient(700px 500px at 50% 110%, rgba(56, 189, 248, 0.12), transparent 60%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(to right, rgba(255,255,255,0.025) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 32px 32px;
+    mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* App shell */
+  .app {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 240px 1fr 320px;
+    grid-template-rows: 56px 1fr;
+    grid-template-areas:
+      "topbar topbar topbar"
+      "leftbar canvas rightbar";
+    height: 100vh;
+    gap: 0;
+  }
+
+  .topbar {
+    grid-area: topbar;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    background: linear-gradient(180deg, rgba(15, 21, 37, 0.85), rgba(15, 21, 37, 0.55));
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.4px;
+    color: var(--ink-0);
+  }
+  .brand-logo {
+    width: 28px; height: 28px;
+    border-radius: 8px;
+    background: conic-gradient(from 200deg, var(--brand), var(--brand-2), var(--brand-3), var(--brand));
+    box-shadow: 0 4px 14px rgba(139, 92, 246, 0.45);
+    position: relative;
+  }
+  .brand-logo::after {
+    content: "";
+    position: absolute;
+    inset: 4px;
+    border-radius: 5px;
+    background: var(--bg-0);
+  }
+  .brand-logo::before {
+    content: "";
+    position: absolute;
+    inset: 9px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--brand), var(--brand-2));
+    z-index: 1;
+  }
+  .brand-sub {
+    color: var(--ink-2);
+    font-weight: 400;
+    font-size: 12px;
+    margin-left: 4px;
+  }
+
+  .top-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .btn {
+    appearance: none;
+    border: 1px solid var(--line-strong);
+    background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));
+    color: var(--ink-0);
+    padding: 7px 12px;
+    border-radius: var(--radius-sm);
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s ease;
+    font-family: inherit;
+  }
+  .btn:hover {
+    border-color: rgba(139, 92, 246, 0.5);
+    background: rgba(139, 92, 246, 0.12);
+    transform: translateY(-1px);
+  }
+  .btn:active { transform: translateY(0); }
+  .btn.primary {
+    background: linear-gradient(135deg, var(--brand), var(--brand-2));
+    border-color: transparent;
+    box-shadow: 0 6px 18px rgba(139, 92, 246, 0.35);
+  }
+  .btn.primary:hover {
+    filter: brightness(1.1);
+    box-shadow: 0 8px 22px rgba(139, 92, 246, 0.5);
+  }
+  .btn.ghost { background: transparent; }
+  .btn.danger:hover {
+    border-color: var(--danger);
+    background: rgba(239, 68, 68, 0.12);
+  }
+  .btn .kbd {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    background: rgba(255,255,255,0.08);
+    padding: 2px 5px;
+    border-radius: 4px;
+    color: var(--ink-2);
+  }
+  .btn-icon {
+    width: 16px; height: 16px;
+    display: inline-block;
+  }
+
+  .leftbar, .rightbar {
+    background: linear-gradient(180deg, rgba(15, 21, 37, 0.7), rgba(15, 21, 37, 0.4));
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-right: 1px solid var(--line);
+    overflow-y: auto;
+  }
+  .rightbar {
+    border-right: none;
+    border-left: 1px solid var(--line);
+  }
+
+  .panel-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--ink-2);
+    padding: 16px 16px 8px;
+    margin: 0;
+  }
+
+  .palette-item {
+    margin: 6px 12px;
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--line);
+    background: rgba(255,255,255,0.025);
+    cursor: grab;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    transition: all 0.15s ease;
+  }
+  .palette-item:hover {
+    border-color: var(--brand);
+    background: rgba(139, 92, 246, 0.12);
+    transform: translateX(2px);
+  }
+  .palette-item:active { cursor: grabbing; }
+  .palette-icon {
+    width: 28px; height: 28px;
+    border-radius: 7px;
+    display: grid;
+    place-items: center;
+    font-size: 14px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .palette-label { font-size: 13px; color: var(--ink-0); font-weight: 500; }
+  .palette-sub { font-size: 11px; color: var(--ink-2); }
+
+  .canvas-area {
+    position: relative;
+    overflow: hidden;
+    background: var(--bg-0);
+  }
+
+  /* React Flow overrides for dark theme */
+  .react-flow__node {
+    font-family: inherit;
+  }
+  .react-flow__edge-path {
+    stroke: rgba(255,255,255,0.45);
+    stroke-width: 1.6;
+  }
+  .react-flow__edge.selected .react-flow__edge-path,
+  .react-flow__edge:focus .react-flow__edge-path {
+    stroke: var(--brand);
+    stroke-width: 2.2;
+  }
+  .react-flow__edge.cycle .react-flow__edge-path {
+    stroke: var(--danger);
+    stroke-width: 2.5;
+    stroke-dasharray: 4 4;
+    animation: dash 0.6s linear infinite;
+  }
+  @keyframes dash { to { stroke-dashoffset: -16; } }
+
+  .react-flow__handle {
+    width: 10px; height: 10px;
+    background: var(--ink-1);
+    border: 2px solid var(--bg-1);
+  }
+  .react-flow__handle.connectable:hover {
+    background: var(--brand);
+  }
+
+  .react-flow__controls {
+    background: rgba(15, 21, 37, 0.85);
+    border: 1px solid var(--line);
+    backdrop-filter: blur(8px);
+    box-shadow: var(--shadow-1);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+  .react-flow__controls-button {
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--line);
+    color: var(--ink-1);
+    fill: currentColor;
+  }
+  .react-flow__controls-button:hover {
+    background: rgba(139, 92, 246, 0.18);
+  }
+  .react-flow__controls-button svg { fill: currentColor; }
+
+  .react-flow__minimap {
+    background: rgba(15, 21, 37, 0.85);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    backdrop-filter: blur(8px);
+  }
+
+  .react-flow__attribution {
+    background: transparent;
+    color: var(--ink-3);
+    font-size: 10px;
+  }
+
+  /* Custom Node Styles */
+  .ff-node {
+    min-width: 180px;
+    background: linear-gradient(180deg, rgba(29, 39, 66, 0.95), rgba(22, 29, 51, 0.95));
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    padding: 10px 12px;
+    color: var(--ink-0);
+    box-shadow: var(--shadow-1);
+    position: relative;
+    transition: box-shadow 0.15s ease, transform 0.15s ease;
+    backdrop-filter: blur(8px);
+  }
+  .ff-node:hover {
+    box-shadow: var(--shadow-2);
+    transform: translateY(-1px);
+  }
+  .ff-node.selected {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.25), var(--shadow-2);
+  }
+  .ff-node-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .ff-node-badge {
+    width: 22px; height: 22px;
+    border-radius: 6px;
+    display: grid;
+    place-items: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: white;
+    flex-shrink: 0;
+  }
+  .ff-node-title {
+    font-size: 13px;
+    font-weight: 600;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ff-node-meta {
+    font-size: 10.5px;
+    color: var(--ink-2);
+    font-family: var(--mono);
+    letter-spacing: 0.3px;
+  }
+  .ff-node-status {
+    position: absolute;
+    top: -6px; right: -6px;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    border: 2px solid var(--bg-0);
+    background: var(--ink-3);
+  }
+  .ff-node-status.running { background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+  .ff-node-status.done { background: var(--ok); }
+  .ff-node-status.error { background: var(--danger); }
+
+  /* Type-specific accents */
+  .ff-node.type-input { border-top: 3px solid var(--brand-3); }
+  .ff-node.type-process { border-top: 3px solid var(--brand); }
+  .ff-node.type-decision { border-top: 3px solid var(--warn); }
+  .ff-node.type-output { border-top: 3px solid var(--ok); }
+  .ff-node.type-loop { border-top: 3px solid var(--brand-2); }
+
+  .badge-input { background: linear-gradient(135deg, #38bdf8, #0ea5e9); }
+  .badge-process { background: linear-gradient(135deg, #8b5cf6, #6366f1); }
+  .badge-decision { background: linear-gradient(135deg, #fb923c, #f59e0b); }
+  .badge-output { background: linear-gradient(135deg, #10b981, #059669); }
+  .badge-loop { background: linear-gradient(135deg, #ec4899, #db2777); }
+
+  /* Right panel */
+  .section {
+    padding: 0 16px 16px;
+  }
+  .field {
+    margin-top: 10px;
+  }
+  .field-label {
+    font-size: 11px;
+    color: var(--ink-2);
+    margin-bottom: 4px;
+    display: block;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+  .field-input, .field-select, .field-textarea {
+    width: 100%;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--line-strong);
+    color: var(--ink-0);
+    padding: 7px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 12.5px;
+    font-family: inherit;
+    resize: vertical;
+  }
+  .field-input:focus, .field-select:focus, .field-textarea:focus {
+    outline: none;
+    border-color: var(--brand);
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.18);
+  }
+  .field-textarea { min-height: 64px; }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .stat-card {
+    background: rgba(255,255,255,0.025);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 10px;
+  }
+  .stat-num {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--ink-0);
+    font-family: var(--mono);
+  }
+  .stat-label {
+    font-size: 10.5px;
+    color: var(--ink-2);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-top: 2px;
+  }
+  .stat-card.warn { border-color: rgba(251, 146, 60, 0.4); }
+  .stat-card.warn .stat-num { color: var(--warn); }
+  .stat-card.ok { border-color: rgba(16, 185, 129, 0.4); }
+  .stat-card.ok .stat-num { color: var(--ok); }
+  .stat-card.err { border-color: rgba(239, 68, 68, 0.4); }
+  .stat-card.err .stat-num { color: var(--danger); }
+
+  .topo-list {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+    counter-reset: step;
+  }
+  .topo-item {
+    counter-increment: step;
+    padding: 6px 10px 6px 32px;
+    position: relative;
+    background: rgba(255,255,255,0.025);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    margin-bottom: 4px;
+    font-size: 12px;
+    color: var(--ink-0);
+    font-family: var(--mono);
+  }
+  .topo-item::before {
+    content: counter(step);
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px; height: 18px;
+    background: linear-gradient(135deg, var(--brand), var(--brand-2));
+    border-radius: 4px;
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    display: grid;
+    place-items: center;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 99px;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }
+  .badge-ok { background: rgba(16, 185, 129, 0.15); color: var(--ok); border: 1px solid rgba(16, 185, 129, 0.3); }
+  .badge-warn { background: rgba(251, 146, 60, 0.15); color: var(--warn); border: 1px solid rgba(251, 146, 60, 0.3); }
+  .badge-err { background: rgba(239, 68, 68, 0.15); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.3); }
+
+  .empty-hint {
+    color: var(--ink-3);
+    font-size: 11.5px;
+    font-style: italic;
+    padding: 12px 16px;
+    text-align: center;
+  }
+
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(15, 21, 37, 0.95);
+    border: 1px solid var(--line-strong);
+    color: var(--ink-0);
+    padding: 10px 16px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    box-shadow: var(--shadow-2);
+    backdrop-filter: blur(12px);
+    opacity: 0;
+    transition: all 0.25s ease;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast.err { border-color: var(--danger); }
+  .toast.ok { border-color: var(--ok); }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(4px);
+    display: grid;
+    place-items: center;
+    z-index: 100;
+  }
+  .modal {
+    background: var(--bg-1);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    padding: 20px;
+    width: 480px;
+    max-width: 90vw;
+    box-shadow: var(--shadow-2);
+  }
+  .modal h3 { margin: 0 0 12px; color: var(--ink-0); font-size: 16px; }
+  .modal pre {
+    background: rgba(0,0,0,0.4);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+    max-height: 280px;
+    overflow: auto;
+    font-size: 11.5px;
+    color: var(--ink-1);
+    font-family: var(--mono);
+    margin: 0;
+  }
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 14px;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.16); }
+
+  /* Empty drop hint */
+  .drop-hint {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+    color: var(--ink-3);
+    font-size: 14px;
+    font-weight: 500;
+    text-align: center;
+    z-index: 0;
+  }
+  .drop-hint.dragging {
+    color: var(--brand);
+    background: rgba(139, 92, 246, 0.06);
+  }
+
+  /* Pulse for running */
+  @keyframes pulse-ring {
+    0% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.6); }
+    70% { box-shadow: 0 0 0 10px rgba(34, 211, 238, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0); }
+  }
+  .ff-node.running { animation: pulse-ring 1.5s infinite; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useCallback, useMemo, useRef, useEffect } = React;
+const {
+  ReactFlow,
+  ReactFlowProvider,
+  Controls,
+  Background,
+  MiniMap,
+  Handle,
+  Position,
+  addEdge,
+  useNodesState,
+  useEdgesState,
+  useReactFlow,
+  applyNodeChanges,
+  applyEdgeChanges,
+  MarkerType,
+  BackgroundVariant,
+} = window.ReactFlow;
+
+/* ============================================================
+ *  DAG 演算法：cycle detection + topological sort（從 micro-skill 移植）
+ * ============================================================ */
+const hasCycle = (nodes, edges) => {
+  const adj = {};
+  nodes.forEach((n) => { adj[n.id] = []; });
+  edges.forEach((e) => { if (adj[e.source]) adj[e.source].push(e.target); });
+  const visited = new Set();
+  const onStack = new Set();
+  const dfs = (id) => {
+    if (onStack.has(id)) return true;
+    if (visited.has(id)) return false;
+    visited.add(id); onStack.add(id);
+    for (const t of adj[id] || []) if (dfs(t)) return true;
+    onStack.delete(id);
+    return false;
+  };
+  return nodes.some((n) => dfs(n.id));
+};
+
+const findCycleEdges = (nodes, edges) => {
+  const adj = {};
+  nodes.forEach((n) => { adj[n.id] = []; });
+  edges.forEach((e) => { if (adj[e.source]) adj[e.source].push({target: e.target, id: e.id}); });
+  const visited = new Set();
+  const onStack = new Set();
+  const cycleEdgeIds = new Set();
+  const dfs = (id) => {
+    if (onStack.has(id)) return true;
+    if (visited.has(id)) return false;
+    visited.add(id); onStack.add(id);
+    for (const { target, id: eid } of adj[id] || []) {
+      if (dfs(target)) cycleEdgeIds.add(eid);
+    }
+    onStack.delete(id);
+    return false;
+  };
+  nodes.forEach((n) => dfs(n.id));
+  return cycleEdgeIds;
+};
+
+const topologicalOrder = (nodes, edges) => {
+  const inDeg = {};
+  const adj = {};
+  nodes.forEach((n) => { inDeg[n.id] = 0; adj[n.id] = []; });
+  edges.forEach((e) => {
+    if (adj[e.source] && inDeg[e.target] !== undefined) {
+      adj[e.source].push(e.target);
+      inDeg[e.target] += 1;
+    }
+  });
+  const queue = nodes.filter((n) => inDeg[n.id] === 0).map((n) => n.id);
+  const order = [];
+  while (queue.length) {
+    const id = queue.shift();
+    order.push(id);
+    for (const t of adj[id] || []) {
+      inDeg[t] -= 1;
+      if (inDeg[t] === 0) queue.push(t);
+    }
+  }
+  return order.length === nodes.length ? order : null;
+};
+
+/* ============================================================
+ *  Custom Node Components
+ * ============================================================ */
+const NODE_ICONS = { input: "▶", process: "⚙", decision: "◆", output: "■", loop: "↻" };
+
+const BaseNode = ({ data, type, selected }) => {
+  const t = type || data?.nodeType || "process";
+  const status = data?.status || "idle";
+  const icon = NODE_ICONS[t] || "●";
+  return (
+    <div className={`ff-node type-${t} ${selected ? "selected" : ""} ${status === "running" ? "running" : ""}`}>
+      <Handle type="target" position={Position.Left} style={{ background: "#555" }} />
+      <div className="ff-node-status" data-status={status}></div>
+      <div className="ff-node-header">
+        <div className={`ff-node-badge badge-${t}`}>{icon}</div>
+        <div className="ff-node-title">{data?.label || "未命名"}</div>
+      </div>
+      <div className="ff-node-meta">{t.toUpperCase()} · {data?.meta || "—"}</div>
+      <Handle type="source" position={Position.Right} style={{ background: "#555" }} />
+    </div>
+  );
+};
+
+const InputNode = (props) => <BaseNode {...props} type="input" />;
+const ProcessNode = (props) => <BaseNode {...props} type="process" />;
+const DecisionNode = (props) => <BaseNode {...props} type="decision" />;
+const OutputNode = (props) => <BaseNode {...props} type="output" />;
+const LoopNode = (props) => <BaseNode {...props} type="loop" />;
+
+const nodeTypes = {
+  input: InputNode,
+  process: ProcessNode,
+  decision: DecisionNode,
+  output: OutputNode,
+  loop: LoopNode,
+};
+
+/* ============================================================
+ *  Palette Item (drag from sidebar)
+ * ============================================================ */
+const PaletteItem = ({ type, label, sub }) => {
+  const onDragStart = (e) => {
+    e.dataTransfer.setData("application/flowforge", type);
+    e.dataTransfer.effectAllowed = "move";
+  };
+  return (
+    <div className="palette-item" draggable onDragStart={onDragStart}>
+      <div className={`palette-icon badge-${type}`}>{NODE_ICONS[type]}</div>
+      <div>
+        <div className="palette-label">{label}</div>
+        <div className="palette-sub">{sub}</div>
+      </div>
+    </div>
+  );
+};
+
+/* ============================================================
+ *  Inspector Panel (right side)
+ * ============================================================ */
+const Inspector = ({ selectedNode, onUpdate, onDelete, onClose }) => {
+  if (!selectedNode) {
+    return (
+      <div className="empty-hint">
+        👈 點選節點以編輯屬性<br/>
+        雙擊節點可重命名<br/>
+        <kbd>Delete</kbd> 移除選取項目
+      </div>
+    );
+  }
+  const d = selectedNode.data || {};
+  return (
+    <div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 16px 4px"}}>
+        <h4 style={{margin:0,color:"var(--ink-0)",fontSize:13}}>節點屬性</h4>
+        <button className="btn ghost" style={{padding:"4px 8px",fontSize:11}} onClick={onClose}>✕</button>
+      </div>
+      <div className="section">
+        <div className="field">
+          <label className="field-label">類型</label>
+          <select className="field-select" value={selectedNode.type || "process"} onChange={(e)=>onUpdate({type: e.target.value})}>
+            <option value="input">Input (起點)</option>
+            <option value="process">Process (處理)</option>
+            <option value="decision">Decision (決策)</option>
+            <option value="output">Output (終點)</option>
+            <option value="loop">Loop (迴圈)</option>
+          </select>
+        </div>
+        <div className="field">
+          <label className="field-label">標題</label>
+          <input className="field-input" value={d.label || ""} onChange={(e)=>onUpdate({label: e.target.value})}/>
+        </div>
+        <div className="field">
+          <label className="field-label">描述 / 註記</label>
+          <textarea className="field-textarea" value={d.meta || ""} onChange={(e)=>onUpdate({meta: e.target.value})} placeholder="補充說明..."/>
+        </div>
+        <div className="field">
+          <label className="field-label">節點 ID（唯讀）</label>
+          <input className="field-input" value={selectedNode.id} readOnly style={{fontFamily:"var(--mono)",fontSize:11,color:"var(--ink-2)"}}/>
+        </div>
+        <div className="field" style={{display:"flex",gap:8,marginTop:14}}>
+          <button className="btn danger" style={{flex:1}} onClick={onDelete}>🗑 刪除節點</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ============================================================
+ *  Toast helper
+ * ============================================================ */
+let toastTimer = null;
+const showToast = (msg, kind = "") => {
+  const el = document.getElementById("toast");
+  if (!el) return;
+  el.textContent = msg;
+  el.className = `toast show ${kind}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = "toast"; }, 2400);
+};
+
+/* ============================================================
+ *  Main Flow
+ * ============================================================ */
+const initialNodes = [
+  { id: "n1", type: "input",   position: { x: 60,  y: 80 },  data: { label: "使用者請求",  meta: "GET /api/v1" } },
+  { id: "n2", type: "process", position: { x: 320, y: 60 },  data: { label: "驗證 Token", meta: "JWT decode" } },
+  { id: "n3", type: "decision",position: { x: 320, y: 220 }, data: { label: "是否有效？", meta: "branching" } },
+  { id: "n4", type: "process", position: { x: 600, y: 60 },  data: { label: "查詢資料庫", meta: "Postgres SELECT" } },
+  { id: "n5", type: "output",  position: { x: 880, y: 140 }, data: { label: "回傳結果",   meta: "JSON 200" } },
+  { id: "n6", type: "output",  position: { x: 600, y: 320 }, data: { label: "401 錯誤",   meta: "reject" } },
+];
+
+const initialEdges = [
+  { id: "e1", source: "n1", target: "n2", animated: true,  style: { stroke: "#8b5cf6" } },
+  { id: "e2", source: "n2", target: "n3", style: { stroke: "#8b5cf6" } },
+  { id: "e3", source: "n3", target: "n4", label: "有效", style: { stroke: "#10b981" }, labelStyle:{fill:"#10b981",fontSize:11}, labelBgStyle:{fill:"#0f1525"} },
+  { id: "e4", source: "n4", target: "n5", animated: true,  style: { stroke: "#10b981" } },
+  { id: "e5", source: "n3", target: "n6", label: "無效", style: { stroke: "#ef4444" }, labelStyle:{fill:"#ef4444",fontSize:11}, labelBgStyle:{fill:"#0f1525"} },
+];
+
+const Flow = () => {
+  const reactFlowWrapper = useRef(null);
+  const [nodes, setNodes] = useNodesState(initialNodes);
+  const [edges, setEdges] = useEdgesState(initialEdges);
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [selectedEdge, setSelectedEdge] = useState(null);
+  const [runningOrder, setRunningOrder] = useState(null);
+  const [runStatus, setRunStatus] = useState("idle"); // idle | running | done | error
+  const [runningStep, setRunningStep] = useState(-1);
+  const [showJsonModal, setShowJsonModal] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const { project, getNode, getNodes, getEdges, screenToFlowPosition, fitView, zoomIn, zoomOut } = useReactFlow();
+
+  // Cycle detection (re-run when nodes/edges change)
+  const cycleEdgeIds = useMemo(() => {
+    return hasCycle(nodes, edges) ? findCycleEdges(nodes, edges) : new Set();
+  }, [nodes, edges]);
+
+  const cycleDetected = cycleEdgeIds.size > 0;
+  const topo = useMemo(() => topologicalOrder(nodes, edges), [nodes, edges]);
+
+  const decoratedEdges = useMemo(() => {
+    return edges.map((e) => ({
+      ...e,
+      className: cycleEdgeIds.has(e.id) ? "cycle" : "",
+      markerEnd: { type: MarkerType.ArrowClosed, color: cycleEdgeIds.has(e.id) ? "#ef4444" : "#8b5cf6" },
+    }));
+  }, [edges, cycleEdgeIds]);
+
+  // Connections
+  const onConnect = useCallback((params) => {
+    if (params.source === params.target) return;
+    setEdges((eds) => addEdge({
+      ...params,
+      animated: false,
+      style: { stroke: "#8b5cf6", strokeWidth: 1.6 },
+      markerEnd: { type: MarkerType.ArrowClosed, color: "#8b5cf6" },
+    }, eds));
+  }, [setEdges]);
+
+  // Drag from palette -> drop on canvas
+  const onDragOver = useCallback((e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setIsDragging(true);
+  }, []);
+  const onDragLeave = useCallback(() => setIsDragging(false), []);
+  const onDrop = useCallback((e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const type = e.dataTransfer.getData("application/flowforge");
+    if (!type) return;
+    const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    const id = `n${Date.now().toString(36)}`;
+    const labels = { input:"新輸入", process:"新處理", decision:"新決策", output:"新輸出", loop:"新迴圈" };
+    const newNode = {
+      id, type, position,
+      data: { label: labels[type] || "節點", meta: "" },
+    };
+    setNodes((nds) => nds.concat(newNode));
+    showToast(`已新增 ${type} 節點`, "ok");
+  }, [screenToFlowPosition, setNodes]);
+
+  // Selection
+  const onNodeClick = useCallback((_, node) => {
+    setSelectedNode(node);
+    setSelectedEdge(null);
+  }, []);
+  const onEdgeClick = useCallback((_, edge) => {
+    setSelectedEdge(edge);
+    setSelectedNode(null);
+  }, []);
+  const onPaneClick = useCallback(() => {
+    setSelectedNode(null);
+    setSelectedEdge(null);
+  }, []);
+
+  // Update node
+  const updateSelectedNode = useCallback((patch) => {
+    if (!selectedNode) return;
+    setNodes((nds) => nds.map((n) => {
+      if (n.id !== selectedNode.id) return n;
+      if (patch.type) {
+        return { ...n, type: patch.type, data: { ...n.data } };
+      }
+      return { ...n, data: { ...n.data, ...patch } };
+    }));
+    setSelectedNode((prev) => prev ? {
+      ...prev,
+      type: patch.type || prev.type,
+      data: { ...prev.data, ...patch }
+    } : prev);
+  }, [selectedNode, setNodes]);
+
+  const deleteSelectedNode = useCallback(() => {
+    if (!selectedNode) return;
+    const id = selectedNode.id;
+    setNodes((nds) => nds.filter((n) => n.id !== id));
+    setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id));
+    setSelectedNode(null);
+    showToast(`已刪除節點 ${id}`);
+  }, [selectedNode, setNodes, setEdges]);
+
+  const deleteSelectedEdge = useCallback(() => {
+    if (!selectedEdge) return;
+    setEdges((eds) => eds.filter((e) => e.id !== selectedEdge.id));
+    setSelectedEdge(null);
+    showToast("已刪除連線");
+  }, [selectedEdge, setEdges]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e) => {
+      // Avoid triggering when typing in inputs
+      const tag = (e.target.tagName || "").toLowerCase();
+      if (["input","textarea","select"].includes(tag) || e.target.isContentEditable) return;
+
+      if ((e.key === "Delete" || e.key === "Backspace")) {
+        if (selectedNode) { e.preventDefault(); deleteSelectedNode(); }
+        else if (selectedEdge) { e.preventDefault(); deleteSelectedEdge(); }
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "f") {
+        e.preventDefault();
+        fitView({ duration: 400, padding: 0.2 });
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [selectedNode, selectedEdge, deleteSelectedNode, deleteSelectedEdge, fitView]);
+
+  // Run simulation: topological order with step animation
+  const runSimulation = useCallback(() => {
+    if (cycleDetected) {
+      showToast("偵測到循環，無法執行", "err");
+      return;
+    }
+    if (!topo || topo.length === 0) {
+      showToast("流程是空的", "err");
+      return;
+    }
+    setRunStatus("running");
+    setRunningOrder(topo);
+    setRunningStep(0);
+    showToast(`開始執行 ${topo.length} 個步驟`, "ok");
+
+    // Reset all statuses
+    setNodes((nds) => nds.map((n) => ({ ...n, data: { ...n.data, status: "idle" } })));
+
+    let i = 0;
+    const tick = () => {
+      if (i >= topo.length) {
+        setRunStatus("done");
+        showToast("執行完成", "ok");
+        return;
+      }
+      const id = topo[i];
+      setRunningStep(i);
+      setNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, status: "running" } } : n));
+      setTimeout(() => {
+        setNodes((nds) => nds.map((n) => n.id === id ? { ...n, data: { ...n.data, status: "done" } } : n));
+        i += 1;
+        tick();
+      }, 700);
+    };
+    tick();
+  }, [cycleDetected, topo, setNodes]);
+
+  const resetSimulation = useCallback(() => {
+    setRunStatus("idle");
+    setRunningOrder(null);
+    setRunningStep(-1);
+    setNodes((nds) => nds.map((n) => ({ ...n, data: { ...n.data, status: "idle" } })));
+  }, [setNodes]);
+
+  // Auto layout (simple horizontal cascade)
+  const autoLayout = useCallback(() => {
+    if (cycleDetected) {
+      showToast("偵測到循環，無法自動佈局", "err");
+      return;
+    }
+    if (!topo) { showToast("拓樸排序失敗", "err"); return; }
+    const layers = {};
+    const inDeg = {};
+    nodes.forEach((n) => { inDeg[n.id] = 0; });
+    edges.forEach((e) => { if (inDeg[e.target] !== undefined) inDeg[e.target] += 1; });
+    topo.forEach((id) => {
+      const layer = inDeg[id];
+      layers[layer] = layers[layer] || [];
+      layers[layer].push(id);
+    });
+    const COL_W = 260, ROW_H = 120;
+    const newNodes = nodes.map((n) => {
+      let myLayer = -1;
+      for (const [k, v] of Object.entries(layers)) {
+        if (v.includes(n.id)) { myLayer = parseInt(k); break; }
+      }
+      if (myLayer < 0) return n;
+      const idxInLayer = layers[myLayer].indexOf(n.id);
+      return {
+        ...n,
+        position: {
+          x: 60 + myLayer * COL_W,
+          y: 80 + idxInLayer * ROW_H,
+        },
+      };
+    });
+    setNodes(newNodes);
+    setTimeout(() => fitView({ duration: 500, padding: 0.2 }), 50);
+    showToast("已自動佈局", "ok");
+  }, [cycleDetected, topo, nodes, setNodes, fitView]);
+
+  // Clear all
+  const clearAll = useCallback(() => {
+    if (!confirm("確定清空整個工作流？此動作無法復原。")) return;
+    setNodes([]);
+    setEdges([]);
+    setSelectedNode(null);
+    setSelectedEdge(null);
+    resetSimulation();
+    showToast("已清空畫布");
+  }, [setNodes, setEdges, resetSimulation]);
+
+  // Export JSON
+  const exportJSON = useCallback(() => {
+    const data = {
+      version: "1.0",
+      nodes: nodes.map((n) => ({ ...n, data: { ...n.data, status: undefined } })),
+      edges,
+      exportedAt: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `flowforge-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast("已匯出 JSON", "ok");
+  }, [nodes, edges]);
+
+  // Import JSON
+  const importJSON = useCallback(() => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "application/json";
+    input.onchange = async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        if (!Array.isArray(data.nodes) || !Array.isArray(data.edges)) throw new Error("格式錯誤");
+        // Strip statuses
+        const cleanNodes = data.nodes.map((n) => ({ ...n, data: { ...n.data, status: "idle" } }));
+        setNodes(cleanNodes);
+        setEdges(data.edges);
+        setSelectedNode(null);
+        showToast(`已匯入 ${cleanNodes.length} 節點、${data.edges.length} 連線`, "ok");
+      } catch (err) {
+        showToast(`匯入失敗：${err.message}`, "err");
+      }
+    };
+    input.click();
+  }, [setNodes, setEdges]);
+
+  // Export PNG
+  const exportPNG = useCallback(() => {
+    const el = reactFlowWrapper.current;
+    if (!el) return;
+    const flowEl = el.querySelector(".react-flow__viewport") || el.querySelector(".react-flow");
+    if (!flowEl || !window.htmlToImage) {
+      showToast("PNG 匯出功能未就緒", "err");
+      return;
+    }
+    window.htmlToImage.toPng(flowEl, { backgroundColor: "#0a0e1a", pixelRatio: 2 }).then((dataUrl) => {
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = `flowforge-${Date.now()}.png`;
+      a.click();
+      showToast("已匯出 PNG", "ok");
+    }).catch((err) => showToast(`PNG 匯出失敗：${err.message}`, "err"));
+  }, []);
+
+  return (
+    <div className="app">
+      {/* ===================== Top Bar ===================== */}
+      <div className="topbar">
+        <div className="brand">
+          <div className="brand-logo"></div>
+          <span>FlowForge</span>
+          <span className="brand-sub">React Flow 工作流編輯器</span>
+        </div>
+        <div className="top-actions">
+          <button className="btn ghost" onClick={() => fitView({duration:400, padding:0.2})}>
+            <svg className="btn-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M2 5V2h3M14 5V2h-3M2 11v3h3M14 11v3h-3"/></svg>
+            適配視窗
+          </button>
+          <button className="btn ghost" onClick={autoLayout} disabled={cycleDetected}>↔ 自動佈局</button>
+          <button className="btn ghost" onClick={importJSON}>↥ 匯入 JSON</button>
+          <button className="btn ghost" onClick={exportJSON}>↧ 匯出 JSON</button>
+          <button className="btn ghost" onClick={exportPNG}>🖼 PNG</button>
+          <button className="btn ghost danger" onClick={clearAll}>🗑 清空</button>
+          {runStatus === "running" ? (
+            <button className="btn" onClick={resetSimulation}>⏸ 停止</button>
+          ) : (
+            <button className="btn primary" onClick={runSimulation} disabled={cycleDetected || nodes.length === 0}>
+              ▶ 執行流程
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ===================== Left Palette ===================== */}
+      <div className="leftbar">
+        <h3 className="panel-title">節點元件庫</h3>
+        <PaletteItem type="input"    label="Input 起點"    sub="流程入口" />
+        <PaletteItem type="process"  label="Process 處理"  sub="資料轉換" />
+        <PaletteItem type="decision" label="Decision 決策" sub="分支判斷" />
+        <PaletteItem type="output"   label="Output 終點"   sub="流程出口" />
+        <PaletteItem type="loop"     label="Loop 迴圈"     sub="重複執行" />
+
+        <h3 className="panel-title" style={{marginTop:18}}>鍵盤快捷鍵</h3>
+        <div style={{padding:"4px 16px",fontSize:11.5,color:"var(--ink-2)",lineHeight:1.8}}>
+          <div>• 拖曳元件至畫布</div>
+          <div>• 拖曳節點 handle 連線</div>
+          <div>• 雙擊節點編輯（在右側面板）</div>
+          <div>• <kbd style={kbdStyle}>Del</kbd> 刪除選取</div>
+          <div>• <kbd style={kbdStyle}>⌘/Ctrl + F</kbd> 適配視窗</div>
+          <div>• 滾輪縮放、空白拖曳平移</div>
+        </div>
+
+        <h3 className="panel-title" style={{marginTop:18}}>流程狀態</h3>
+        <div style={{padding:"0 16px"}}>
+          <span className={`badge ${cycleDetected ? "badge-err" : topo ? "badge-ok" : "badge-warn"}`}>
+            {cycleDetected ? "循環錯誤" : topo ? "DAG 有效" : "無效"}
+          </span>
+          {runStatus === "running" && <div style={{marginTop:8}}><span className="badge badge-warn">執行中 {runningStep + 1}/{runningOrder?.length}</span></div>}
+          {runStatus === "done" && <div style={{marginTop:8}}><span className="badge badge-ok">已完成</span></div>}
+        </div>
+      </div>
+
+      {/* ===================== Canvas ===================== */}
+      <div
+        className="canvas-area"
+        ref={reactFlowWrapper}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+      >
+        {nodes.length === 0 && (
+          <div className={`drop-hint ${isDragging ? "dragging" : ""}`}>
+            <div>
+              <div style={{fontSize:48,marginBottom:12}}>📐</div>
+              <div>從左側拖曳節點到此處開始建構工作流</div>
+              <div style={{marginTop:8,fontSize:12,color:"var(--ink-3)"}}>或按上方「匯入 JSON」載入範例</div>
+            </div>
+          </div>
+        )}
+        <ReactFlow
+          nodes={nodes}
+          edges={decoratedEdges}
+          onNodesChange={(changes) => {
+            // Intercept select changes for inspector sync
+            setNodes((nds) => applyNodeChanges(changes, nds));
+            changes.forEach((ch) => {
+              if (ch.type === "select" && ch.selected) {
+                const n = nodes.find((nn) => nn.id === ch.id);
+                if (n) setSelectedNode(n);
+              }
+            });
+          }}
+          onEdgesChange={(changes) => setEdges((eds) => applyEdgeChanges(changes, eds))}
+          onConnect={onConnect}
+          onNodeClick={onNodeClick}
+          onEdgeClick={onEdgeClick}
+          onPaneClick={onPaneClick}
+          onNodeDoubleClick={onNodeClick}
+          nodeTypes={nodeTypes}
+          fitView
+          deleteKeyCode={null}
+          proOptions={{ hideAttribution: false }}
+          defaultEdgeOptions={{ animated: false }}
+        >
+          <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="rgba(255,255,255,0.08)" />
+          <Controls position="bottom-left" />
+          <MiniMap
+            nodeColor={(n) => {
+              const colors = { input:"#38bdf8", process:"#8b5cf6", decision:"#fb923c", output:"#10b981", loop:"#ec4899" };
+              return colors[n.type] || "#8b5cf6";
+            }}
+            maskColor="rgba(10, 14, 26, 0.7)"
+            position="bottom-right"
+          />
+        </ReactFlow>
+      </div>
+
+      {/* ===================== Right Inspector ===================== */}
+      <div className="rightbar">
+        <Inspector
+          selectedNode={selectedNode}
+          onUpdate={updateSelectedNode}
+          onDelete={deleteSelectedNode}
+          onClose={() => setSelectedNode(null)}
+        />
+
+        {selectedEdge && !selectedNode && (
+          <div className="section">
+            <h4 style={{margin:"14px 0 4px",color:"var(--ink-0)",fontSize:13}}>連線屬性</h4>
+            <div className="field">
+              <label className="field-label">連線 ID</label>
+              <input className="field-input" value={selectedEdge.id} readOnly style={{fontFamily:"var(--mono)",fontSize:11}}/>
+            </div>
+            <div className="field">
+              <label className="field-label">來源 → 目標</label>
+              <input className="field-input" value={`${selectedEdge.source} → ${selectedEdge.target}`} readOnly style={{fontFamily:"var(--mono)",fontSize:11}}/>
+            </div>
+            <button className="btn danger" style={{width:"100%",marginTop:10}} onClick={deleteSelectedEdge}>🗑 刪除連線</button>
+          </div>
+        )}
+
+        <h3 className="panel-title" style={{marginTop: selectedNode || selectedEdge ? 12 : 0}}>流程統計</h3>
+        <div className="section">
+          <div className="stat-grid">
+            <div className="stat-card ok">
+              <div className="stat-num">{nodes.length}</div>
+              <div className="stat-label">節點數</div>
+            </div>
+            <div className="stat-card ok">
+              <div className="stat-num">{edges.length}</div>
+              <div className="stat-label">連線數</div>
+            </div>
+            <div className={`stat-card ${cycleDetected ? "err" : "ok"}`}>
+              <div className="stat-num">{cycleDetected ? cycleEdgeIds.size : 0}</div>
+              <div className="stat-label">循環邊</div>
+            </div>
+            <div className={`stat-card ${topo ? "ok" : "err"}`}>
+              <div className="stat-num">{topo ? topo.length : "—"}</div>
+              <div className="stat-label">拓樸深度</div>
+            </div>
+          </div>
+        </div>
+
+        <h3 className="panel-title" style={{marginTop:6}}>拓樸執行順序</h3>
+        <div className="section">
+          {topo && topo.length > 0 ? (
+            <ol className="topo-list">
+              {topo.map((id) => {
+                const node = nodes.find((n) => n.id === id);
+                return (
+                  <li key={id} className="topo-item">
+                    {node?.data?.label || id}
+                  </li>
+                );
+              })}
+            </ol>
+          ) : (
+            <div className="empty-hint">{cycleDetected ? "偵測到循環，無法排序" : "尚無節點"}</div>
+          )}
+        </div>
+
+        <div className="section" style={{paddingTop:6}}>
+          <button className="btn ghost" style={{width:"100%"}} onClick={() => setShowJsonModal(true)}>
+            {`{} `}查看 JSON
+          </button>
+        </div>
+      </div>
+
+      {/* ===================== JSON Modal ===================== */}
+      {showJsonModal && (
+        <div className="modal-backdrop" onClick={() => setShowJsonModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>目前工作流 JSON</h3>
+            <pre>{JSON.stringify({nodes: nodes.map((n)=>({...n,data:{...n.data,status:undefined}})), edges}, null, 2)}</pre>
+            <div className="modal-actions">
+              <button className="btn ghost" onClick={() => {
+                navigator.clipboard.writeText(JSON.stringify({nodes,edges}, null, 2));
+                showToast("已複製到剪貼簿", "ok");
+              }}>複製</button>
+              <button className="btn primary" onClick={() => setShowJsonModal(false)}>關閉</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================== Toast ===================== */}
+      <div id="toast" className="toast"></div>
+    </div>
+  );
+};
+
+const kbdStyle = {
+  fontFamily: "var(--mono)",
+  fontSize: 10.5,
+  background: "rgba(255,255,255,0.08)",
+  padding: "1px 5px",
+  borderRadius: 4,
+  color: "var(--ink-1)",
+};
+
+const App = () => (
+  <ReactFlowProvider>
+    <Flow />
+  </ReactFlowProvider>
+);
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
+</body>
+</html>

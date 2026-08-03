@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Whisper × Telegram Bot — 語音自動轉錄 Demo</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --surface: #141a30;
+    --line: #1f2742;
+    --ink: #e6ebff;
+    --muted: #8893c0;
+    --accent: #00d2ff;
+    --accent2: #6ee7b7;
+    --warn: #fbbf24;
+    --err: #f87171;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--ink); margin: 0; }
+  body {
+    font: 15px/1.55 ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    background:
+      radial-gradient(1100px 600px at 10% 0%, rgba(0,210,255,0.08), transparent),
+      radial-gradient(900px 600px at 90% 10%, rgba(110,231,183,0.06), transparent),
+      var(--bg);
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 36px 28px 80px; }
+  header.top {
+    display: flex; align-items: center; gap: 14px; margin-bottom: 24px;
+  }
+  .badge {
+    font-family: var(--mono); font-size: 12px;
+    padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line);
+    color: var(--muted);
+  }
+  .badge.live { color: var(--accent2); border-color: rgba(110,231,183,0.3); background: rgba(110,231,183,0.06); }
+  h1 { font-size: 28px; margin: 0; letter-spacing: 0.2px; }
+  h2 { font-size: 18px; margin: 0 0 12px; color: var(--ink); }
+  h3 { font-size: 14px; margin: 0 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.2px; }
+  .muted { color: var(--muted); }
+  .row { display: flex; flex-wrap: wrap; gap: 16px; }
+  .col { flex: 1 1 320px; min-width: 0; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 22px 22px 18px;
+    box-shadow: 0 2px 0 rgba(0,0,0,0.15);
+  }
+  .card + .card { margin-top: 18px; }
+  .kv { display: grid; grid-template-columns: 140px 1fr; gap: 6px 14px; font-family: var(--mono); font-size: 13px; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; color: var(--ink); word-break: break-all; }
+  pre, code, .pre {
+    font-family: var(--mono); font-size: 13px;
+    background: #0a0f23; border: 1px solid var(--line);
+    border-radius: 8px; padding: 12px 14px; overflow-x: auto;
+  }
+  pre { margin: 0; line-height: 1.55; }
+  .pill {
+    display: inline-block; padding: 2px 9px; border-radius: 999px;
+    background: rgba(0,210,255,0.08); color: var(--accent);
+    border: 1px solid rgba(0,210,255,0.25);
+    font-family: var(--mono); font-size: 12px;
+  }
+  .pill.ok { background: rgba(110,231,183,0.08); color: var(--accent2); border-color: rgba(110,231,183,0.25); }
+  .pill.warn { background: rgba(251,191,36,0.08); color: var(--warn); border-color: rgba(251,191,36,0.25); }
+  .arch {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 10px;
+  }
+  .arch .step {
+    background: #0a0f23; border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px;
+  }
+  .arch .step .title { font-family: var(--mono); font-size: 12px; color: var(--accent); margin-bottom: 4px; }
+  .arch .step .body { font-size: 12.5px; color: var(--ink); }
+  .arch .arrow { text-align: center; color: var(--muted); padding: 6px 0; }
+  @media (max-width: 700px) { .arch { grid-template-columns: 1fr 1fr; } }
+  footer { color: var(--muted); font-size: 12px; margin-top: 32px; text-align: center; }
+  button.copy {
+    float: right; font: inherit; font-size: 11px; cursor: pointer;
+    background: transparent; color: var(--muted); border: 1px solid var(--line);
+    border-radius: 6px; padding: 3px 8px;
+  }
+  button.copy:hover { color: var(--ink); border-color: var(--accent); }
+  .log { max-height: 240px; overflow-y: auto; font-size: 12px; }
+  .log .row-line { padding: 4px 0; border-bottom: 1px dashed rgba(255,255,255,0.04); }
+  .log .t { color: var(--muted); margin-right: 8px; font-family: var(--mono); font-size: 11px; }
+  .test-result { font-family: var(--mono); font-size: 13px; }
+  .test-result .pass { color: var(--accent2); }
+  .test-result .fail { color: var(--err); }
+  details { margin-top: 10px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  details pre { margin-top: 8px; }
+  ul.check { list-style: none; padding: 0; margin: 0; }
+  ul.check li { padding-left: 22px; position: relative; margin-bottom: 6px; }
+  ul.check li::before {
+    content: "✓"; position: absolute; left: 0; top: 0;
+    color: var(--accent2); font-weight: bold;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>🎙️ Whisper × Telegram Bot</h1>
+  <span class="badge">learning_1785787211_2</span>
+  <span class="badge live">● dry-run verified</span>
+  <span class="badge">python 3.12 · httpx 0.27 · python-telegram-bot 22.8 · openai 2.32</span>
+</header>
+
+<section class="card">
+  <h2>任務</h2>
+  <p class="muted">
+    集成 <strong>Telegram Bot API</strong> 與 <strong>OpenAI Whisper API</strong>，實現「語音訊息自動轉錄 + 自動回覆」。
+    使用者從 Telegram 傳 voice / video_note / audio / audio 文件 → bot 下載 → Whisper 轉錄 → 自動回傳文字。
+  </p>
+  <div class="row" style="margin-top:14px">
+    <span class="pill">async-native (asyncio + httpx)</span>
+    <span class="pill">provider abstraction (易測試)</span>
+    <span class="pill">指數 backoff retry</span>
+    <span class="pill ok">dry-run (零 API 成本 demo)</span>
+    <span class="pill">雙模式 (bot 自動回覆 + CLI 單檔)</span>
+  </div>
+</section>
+
+<section class="card">
+  <h2>系統架構</h2>
+  <div class="arch">
+    <div class="step">
+      <div class="title">① Telegram Update</div>
+      <div class="body">long-polling 收到 <code>voice / video_note / audio / document</code> 訊息</div>
+    </div>
+    <div class="step">
+      <div class="title">② Telegram getFile + 下載</div>
+      <div class="body">用 <code>httpx.AsyncClient</code> 串流到 <code>tempfile</code>,超 25MB 拒絕</div>
+    </div>
+    <div class="step">
+      <div class="title">③ Whisper API</div>
+      <div class="body">multipart/upload 送 OpenAI,retry 3 次,指數 backoff</div>
+    </div>
+    <div class="step">
+      <div class="title">④ Telegram sendMessage</div>
+      <div class="body">reply_to_message_id 引用原訊息,chunk_text 切長訊息</div>
+    </div>
+  </div>
+  <div class="arch" style="grid-template-columns: 1fr 1fr;">
+    <div class="step">
+      <div class="title">核心服務層</div>
+      <div class="body"><code>TranscriptionService</code> — orchestrate ③ & ④,hold history(<code>list[TranscriptionResult]</code>)</div>
+    </div>
+    <div class="step">
+      <div class="title">Provider 抽象</div>
+      <div class="body"><code>HttpWhisperProvider</code> / <code>HttpTelegramProvider</code> — 真實打 API;<br>
+        <code>MockWhisperProvider</code> / <code>MockTelegramProvider</code> — 測試用,不發任何 HTTP</div>
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <h2>已完成交付 <span class="muted" style="font-size:13px">(本工作目錄下)</span></h2>
+  <dl class="kv">
+    <dt>主程式</dt>
+    <dd>whisper_telegram_bot.py <span class="muted">(883 行,單一檔案)</span></dd>
+    <dt>Unit tests</dt>
+    <dd>tests/test_whisper_telegram.py <span class="muted">(24 tests, zero-external-dep)</span></dd>
+    <dt>端對端 demo</dt>
+    <dd>run_demo.sh <span class="muted">(tests + 真實 wav + --dry-run 跑完整鏈路)</span></dd>
+    <dt>使用手冊</dt>
+    <dd>README.md</dd>
+    <dt>HTML 總覽</dt>
+    <dd>web_output.html <span class="muted">(本檔)</span></dd>
+  </dl>
+</section>
+
+<section class="card">
+  <h2>驗證結果</h2>
+  <div class="test-result">
+    <div><span class="pass">✓</span> <strong>Unit tests</strong> — Ran 24 tests in 2.14s · <span class="pass">OK</span></div>
+    <div><span class="pass">✓</span> <strong>E2E demo</strong> — 24 tests pass + 2s wav dry-run 跑完整鏈路 → EXIT_CODE=0</div>
+    <div><span class="pass">✓</span> <strong>Lint</strong> — whisper_telegram_bot.py 編譯通過 (py_compile 等同無錯)</div>
+    <div><span class="pass">✓</span> <strong>無 env 仍可跑</strong> — dry-run 模式下所有 env 都可以空,Settings.from_env 不丟 ConfigError</div>
+  </div>
+
+  <details>
+    <summary>▸ 看實際 dry-run log</summary>
+<pre>2026-08-04 04:02:55,222 [INFO] whisper_telegram_bot: [DRY-RUN] Whisper 不打 API，回傳假文字：
+  [DRY-RUN] Whisper fake transcript (ding-dong.wav, 88278 bytes)
+2026-08-04 04:02:55,222 [INFO] whisper_telegram_bot: [DRY-RUN] sendMessage 70 chars 到 chat=DRY_RUN_CHAT
+
+--- 轉錄結果 ---
+[DRY-RUN] Whisper fake transcript (ding-dong.wav, 88278 bytes)
+
+[history size] 1 筆
+[dry-run sent] 1 條假訊息
+
+EXIT_CODE=0</pre>
+  </details>
+</section>
+
+<section class="card">
+  <h2>如何使用</h2>
+
+  <h3>A. Dry-run (零 API 成本,測流程)</h3>
+  <pre><code># 雙模式 CLI — bot 模式 & 單檔轉錄模式
+python3 whisper_telegram_bot.py transcribe ./my-recording.ogg --dry-run --language zh
+
+# Bot 模式 dry-run (會啟 long-polling,但任何上傳都會回假轉錄)
+python3 whisper_telegram_bot.py bot --dry-run
+
+# 跑完整 demo (含 tests)
+bash run_demo.sh</code></pre>
+
+  <h3>B. Live 模式 (需要真的 key)</h3>
+  <pre><code>export TELEGRAM_BOT_TOKEN="123456:ABC..."      # @BotFather 拿
+export OPENAI_API_KEY="sk-..."                 # platform.openai.com
+export TELEGRAM_CHAT_ID="987654321"             # CLI 模式需要 (bot 模式不用)
+export WHISPER_LANGUAGE="zh"                   # 選填
+
+# Bot 模式 — 長駐,等使用者傳語音
+python3 whisper_telegram_bot.py bot
+
+# CLI 模式 — 給一個音訊立刻轉
+python3 whisper_telegram_bot.py transcribe recording.m4a --language zh</code></pre>
+
+  <h3>C. 跑 unit tests</h3>
+  <pre><code>python3 -m unittest tests.test_whisper_telegram -v</code></pre>
+</section>
+
+<section class="card">
+  <h2>設計重點 <span class="muted" style="font-size:13px">(從 SKILL_CATALOG 融合)</span></h2>
+
+  <ul class="check">
+    <li><strong>advanced_telegram_bot_development</strong>:Provider 抽象 + dry-run capture + httpx.AsyncClient 生命週期管理</li>
+    <li><strong>robust_error_handling_with_retry</strong>:指數 backoff retry (1s → 2s → 4s),FileError 不 retry(使用者錯誤),APIError retry</li>
+    <li><strong>system_automation_and_defensive_patterns</strong>:檔案先驗 / 大小檢查 / 例外 hierarchy / 暫存檔 finally cleanup</li>
+    <li><strong>real_time_data_and_media_processing</strong>:stream 下載 (aiter_bytes chunk_size=8192) + multipart/upload</li>
+    <li><strong>dry_run_mode_integration</strong>:Settings.dry_run 全鏈路 honor,Whisper 不打、Telegram 不發、連 getFile 都返回 fake size</li>
+    <li><strong>advanced_asyncio_integration</strong>:全 async pipeline,signal handler 接 SIGINT/SIGTERM 優雅關閉</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>極簡原始碼骨架 <span class="muted" style="font-size:13px">(展開看完整)</span></h2>
+<details>
+<summary>▸ whisper_telegram_bot.py 結構</summary>
+<pre><code># §1  Settings           — env loading, dry_run flag, retry config
+# §2  Exception          — WhisperTelegramError / ConfigError / FileError / APIError
+# §3  Logger             — stderr handler, self-formatted
+# §4  validate_audio_file — ext check / exists / non-empty / ≤25MB
+# §5  retry_async         — exponential backoff, distinguish transient vs permanent
+# §6  Provider ABCs       — WhisperProvider / TelegramProvider
+# §7  HttpWhisperProvider — multipart upload + dry_run early-return
+# §8  HttpTelegramProvider — getFile / download / sendMessage + dry_run capture
+#                            (借鑑 advanced_telegram_bot_development §1 dry-run pattern)
+# §9  TranscriptionService — orchestrate download → transcribe → chunk → reply
+#      + TranscriptionResult dataclass (history item)
+# §10 build_bot_handlers  — start/help/voice/audio handlers
+#                            (借鑑 learning_1785317409_2 handler 結構)
+# §11 _run_bot_mode       — signal-aware long-polling entry
+# §12 _run_cli_mode       — single-shot CLI entry
+# §13 main + argparse     — subcommand: bot / transcribe</code></pre>
+</details>
+</section>
+
+<footer>
+  Learning task learning_1785787211_2 · 2026-08-04 04:02 · Verified via 24 unit tests + E2E dry-run
+</footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="zh-Hant" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="一個可視化 DAG 工作流編輯器，支援循環阻擋與 Kahn 拓樸排序。">
+  <title>Flowforge · DAG 工作流編輯器</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xyflow/react@12.11.2/dist/style.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Manrope', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+            mono: ['DM Mono', 'ui-monospace', 'monospace']
+          }
+        }
+      }
+    };
+  </script>
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.3.1",
+        "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
+        "react-dom/client": "https://esm.sh/react-dom@18.3.1/client?deps=react@18.3.1",
+        "@xyflow/react": "https://esm.sh/@xyflow/react@12.11.2?deps=react@18.3.1,react-dom@18.3.1"
+      }
+    }
+  </script>
+
+  <style>
+    /* Hallmark · macrostructure: Workbench · tone: technical editorial · anchor hue: amber */
+    :root {
+      --paper: #0b0d0d;
+      --paper-raised: #111515;
+      --paper-soft: #171c1b;
+      --line: rgba(220, 235, 224, .12);
+      --line-strong: rgba(220, 235, 224, .22);
+      --ink: #edf3ec;
+      --ink-soft: #aab5ae;
+      --ink-faint: #6e7b75;
+      --accent: #e3aa62;
+      --accent-soft: rgba(227, 170, 98, .14);
+      --success: #86b998;
+      --danger: #e68478;
+      --shadow: 0 22px 72px rgba(0, 0, 0, .34);
+      --ease-out: cubic-bezier(.16, 1, .3, 1);
+    }
+
+    * { box-sizing: border-box; }
+    html, body, #root { width: 100%; height: 100%; margin: 0; }
+    html, body { overflow: hidden; }
+    body {
+      background: var(--paper);
+      color: var(--ink);
+      font-family: Manrope, ui-sans-serif, system-ui, sans-serif;
+      font-size: 14px;
+    }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    button:focus-visible, input:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 3px;
+    }
+
+    .app-shell { min-height: 100dvh; display: flex; flex-direction: column; background: var(--paper); }
+    .topbar {
+      min-height: 76px; padding: 0 28px; display: flex; align-items: center; gap: 20px;
+      border-bottom: 1px solid var(--line); background: rgba(11, 13, 13, .92);
+      position: relative; z-index: 20;
+    }
+    .brand-mark {
+      width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--line-strong);
+      border-radius: 50%; color: var(--accent); font-family: 'DM Mono', monospace; font-size: 18px;
+      box-shadow: inset 0 0 0 5px var(--paper), inset 0 0 0 6px rgba(227, 170, 98, .35);
+    }
+    .brand-copy { display: flex; flex-direction: column; gap: 2px; min-width: 155px; }
+    .brand-name { font-size: 15px; font-weight: 800; letter-spacing: -.02em; }
+    .brand-caption { color: var(--ink-faint); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; font-family: 'DM Mono', monospace; }
+    .topbar-rule { width: 1px; height: 28px; background: var(--line); }
+    .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .tool-btn {
+      min-height: 34px; padding: 0 12px; border-radius: 7px; border: 1px solid var(--line);
+      color: var(--ink-soft); background: transparent; transition: transform .18s var(--ease-out), border-color .18s, color .18s, background .18s;
+      display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700;
+    }
+    .tool-btn:hover { transform: translateY(-1px); border-color: var(--line-strong); color: var(--ink); background: rgba(255,255,255,.04); }
+    .tool-btn.primary { color: #17130e; background: var(--accent); border-color: var(--accent); }
+    .tool-btn.primary:hover { background: #efbd7b; color: #17130e; }
+    .tool-btn.subtle { color: var(--ink-faint); }
+    .topbar-spacer { flex: 1; }
+    .system-readout { display: flex; align-items: center; gap: 9px; color: var(--ink-faint); font-family: 'DM Mono', monospace; font-size: 10px; white-space: nowrap; }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 4px rgba(134,185,152,.10); }
+    .status-dot.invalid { background: var(--danger); box-shadow: 0 0 0 4px rgba(230,132,120,.10); }
+
+    .workspace { min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 306px; }
+    .canvas-wrap { min-width: 0; min-height: 0; position: relative; background: #0e1211; }
+    .canvas-label { position: absolute; z-index: 6; left: 28px; top: 22px; color: var(--ink-faint); font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; pointer-events: none; }
+    .canvas-label strong { color: var(--accent); font-weight: 500; }
+    .flow-shell { position: absolute; inset: 0; }
+    .flow-shell.invalid .react-flow__edge-path { stroke: rgba(230,132,120,.72); }
+    .react-flow { background-color: transparent; }
+    .react-flow__attribution { display: none; }
+    .react-flow__controls { border: 1px solid var(--line) !important; box-shadow: var(--shadow) !important; overflow: hidden; }
+    .react-flow__controls-button { width: 30px !important; height: 30px !important; border-bottom: 1px solid var(--line) !important; background: var(--paper-raised) !important; fill: var(--ink-soft) !important; }
+    .react-flow__controls-button:hover { background: var(--paper-soft) !important; fill: var(--accent) !important; }
+    .react-flow__minimap { border: 1px solid var(--line) !important; background: rgba(17, 21, 21, .90) !important; box-shadow: var(--shadow) !important; }
+    .react-flow__background pattern path { stroke: rgba(220, 235, 224, .13); }
+    .react-flow__edge-textbg { fill: var(--paper-raised); }
+    .react-flow__edge-text { fill: var(--ink-soft); font-family: 'DM Mono', monospace; font-size: 10px; }
+    .react-flow__connection-line { stroke: var(--accent); stroke-width: 2; }
+    .react-flow__node.selected .node-card { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(227,170,98,.14), 0 16px 40px rgba(0,0,0,.32); }
+
+    .node-card {
+      width: 206px; overflow: hidden; border-radius: 10px; border: 1px solid var(--line-strong); background: rgba(17, 21, 21, .96);
+      box-shadow: 0 14px 36px rgba(0,0,0,.28); transition: border-color .18s, box-shadow .18s, transform .18s var(--ease-out);
+    }
+    .node-card:hover { transform: translateY(-2px); border-color: rgba(227,170,98,.55); }
+    .node-card.cycle { border-color: var(--danger); box-shadow: 0 0 0 3px rgba(230,132,120,.12), 0 15px 38px rgba(0,0,0,.32); }
+    .node-accent { height: 3px; background: var(--node-color); }
+    .node-inner { padding: 13px 15px 14px; }
+    .node-top { display: flex; align-items: center; gap: 9px; }
+    .node-icon { width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--node-color) 55%, transparent); border-radius: 6px; color: var(--node-color); font-size: 12px; }
+    .node-type { color: var(--node-color); font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .14em; text-transform: uppercase; }
+    .node-label { margin-top: 10px; color: var(--ink); font-size: 13px; line-height: 1.4; font-weight: 800; }
+    .node-meta { margin-top: 7px; color: var(--ink-faint); font-family: 'DM Mono', monospace; font-size: 10px; }
+    .node-badge { margin-left: auto; color: var(--danger); font-family: 'DM Mono', monospace; font-size: 9px; }
+    .react-flow__handle { width: 9px !important; height: 9px !important; border: 2px solid var(--paper) !important; background: var(--node-color) !important; }
+
+    .inspector { min-width: 0; overflow: auto; border-left: 1px solid var(--line); background: var(--paper-raised); }
+    .inspector-section { padding: 22px 20px; border-bottom: 1px solid var(--line); }
+    .section-kicker { color: var(--ink-faint); font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: .13em; text-transform: uppercase; }
+    .section-title { margin-top: 8px; color: var(--ink); font-size: 17px; line-height: 1.25; font-weight: 800; letter-spacing: -.03em; }
+    .section-copy { margin-top: 8px; color: var(--ink-soft); font-size: 11px; line-height: 1.65; }
+    .metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; margin-top: 16px; }
+    .metric { padding: 12px; background: var(--paper-soft); border: 1px solid var(--line); border-radius: 8px; }
+    .metric-label { color: var(--ink-faint); font-family: 'DM Mono', monospace; font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+    .metric-value { margin-top: 6px; color: var(--ink); font-size: 21px; font-weight: 800; }
+    .metric-value.accent { color: var(--accent); }
+    .metric-value.danger { color: var(--danger); }
+    .metric-value.success { color: var(--success); }
+    .order-list { display: flex; flex-direction: column; gap: 5px; margin-top: 14px; }
+    .order-row { display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 8px; align-items: center; padding: 6px 8px; border-radius: 6px; background: rgba(255,255,255,.025); }
+    .order-index { color: var(--accent); font-family: 'DM Mono', monospace; font-size: 10px; }
+    .order-name { min-width: 0; overflow: hidden; color: var(--ink-soft); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .empty-state { margin-top: 14px; padding: 16px; border: 1px dashed var(--line-strong); border-radius: 8px; color: var(--ink-faint); font-size: 11px; line-height: 1.6; }
+    .selected-form { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+    .field-label { color: var(--ink-faint); font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+    .field-input { width: 100%; height: 36px; padding: 0 10px; color: var(--ink); background: var(--paper-soft); border: 1px solid var(--line); border-radius: 6px; }
+    .field-input:focus { border-color: var(--accent); }
+    .inspector-actions { display: flex; gap: 7px; margin-top: 10px; }
+    .inspector-actions .tool-btn { flex: 1; justify-content: center; }
+    .legend { display: grid; gap: 8px; margin-top: 15px; }
+    .legend-item { display: flex; align-items: center; gap: 8px; color: var(--ink-soft); font-size: 11px; }
+    .legend-swatch { width: 9px; height: 9px; border-radius: 2px; background: var(--swatch); }
+    .help-note { margin-top: 14px; color: var(--ink-faint); font-size: 10px; line-height: 1.65; }
+    .help-note kbd { padding: 2px 5px; color: var(--ink-soft); border: 1px solid var(--line-strong); border-radius: 3px; background: var(--paper-soft); font-family: 'DM Mono', monospace; font-size: 9px; }
+
+    .toast {
+      position: fixed; right: 24px; bottom: 24px; z-index: 50; max-width: 380px; padding: 13px 15px;
+      border: 1px solid var(--line-strong); border-left: 3px solid var(--accent); border-radius: 8px; background: rgba(17,21,21,.96);
+      color: var(--ink); box-shadow: var(--shadow); animation: toast-in .28s var(--ease-out);
+    }
+    .toast.error { border-left-color: var(--danger); }
+    .toast.success { border-left-color: var(--success); }
+    .toast-title { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+    .toast.error .toast-title { color: var(--danger); }
+    .toast.success .toast-title { color: var(--success); }
+    .toast-message { margin-top: 5px; color: var(--ink-soft); font-size: 11px; line-height: 1.45; }
+    @keyframes toast-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+    @media (max-width: 900px) {
+      .topbar { min-height: auto; padding: 14px 16px; flex-wrap: wrap; gap: 12px; }
+      .topbar-rule, .system-readout { display: none; }
+      .toolbar { order: 3; width: 100%; overflow-x: auto; flex-wrap: nowrap; padding-bottom: 2px; }
+      .topbar-spacer { display: none; }
+      .workspace { grid-template-columns: minmax(0, 1fr) 260px; }
+    }
+    @media (max-width: 680px) {
+      .workspace { display: flex; flex-direction: column; }
+      .canvas-wrap { min-height: 58dvh; }
+      .inspector { border-left: 0; border-top: 1px solid var(--line); max-height: 42dvh; }
+      .inspector-section { padding: 16px; }
+      .node-card { width: 180px; }
+      .canvas-label { left: 16px; top: 14px; }
+      .toast { left: 16px; right: 16px; bottom: 16px; max-width: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="module">
+    import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import {
+      ReactFlow,
+      ReactFlowProvider,
+      Background,
+      Controls,
+      MiniMap,
+      Handle,
+      MarkerType,
+      Position,
+      addEdge,
+      useEdgesState,
+      useNodesState,
+      useReactFlow
+    } from '@xyflow/react';
+
+    const NODE_TYPES = {
+      trigger: { label: 'Trigger', color: '#e3aa62', icon: '↗' },
+      task: { label: 'Task', color: '#91b7a0', icon: '□' },
+      decision: { label: 'Decision', color: '#d58b78', icon: '?' },
+      output: { label: 'Output', color: '#8fa9c2', icon: '✓' }
+    };
+
+    const sampleNodes = [
+      { id: 'intake', type: 'flowNode', position: { x: 80, y: 190 }, data: { label: '收件與建檔', kind: 'trigger', meta: 'INTAKE / 01' } },
+      { id: 'review', type: 'flowNode', position: { x: 360, y: 100 }, data: { label: '資格初審', kind: 'task', meta: 'REVIEW / 02' } },
+      { id: 'route', type: 'flowNode', position: { x: 360, y: 300 }, data: { label: '分流判斷', kind: 'decision', meta: 'ROUTE / 03' } },
+      { id: 'approve', type: 'flowNode', position: { x: 650, y: 100 }, data: { label: '主管核定', kind: 'task', meta: 'APPROVE / 04' } },
+      { id: 'request', type: 'flowNode', position: { x: 650, y: 300 }, data: { label: '補件通知', kind: 'task', meta: 'REQUEST / 05' } },
+      { id: 'archive', type: 'flowNode', position: { x: 940, y: 100 }, data: { label: '歸檔完成', kind: 'output', meta: 'ARCHIVE / 06' } }
+    ];
+
+    const edge = (id, source, target, label = '') => ({
+      id, source, target, label,
+      type: 'smoothstep',
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#91a39a' },
+      style: { stroke: '#91a39a', strokeWidth: 1.7 },
+      labelStyle: { fill: '#aab5ae', fontSize: 10, fontFamily: 'DM Mono, monospace' },
+      labelBgStyle: { fill: '#111515', fillOpacity: .96 },
+      labelBgPadding: [5, 3],
+      labelBgBorderRadius: 3
+    });
+
+    const sampleEdges = [
+      edge('e-intake-review', 'intake', 'review'),
+      edge('e-intake-route', 'intake', 'route'),
+      edge('e-review-approve', 'review', 'approve', '通過'),
+      edge('e-route-request', 'route', 'request', '補件'),
+      edge('e-approve-archive', 'approve', 'archive')
+    ];
+
+    function topologicalSort(nodes, edges) {
+      const ids = nodes.map(node => node.id);
+      const inDegree = new Map(ids.map(id => [id, 0]));
+      const adjacency = new Map(ids.map(id => [id, []]));
+      for (const currentEdge of edges) {
+        if (!inDegree.has(currentEdge.source) || !inDegree.has(currentEdge.target)) continue;
+        adjacency.get(currentEdge.source).push(currentEdge.target);
+        inDegree.set(currentEdge.target, inDegree.get(currentEdge.target) + 1);
+      }
+      const queue = ids.filter(id => inDegree.get(id) === 0);
+      const order = [];
+      for (let cursor = 0; cursor < queue.length; cursor += 1) {
+        const id = queue[cursor];
+        order.push(id);
+        for (const target of adjacency.get(id)) {
+          const nextDegree = inDegree.get(target) - 1;
+          inDegree.set(target, nextDegree);
+          if (nextDegree === 0) queue.push(target);
+        }
+      }
+      const remaining = ids.filter(id => !order.includes(id));
+      return { order, remaining, hasCycle: order.length !== ids.length };
+    }
+
+    function findCycleNodes(nodes, edges) {
+      const adjacency = new Map(nodes.map(node => [node.id, []]));
+      for (const currentEdge of edges) {
+        if (adjacency.has(currentEdge.source)) adjacency.get(currentEdge.source).push(currentEdge.target);
+      }
+      const color = new Map(nodes.map(node => [node.id, 0]));
+      const stack = [];
+      const cycleNodes = new Set();
+      function visit(id) {
+        color.set(id, 1);
+        stack.push(id);
+        for (const target of adjacency.get(id) || []) {
+          if (color.get(target) === 0) {
+            visit(target);
+          } else if (color.get(target) === 1) {
+            const start = stack.lastIndexOf(target);
+            stack.slice(start).forEach(item => cycleNodes.add(item));
+          }
+        }
+        stack.pop();
+        color.set(id, 2);
+      }
+      nodes.forEach(node => { if (color.get(node.id) === 0) visit(node.id); });
+      return cycleNodes;
+    }
+
+    function canConnect(nodes, edges, source, target) {
+      if (!source || !target || source === target) return false;
+      if (edges.some(currentEdge => currentEdge.source === source && currentEdge.target === target)) return false;
+      const probe = [...edges, { source, target }];
+      return !topologicalSort(nodes, probe).hasCycle;
+    }
+
+    function FlowNode({ data, selected }) {
+      const tone = NODE_TYPES[data.kind] || NODE_TYPES.task;
+      const inHandleStyle = { background: tone.color };
+      return React.createElement(
+        'div',
+        { className: `node-card${data.cycle ? ' cycle' : ''}${data.selected ? ' selected' : ''}`, style: { '--node-color': tone.color } },
+        React.createElement(Handle, { type: 'target', position: Position.Left, style: inHandleStyle }),
+        React.createElement('div', { className: 'node-accent' }),
+        React.createElement('div', { className: 'node-inner' },
+          React.createElement('div', { className: 'node-top' },
+            React.createElement('div', { className: 'node-icon', 'aria-hidden': 'true' }, tone.icon),
+            React.createElement('div', { className: 'node-type' }, tone.label),
+            data.cycle ? React.createElement('div', { className: 'node-badge' }, 'CYCLE') : null
+          ),
+          React.createElement('div', { className: 'node-label' }, data.label),
+          React.createElement('div', { className: 'node-meta' }, data.meta || 'WORKFLOW NODE')
+        ),
+        React.createElement(Handle, { type: 'source', position: Position.Right, style: inHandleStyle })
+      );
+    }
+
+    const nodeTypes = { flowNode: FlowNode };
+
+    function App() {
+      const saved = useMemo(() => {
+        try { return JSON.parse(localStorage.getItem('flowforge-dag-state') || 'null'); } catch { return null; }
+      }, []);
+      const [nodes, setNodes, onNodesChange] = useNodesState(saved?.nodes?.length ? saved.nodes : sampleNodes);
+      const [edges, setEdges, onEdgesChange] = useEdgesState(saved?.edges || sampleEdges);
+      const [selectedId, setSelectedId] = useState(null);
+      const [toast, setToast] = useState(null);
+      const [theme, setTheme] = useState(saved?.theme || 'dark');
+      const idCounter = useRef(100);
+      const toastTimer = useRef(null);
+      const { fitView } = useReactFlow();
+
+      const result = useMemo(() => topologicalSort(nodes, edges), [nodes, edges]);
+      const cycleNodes = useMemo(() => findCycleNodes(nodes, edges), [nodes, edges]);
+      const selectedNode = nodes.find(node => node.id === selectedId) || null;
+      const orderedNodes = result.order.map(id => nodes.find(node => node.id === id)).filter(Boolean);
+      const displayNodes = useMemo(() => nodes.map(node => ({
+        ...node,
+        data: { ...node.data, cycle: cycleNodes.has(node.id), selected: node.id === selectedId }
+      })), [nodes, cycleNodes, selectedId]);
+
+      useEffect(() => {
+        document.documentElement.dataset.theme = theme;
+        localStorage.setItem('flowforge-dag-state', JSON.stringify({ nodes, edges, theme }));
+      }, [nodes, edges, theme]);
+
+      const notify = useCallback((message, kind = 'info') => {
+        window.clearTimeout(toastTimer.current);
+        setToast({ message, kind });
+        toastTimer.current = window.setTimeout(() => setToast(null), 3600);
+      }, []);
+
+      const onConnect = useCallback((params) => {
+        if (!canConnect(nodes, edges, params.source, params.target)) {
+          notify('連線會形成循環，已阻擋這次修改。DAG 必須保持無環。', 'error');
+          return;
+        }
+        setEdges(current => addEdge({ ...edge(`e-${params.source}-${params.target}-${Date.now()}`, params.source, params.target), ...params }, current));
+        notify('已建立依賴關係。', 'success');
+      }, [edges, nodes, notify, setEdges]);
+
+      const addNode = useCallback((kind) => {
+        idCounter.current += 1;
+        const id = `node-${idCounter.current}`;
+        const tone = NODE_TYPES[kind];
+        const created = {
+          id,
+          type: 'flowNode',
+          position: { x: 160 + (idCounter.current % 3) * 150, y: 120 + (idCounter.current % 4) * 90 },
+          data: { label: `新的${tone.label}節點`, kind, meta: `${tone.label.toUpperCase()} / ${String(idCounter.current).padStart(2, '0')}` }
+        };
+        setNodes(current => [...current, created]);
+        setSelectedId(id);
+        notify(`已新增 ${tone.label} 節點。`, 'success');
+      }, [notify, setNodes]);
+
+      const updateSelected = useCallback((patch) => {
+        if (!selectedId) return;
+        setNodes(current => current.map(node => node.id === selectedId ? { ...node, data: { ...node.data, ...patch } } : node));
+      }, [selectedId, setNodes]);
+
+      const removeSelected = useCallback(() => {
+        if (!selectedId) return;
+        setNodes(current => current.filter(node => node.id !== selectedId));
+        setEdges(current => current.filter(currentEdge => currentEdge.source !== selectedId && currentEdge.target !== selectedId));
+        setSelectedId(null);
+        notify('已移除選取節點與相關依賴。', 'success');
+      }, [notify, selectedId, setEdges, setNodes]);
+
+      const validate = useCallback(() => {
+        if (!nodes.length) { notify('畫布目前沒有節點。', 'error'); return; }
+        if (result.hasCycle) {
+          notify(`驗證失敗：發現循環，涉及 ${result.remaining.length} 個節點。`, 'error');
+          return;
+        }
+        notify(`驗證通過：${result.order.length} 個節點可依序執行。`, 'success');
+      }, [nodes.length, notify, result]);
+
+      const reset = useCallback(() => {
+        setNodes(sampleNodes);
+        setEdges(sampleEdges);
+        setSelectedId(null);
+        notify('已載入範例工作流。', 'success');
+        window.setTimeout(() => fitView({ padding: .2, duration: 350 }), 30);
+      }, [fitView, notify, setEdges, setNodes]);
+
+      const clear = useCallback(() => {
+        setNodes([]); setEdges([]); setSelectedId(null); notify('畫布已清空。');
+      }, [notify, setEdges, setNodes]);
+
+      const exportJson = useCallback(() => {
+        const blob = new Blob([JSON.stringify({ nodes, edges, theme }, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url; anchor.download = 'flowforge-workflow.json'; anchor.click(); URL.revokeObjectURL(url);
+        notify('工作流 JSON 已匯出。', 'success');
+      }, [edges, nodes, notify, theme]);
+
+      const importJson = useCallback(() => {
+        const input = document.createElement('input');
+        input.type = 'file'; input.accept = 'application/json';
+        input.onchange = event => {
+          const file = event.target.files?.[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = () => {
+            try {
+              const payload = JSON.parse(String(reader.result));
+              if (!Array.isArray(payload.nodes) || !Array.isArray(payload.edges)) throw new Error('nodes / edges 欄位缺失');
+              setNodes(payload.nodes); setEdges(payload.edges); if (payload.theme) setTheme(payload.theme);
+              notify(`已匯入 ${payload.nodes.length} 個節點。`, 'success');
+            } catch (error) { notify(`匯入失敗：${error.message}`, 'error'); }
+          };
+          reader.readAsText(file);
+        };
+        input.click();
+      }, [notify, setEdges, setNodes]);
+
+      return React.createElement('main', { className: 'app-shell' },
+        React.createElement('header', { className: 'topbar' },
+          React.createElement('div', { className: 'brand-mark', 'aria-hidden': 'true' }, '↯'),
+          React.createElement('div', { className: 'brand-copy' },
+            React.createElement('div', { className: 'brand-name' }, 'Flowforge'),
+            React.createElement('div', { className: 'brand-caption' }, 'DAG workflow editor')
+          ),
+          React.createElement('div', { className: 'topbar-rule' }),
+          React.createElement('div', { className: 'toolbar', role: 'toolbar', 'aria-label': '工作流工具列' },
+            React.createElement('button', { className: 'tool-btn primary', onClick: () => addNode('task') }, '+ 新增節點'),
+            React.createElement('button', { className: 'tool-btn', onClick: validate }, '✓ 驗證 DAG'),
+            React.createElement('button', { className: 'tool-btn', onClick: reset }, '↺ 載入範例'),
+            React.createElement('button', { className: 'tool-btn', onClick: exportJson }, '↓ 匯出'),
+            React.createElement('button', { className: 'tool-btn', onClick: importJson }, '↑ 匯入'),
+            React.createElement('button', { className: 'tool-btn subtle', onClick: clear }, '清除')
+          ),
+          React.createElement('div', { className: 'topbar-spacer' }),
+          React.createElement('div', { className: 'system-readout' },
+            React.createElement('span', { className: `status-dot${result.hasCycle ? ' invalid' : ''}` }),
+            result.hasCycle ? 'GRAPH INVALID' : 'GRAPH READY',
+            React.createElement('button', { className: 'tool-btn', onClick: () => setTheme(current => current === 'dark' ? 'light' : 'dark'), 'aria-label': '切換主題' }, theme === 'dark' ? '☼' : '☾')
+          )
+        ),
+        React.createElement('div', { className: 'workspace' },
+          React.createElement('section', { className: 'canvas-wrap', 'aria-label': 'DAG 畫布' },
+            React.createElement('div', { className: 'canvas-label' }, 'CANVAS / ', React.createElement('strong', null, 'LIVE GRAPH')),
+            React.createElement('div', { className: `flow-shell${result.hasCycle ? ' invalid' : ''}` },
+              React.createElement(ReactFlow, {
+                nodes: displayNodes,
+                edges,
+                nodeTypes,
+                onNodesChange,
+                onEdgesChange,
+                onConnect,
+                onNodeClick: (_event, node) => setSelectedId(node.id),
+                onPaneClick: () => setSelectedId(null),
+                fitView: true,
+                fitViewOptions: { padding: .2 },
+                snapToGrid: true,
+                snapGrid: [16, 16],
+                deleteKeyCode: ['Backspace', 'Delete'],
+                minZoom: .25,
+                maxZoom: 1.6,
+                proOptions: { hideAttribution: true }
+              },
+                React.createElement(Background, { gap: 24, size: 1, color: 'rgba(220,235,224,.11)' }),
+                React.createElement(Controls, { showInteractive: false }),
+                React.createElement(MiniMap, { nodeColor: node => NODE_TYPES[node.data?.kind]?.color || '#91b7a0', maskColor: 'rgba(11,13,13,.74)' })
+              )
+            )
+          ),
+          React.createElement('aside', { className: 'inspector' },
+            React.createElement('section', { className: 'inspector-section' },
+              React.createElement('div', { className: 'section-kicker' }, '01 / Graph status'),
+              React.createElement('h1', { className: 'section-title' }, result.hasCycle ? '依賴關係需要修正' : '工作流順序已就緒'),
+              React.createElement('p', { className: 'section-copy' }, result.hasCycle ? '畫布上存在回圈。移除紅框節點之間的依賴後，才能產生可靠的執行順序。' : '所有依賴都能被線性化。使用驗證按鈕確認目前的執行順序。'),
+              React.createElement('div', { className: 'metric-grid' },
+                React.createElement('div', { className: 'metric' }, React.createElement('div', { className: 'metric-label' }, 'Nodes'), React.createElement('div', { className: 'metric-value accent' }, nodes.length)),
+                React.createElement('div', { className: 'metric' }, React.createElement('div', { className: 'metric-label' }, 'Edges'), React.createElement('div', { className: 'metric-value' }, edges.length)),
+                React.createElement('div', { className: 'metric' }, React.createElement('div', { className: 'metric-label' }, 'Order'), React.createElement('div', { className: `metric-value ${result.hasCycle ? 'danger' : 'success'}` }, result.hasCycle ? '—' : result.order.length)),
+                React.createElement('div', { className: 'metric' }, React.createElement('div', { className: 'metric-label' }, 'Algorithm'), React.createElement('div', { className: 'metric-value' }, 'Kahn'))
+              )
+            ),
+            React.createElement('section', { className: 'inspector-section' },
+              React.createElement('div', { className: 'section-kicker' }, '02 / Topological order'),
+              React.createElement('div', { className: 'section-copy' }, result.hasCycle ? '排序被中止。以下節點尚未被消解：' : '依照每個節點的入度，計算出建議執行序：'),
+              result.hasCycle
+                ? React.createElement('div', { className: 'empty-state' }, result.remaining.map(id => nodes.find(node => node.id === id)?.data.label || id).join(' · '))
+                : React.createElement('div', { className: 'order-list' }, orderedNodes.map((node, index) => React.createElement('div', { className: 'order-row', key: node.id }, React.createElement('div', { className: 'order-index' }, String(index + 1).padStart(2, '0')), React.createElement('div', { className: 'order-name', title: node.data.label }, node.data.label))))
+            ),
+            React.createElement('section', { className: 'inspector-section' },
+              React.createElement('div', { className: 'section-kicker' }, '03 / Node inspector'),
+              selectedNode ? React.createElement(React.Fragment, null,
+                React.createElement('div', { className: 'selected-form' },
+                  React.createElement('label', { className: 'field-label', htmlFor: 'node-label' }, 'Label'),
+                  React.createElement('input', { id: 'node-label', className: 'field-input', value: selectedNode.data.label, onChange: event => updateSelected({ label: event.target.value }) }),
+                  React.createElement('label', { className: 'field-label', htmlFor: 'node-meta' }, 'Metadata'),
+                  React.createElement('input', { id: 'node-meta', className: 'field-input', value: selectedNode.data.meta || '', onChange: event => updateSelected({ meta: event.target.value }) })
+                ),
+                React.createElement('div', { className: 'inspector-actions' }, React.createElement('button', { className: 'tool-btn subtle', onClick: removeSelected }, '移除節點'))
+              ) : React.createElement('div', { className: 'empty-state' }, '點擊畫布上的節點以檢視或編輯內容。')
+            ),
+            React.createElement('section', { className: 'inspector-section' },
+              React.createElement('div', { className: 'section-kicker' }, '04 / Node types'),
+              React.createElement('div', { className: 'legend' }, Object.entries(NODE_TYPES).map(([kind, tone]) => React.createElement('div', { className: 'legend-item', key: kind }, React.createElement('span', { className: 'legend-swatch', style: { '--swatch': tone.color } }), tone.label))),
+              React.createElement('p', { className: 'help-note' }, '拖拉節點調整版面。從右側把手拖到另一個節點建立依賴；系統會在連線當下阻擋循環。按 ', React.createElement('kbd', null, 'Delete'), ' 移除選取內容。')
+            )
+          )
+        ),
+        toast ? React.createElement('div', { className: `toast ${toast.kind}`, role: 'status', 'aria-live': 'polite' }, React.createElement('div', { className: 'toast-title' }, toast.kind === 'error' ? 'Validation error' : toast.kind === 'success' ? 'Updated' : 'Notice'), React.createElement('div', { className: 'toast-message' }, toast.message)) : null
+      );
+    }
+
+    createRoot(document.getElementById('root')).render(React.createElement(ReactFlowProvider, null, React.createElement(App)));
+  </script>
+</body>
+</html>

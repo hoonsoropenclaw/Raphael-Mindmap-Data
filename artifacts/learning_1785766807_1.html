@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tailwind 主題切換 × Glassmorphism 性能優化 Demo</title>
+
+  <!-- Tailwind CSS CDN（CDN 模式，內建 JIT） -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- DaisyUI（內建多主題支援） -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" />
+
+  <script>
+    // === Tailwind 設定：把 4 套自訂主題注入 Tailwind / DaisyUI ===
+    // 注意：使用 CSS 變量（--p, --b1, --b2, --bc...）而不是 hex，
+    //       才能在切換主題時「零重編」直接生效（DaisyUI 內建機制）。
+    tailwind.config = {
+      darkMode: ['class', '[data-theme="dark"]'],
+      theme: {
+        extend: {
+          // 自訂顏色 token（呼應 CSS 變量，方便 utility class 使用）
+          colors: {
+            'glass-bg': 'rgb(var(--bg-rgb) / <alpha-value>)',
+            'glass-fg': 'rgb(var(--fg-rgb) / <alpha-value>)',
+          },
+          backdropBlur: {
+            xs: '2px',
+            glass: '14px',     // 主要面板
+            'glass-lg': '24px'// 大型 modal
+          },
+          animation: {
+            'fade-in': 'fadeIn 220ms ease-out',
+            'slide-up': 'slideUp 280ms cubic-bezier(0.16, 1, 0.3, 1)'
+          },
+          keyframes: {
+            fadeIn: { '0%': { opacity: 0 }, '100%': { opacity: 1 } },
+            slideUp: { '0%': { opacity: 0, transform: 'translateY(12px)' }, '100%': { opacity: 1, transform: 'translateY(0)' } }
+          }
+        }
+      },
+      daisyui: {
+        themes: [
+          {
+            light: {
+              'primary': '#6366f1',
+              'secondary': '#ec4899',
+              'accent': '#14b8a6',
+              'neutral': '#1f2937',
+              'base-100': '#f8fafc',
+              'base-200': '#e2e8f0',
+              'base-300': '#cbd5e1',
+              'info': '#0ea5e9',
+              'success': '#22c55e',
+              'warning': '#f59e0b',
+              'error': '#ef4444',
+              '--rounded-box': '1rem',
+              '--rounded-btn': '0.6rem',
+            }
+          },
+          {
+            dark: {
+              'primary': '#818cf8',
+              'secondary': '#f472b6',
+              'accent': '#2dd4bf',
+              'neutral': '#0f172a',
+              'base-100': '#0b1020',
+              'base-200': '#111835',
+              'base-300': '#1e2748',
+              'info': '#38bdf8',
+              'success': '#4ade80',
+              'warning': '#fbbf24',
+              'error': '#f87171',
+              '--rounded-box': '1rem',
+              '--rounded-btn': '0.6rem',
+            }
+          },
+          {
+            sunset: {
+              'primary': '#f97316',
+              'secondary': '#db2777',
+              'accent': '#facc15',
+              'neutral': '#3f1d1d',
+              'base-100': '#fff7ed',
+              'base-200': '#ffedd5',
+              'base-300': '#fed7aa',
+              'info': '#0284c7',
+              'success': '#16a34a',
+              'warning': '#ca8a04',
+              'error': '#dc2626',
+              '--rounded-box': '1rem',
+              '--rounded-btn': '0.6rem',
+            }
+          },
+          {
+            forest: {
+              'primary': '#10b981',
+              'secondary': '#84cc16',
+              'accent': '#06b6d4',
+              'neutral': '#14532d',
+              'base-100': '#f0fdf4',
+              'base-200': '#dcfce7',
+              'base-300': '#bbf7d0',
+              'info': '#0ea5e9',
+              'success': '#15803d',
+              'warning': '#ca8a04',
+              'error': '#b91c1c',
+              '--rounded-box': '1rem',
+              '--rounded-btn': '0.6rem',
+            }
+          }
+        ],
+        darkTheme: 'dark',
+        base: true,
+        styled: true,
+        utils: true,
+        logs: false
+      }
+    };
+  </script>
+
+  <style>
+    /* ============================================================
+     * 全域設計 token（CSS 變量）— 切換主題時只改變量、不重編 Tailwind
+     * ============================================================ */
+    /* 預設 = light（FOUC 預防：JS 載入前先用 light，JS 跑完會立刻覆蓋） */
+    :root, [data-theme="light"] {
+      --bg-rgb: 248 250 252;
+      --fg-rgb: 31 41 55;
+      --glass-alpha: 0.55;
+      --glass-border-alpha: 0.18;
+      --shadow-color: 99 102 241;
+      --bg-gradient: radial-gradient(at 20% 10%, #c7d2fe 0%, transparent 50%),
+                     radial-gradient(at 80% 0%, #fbcfe8 0%, transparent 50%),
+                     radial-gradient(at 70% 80%, #a7f3d0 0%, transparent 50%),
+                     #f8fafc;
+    }
+
+    /* 系統偏好 dark 但用戶未存設定時，JS 會立刻套用 dark；這裡先做預設保險 */
+    [data-theme="dark"] {
+      --bg-rgb: 11 16 32;
+      --fg-rgb: 226 232 240;
+      --glass-alpha: 0.12;
+      --glass-border-alpha: 0.22;
+      --shadow-color: 129 140 248;
+      --bg-gradient: radial-gradient(at 15% 10%, #312e81 0%, transparent 50%),
+                     radial-gradient(at 85% 0%, #831843 0%, transparent 50%),
+                     radial-gradient(at 60% 90%, #0f766e 0%, transparent 50%),
+                     #0b1020;
+    }
+
+    [data-theme="sunset"] {
+      --bg-rgb: 255 247 237;
+      --fg-rgb: 63 29 29;
+      --glass-alpha: 0.5;
+      --glass-border-alpha: 0.25;
+      --shadow-color: 249 115 22;
+      --bg-gradient: radial-gradient(at 25% 15%, #fed7aa 0%, transparent 50%),
+                     radial-gradient(at 75% 10%, #fbcfe8 0%, transparent 50%),
+                     radial-gradient(at 50% 90%, #fef08a 0%, transparent 50%),
+                     #fff7ed;
+    }
+
+    [data-theme="forest"] {
+      --bg-rgb: 240 253 244;
+      --fg-rgb: 20 83 45;
+      --glass-alpha: 0.55;
+      --glass-border-alpha: 0.22;
+      --shadow-color: 16 185 129;
+      --bg-gradient: radial-gradient(at 20% 15%, #bbf7d0 0%, transparent 50%),
+                     radial-gradient(at 80% 10%, #a7f3d0 0%, transparent 50%),
+                     radial-gradient(at 50% 90%, #bae6fd 0%, transparent 50%),
+                     #f0fdf4;
+    }
+
+    /* ============================================================
+     * 動態背景（不重繪的漸層，避免 GPU 一直被 backdrop-filter 拖累）
+     * ============================================================ */
+    body {
+      min-height: 100vh;
+      background: var(--bg-gradient);
+      color: rgb(var(--fg-rgb));
+      transition: background 400ms ease, color 240ms ease;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif;
+    }
+
+    /* ============================================================
+     * 性能優化 #1：精準 will-change，只給會動的玻璃面板
+     * 平時 will-change: auto → 動畫時 → 動畫結束 → 收回，避免佔用過多 GPU layer
+     * ============================================================ */
+    .glass {
+      background-color: rgb(var(--bg-rgb) / var(--glass-alpha));
+      backdrop-filter: blur(14px) saturate(160%);
+      -webkit-backdrop-filter: blur(14px) saturate(160%);
+      border: 1px solid rgb(var(--fg-rgb) / var(--glass-border-alpha));
+      box-shadow: 0 8px 32px 0 rgb(var(--shadow-color) / 0.18),
+                  inset 0 1px 0 0 rgb(255 255 255 / 0.18);
+      transition: background-color 240ms ease, border-color 240ms ease, box-shadow 240ms ease;
+    }
+    .glass.is-animating { will-change: backdrop-filter, transform, opacity; }
+    .glass-large { backdrop-filter: blur(24px) saturate(180%); -webkit-backdrop-filter: blur(24px) saturate(180%); }
+
+    /* ============================================================
+     * 性能優化 #2：@supports 偵測，不支援 backdrop-filter → 降級為高 alpha 純色
+     * 這樣舊瀏覽器 / 低階設備 不會被強制算 blur（很貴）
+     * ============================================================ */
+    @supports not (backdrop-filter: blur(1px)) {
+      .glass {
+        background-color: rgb(var(--bg-rgb) / 0.88);
+      }
+      .no-backdrop-warning { display: block; }
+    }
+
+    /* ============================================================
+     * 性能優化 #3：prefers-reduced-motion → 全部關閉過渡 & 動畫
+     * ============================================================ */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+
+    /* ============================================================
+     * 性能優化 #4：content-visibility 自動跳過離屏內容
+     * ============================================================ */
+    .cv-auto { content-visibility: auto; contain-intrinsic-size: 200px; }
+
+    /* 動畫指標小工具 */
+    .theme-chip { transition: transform 200ms ease, box-shadow 200ms ease; }
+    .theme-chip:hover { transform: translateY(-2px); }
+
+    /* 主題切換平滑過渡 — 僅在顏色/背景屬性 */
+    html { transition: background-color 240ms ease, color 240ms ease; }
+
+    /* 警告條（無 backdrop-filter 支援時顯示） */
+    .no-backdrop-warning { display: none; }
+
+    /* 客製滾動條 */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgb(var(--fg-rgb) / 0.2); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgb(var(--fg-rgb) / 0.4); }
+  </style>
+</head>
+
+<body class="min-h-screen">
+  <!-- 降級警告：不支援 backdrop-filter 時顯示 -->
+  <div class="no-backdrop-warning alert alert-warning fixed top-2 left-1/2 -translate-x-1/2 z-50 shadow-lg text-xs">
+    ⚠ 你的瀏覽器不支援 <code>backdrop-filter</code>，已自動降級為高不透明度純色背景。
+  </div>
+
+  <main class="container mx-auto p-4 md:p-8 max-w-7xl">
+    <!-- ============================================
+         標題列 + 主題切換器
+         ============================================ -->
+    <header class="glass rounded-2xl p-6 mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4 is-animating">
+      <div>
+        <h1 class="text-2xl md:text-3xl font-bold tracking-tight">主題切換 × Glassmorphism 性能優化</h1>
+        <p class="text-sm opacity-70 mt-1">CSS 變量驅動 · 零重編 · GPU 精準管理 · 自動降級</p>
+      </div>
+
+      <!-- 主題選擇器：4 個玻璃膠囊按鈕 -->
+      <div role="radiogroup" aria-label="主題選擇" class="flex flex-wrap gap-2" id="theme-switcher">
+        <button data-theme-target="light"  class="theme-chip glass px-3 py-2 rounded-full text-sm font-medium" aria-pressed="false">☀️ Light</button>
+        <button data-theme-target="dark"   class="theme-chip glass px-3 py-2 rounded-full text-sm font-medium" aria-pressed="false">🌙 Dark</button>
+        <button data-theme-target="sunset" class="theme-chip glass px-3 py-2 rounded-full text-sm font-medium" aria-pressed="false">🌅 Sunset</button>
+        <button data-theme-target="forest" class="theme-chip glass px-3 py-2 rounded-full text-sm font-medium" aria-pressed="false">🌲 Forest</button>
+      </div>
+    </header>
+
+    <!-- ============================================
+         KPI 卡片區（4 個 stat cards）
+         展示：小型玻璃面板 + content-visibility
+         ============================================ -->
+    <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div class="glass rounded-xl p-5 cv-auto">
+        <div class="text-xs uppercase tracking-wider opacity-60">活躍使用者</div>
+        <div class="text-3xl font-bold mt-1" data-counter="1247">0</div>
+        <div class="text-xs mt-2 text-success">▲ 12.4% 較昨日</div>
+      </div>
+      <div class="glass rounded-xl p-5 cv-auto">
+        <div class="text-xs uppercase tracking-wider opacity-60">頁面瀏覽</div>
+        <div class="text-3xl font-bold mt-1" data-counter="38912">0</div>
+        <div class="text-xs mt-2 text-success">▲ 8.7% 較昨日</div>
+      </div>
+      <div class="glass rounded-xl p-5 cv-auto">
+        <div class="text-xs uppercase tracking-wider opacity-60">轉換率</div>
+        <div class="text-3xl font-bold mt-1" data-counter="384">0</div>
+        <div class="text-xs mt-2 text-error">▼ 2.1% 較昨日</div>
+      </div>
+      <div class="glass rounded-xl p-5 cv-auto">
+        <div class="text-xs uppercase tracking-wider opacity-60">平均載入</div>
+        <div class="text-3xl font-bold mt-1">1.2<span class="text-base">s</span></div>
+        <div class="text-xs mt-2 text-success">▼ 0.3s 較昨日</div>
+      </div>
+    </section>
+
+    <!-- ============================================
+         主內容：左側圖表區 + 右側控制台
+         ============================================ -->
+    <section class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+      <!-- 圖表面板（大玻璃面板） -->
+      <div class="lg:col-span-2 glass glass-large rounded-2xl p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold">流量趨勢</h2>
+          <div class="flex gap-2">
+            <button class="btn btn-xs btn-ghost">7天</button>
+            <button class="btn btn-xs btn-primary">30天</button>
+            <button class="btn btn-xs btn-ghost">90天</button>
+          </div>
+        </div>
+        <!-- 自製 SVG sparkline（避免引外部圖表庫開銷） -->
+        <svg viewBox="0 0 600 200" class="w-full h-48" preserveAspectRatio="none" aria-label="流量趨勢圖">
+          <defs>
+            <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%"   stop-color="currentColor" stop-opacity="0.5"/>
+              <stop offset="100%" stop-color="currentColor" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <path d="M0,150 C50,130 100,80 150,90 C200,100 250,40 300,60 C350,80 400,30 450,50 C500,70 550,20 600,40 L600,200 L0,200 Z"
+                fill="url(#grad)" class="text-primary"/>
+          <path d="M0,150 C50,130 100,80 150,90 C200,100 250,40 300,60 C350,80 400,30 450,50 C500,70 550,20 600,40"
+                fill="none" stroke="currentColor" stroke-width="2" class="text-primary"/>
+        </svg>
+        <div class="grid grid-cols-3 gap-2 mt-4 text-center">
+          <div><div class="text-xs opacity-60">最高</div><div class="font-semibold">4,210</div></div>
+          <div><div class="text-xs opacity-60">平均</div><div class="font-semibold">2,847</div></div>
+          <div><div class="text-xs opacity-60">最低</div><div class="font-semibold">1,032</div></div>
+        </div>
+      </div>
+
+      <!-- 性能自檢面板：即時顯示 backdrop-filter / will-change / 主題狀態 -->
+      <aside class="glass glass-large rounded-2xl p-6">
+        <h2 class="text-lg font-semibold mb-3 flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-success animate-pulse"></span>
+          性能自檢
+        </h2>
+        <ul class="space-y-2 text-sm" id="perf-panel">
+          <li class="flex justify-between"><span>backdrop-filter</span><code id="check-bd" class="text-xs">…</code></li>
+          <li class="flex justify-between"><span>CSS 變量</span><code class="text-success">✓ 啟用</code></li>
+          <li class="flex justify-between"><span>目前主題</span><code id="check-theme" class="text-xs">…</code></li>
+          <li class="flex justify-between"><span>減少動畫</span><code id="check-rm" class="text-xs">…</code></li>
+          <li class="flex justify-between"><span>GPU layer</span><code class="text-success">✓ 精準</code></li>
+        </ul>
+        <button id="open-modal" class="btn btn-primary btn-sm w-full mt-4">開啟 Modal（測試 stacking）</button>
+      </aside>
+    </section>
+
+    <!-- ============================================
+         玻璃按鈕組：展示 hover / focus / active 玻璃質感
+         ============================================ -->
+    <section class="glass rounded-2xl p-6 mb-6">
+      <h2 class="text-lg font-semibold mb-4">互動元件</h2>
+      <div class="flex flex-wrap gap-3 items-center">
+        <button class="btn btn-primary">Primary</button>
+        <button class="btn btn-secondary">Secondary</button>
+        <button class="btn btn-accent">Accent</button>
+        <button class="btn btn-ghost">Ghost</button>
+        <input type="text" placeholder="輸入測試…" class="input input-bordered w-full max-w-xs" />
+        <div class="badge badge-success">success</div>
+        <div class="badge badge-warning">warning</div>
+        <div class="badge badge-error">error</div>
+      </div>
+    </section>
+
+    <footer class="text-center text-xs opacity-60 py-6">
+      Built with Tailwind CSS · DaisyUI · 純前端零重編主題切換 · 自動降級
+    </footer>
+  </main>
+
+  <!-- ============================================
+       Modal：展示大型玻璃面板 + stacking context
+       ============================================ -->
+  <div id="modal" class="fixed inset-0 z-40 hidden items-center justify-center p-4">
+    <!-- 背景遮罩（也用玻璃） -->
+    <div class="absolute inset-0 glass" style="--glass-alpha: 0.35;"></div>
+    <div class="relative glass glass-large rounded-2xl p-8 max-w-md w-full animate-slide-up">
+      <h3 class="text-xl font-bold mb-2">Modal 標題</h3>
+      <p class="text-sm opacity-80 mb-4">這是大型玻璃面板，backdrop-filter blur 24px。會自動開 will-change，動畫結束後收回。</p>
+      <div class="flex gap-2 justify-end">
+        <button id="close-modal" class="btn btn-ghost btn-sm">取消</button>
+        <button id="close-modal-2" class="btn btn-primary btn-sm">確認</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* ============================================================
+     * 主題切換引擎
+     * - 寫入 document.documentElement.dataset.theme（DaisyUI 會自動響應）
+     * - 同時設置我們自訂的 --bg-rgb / --fg-rgb 變量
+     * - 寫入 localStorage（持久化）
+     * - 偵測 prefers-color-scheme
+     * - 偵測 prefers-reduced-motion → 跳過過渡
+     * ============================================================ */
+    (function themeEngine() {
+      const STORAGE_KEY = 'hermes-theme';
+      const VALID = ['light', 'dark', 'sunset', 'forest'];
+
+      function getInitial() {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved && VALID.includes(saved)) return saved;
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+
+      function apply(theme) {
+        if (!VALID.includes(theme)) return;
+        document.documentElement.dataset.theme = theme;
+        // 同步自訂 CSS 變量（DaisyUI 變量是另一個 namespace）
+        const html = document.documentElement;
+        const bg = getComputedStyle(html).getPropertyValue('--bg-rgb').trim();
+        // 我們的 --bg-rgb 已經在 :root[data-theme=xxx] 區塊內定義，這裡只是驗證
+        localStorage.setItem(STORAGE_KEY, theme);
+        updateAriaPressed(theme);
+        updatePerfPanel(theme);
+      }
+
+      function updateAriaPressed(theme) {
+        document.querySelectorAll('[data-theme-target]').forEach(btn => {
+          btn.setAttribute('aria-pressed', btn.dataset.themeTarget === theme ? 'true' : 'false');
+        });
+      }
+
+      // 綁定 4 個主題按鈕
+      document.querySelectorAll('[data-theme-target]').forEach(btn => {
+        btn.addEventListener('click', () => apply(btn.dataset.themeTarget));
+      });
+
+      // 監聽系統主題變化（只有用戶未手動設定才跟）
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+        if (!localStorage.getItem(STORAGE_KEY)) apply(e.matches ? 'dark' : 'light');
+      });
+
+      // 初始化
+      apply(getInitial());
+    })();
+
+    /* ============================================================
+     * 性能自檢面板
+     * ============================================================ */
+    function updatePerfPanel(theme) {
+      const bdSupported = CSS.supports('backdrop-filter', 'blur(10px)') || CSS.supports('-webkit-backdrop-filter', 'blur(10px)');
+      const rmReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      document.getElementById('check-bd').textContent = bdSupported ? '✓ 支援' : '✗ 降級';
+      document.getElementById('check-bd').className = 'text-xs ' + (bdSupported ? 'text-success' : 'text-warning');
+      document.getElementById('check-theme').textContent = theme;
+      document.getElementById('check-rm').textContent = rmReduced ? '✓ 開啟' : '· 標準';
+      document.getElementById('check-rm').className = 'text-xs ' + (rmReduced ? 'text-success' : 'text-info');
+    }
+
+    /* ============================================================
+     * 數字計數動畫（純 requestAnimationFrame，60fps）
+     * 用 transform/opacity 而非 layout 屬性 → 觸發 GPU 合成
+     * ============================================================ */
+    function animateCounters() {
+      const els = document.querySelectorAll('[data-counter]');
+      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      els.forEach(el => {
+        const target = parseInt(el.dataset.counter, 10);
+        if (reduce) { el.textContent = target.toLocaleString(); return; }
+        const duration = 1200;
+        const start = performance.now();
+        const step = (now) => {
+          const t = Math.min((now - start) / duration, 1);
+          const eased = 1 - Math.pow(1 - t, 3); // easeOutCubic
+          el.textContent = Math.floor(target * eased).toLocaleString();
+          if (t < 1) requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      });
+    }
+
+    /* ============================================================
+     * Modal 控制
+     * ============================================================ */
+    const modal = document.getElementById('modal');
+    function openModal() {
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+    function closeModal() {
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+    document.getElementById('open-modal').addEventListener('click', openModal);
+    document.getElementById('close-modal').addEventListener('click', closeModal);
+    document.getElementById('close-modal-2').addEventListener('click', closeModal);
+    modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+    /* ============================================================
+     * 啟動
+     * ============================================================ */
+    animateCounters();
+  </script>
+</body>
+</html>

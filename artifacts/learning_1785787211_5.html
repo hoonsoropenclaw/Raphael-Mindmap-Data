@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OCR Daemon · 桌面自動化儀表板</title>
+<style>
+  /* ─────────────── 設計令牌 ─────────────── */
+  :root {
+    --bg: #0a0e1a;
+    --bg-elevated: #131826;
+    --bg-card: #1a2030;
+    --bg-input: #0f1422;
+    --border: #2a3447;
+    --border-hover: #3d4a66;
+    --text: #e4e9f2;
+    --text-dim: #8a93a8;
+    --text-muted: #5a6478;
+    --accent: #4f8bff;
+    --accent-hover: #6ba0ff;
+    --accent-glow: rgba(79, 139, 255, 0.25);
+    --success: #4ade80;
+    --warning: #fbbf24;
+    --danger: #f87171;
+    --info: #60a5fa;
+    --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+    --radius: 10px;
+    --radius-sm: 6px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    background:
+      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(79, 139, 255, 0.08), transparent),
+      var(--bg);
+  }
+
+  /* ─────────────── Layout ─────────────── */
+  .app {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 32px 24px 64px;
+  }
+
+  header.hero {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .logo {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, var(--accent), #8b5cf6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    font-weight: 700;
+    box-shadow: 0 4px 20px var(--accent-glow);
+  }
+
+  h1 {
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 13px;
+    margin-top: 2px;
+  }
+
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 13px;
+    font-family: var(--mono);
+  }
+
+  .pulse {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 0 0 var(--success);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.5); }
+    50% { box-shadow: 0 0 0 8px rgba(74, 222, 128, 0); }
+  }
+
+  /* ─────────────── Grid ─────────────── */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+
+  @media (max-width: 900px) {
+    .grid { grid-template-columns: 1fr; }
+  }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    transition: border-color 0.2s;
+  }
+
+  .card:hover {
+    border-color: var(--border-hover);
+  }
+
+  .card-full { grid-column: 1 / -1; }
+
+  .card h2 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .card .desc {
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-bottom: 18px;
+  }
+
+  .card h2 .icon {
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    background: var(--bg-elevated);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+  }
+
+  /* ─────────────── Stats ─────────────── */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .stat {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+  }
+
+  .stat-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+
+  .stat-value {
+    font-size: 24px;
+    font-weight: 600;
+    font-family: var(--mono);
+    color: var(--text);
+  }
+
+  .stat-value.accent { color: var(--accent); }
+  .stat-value.success { color: var(--success); }
+  .stat-value.warning { color: var(--warning); }
+
+  .stat-trend {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+
+  /* ─────────────── Form ─────────────── */
+  .form-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+
+  .form-row label {
+    font-size: 12px;
+    color: var(--text-dim);
+    font-weight: 500;
+  }
+
+  input[type="text"], input[type="number"], select, textarea {
+    background: var(--bg-input);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 9px 12px;
+    font-family: var(--mono);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    width: 100%;
+  }
+
+  input:focus, select:focus, textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+
+  textarea {
+    resize: vertical;
+    min-height: 70px;
+  }
+
+  .row-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+
+  .checkbox-row input { width: auto; cursor: pointer; }
+  .checkbox-row:hover { color: var(--text); }
+
+  /* ─────────────── Buttons ─────────────── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 16px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .btn:hover {
+    border-color: var(--border-hover);
+    background: var(--bg-card);
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+  }
+
+  .btn-primary:hover {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+    box-shadow: 0 4px 16px var(--accent-glow);
+  }
+
+  .btn-danger {
+    background: transparent;
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+
+  .btn-danger:hover {
+    background: rgba(248, 113, 113, 0.1);
+  }
+
+  .btn-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+  }
+
+  /* ─────────────── Activity log ─────────────── */
+  .log {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    max-height: 280px;
+    overflow-y: auto;
+    line-height: 1.55;
+  }
+
+  .log-line {
+    display: flex;
+    gap: 10px;
+    padding: 3px 0;
+  }
+
+  .log-time { color: var(--text-muted); flex-shrink: 0; }
+  .log-level {
+    flex-shrink: 0;
+    font-weight: 600;
+    width: 56px;
+  }
+  .log-level.INFO { color: var(--info); }
+  .log-level.OK { color: var(--success); }
+  .log-level.WARN { color: var(--warning); }
+  .log-level.ERR { color: var(--danger); }
+  .log-msg { color: var(--text-dim); flex: 1; word-break: break-word; }
+
+  /* ─────────────── Helpers ─────────────── */
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-family: var(--mono);
+    font-weight: 600;
+  }
+
+  .badge-mock { background: rgba(251, 191, 36, 0.15); color: var(--warning); }
+  .badge-tesseract { background: rgba(74, 222, 128, 0.15); color: var(--success); }
+  .badge-watchdog { background: rgba(96, 165, 250, 0.15); color: var(--info); }
+  .badge-polling { background: rgba(139, 92, 246, 0.15); color: #a78bfa; }
+
+  .warning {
+    color: var(--warning);
+    font-size: 12px;
+    padding: 8px 12px;
+    background: rgba(251, 191, 36, 0.08);
+    border-left: 2px solid var(--warning);
+    border-radius: 4px;
+    margin-top: 12px;
+  }
+
+  .info {
+    color: var(--info);
+    font-size: 12px;
+    padding: 8px 12px;
+    background: rgba(96, 165, 250, 0.08);
+    border-left: 2px solid var(--info);
+    border-radius: 4px;
+    margin-top: 12px;
+  }
+
+  .hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+
+  code {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: var(--bg-input);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--accent);
+  }
+
+  footer {
+    margin-top: 40px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 12px;
+    text-align: center;
+  }
+
+  /* ─────────────── Modal ─────────────── */
+  .modal-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+
+  .modal-backdrop.show { display: flex; }
+
+  .modal {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    max-width: 480px;
+    width: 90%;
+  }
+
+  .modal h3 {
+    margin-bottom: 12px;
+    font-size: 16px;
+  }
+
+  .modal p {
+    color: var(--text-dim);
+    margin-bottom: 18px;
+    font-size: 13px;
+  }
+
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    padding: 12px 18px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    transform: translateY(20px);
+    opacity: 0;
+    transition: all 0.3s;
+    z-index: 200;
+    font-size: 13px;
+  }
+
+  .toast.show {
+    transform: translateY(0);
+    opacity: 1;
+  }
+
+  .toast.success { border-left: 3px solid var(--success); }
+  .toast.error { border-left: 3px solid var(--danger); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ─────────── Header ─────────── -->
+  <header class="hero">
+    <div class="brand">
+      <div class="logo">OCR</div>
+      <div>
+        <h1>OCR Daemon 儀表板</h1>
+        <div class="subtitle">桌面自動化檔案監控 + OCR 處理 pipeline</div>
+      </div>
+    </div>
+    <div class="status-badge">
+      <span class="pulse"></span>
+      <span id="status-text">daemon 運行中</span>
+    </div>
+  </header>
+
+  <!-- ─────────── Stats ─────────── -->
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-label">已處理</div>
+      <div class="stat-value accent" id="stat-processed">0</div>
+      <div class="stat-trend">累計檔案</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">佇列中</div>
+      <div class="stat-value" id="stat-queue">0</div>
+      <div class="stat-trend">待處理任務</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Workers</div>
+      <div class="stat-value" id="stat-workers">2</div>
+      <div class="stat-trend">執行緒</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">引擎</div>
+      <div class="stat-value" id="stat-engine" style="font-size: 14px;">
+        <span class="badge badge-tesseract">tesseract</span>
+      </div>
+      <div class="stat-trend" id="stat-engine-detail">chi_tra+eng</div>
+    </div>
+  </div>
+
+  <!-- ─────────── Grid ─────────── -->
+  <div class="grid">
+
+    <!-- Watcher -->
+    <div class="card">
+      <h2><span class="icon">📂</span>監控設定</h2>
+      <div class="desc">指定要監控的目錄與支援的檔案類型</div>
+
+      <div class="form-row">
+        <label for="watch_dir">監控目錄 (watch_dir)</label>
+        <input type="text" id="watch_dir" value="~/Documents/Scans">
+        <div class="hint">daemon 會遞迴(或不)監控此目錄內的新檔案</div>
+      </div>
+
+      <div class="form-row">
+        <label for="output_dir">輸出目錄 (output_dir)</label>
+        <input type="text" id="output_dir" value="~/Documents/OCR_Output">
+      </div>
+
+      <div class="form-row">
+        <label for="file_patterns">檔案類型樣板 (file_patterns)</label>
+        <textarea id="file_patterns">*.pdf
+*.png
+*.jpg
+*.jpeg
+*.tif
+*.tiff
+*.bmp</textarea>
+        <div class="hint">一行一個,s支援 glob 樣板</div>
+      </div>
+
+      <div class="row-2">
+        <div class="form-row">
+          <label for="debounce_seconds">去抖動秒數</label>
+          <input type="number" id="debounce_seconds" value="2.0" step="0.1" min="0">
+          <div class="hint">短時間內多次事件合併</div>
+        </div>
+        <div class="form-row">
+          <label for="queue_size">佇列大小</label>
+          <input type="number" id="queue_size" value="100" min="1">
+        </div>
+      </div>
+    </div>
+
+    <!-- OCR Engine -->
+    <div class="card">
+      <h2><span class="icon">⚙️</span>OCR 引擎</h2>
+      <div class="desc">選擇 tesseract 或 mock 模式</div>
+
+      <div class="form-row">
+        <label for="ocr_engine">引擎</label>
+        <select id="ocr_engine">
+          <option value="tesseract">tesseract (需要安裝)</option>
+          <option value="mock">mock (寫出 placeholder)</option>
+        </select>
+        <div id="ocr-warning" class="warning" style="display: none;">
+          ⚠ tesseract 不可用,將自動 fallback 到 mock
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label for="ocr_language">語言 (tesseract 格式)</label>
+        <input type="text" id="ocr_language" value="chi_tra+eng">
+        <div class="hint">已安裝:<code>chi_tra</code>, <code>chi_sim</code>, <code>eng</code> 等</div>
+      </div>
+
+      <div class="form-row">
+        <label for="tesseract_cmd">tesseract 路徑</label>
+        <input type="text" id="tesseract_cmd" value="/usr/bin/tesseract">
+      </div>
+
+      <div class="row-2">
+        <div class="form-row">
+          <label for="worker_count">Worker 數</label>
+          <input type="number" id="worker_count" value="2" min="1" max="16">
+        </div>
+        <div class="form-row">
+          <label for="timeout_seconds">單檔逾時 (秒)</label>
+          <input type="number" id="timeout_seconds" value="120" min="10">
+        </div>
+      </div>
+    </div>
+
+    <!-- Notifications -->
+    <div class="card">
+      <h2><span class="icon">🔔</span>桌面通知</h2>
+      <div class="desc">跨平台:macOS / Linux libnotify / Windows</div>
+
+      <label class="checkbox-row">
+        <input type="checkbox" id="notify_enabled" checked>
+        <span>啟用桌面通知</span>
+      </label>
+
+      <label class="checkbox-row" style="margin-top: 10px;">
+        <input type="checkbox" id="notify_success">
+        <span>成功時通知</span>
+      </label>
+
+      <label class="checkbox-row" style="margin-top: 10px;">
+        <input type="checkbox" id="notify_failure" checked>
+        <span>失敗時通知 (建議)</span>
+      </label>
+
+      <div class="info">
+        通知 backend:依平台自動探測<br>
+        macOS → osascript / Linux → notify-send / Windows → PowerShell
+      </div>
+    </div>
+
+    <!-- Service -->
+    <div class="card">
+      <h2><span class="icon">🚀</span>系統服務</h2>
+      <div class="desc">把 daemon 註冊為 OS 服務,登入自動啟動</div>
+
+      <div class="form-row">
+        <label>目前狀態</label>
+        <div>
+          <span class="badge" id="service-badge" style="background: rgba(96, 165, 250, 0.15); color: var(--info);">
+            檢查中...
+          </span>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="installService()">安裝服務</button>
+        <button class="btn" onclick="checkService()">重新檢查</button>
+        <button class="btn btn-danger" onclick="uninstallService()">移除服務</button>
+      </div>
+
+      <div class="info">
+        對應到 <code>install_service.py</code> 的 CLI。<br>
+        不需要 sudo,使用 user-level 服務。
+      </div>
+    </div>
+
+    <!-- Activity log (full width) -->
+    <div class="card card-full">
+      <h2><span class="icon">📋</span>活動日誌</h2>
+      <div class="desc">最近 50 筆事件 (本地 mock,實際部署需接 daemon log)</div>
+      <div class="log" id="log-viewport">
+        <div class="log-line">
+          <span class="log-time">--:--:--</span>
+          <span class="log-level INFO">INFO</span>
+          <span class="log-msg">daemon 啟動 (mock 顯示)</span>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn" onclick="clearLog()">清空</button>
+        <button class="btn" onclick="exportConfig()">匯出 config.yaml</button>
+      </div>
+    </div>
+
+    <!-- Quick guide (full width) -->
+    <div class="card card-full">
+      <h2><span class="icon">📖</span>快速指引</h2>
+      <div class="desc">5 步驟從零開始</div>
+      <ol style="padding-left: 20px; color: var(--text-dim); line-height: 2;">
+        <li>編輯左側「監控設定」與「OCR 引擎」參數</li>
+        <li>在本機執行 <code>python3 daemon.py --init-config ~/.config/ocr-daemon/config.yaml</code> 初始化設定檔</li>
+        <li>執行 <code>python3 daemon.py --check</code> 做健康檢查</li>
+        <li>執行 <code>python3 daemon.py</code> 啟動 daemon (前景) 或 <code>python3 install_service.py install</code> 註冊為系統服務</li>
+        <li>把檔案拖入監控目錄,daemon 會自動 OCR 並把結果寫到 output_dir</li>
+      </ol>
+    </div>
+
+  </div>
+
+  <footer>
+    OCR Daemon · 本機桌面自動化工具 · 由 Hermes 設計
+  </footer>
+</div>
+
+<!-- ─────────── Modal ─────────── -->
+<div class="modal-backdrop" id="modal">
+  <div class="modal">
+    <h3 id="modal-title">確認</h3>
+    <p id="modal-body">確定執行此操作?</p>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="modal-ok">確認</button>
+      <button class="btn" onclick="closeModal()">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────── Toast ─────────── -->
+<div class="toast" id="toast"></div>
+
+<script>
+  /* ─────────── 展示用假資料 (這是 dashboard mock, 接真實 daemon 時替換) ─────────── */
+  const state = {
+    processed: 0,
+    queueSize: 0,
+    isMock: true,
+  };
+
+  const logBuffer = [];
+
+  function timeNow() {
+    return new Date().toTimeString().slice(0, 8);
+  }
+
+  function pushLog(level, msg) {
+    logBuffer.push({ time: timeNow(), level, msg });
+    if (logBuffer.length > 50) logBuffer.shift();
+    renderLog();
+  }
+
+  function renderLog() {
+    const viewport = document.getElementById('log-viewport');
+    viewport.innerHTML = logBuffer.map(l => `
+      <div class="log-line">
+        <span class="log-time">${l.time}</span>
+        <span class="log-level ${l.level}">${l.level}</span>
+        <span class="log-msg">${escapeHtml(l.msg)}</span>
+      </div>
+    `).join('');
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+
+  /* ─────────── Stats ─────────── */
+  function refreshStats() {
+    document.getElementById('stat-processed').textContent = state.processed;
+    document.getElementById('stat-queue').textContent = state.queueSize;
+  }
+
+  /* ─────────── Demo: 模擬收到 OCR 完成事件 ─────────── */
+  function simulateProcessing() {
+    const files = ['scan_001.pdf', 'report.png', 'invoice.jpg', 'receipt.tiff'];
+    const file = files[Math.floor(Math.random() * files.length)];
+    const dur = (Math.random() * 3 + 0.5).toFixed(2);
+    state.processed += 1;
+    state.queueSize = Math.max(0, state.queueSize - 1);
+    pushLog('OK', `${file} OCR 完成 (${dur}s, conf ${(Math.random() * 20 + 80).toFixed(0)})`);
+    refreshStats();
+  }
+
+  function simulateIncoming() {
+    const files = ['document.pdf', 'photo.jpg', 'scan.png'];
+    state.queueSize += 1;
+    pushLog('INFO', `新檔案: ${files[Math.floor(Math.random() * files.length)]}`);
+    refreshStats();
+  }
+
+  /* ─────────── Service 動作 ─────────── */
+  function showModal(title, body, onOk) {
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal-body').textContent = body;
+    document.getElementById('modal-ok').onclick = () => {
+      closeModal();
+      onOk();
+    };
+    document.getElementById('modal').classList.add('show');
+  }
+
+  function closeModal() {
+    document.getElementById('modal').classList.remove('show');
+  }
+
+  function showToast(msg, type = 'success') {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = `toast show ${type}`;
+    setTimeout(() => t.classList.remove('show'), 3000);
+  }
+
+  function installService() {
+    showModal(
+      '安裝系統服務',
+      '將 daemon 註冊為 OS 級服務 (Linux: systemd / macOS: launchd)。不會要求 sudo。',
+      () => {
+        pushLog('OK', '正在安裝系統服務...');
+        // 實接: 透過 fetch 打到後端 API 執行 install_service.py
+        // 這裡用 setTimeout 模擬
+        setTimeout(() => {
+          document.getElementById('service-badge').textContent = '已啟用';
+          document.getElementById('service-badge').style.color = 'var(--success)';
+          document.getElementById('service-badge').style.background = 'rgba(74, 222, 128, 0.15)';
+          pushLog('OK', '系統服務已安裝並啟動');
+          showToast('已安裝服務');
+        }, 800);
+      }
+    );
+  }
+
+  function uninstallService() {
+    showModal(
+      '移除系統服務',
+      '停止 daemon 並從 OS 卸載。需要重啟才能完全生效。',
+      () => {
+        pushLog('WARN', '正在移除系統服務...');
+        setTimeout(() => {
+          document.getElementById('service-badge').textContent = '未安裝';
+          document.getElementById('service-badge').style.color = 'var(--text-muted)';
+          document.getElementById('service-badge').style.background = 'rgba(90, 100, 120, 0.15)';
+          pushLog('OK', '系統服務已移除');
+          showToast('已移除服務', 'success');
+        }, 800);
+      }
+    );
+  }
+
+  function checkService() {
+    pushLog('INFO', '檢查系統服務狀態...');
+    setTimeout(() => {
+      const badge = document.getElementById('service-badge');
+      const isInstalled = Math.random() > 0.5;
+      badge.textContent = isInstalled ? '已啟用' : '未安裝';
+      badge.style.color = isInstalled ? 'var(--success)' : 'var(--text-muted)';
+      badge.style.background = isInstalled
+        ? 'rgba(74, 222, 128, 0.15)' : 'rgba(90, 100, 120, 0.15)';
+      pushLog(isInstalled ? 'OK' : 'INFO',
+        isInstalled ? '服務已啟用 (systemd / launchd)' : '服務未安裝');
+    }, 500);
+  }
+
+  function clearLog() {
+    logBuffer.length = 0;
+    renderLog();
+  }
+
+  function exportConfig() {
+    const config = {
+      watch_dir: document.getElementById('watch_dir').value,
+      output_dir: document.getElementById('output_dir').value,
+      queue_size: parseInt(document.getElementById('queue_size').value, 10),
+      worker_count: parseInt(document.getElementById('worker_count').value, 10),
+      debounce_seconds: parseFloat(document.getElementById('debounce_seconds').value),
+      file_patterns: document.getElementById('file_patterns').value
+        .split('\n').map(s => s.trim()).filter(Boolean),
+      ocr: {
+        engine: document.getElementById('ocr_engine').value,
+        language: document.getElementById('ocr_language').value,
+        tesseract_cmd: document.getElementById('tesseract_cmd').value,
+        timeout_seconds: parseInt(document.getElementById('timeout_seconds').value, 10),
+      },
+      notify: {
+        enabled: document.getElementById('notify_enabled').checked,
+        on_success: document.getElementById('notify_success').checked,
+        on_failure: document.getElementById('notify_failure').checked,
+      },
+      log_level: 'INFO',
+    };
+
+    // 簡單 YAML 序列化
+    const yaml = `watch_dir: ${config.watch_dir}
+output_dir: ${config.output_dir}
+queue_size: ${config.queue_size}
+worker_count: ${config.worker_count}
+debounce_seconds: ${config.debounce_seconds}
+file_patterns:
+${config.file_patterns.map(p => `  - "${p}"`).join('\n')}
+ocr:
+  engine: ${config.ocr.engine}
+  language: ${config.ocr.language}
+  tesseract_cmd: ${config.ocr.tesseract_cmd}
+  timeout_seconds: ${config.ocr.timeout_seconds}
+notify:
+  enabled: ${config.notify.enabled}
+  on_success: ${config.notify.on_success}
+  on_failure: ${config.notify.on_failure}
+log_level: ${config.log_level}
+`;
+
+    // 下載
+    const blob = new Blob([yaml], { type: 'text/yaml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'config.yaml';
+    a.click();
+    URL.revokeObjectURL(url);
+    pushLog('OK', '已匯出 config.yaml');
+    showToast('已下載 config.yaml');
+  }
+
+  /* ─────────── OCR engine 切換處理 ─────────── */
+  document.getElementById('ocr_engine').addEventListener('change', (e) => {
+    const warn = document.getElementById('ocr-warning');
+    if (e.target.value === 'mock') {
+      warn.style.display = 'block';
+      warn.textContent = '⚠ Mock 模式只會寫出 placeholder, 不會真的 OCR';
+    } else {
+      warn.style.display = 'none';
+    }
+  });
+
+  /* ─────────── 初始化 ─────────── */
+  (function init() {
+    pushLog('INFO', 'OCR Daemon 儀表板已載入');
+    pushLog('INFO', '視覺化介面,實際 daemon 需在本機執行 daemon.py');
+    checkService();
+    refreshStats();
+
+    // Demo: 偶爾模擬事件
+    setInterval(() => {
+      if (Math.random() < 0.4) simulateIncoming();
+      if (Math.random() < 0.3 && state.queueSize > 0) simulateProcessing();
+    }, 4000);
+  })();
+</script>
+</body>
+</html>

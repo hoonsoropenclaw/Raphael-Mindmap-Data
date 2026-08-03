@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dynamic Web Crawler + OCR — Demo</title>
+<style>
+  /* ===== Reset + Base ===== */
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  :root {
+    --bg: #0a0e1a;
+    --bg-2: #111827;
+    --bg-3: #1f2937;
+    --fg: #e5e7eb;
+    --fg-dim: #9ca3af;
+    --accent: #06b6d4;
+    --accent-2: #8b5cf6;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --border: #374151;
+    --radius: 8px;
+    --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+  code, pre, .mono { font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace; }
+
+  /* ===== Layout ===== */
+  .app {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    min-height: 100vh;
+  }
+  header {
+    background: linear-gradient(135deg, var(--bg-2), var(--bg-3));
+    border-bottom: 1px solid var(--border);
+    padding: 1.25rem 2rem;
+    box-shadow: var(--shadow);
+  }
+  header h1 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  header h1 .badge {
+    font-size: 0.7rem;
+    background: var(--accent);
+    color: var(--bg);
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+  }
+  header p {
+    margin: 0.5rem 0 0;
+    color: var(--fg-dim);
+    font-size: 0.9rem;
+  }
+  main {
+    padding: 2rem;
+    max-width: 1400px;
+    margin: 0 auto;
+    width: 100%;
+  }
+  footer {
+    padding: 1rem 2rem;
+    background: var(--bg-2);
+    border-top: 1px solid var(--border);
+    text-align: center;
+    color: var(--fg-dim);
+    font-size: 0.85rem;
+  }
+
+  /* ===== Form ===== */
+  .form-card {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .form-card h2 {
+    margin: 0 0 1rem;
+    font-size: 1.1rem;
+    color: var(--accent);
+  }
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 200px 200px auto;
+    gap: 0.75rem;
+    align-items: end;
+  }
+  @media (max-width: 900px) {
+    .form-row { grid-template-columns: 1fr; }
+  }
+  .field { display: flex; flex-direction: column; gap: 0.25rem; }
+  .field label {
+    font-size: 0.8rem;
+    color: var(--fg-dim);
+    font-weight: 500;
+  }
+  input, select, textarea {
+    background: var(--bg-3);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius);
+    font-size: 0.9rem;
+    font-family: inherit;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.2);
+  }
+  button {
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    padding: 0.5rem 1.25rem;
+    border-radius: var(--radius);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-size: 0.9rem;
+  }
+  button:hover:not(:disabled) {
+    background: #0891b2;
+    transform: translateY(-1px);
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.secondary {
+    background: var(--bg-3);
+    color: var(--fg);
+    border: 1px solid var(--border);
+  }
+  button.secondary:hover:not(:disabled) { background: var(--border); }
+
+  /* ===== Presets ===== */
+  .presets {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 1rem;
+    flex-wrap: wrap;
+  }
+  .preset-chip {
+    background: var(--bg-3);
+    border: 1px solid var(--border);
+    color: var(--fg-dim);
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .preset-chip:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  /* ===== Status ===== */
+  .status {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background: var(--bg-2);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+  }
+  .status .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--fg-dim);
+  }
+  .status.loading .dot {
+    background: var(--warning);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  .status.success .dot { background: var(--success); }
+  .status.error .dot { background: var(--danger); }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(1.5); }
+  }
+
+  /* ===== Results ===== */
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .stat-card {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    text-align: center;
+  }
+  .stat-card .value {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: var(--accent);
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .stat-card .label {
+    font-size: 0.8rem;
+    color: var(--fg-dim);
+    margin-top: 0.25rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  /* ===== Tabs ===== */
+  .tabs {
+    display: flex;
+    gap: 0.25rem;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .tab {
+    padding: 0.75rem 1.25rem;
+    cursor: pointer;
+    color: var(--fg-dim);
+    border: none;
+    background: transparent;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    font-size: 0.9rem;
+    transition: all 0.15s ease;
+  }
+  .tab:hover { color: var(--fg); }
+  .tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* ===== Block ===== */
+  .block {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    margin-bottom: 0.75rem;
+  }
+  .block.ocr { border-left-color: var(--accent-2); }
+  .block-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .block-source {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .block-source.dom {
+    background: rgba(6, 182, 212, 0.2);
+    color: var(--accent);
+  }
+  .block-source.ocr {
+    background: rgba(139, 92, 246, 0.2);
+    color: var(--accent-2);
+  }
+  .block-selector {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--fg-dim);
+  }
+  .block-confidence {
+    font-size: 0.85rem;
+    color: var(--fg-dim);
+  }
+  .block-confidence .badge {
+    background: var(--bg-3);
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    margin-left: 0.25rem;
+  }
+  .block-content {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.9rem;
+    max-height: 400px;
+    overflow-y: auto;
+    padding: 0.5rem;
+    background: var(--bg);
+    border-radius: 4px;
+    margin: 0;
+  }
+
+  /* ===== Screenshots ===== */
+  .screenshot-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1rem;
+  }
+  .screenshot-card {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .screenshot-card img {
+    width: 100%;
+    height: auto;
+    display: block;
+    cursor: zoom-in;
+  }
+  .screenshot-meta {
+    padding: 0.75rem;
+    font-size: 0.85rem;
+    color: var(--fg-dim);
+  }
+
+  /* ===== Modal ===== */
+  .modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 2rem;
+  }
+  .modal.open { display: flex; }
+  .modal img {
+    max-width: 90vw;
+    max-height: 90vh;
+    object-fit: contain;
+  }
+  .modal-close {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    background: var(--bg-2);
+    color: var(--fg);
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+  }
+
+  /* ===== Inline demo (test page simulation) ===== */
+  .demo-test-page {
+    background: var(--bg-2);
+    border: 1px dashed var(--accent);
+    border-radius: var(--radius);
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+  .demo-test-page h3 {
+    margin: 0 0 0.5rem;
+    color: var(--accent);
+    font-size: 0.9rem;
+  }
+  .demo-test-page p {
+    margin: 0.25rem 0;
+    font-size: 0.85rem;
+    color: var(--fg-dim);
+  }
+
+  /* ===== JSON view ===== */
+  .json-view {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    font-size: 0.8rem;
+    overflow-x: auto;
+    max-height: 500px;
+    overflow-y: auto;
+    white-space: pre;
+    color: var(--fg);
+  }
+
+  /* ===== Loading overlay ===== */
+  .spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--bg);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ===== Error ===== */
+  .error-box {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid var(--danger);
+    border-radius: var(--radius);
+    padding: 1rem;
+    color: #fca5a5;
+    margin-bottom: 1rem;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>
+      🕷️ Dynamic Web Crawler + OCR
+      <span class="badge">v1.0</span>
+    </h1>
+    <p>整合 Playwright（動態內容渲染）+ Tesseract OCR（影像文字提取）的混合內容提取器</p>
+  </header>
+
+  <main>
+    <!-- 內建測試頁（模擬 SPA 動態載入 + canvas 文字） -->
+    <section class="demo-test-page">
+      <h3>🧪 內建測試頁 — <code>/api/test-page</code></h3>
+      <p>這個 endpoint 回傳的 HTML 故意把關鍵字藏在 <code>&lt;canvas&gt;</code> 元素內（無法用 CSS selector 抓到，必須 OCR 才能讀出來）。</p>
+      <p>用「測試頁」preset 一鍵驗證 OCR 流程。</p>
+    </section>
+
+    <!-- 表單 -->
+    <section class="form-card">
+      <h2>📥 提取請求</h2>
+      <div class="form-row">
+        <div class="field">
+          <label for="url">目標 URL</label>
+          <input type="text" id="url" placeholder="https://example.com 或 /api/test-page"
+                 value="/api/test-page">
+        </div>
+        <div class="field">
+          <label for="ocr-lang">OCR 語言</label>
+          <select id="ocr-lang">
+            <option value="eng">English</option>
+            <option value="chi_tra">繁體中文</option>
+            <option value="chi_sim">簡體中文</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="wait-selector">等待 Selector</label>
+          <input type="text" id="wait-selector" placeholder="(optional) e.g. .loaded">
+        </div>
+        <button id="run-btn" onclick="runExtract()">
+          <span id="run-btn-text">🚀 開始提取</span>
+        </button>
+      </div>
+      <div class="presets">
+        <span style="font-size:0.8rem;color:var(--fg-dim);">快速 preset：</span>
+        <span class="preset-chip" onclick="usePreset('/api/test-page', 'eng', '#test-canvas')">🧪 測試頁 (Canvas OCR)</span>
+        <span class="preset-chip" onclick="usePreset('/api/test-page', 'chi_tra', '#test-canvas')">🧪 測試頁 (繁中)</span>
+        <span class="preset-chip" onclick="usePreset('https://example.com', 'eng', 'h1')">🌐 example.com</span>
+      </div>
+    </section>
+
+    <!-- 狀態列 -->
+    <div id="status-bar" class="status" style="display:none;">
+      <span class="dot"></span>
+      <span id="status-text">準備中</span>
+    </div>
+
+    <!-- 錯誤 -->
+    <div id="error-box" class="error-box" style="display:none;"></div>
+
+    <!-- 結果區 -->
+    <section id="results" style="display:none;">
+      <!-- 摘要 -->
+      <div class="summary-grid">
+        <div class="stat-card">
+          <div class="value" id="stat-title-len">0</div>
+          <div class="label">Title 字符</div>
+        </div>
+        <div class="stat-card">
+          <div class="value" id="stat-blocks">0</div>
+          <div class="label">內容區塊</div>
+        </div>
+        <div class="stat-card">
+          <div class="value" id="stat-chars">0</div>
+          <div class="label">總字符數</div>
+        </div>
+        <div class="stat-card">
+          <div class="value" id="stat-elapsed">0.00</div>
+          <div class="label">耗時 (秒)</div>
+        </div>
+        <div class="stat-card">
+          <div class="value" id="stat-ocr-conf">—</div>
+          <div class="label">OCR 平均信心</div>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="tabs">
+        <button class="tab active" data-tab="blocks" onclick="switchTab('blocks')">📝 內容區塊</button>
+        <button class="tab" data-tab="screenshots" onclick="switchTab('screenshots')">📸 截圖</button>
+        <button class="tab" data-tab="meta" onclick="switchTab('meta')">🔍 Meta / Headings</button>
+        <button class="tab" data-tab="json" onclick="switchTab('json')">📋 Raw JSON</button>
+      </div>
+
+      <div class="tab-content active" id="tab-blocks">
+        <div id="blocks-container"></div>
+      </div>
+
+      <div class="tab-content" id="tab-screenshots">
+        <div id="screenshots-container" class="screenshot-grid"></div>
+      </div>
+
+      <div class="tab-content" id="tab-meta">
+        <div id="meta-container"></div>
+      </div>
+
+      <div class="tab-content" id="tab-json">
+        <pre class="json-view" id="json-container"></pre>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    Dynamic Crawler + OCR · Powered by Playwright + Tesseract · <a href="/api/health" style="color:var(--accent);">/api/health</a>
+  </footer>
+</div>
+
+<!-- 截圖放大 modal -->
+<div id="modal" class="modal" onclick="closeModal()">
+  <button class="modal-close" onclick="closeModal()">✕</button>
+  <img id="modal-img" src="" alt="Screenshot preview">
+</div>
+
+<script>
+  // ===== State =====
+  let currentResult = null;
+
+  // ===== Helpers =====
+  function $(id) { return document.getElementById(id); }
+  function show(el) { el.style.display = ''; }
+  function hide(el) { el.style.display = 'none'; }
+  function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function setStatus(state, text) {
+    const bar = $('status-bar');
+    bar.className = 'status ' + state;
+    $('status-text').textContent = text;
+    show(bar);
+  }
+
+  function usePreset(url, lang, selector) {
+    $('url').value = url;
+    $('ocr-lang').value = lang;
+    $('wait-selector').value = selector || '';
+  }
+
+  function switchTab(name) {
+    document.querySelectorAll('.tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.tab === name);
+    });
+    document.querySelectorAll('.tab-content').forEach(t => {
+      t.classList.toggle('active', t.id === 'tab-' + name);
+    });
+  }
+
+  function openModal(src) {
+    $('modal-img').src = src;
+    $('modal').classList.add('open');
+  }
+  function closeModal() {
+    $('modal').classList.remove('open');
+  }
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeModal();
+  });
+
+  // ===== Main API call =====
+  async function runExtract() {
+    const url = $('url').value.trim();
+    const lang = $('ocr-lang').value;
+    const waitSel = $('wait-selector').value.trim();
+
+    if (!url) {
+      alert('請輸入 URL');
+      return;
+    }
+
+    const btn = $('run-btn');
+    const btnText = $('run-btn-text');
+    btn.disabled = true;
+    btnText.innerHTML = '<span class="spinner"></span> 提取中…';
+
+    hide($('error-box'));
+    hide($('results'));
+
+    setStatus('loading', `正在爬取 ${url} 並執行 OCR...`);
+
+    try {
+      const payload = {
+        url: url.startsWith('http') ? url : (location.origin + url),
+        ocr_lang: lang,
+        scroll_to_bottom: true,
+        headless: true,
+      };
+      if (waitSel) payload.wait_selector = waitSel;
+
+      const resp = await fetch('/api/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        throw new Error(errData.detail || `HTTP ${resp.status}`);
+      }
+
+      const data = await resp.json();
+      currentResult = data;
+      renderResult(data);
+      setStatus('success', `✓ 完成 · ${data.summary.total_chars} 字符 · ${data.elapsed_seconds}s`);
+
+    } catch (e) {
+      setStatus('error', `✗ 失敗: ${e.message}`);
+      const eb = $('error-box');
+      eb.textContent = '提取失敗：' + e.message;
+      show(eb);
+    } finally {
+      btn.disabled = false;
+      btnText.textContent = '🚀 開始提取';
+    }
+  }
+
+  // ===== Render =====
+  function renderResult(data) {
+    show($('results'));
+
+    // 摘要
+    $('stat-title-len').textContent = (data.title || '').length;
+    $('stat-blocks').textContent = data.blocks.length;
+    $('stat-chars').textContent = data.summary.total_chars.toLocaleString();
+    $('stat-elapsed').textContent = data.elapsed_seconds.toFixed(2);
+    $('stat-ocr-conf').textContent =
+      data.summary.ocr_blocks > 0
+        ? data.summary.avg_ocr_confidence.toFixed(1) + '%'
+        : '—';
+
+    // Blocks
+    const blocksHtml = data.blocks.map((b, i) => `
+      <div class="block ${b.source}">
+        <div class="block-header">
+          <div>
+            <span class="block-source ${b.source}">${b.source}</span>
+            <span class="block-selector">${escapeHtml(b.selector)}</span>
+          </div>
+          <div class="block-confidence">
+            confidence: <span class="badge">${b.confidence.toFixed(1)}%</span>
+            ${b.metadata?.token_count != null ? `· ${b.metadata.token_count} tokens` : ''}
+          </div>
+        </div>
+        <pre class="block-content">${escapeHtml(b.text) || '(empty)'}</pre>
+      </div>
+    `).join('');
+    $('blocks-container').innerHTML = blocksHtml || '<p style="color:var(--fg-dim)">無內容區塊</p>';
+
+    // Screenshots
+    const shotsHtml = (data.screenshots || []).map(s => {
+      const src = 'data:image/png;base64,' + s.base64;
+      return `
+        <div class="screenshot-card">
+          <img src="${src}" alt="${escapeHtml(s.name)}" onclick="openModal('${src}')">
+          <div class="screenshot-meta">
+            <strong>${escapeHtml(s.name)}</strong><br>
+            ${s.w}×${s.h} · ${(s.size_bytes / 1024).toFixed(1)} KB
+          </div>
+        </div>
+      `;
+    }).join('');
+    $('screenshots-container').innerHTML = shotsHtml || '<p style="color:var(--fg-dim)">無截圖</p>';
+
+    // Meta
+    const metaLines = [];
+    metaLines.push(`<h3 style="color:var(--accent);">${escapeHtml(data.title || '(no title)')}</h3>`);
+    metaLines.push(`<p><strong>URL:</strong> <code>${escapeHtml(data.url)}</code></p>`);
+    if (data.headings && data.headings.length) {
+      metaLines.push('<h4 style="margin-top:1rem;">Headings</h4>');
+      metaLines.push('<ul>' + data.headings.map(h =>
+        `<li><code>${h.level}</code> ${escapeHtml(h.text)}</li>`
+      ).join('') + '</ul>');
+    }
+    if (data.meta && Object.keys(data.meta).length) {
+      metaLines.push('<h4 style="margin-top:1rem;">Meta Tags</h4>');
+      metaLines.push('<pre class="json-view">' + escapeHtml(JSON.stringify(data.meta, null, 2)) + '</pre>');
+    }
+    metaLines.push(`<p style="margin-top:1rem;color:var(--fg-dim);">連結: ${data.links_count} · 圖片: ${data.images_count}</p>`);
+    if (data.warnings && data.warnings.length) {
+      metaLines.push('<h4 style="color:var(--warning);">⚠️ Warnings</h4>');
+      metaLines.push('<ul>' + data.warnings.map(w => `<li>${escapeHtml(w)}</li>`).join('') + '</ul>');
+    }
+    if (data.errors && data.errors.length) {
+      metaLines.push('<h4 style="color:var(--danger);">❌ Errors</h4>');
+      metaLines.push('<ul>' + data.errors.map(e => `<li>${escapeHtml(e)}</li>`).join('') + '</ul>');
+    }
+    $('meta-container').innerHTML = metaLines.join('');
+
+    // JSON
+    // 不顯示 base64 圖片（太大），用 placeholder
+    const jsonForView = { ...data, screenshots: (data.screenshots || []).map(s => ({
+      name: s.name, selector: s.selector, size_bytes: s.size_bytes, w: s.w, h: s.h, base64: '[...省略...]'
+    }))};
+    $('json-container').textContent = JSON.stringify(jsonForView, null, 2);
+  }
+
+  // 健康檢查
+  fetch('/api/health')
+    .then(r => r.json())
+    .then(h => {
+      console.log('[health]', h);
+      if (!h.tesseract_available) {
+        console.warn('Tesseract 不可用 — OCR 功能將自動降級');
+      }
+    })
+    .catch(e => console.warn('health check failed:', e));
+</script>
+</body>
+</html>

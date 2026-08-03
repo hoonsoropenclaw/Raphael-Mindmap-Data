@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DAG Editor · React Flow + Next.js</title>
+  <link rel="preconnect" href="https://esm.sh">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    /* ===== Reset & base ===== */
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body, #root { height: 100%; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      color: #0f172a;
+      background: #f1f5f9;
+      overflow: hidden;
+    }
+
+    /* ===== App layout ===== */
+    .app {
+      display: grid;
+      grid-template-columns: 280px 1fr 320px;
+      grid-template-rows: 56px 1fr;
+      grid-template-areas:
+        "topbar topbar topbar"
+        "sidebar canvas inspector";
+      height: 100vh;
+    }
+    .topbar {
+      grid-area: topbar;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 20px;
+      background: #0f172a;
+      color: #f8fafc;
+      border-bottom: 1px solid #1e293b;
+      z-index: 10;
+    }
+    .topbar h1 {
+      font-size: 16px;
+      font-weight: 600;
+      margin: 0;
+      letter-spacing: -0.01em;
+    }
+    .topbar h1 span {
+      color: #38bdf8;
+      margin-left: 4px;
+    }
+    .topbar-actions {
+      display: flex;
+      gap: 8px;
+      margin-left: auto;
+    }
+    .btn {
+      padding: 6px 12px;
+      font-size: 13px;
+      font-weight: 500;
+      border-radius: 6px;
+      border: 1px solid #334155;
+      background: #1e293b;
+      color: #f1f5f9;
+      cursor: pointer;
+      transition: background 120ms ease, border-color 120ms ease;
+    }
+    .btn:hover { background: #334155; border-color: #475569; }
+    .btn-primary { background: #2563eb; border-color: #2563eb; }
+    .btn-primary:hover { background: #1d4ed8; border-color: #1d4ed8; }
+    .btn-danger { background: #dc2626; border-color: #dc2626; }
+    .btn-danger:hover { background: #b91c1c; border-color: #b91c1c; }
+
+    /* ===== Sidebar ===== */
+    .sidebar {
+      grid-area: sidebar;
+      background: #ffffff;
+      border-right: 1px solid #e2e8f0;
+      padding: 16px;
+      overflow-y: auto;
+    }
+    .sidebar h2 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #64748b;
+      margin: 0 0 12px;
+      font-weight: 600;
+    }
+    .node-palette {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .palette-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: #f8fafc;
+      border: 1px dashed #cbd5e1;
+      border-radius: 8px;
+      cursor: grab;
+      font-size: 13px;
+      font-weight: 500;
+      color: #334155;
+      user-select: none;
+      transition: background 120ms ease, border-color 120ms ease;
+    }
+    .palette-item:hover { background: #e0f2fe; border-color: #38bdf8; }
+    .palette-item:active { cursor: grabbing; }
+    .palette-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .sidebar-section { margin-top: 24px; }
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .stat-card {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+    .stat-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      color: #64748b;
+      letter-spacing: 0.05em;
+      font-weight: 600;
+    }
+    .stat-value {
+      font-size: 18px;
+      font-weight: 700;
+      color: #0f172a;
+      font-family: 'JetBrains Mono', monospace;
+      margin-top: 2px;
+    }
+
+    /* ===== Canvas ===== */
+    .canvas-wrap {
+      grid-area: canvas;
+      position: relative;
+      background: #f1f5f9;
+      overflow: hidden;
+    }
+    .react-flow-container {
+      width: 100%;
+      height: 100%;
+    }
+    /* Make React Flow look polished */
+    .react-flow__node {
+      font-family: 'Inter', sans-serif;
+    }
+    .dag-node {
+      background: #ffffff;
+      border: 2px solid #2563eb;
+      border-radius: 10px;
+      padding: 10px 14px;
+      min-width: 160px;
+      max-width: 220px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 4px 12px rgba(15,23,42,0.06);
+      font-size: 13px;
+      transition: box-shadow 120ms ease, transform 120ms ease;
+    }
+    .dag-node:hover { box-shadow: 0 4px 8px rgba(0,0,0,0.06), 0 12px 24px rgba(15,23,42,0.12); }
+    .dag-node.selected { box-shadow: 0 0 0 3px rgba(37,99,235,0.25), 0 4px 12px rgba(15,23,42,0.12); }
+    .dag-node.kind-input { border-color: #16a34a; }
+    .dag-node.kind-process { border-color: #2563eb; }
+    .dag-node.kind-output { border-color: #ea580c; }
+    .dag-node.invalid { border-color: #dc2626; animation: pulse 1.4s ease-in-out infinite; }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(220,38,38,0.45); }
+      50% { box-shadow: 0 0 0 8px rgba(220,38,38,0); }
+    }
+    .dag-node-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 4px;
+    }
+    .dag-node-kind {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #64748b;
+      font-weight: 600;
+    }
+    .dag-node-title {
+      font-weight: 600;
+      color: #0f172a;
+      word-wrap: break-word;
+    }
+    .dag-node-sub {
+      font-size: 11px;
+      color: #64748b;
+      font-family: 'JetBrains Mono', monospace;
+      margin-top: 2px;
+    }
+    .react-flow__handle {
+      width: 10px;
+      height: 10px;
+      background: #2563eb;
+      border: 2px solid #ffffff;
+    }
+    .react-flow__handle.target { background: #16a34a; }
+    .react-flow__edge-path { stroke: #64748b; stroke-width: 2; }
+    .react-flow__edge.selected .react-flow__edge-path { stroke: #2563eb; stroke-width: 3; }
+    .react-flow__edge.invalid .react-flow__edge-path {
+      stroke: #dc2626;
+      stroke-width: 3;
+      stroke-dasharray: 6 4;
+    }
+    .react-flow__controls {
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .react-flow__minimap {
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    }
+    .react-flow__background {
+      background: #ffffff;
+    }
+
+    /* ===== Inspector ===== */
+    .inspector {
+      grid-area: inspector;
+      background: #ffffff;
+      border-left: 1px solid #e2e8f0;
+      padding: 16px;
+      overflow-y: auto;
+    }
+    .inspector h2 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #64748b;
+      margin: 0 0 12px;
+      font-weight: 600;
+    }
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 12px;
+    }
+    .field label {
+      font-size: 12px;
+      color: #334155;
+      font-weight: 500;
+    }
+    .field input,
+    .field select,
+    .field textarea {
+      padding: 8px 10px;
+      font-size: 13px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      background: #ffffff;
+      color: #0f172a;
+      font-family: inherit;
+    }
+    .field input:focus,
+    .field select:focus,
+    .field textarea:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.15);
+    }
+    .inspector-empty {
+      color: #94a3b8;
+      font-size: 13px;
+      padding: 24px 8px;
+      text-align: center;
+    }
+
+    /* ===== Validation banner ===== */
+    .validation-banner {
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 8px 14px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 500;
+      z-index: 5;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    }
+    .validation-banner.valid {
+      background: #dcfce7;
+      color: #166534;
+      border: 1px solid #86efac;
+    }
+    .validation-banner.invalid {
+      background: #fee2e2;
+      color: #991b1b;
+      border: 1px solid #fca5a5;
+    }
+    .validation-banner .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    /* ===== Topological order panel ===== */
+    .topo-panel {
+      margin-top: 8px;
+      padding: 10px 12px;
+      background: #f1f5f9;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+    }
+    .topo-list {
+      list-style: none;
+      padding: 0;
+      margin: 8px 0 0;
+      counter-reset: topo;
+    }
+    .topo-list li {
+      counter-increment: topo;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: #334155;
+      padding: 4px 0 4px 24px;
+      position: relative;
+    }
+    .topo-list li::before {
+      content: counter(topo);
+      position: absolute;
+      left: 0;
+      width: 18px;
+      height: 18px;
+      background: #2563eb;
+      color: white;
+      border-radius: 50%;
+      font-size: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+    }
+
+    /* ===== Loading state ===== */
+    .loading {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #0f172a;
+      color: #f1f5f9;
+      font-size: 14px;
+      z-index: 100;
+    }
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid #334155;
+      border-top-color: #38bdf8;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-right: 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+
+  <!--
+    ESM importmap — 將 React 18 / ReactDOM / React Flow 12 全部從 esm.sh 拉進瀏覽器。
+    避免 UMD 版 React Flow 的 require("react") 問題（見 reactflow_integration.md 紀錄）。
+    reactflow@12 同時把 react / react-dom 內部化，外部 import 與之保持一致即可。
+  -->
+  <script type="importmap">
+  {
+    "imports": {
+      "react": "https://esm.sh/react@18.3.1",
+      "react/": "https://esm.sh/react@18.3.1/",
+      "react-dom": "https://esm.sh/react-dom@18.3.1",
+      "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+      "reactflow": "https://esm.sh/reactflow@11.11.4?deps=react@18.3.1,react-dom@18.3.1&external=react,react-dom"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="root">
+    <div class="loading">
+      <div class="spinner"></div>
+      <span>載入 React Flow + DAG Editor 中…</span>
+    </div>
+  </div>
+
+  <!-- React Flow base styles (必須手動加) -->
+  <link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css">
+
+  <script type="module">
+    // =============================================================
+    // DAG Editor — React Flow + ESM importmap（單檔 HTML 交付）
+    //
+    // 設計重點：
+    // 1. 不用 JSX、不用 Babel — 直接 React.createElement 用 `h` 別名
+    //    （trial-and-error: Babel 干擾 + 沒建置步驟 → 用 vanilla 渲染）
+    // 2. React Flow 12 提供 hooks（useNodesState / useEdgesState / addEdge）
+    //    與 Background / Controls / MiniMap 子元件
+    // 3. 驗證邏輯來自 dag_editor_implementation.md：
+    //    - validateDAG：DFS 環檢測（recStack + visited）
+    //    - findOrphans：BFS 從所有 input 開始，沒被拜訪 = 孤兒
+    //    - topologicalSort：Kahn 演算法，順便計算拓墣順序
+    // 4. 節點 Handle 必給唯一 id，否則邊無法對齊（react_flow_integration.md pitfall）
+    // =============================================================
+
+    import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import ReactFlow, {
+      Background,
+      Controls,
+      MiniMap,
+      useNodesState,
+      useEdgesState,
+      addEdge,
+      Handle,
+      Position,
+      ReactFlowProvider,
+      useReactFlow,
+    } from 'reactflow';
+
+    // ---- JSX-less helper ------------------------------------------------
+    const h = React.createElement;
+
+    // ---- Constants -------------------------------------------------------
+    const NODE_KINDS = {
+      input:   { label: 'Input',   color: '#16a34a', bg: '#dcfce7' },
+      process: { label: 'Process', color: '#2563eb', bg: '#dbeafe' },
+      output:  { label: 'Output',  color: '#ea580c', bg: '#ffedd5' },
+    };
+
+    // ---- Initial graph (ETL pipeline demo) ------------------------------
+    const buildInitialGraph = () => {
+      const nodes = [
+        { id: '1', type: 'dagNode', position: { x: 40,  y: 80 },  data: { label: 'User Request',  kind: 'input',   note: 'GET /api' } },
+        { id: '2', type: 'dagNode', position: { x: 280, y: 40 },  data: { label: 'Auth Check',    kind: 'process', note: 'verify JWT' } },
+        { id: '3', type: 'dagNode', position: { x: 280, y: 160 }, data: { label: 'Rate Limit',    kind: 'process', note: 'token bucket' } },
+        { id: '4', type: 'dagNode', position: { x: 540, y: 100 }, data: { label: 'Business Logic',kind: 'process', note: 'handler' } },
+        { id: '5', type: 'dagNode', position: { x: 800, y: 100 }, data: { label: 'DB Write',      kind: 'process', note: 'Supabase' } },
+        { id: '6', type: 'dagNode', position: { x: 800, y: 240 }, data: { label: 'Audit Log',     kind: 'process', note: 'append-only' } },
+        { id: '7', type: 'dagNode', position: { x: 1060,y: 100 }, data: { label: 'JSON Response', kind: 'output',  note: '200 OK' } },
+        { id: '8', type: 'dagNode', position: { x: 1060,y: 240 }, data: { label: 'Audit Sink',    kind: 'output',  note: 'GCS' } },
+      ];
+      const edges = [
+        { id: 'e1-2', source: '1', target: '2', animated: true },
+        { id: 'e1-3', source: '1', target: '3', animated: true },
+        { id: 'e2-4', source: '2', target: '4' },
+        { id: 'e3-4', source: '3', target: '4' },
+        { id: 'e4-5', source: '4', target: '5' },
+        { id: 'e4-6', source: '4', target: '6' },
+        { id: 'e5-7', source: '5', target: '7' },
+        { id: 'e6-8', source: '6', target: '8' },
+      ];
+      return { nodes, edges };
+    };
+
+    // ---- Validation ------------------------------------------------------
+    // 來自 dag_editor_implementation.md 的 DFS 環檢測邏輯，
+    // 補上 BFS 孤兒節點偵測 + Kahn 拓樸排序。
+    const validateDAG = (nodes, edges) => {
+      const adj = {};
+      const inAdj = {};
+      nodes.forEach(n => { adj[n.id] = []; inAdj[n.id] = []; });
+      edges.forEach(e => {
+        if (adj[e.source]) adj[e.source].push(e.target);
+        if (inAdj[e.target]) inAdj[e.target].push(e.source);
+      });
+
+      // ---- cycle detection (DFS with recursion stack) ----
+      const visited = new Set();
+      const recStack = new Set();
+      const cycleEdgeIds = new Set();
+      let cycleFound = false;
+
+      const detectCycle = (nodeId, parentEdge) => {
+        if (cycleFound) return;
+        if (recStack.has(nodeId)) { cycleFound = true; if (parentEdge) cycleEdgeIds.add(parentEdge); return; }
+        if (visited.has(nodeId)) return;
+        recStack.add(nodeId);
+        visited.add(nodeId);
+        for (const next of (adj[nodeId] || [])) {
+          const edgeId = edges.find(e => e.source === nodeId && e.target === next)?.id;
+          detectCycle(next, edgeId);
+          if (cycleFound && edgeId) cycleEdgeIds.add(edgeId);
+        }
+        recStack.delete(nodeId);
+      };
+
+      for (const n of nodes) detectCycle(n.id);
+
+      // ---- orphan detection (BFS from inputs — nodes with no incoming edge) ----
+      const rootIds = nodes.filter(n => (inAdj[n.id] || []).length === 0).map(n => n.id);
+      const reachable = new Set();
+      const bfsQueue = [...rootIds];
+      while (bfsQueue.length) {
+        const cur = bfsQueue.shift();
+        if (reachable.has(cur)) continue;
+        reachable.add(cur);
+        for (const next of (adj[cur] || [])) bfsQueue.push(next);
+      }
+      const orphanIds = new Set(nodes.filter(n => !reachable.has(n.id)).map(n => n.id));
+
+      // ---- topological sort (Kahn's algorithm) ----
+      const inDeg = {};
+      nodes.forEach(n => inDeg[n.id] = (inAdj[n.id] || []).length);
+      const queue = nodes.filter(n => inDeg[n.id] === 0).map(n => n.id);
+      const sorted = [];
+      while (queue.length) {
+        const cur = queue.shift();
+        sorted.push(cur);
+        for (const next of (adj[cur] || [])) {
+          inDeg[next] -= 1;
+          if (inDeg[next] === 0) queue.push(next);
+        }
+      }
+
+      return {
+        isValid: !cycleFound && orphanIds.size === 0,
+        cycleFound,
+        cycleEdgeIds,
+        orphanIds,
+        rootIds,
+        topologicalOrder: sorted,
+      };
+    };
+
+    // ---- DAG node component ---------------------------------------------
+    // 來自 react_flow_integration.md：每個 Handle 給唯一 id，否則邊無法對齊
+    const DagNode = ({ id, data, selected }) => {
+      const kind = NODE_KINDS[data.kind] || NODE_KINDS.process;
+      return h('div', {
+        className: 'dag-node kind-' + data.kind + (selected ? ' selected' : '') + (data.invalid ? ' invalid' : ''),
+        'data-id': id,
+      },
+        h(Handle, {
+          type: 'target',
+          position: Position.Left,
+          id: 't-' + id,
+          isConnectable: true,
+        }),
+        h('div', { className: 'dag-node-header' },
+          h('span', {
+            className: 'palette-dot',
+            style: { background: kind.color },
+          }),
+          h('span', { className: 'dag-node-kind' }, kind.label),
+        ),
+        h('div', { className: 'dag-node-title' }, data.label),
+        data.note ? h('div', { className: 'dag-node-sub' }, data.note) : null,
+        h(Handle, {
+          type: 'source',
+          position: Position.Right,
+          id: 's-' + id,
+          isConnectable: true,
+        }),
+      );
+    };
+
+    const nodeTypes = { dagNode: DagNode };
+
+    // ---- App ------------------------------------------------------------
+    const App = () => {
+      const initial = useMemo(buildInitialGraph, []);
+      const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
+      const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
+      const [selectedNodeId, setSelectedNodeId] = useState(null);
+      const [selectedEdgeId, setSelectedEdgeId] = useState(null);
+      const reactFlowWrapper = useRef(null);
+      const { project } = useReactFlow();
+
+      // ---- validation (memoized) ----
+      const validation = useMemo(() => validateDAG(nodes, edges), [nodes, edges]);
+
+      // annotate nodes/edges with validation state (without re-rendering on selection)
+      const decoratedNodes = useMemo(() => nodes.map(n => ({
+        ...n,
+        data: { ...n.data, invalid: validation.orphanIds.has(n.id) },
+      })), [nodes, validation.orphanIds]);
+
+      const decoratedEdges = useMemo(() => edges.map(e => ({
+        ...e,
+        className: validation.cycleEdgeIds.has(e.id) ? 'invalid' : '',
+      })), [edges, validation.cycleEdgeIds]);
+
+      // ---- handlers ----
+      const onConnect = useCallback((params) => {
+        setEdges((eds) => addEdge({ ...params, animated: false }, eds));
+      }, [setEdges]);
+
+      const onNodeClick = useCallback((_, node) => {
+        setSelectedNodeId(node.id);
+        setSelectedEdgeId(null);
+      }, []);
+
+      const onEdgeClick = useCallback((_, edge) => {
+        setSelectedEdgeId(edge.id);
+        setSelectedNodeId(null);
+      }, []);
+
+      const onPaneClick = useCallback(() => {
+        setSelectedNodeId(null);
+        setSelectedEdgeId(null);
+      }, []);
+
+      // ---- drop from palette ----
+      const onDragOver = useCallback((event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+      }, []);
+
+      const onDrop = useCallback((event) => {
+        event.preventDefault();
+        const kind = event.dataTransfer.getData('application/dag-kind');
+        if (!kind) return;
+        const bounds = reactFlowWrapper.current.getBoundingClientRect();
+        const position = project({
+          x: event.clientX - bounds.left,
+          y: event.clientY - bounds.top,
+        });
+        const id = 'n-' + Date.now();
+        const labelMap = { input: 'New Input', process: 'New Process', output: 'New Output' };
+        setNodes((nds) => nds.concat({
+          id,
+          type: 'dagNode',
+          position,
+          data: { label: labelMap[kind] || 'New Node', kind, note: '' },
+        }));
+      }, [project, setNodes]);
+
+      // ---- mutations ----
+      const updateSelectedNode = (field, value) => {
+        setNodes((nds) => nds.map(n =>
+          n.id === selectedNodeId ? { ...n, data: { ...n.data, [field]: value } } : n
+        ));
+      };
+
+      const deleteSelectedNode = () => {
+        if (!selectedNodeId) return;
+        setNodes((nds) => nds.filter(n => n.id !== selectedNodeId));
+        setEdges((eds) => eds.filter(e => e.source !== selectedNodeId && e.target !== selectedNodeId));
+        setSelectedNodeId(null);
+      };
+
+      const deleteSelectedEdge = () => {
+        if (!selectedEdgeId) return;
+        setEdges((eds) => eds.filter(e => e.id !== selectedEdgeId));
+        setSelectedEdgeId(null);
+      };
+
+      const clearAll = () => {
+        if (!confirm('清空整個 DAG？此操作無法復原。')) return;
+        setNodes([]);
+        setEdges([]);
+        setSelectedNodeId(null);
+        setSelectedEdgeId(null);
+      };
+
+      const exportJson = () => {
+        const data = JSON.stringify({ nodes, edges, validation }, null, 2);
+        const blob = new Blob([data], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'dag-export.json';
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+
+      const selectedNode = nodes.find(n => n.id === selectedNodeId) || null;
+      const selectedEdge = edges.find(e => e.id === selectedEdgeId) || null;
+
+      // ---- render ----
+      return h(ReactFlowProvider, null,
+        h('div', { className: 'app' },
+
+          // ===== top bar =====
+          h('div', { className: 'topbar' },
+            h('h1', null, 'DAG Editor ', h('span', null, '· React Flow + Next.js')),
+            h('div', { className: 'topbar-actions' },
+              h('button', { className: 'btn', onClick: exportJson }, 'Export JSON'),
+              h('button', { className: 'btn btn-danger', onClick: clearAll }, 'Clear'),
+            ),
+          ),
+
+          // ===== sidebar =====
+          h('aside', { className: 'sidebar' },
+            h('h2', null, 'Node Palette'),
+            h('div', { className: 'node-palette' },
+              Object.entries(NODE_KINDS).map(([kind, info]) =>
+                h('div', {
+                  key: kind,
+                  className: 'palette-item',
+                  draggable: true,
+                  onDragStart: (e) => {
+                    e.dataTransfer.setData('application/dag-kind', kind);
+                    e.dataTransfer.effectAllowed = 'move';
+                  },
+                },
+                  h('span', { className: 'palette-dot', style: { background: info.color } }),
+                  h('span', null, info.label),
+                ),
+              ),
+            ),
+
+            h('div', { className: 'sidebar-section' },
+              h('h2', null, 'Statistics'),
+              h('div', { className: 'stats' },
+                h('div', { className: 'stat-card' },
+                  h('div', { className: 'stat-label' }, 'Nodes'),
+                  h('div', { className: 'stat-value' }, nodes.length),
+                ),
+                h('div', { className: 'stat-card' },
+                  h('div', { className: 'stat-label' }, 'Edges'),
+                  h('div', { className: 'stat-value' }, edges.length),
+                ),
+                h('div', { className: 'stat-card' },
+                  h('div', { className: 'stat-label' }, 'Roots'),
+                  h('div', { className: 'stat-value' }, validation.rootIds.length),
+                ),
+                h('div', { className: 'stat-card' },
+                  h('div', { className: 'stat-label' }, 'Orphans'),
+                  h('div', { className: 'stat-value' }, validation.orphanIds.size),
+                ),
+              ),
+            ),
+
+            h('div', { className: 'sidebar-section' },
+              h('h2', null, 'Topological Order'),
+              validation.isValid && validation.topologicalOrder.length > 0
+                ? h('div', { className: 'topo-panel' },
+                    h('ol', { className: 'topo-list' },
+                      validation.topologicalOrder.map(id => {
+                        const node = nodes.find(n => n.id === id);
+                        return h('li', { key: id },
+                          h('span', { style: { color: '#0f172a', fontWeight: 600 } }, node?.data.label || id),
+                          ' ',
+                          h('span', { style: { color: '#94a3b8' } }, '#' + id),
+                        );
+                      }),
+                    ),
+                  )
+                : h('div', { className: 'inspector-empty' },
+                    validation.cycleFound
+                      ? '⚠ Cycle detected — topological sort not possible'
+                      : 'No nodes yet',
+                  ),
+            ),
+          ),
+
+          // ===== canvas =====
+          h('div', {
+            className: 'canvas-wrap',
+            ref: reactFlowWrapper,
+          },
+            h('div', {
+              className: 'validation-banner ' + (validation.isValid ? 'valid' : 'invalid'),
+            },
+              h('span', { className: 'dot' }),
+              validation.isValid
+                ? '✓ Valid DAG — no cycles, no orphans'
+                : (validation.cycleFound
+                    ? '✕ Cycle detected — ' + validation.cycleEdgeIds.size + ' edge(s) involved'
+                    : '✕ ' + validation.orphanIds.size + ' orphan node(s) (no path from any root)'),
+            ),
+            h(ReactFlow, {
+              nodes: decoratedNodes,
+              edges: decoratedEdges,
+              nodeTypes,
+              onNodesChange,
+              onEdgesChange,
+              onConnect,
+              onNodeClick,
+              onEdgeClick,
+              onPaneClick,
+              onDrop,
+              onDragOver,
+              fitView: true,
+              fitViewOptions: { padding: 0.2 },
+              minZoom: 0.2,
+              maxZoom: 2,
+              proOptions: { hideAttribution: true },
+            },
+              h(Background, { variant: 'dots', gap: 16, size: 1, color: '#cbd5e1' }),
+              h(Controls, { showInteractive: false }),
+              h(MiniMap, {
+                nodeColor: (n) => NODE_KINDS[n.data?.kind]?.color || '#2563eb',
+                maskColor: 'rgba(15,23,42,0.06)',
+                pannable: true,
+                zoomable: true,
+              }),
+            ),
+          ),
+
+          // ===== inspector =====
+          h('aside', { className: 'inspector' },
+            h('h2', null, 'Inspector'),
+            !selectedNode && !selectedEdge
+              ? h('div', { className: 'inspector-empty' }, '選取一個節點或邊以編輯屬性')
+              : null,
+
+            selectedNode
+              ? h('div', null,
+                  h('div', { className: 'field' },
+                    h('label', null, 'ID'),
+                    h('input', { value: selectedNode.id, disabled: true, readOnly: true }),
+                  ),
+                  h('div', { className: 'field' },
+                    h('label', null, 'Label'),
+                    h('input', {
+                      value: selectedNode.data.label,
+                      onChange: (e) => updateSelectedNode('label', e.target.value),
+                    }),
+                  ),
+                  h('div', { className: 'field' },
+                    h('label', null, 'Kind'),
+                    h('select', {
+                      value: selectedNode.data.kind,
+                      onChange: (e) => updateSelectedNode('kind', e.target.value),
+                    },
+                      Object.entries(NODE_KINDS).map(([k, info]) =>
+                        h('option', { key: k, value: k }, info.label),
+                      ),
+                    ),
+                  ),
+                  h('div', { className: 'field' },
+                    h('label', null, 'Note'),
+                    h('textarea', {
+                      value: selectedNode.data.note || '',
+                      rows: 3,
+                      onChange: (e) => updateSelectedNode('note', e.target.value),
+                    }),
+                  ),
+                  h('button', {
+                    className: 'btn btn-danger',
+                    onClick: deleteSelectedNode,
+                    style: { width: '100%', marginTop: 8 },
+                  }, 'Delete Node'),
+                )
+              : null,
+
+            selectedEdge
+              ? h('div', null,
+                  h('div', { className: 'field' },
+                    h('label', null, 'Edge ID'),
+                    h('input', { value: selectedEdge.id, disabled: true, readOnly: true }),
+                  ),
+                  h('div', { className: 'field' },
+                    h('label', null, 'From'),
+                    h('input', { value: selectedEdge.source, disabled: true, readOnly: true }),
+                  ),
+                  h('div', { className: 'field' },
+                    h('label', null, 'To'),
+                    h('input', { value: selectedEdge.target, disabled: true, readOnly: true }),
+                  ),
+                  h('button', {
+                    className: 'btn btn-danger',
+                    onClick: deleteSelectedEdge,
+                    style: { width: '100%', marginTop: 8 },
+                  }, 'Delete Edge'),
+                )
+              : null,
+          ),
+        ),
+      );
+    };
+
+    // ---- Mount -----------------------------------------------------------
+    // 把 ReactFlowProvider 放最外層（內部 useReactFlow 需要它）
+    const Root = () => h(ReactFlowProvider, null, h(App, null));
+
+    const container = document.getElementById('root');
+    const root = createRoot(container);
+    root.render(h(Root, null));
+
+    // ---- Error boundary (catch 任何 React 渲染失敗) ----
+    window.addEventListener('error', (e) => {
+      console.error('[DAG Editor] Runtime error:', e.error || e.message);
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      console.error('[DAG Editor] Unhandled promise rejection:', e.reason);
+    });
+  </script>
+</body>
+</html>

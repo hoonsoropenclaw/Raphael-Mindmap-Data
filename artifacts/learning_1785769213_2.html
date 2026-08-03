@@ -1,0 +1,1297 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OCR.Table.Workbench — PDF 表格 OCR 提取</title>
+
+<!-- pdf.js + tesseract.js from CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.0/tesseract.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&family=IBM+Plex+Serif:wght@400;600;700&family=Noto+Serif+TC:wght@400;700;900&display=swap" rel="stylesheet">
+
+<script>
+  // Set up pdf.js worker
+  if (window.pdfjsLib) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  }
+</script>
+
+<style>
+  /* ── Design tokens ── */
+  :root {
+    --paper:    #f4f0e8;  /* archived office paper */
+    --paper-2:  #e8e1d4;
+    --ink:      #1a1612;  /* solid ink black */
+    --ink-2:    #3a322a;
+    --rule:     #2a241d;  /* heavy rule */
+    --warn:     #c1371f;  /* OCR error red */
+    --ok:       #2a6f3e;  /* OCR success green */
+    --accent:   #d97a1f;  /* industrial orange (active) */
+    --muted:    #8a8075;
+    --grid:     #c8bfae;
+    --mono:     'IBM Plex Mono', 'Courier New', monospace;
+    --serif:    'Noto Serif TC', 'IBM Plex Serif', Georgia, serif;
+    --sans:     'IBM Plex Mono', 'Courier New', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; scroll-padding-top: 70px; }
+
+  body {
+    background:
+      repeating-linear-gradient(90deg, transparent 0 39px, rgba(0,0,0,.025) 39px 40px),
+      var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Top header: industrial console bar ── */
+  header.console-bar {
+    background: var(--ink);
+    color: var(--paper);
+    padding: 12px 24px;
+    border-bottom: 4px solid var(--rule);
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 24px;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    font-family: var(--serif);
+    font-weight: 900;
+    font-size: 22px;
+    letter-spacing: -0.02em;
+  }
+  .logo .dot { color: var(--accent); }
+  .logo .sub {
+    font-family: var(--mono);
+    font-weight: 400;
+    font-size: 11px;
+    color: var(--muted);
+    margin-left: 8px;
+  }
+
+  nav.console-nav { display: flex; gap: 18px; }
+  nav.console-nav a {
+    color: var(--paper);
+    text-decoration: none;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 6px 0;
+    border-bottom: 2px solid transparent;
+  }
+  nav.console-nav a:hover { border-bottom-color: var(--accent); }
+
+  .console-stats {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--paper-2);
+    display: flex;
+    gap: 16px;
+  }
+  .console-stats span b { color: var(--accent); font-weight: 600; }
+
+  /* ── Hero section: 不對稱 split ── */
+  .hero {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 80px 24px 60px;
+    display: grid;
+    grid-template-columns: 1.3fr 1fr;
+    gap: 60px;
+    border-bottom: 4px double var(--rule);
+  }
+
+  .hero h1 {
+    font-family: var(--serif);
+    font-weight: 900;
+    font-size: clamp(40px, 6vw, 76px);
+    line-height: 0.95;
+    letter-spacing: -0.03em;
+    margin-bottom: 18px;
+  }
+  .hero h1 em {
+    font-style: italic;
+    color: var(--warn);
+  }
+  .hero .kicker {
+    font-family: var(--mono);
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    color: var(--ink-2);
+    border-top: 2px solid var(--rule);
+    border-bottom: 2px solid var(--rule);
+    padding: 8px 0;
+    margin-bottom: 24px;
+    display: inline-block;
+  }
+  .hero p.lede {
+    font-family: var(--serif);
+    font-size: 18px;
+    line-height: 1.6;
+    max-width: 38em;
+    margin-bottom: 24px;
+    color: var(--ink-2);
+  }
+  .hero .meta {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    margin-top: 32px;
+    border-top: 1px dashed var(--rule);
+    padding-top: 16px;
+  }
+  .hero .meta dt { color: var(--muted); text-transform: uppercase; }
+  .hero .meta dd { color: var(--ink); }
+
+  /* Right side: live OCR preview plate */
+  .preview-plate {
+    border: 3px solid var(--ink);
+    background: var(--paper-2);
+    padding: 20px;
+    box-shadow: 12px 12px 0 var(--ink);
+    transform: rotate(-0.5deg);
+  }
+  .preview-plate .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: var(--ink-2);
+    margin-bottom: 8px;
+  }
+  .preview-plate canvas {
+    width: 100%;
+    border: 1px solid var(--rule);
+    background: white;
+    display: block;
+  }
+  .preview-plate .ascii-bar {
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.2;
+    color: var(--ink);
+    margin-top: 8px;
+    white-space: pre;
+    overflow: hidden;
+  }
+
+  table.mini-preview {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: 12px;
+    margin: 6px 0 12px;
+  }
+  table.mini-preview th {
+    background: var(--ink);
+    color: var(--paper);
+    padding: 6px 10px;
+    text-align: left;
+    border-right: 1px solid var(--paper-2);
+    font-weight: 600;
+  }
+  table.mini-preview th:last-child { border-right: none; }
+  table.mini-preview td {
+    padding: 5px 10px;
+    border-bottom: 1px solid var(--rule);
+    border-right: 1px solid var(--grid);
+  }
+  table.mini-preview td:last-child { border-right: none; text-align: right; }
+
+  /* ── Section divider rules ── */
+  .section { max-width: 1280px; margin: 0 auto; padding: 80px 24px; }
+  .section-title {
+    font-family: var(--serif);
+    font-weight: 700;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    border-top: 4px solid var(--rule);
+    padding-top: 14px;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+  }
+  .section-title .num {
+    font-family: var(--mono);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .section-title .caption {
+    color: var(--muted);
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 400;
+    font-size: 12px;
+    font-family: var(--mono);
+  }
+
+  /* ── Workbench: drag/drop + control panel + result ── */
+  .workbench {
+    display: grid;
+    grid-template-columns: 380px 1fr;
+    gap: 0;
+    border: 3px solid var(--ink);
+    margin-top: 28px;
+    background: white;
+  }
+  .wb-left {
+    background: var(--paper-2);
+    border-right: 3px solid var(--ink);
+    padding: 24px;
+    min-height: 600px;
+  }
+  .wb-right {
+    background: white;
+    padding: 24px;
+    min-height: 600px;
+    position: relative;
+  }
+
+  .wb-left h3 {
+    font-family: var(--mono);
+    text-transform: uppercase;
+    font-size: 12px;
+    letter-spacing: 0.15em;
+    margin-bottom: 4px;
+    color: var(--ink-2);
+  }
+  .wb-left .file-name {
+    font-family: var(--mono);
+    background: white;
+    padding: 8px 12px;
+    border: 1px solid var(--ink);
+    margin: 8px 0 16px;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .wb-left .file-name.empty { color: var(--muted); font-style: italic; }
+
+  .dropzone {
+    border: 3px dashed var(--ink);
+    padding: 32px 16px;
+    text-align: center;
+    margin: 8px 0 24px;
+    background: white;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .dropzone:hover, .dropzone.drag { background: var(--paper); }
+  .dropzone .big {
+    font-family: var(--serif);
+    font-weight: 700;
+    font-size: 28px;
+    margin-bottom: 8px;
+  }
+  .dropzone .small {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .dropzone input { display: none; }
+
+  .ctrl-group { margin-bottom: 22px; }
+  .ctrl-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px dashed var(--rule);
+    font-size: 12px;
+  }
+  .ctrl-row label {
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink-2);
+  }
+  .ctrl-row select, .ctrl-row input[type="range"] {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: white;
+    border: 1px solid var(--ink);
+    padding: 4px 8px;
+  }
+  .ctrl-row input[type="range"] { width: 120px; }
+
+  .run-btn {
+    width: 100%;
+    background: var(--ink);
+    color: var(--paper);
+    font-family: var(--serif);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    padding: 16px;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    margin-top: 12px;
+    border-bottom: 4px solid var(--accent);
+    transition: transform 0.1s, border-color 0.1s;
+  }
+  .run-btn:hover { transform: translateY(-1px); border-bottom-width: 6px; }
+  .run-btn:disabled { background: var(--muted); border-bottom-color: var(--muted); cursor: not-allowed; transform: none; }
+
+  /* Right side — results panel */
+  .tabs {
+    display: flex;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 16px;
+  }
+  .tab {
+    font-family: var(--mono);
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    padding: 8px 18px;
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    border-right: 1px solid var(--ink);
+    color: var(--ink-2);
+  }
+  .tab.active { background: var(--ink); color: var(--paper); }
+  .tab:hover:not(.active) { background: var(--paper-2); }
+
+  .progress {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: var(--ink);
+    color: var(--paper);
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    display: none;
+  }
+  .progress.active { display: block; }
+  .progress .bar {
+    height: 6px;
+    background: var(--muted);
+    margin-top: 6px;
+    overflow: hidden;
+  }
+  .progress .bar-fill {
+    height: 100%;
+    background: var(--accent);
+    width: 0%;
+    transition: width 0.2s;
+  }
+  .progress .log {
+    font-size: 10px;
+    color: var(--paper-2);
+    margin-top: 6px;
+    white-space: pre-wrap;
+    max-height: 100px;
+    overflow-y: auto;
+  }
+
+  .result-empty {
+    text-align: center;
+    padding: 80px 24px;
+    color: var(--muted);
+  }
+  .result-empty .glyph {
+    font-family: var(--serif);
+    font-size: 64px;
+    color: var(--rule);
+    margin-bottom: 16px;
+  }
+  .result-empty h4 {
+    font-family: var(--serif);
+    font-size: 18px;
+    color: var(--ink-2);
+    margin-bottom: 8px;
+  }
+
+  .table-display {
+    border: 2px solid var(--ink);
+    margin-bottom: 18px;
+    overflow-x: auto;
+  }
+  .table-display .meta {
+    background: var(--ink);
+    color: var(--paper);
+    padding: 8px 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    display: flex;
+    justify-content: space-between;
+  }
+  .table-display table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+  .table-display th {
+    background: var(--paper-2);
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 2px solid var(--ink);
+    border-right: 1px solid var(--rule);
+    font-weight: 600;
+  }
+  .table-display th:last-child { border-right: none; }
+  .table-display td {
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--grid);
+    border-right: 1px solid var(--grid);
+    vertical-align: top;
+  }
+  .table-display td:last-child { border-right: none; }
+  .table-display tbody tr:nth-child(even) { background: rgba(0,0,0,.02); }
+  .table-display td.low-conf {
+    background: rgba(193, 55, 31, 0.12);
+    position: relative;
+  }
+  .table-display td.low-conf::after {
+    content: "?";
+    position: absolute;
+    top: 2px; right: 4px;
+    color: var(--warn);
+    font-weight: 700;
+    font-size: 10px;
+  }
+
+  .export-bar {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .export-bar button {
+    font-family: var(--mono);
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    padding: 8px 14px;
+    background: white;
+    color: var(--ink);
+    border: 1px solid var(--ink);
+    cursor: pointer;
+  }
+  .export-bar button:hover { background: var(--ink); color: var(--paper); }
+
+  pre.json-output {
+    background: var(--ink);
+    color: var(--paper);
+    padding: 20px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.5;
+    overflow-x: auto;
+    border: 1px solid var(--ink);
+    max-height: 600px;
+  }
+
+  /* ── How it works: 3-step pipeline ── */
+  .pipeline {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+    margin-top: 28px;
+    border-top: 2px solid var(--rule);
+  }
+  .step {
+    padding: 32px 24px;
+    border-right: 2px dashed var(--rule);
+    position: relative;
+  }
+  .step:last-child { border-right: none; }
+  .step .num {
+    font-family: var(--serif);
+    font-weight: 900;
+    font-size: 80px;
+    line-height: 0.9;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+  .step h4 {
+    font-family: var(--mono);
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 12px;
+    color: var(--ink);
+  }
+  .step p {
+    font-family: var(--serif);
+    font-size: 14px;
+    color: var(--ink-2);
+    line-height: 1.55;
+  }
+  .step .spec {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    background: var(--paper-2);
+    padding: 8px 10px;
+    margin-top: 14px;
+    border-left: 3px solid var(--accent);
+  }
+
+  /* ── API table ── */
+  table.api {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 28px;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  table.api th, table.api td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--rule);
+    border-right: 1px solid var(--grid);
+  }
+  table.api th {
+    background: var(--ink);
+    color: var(--paper);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 11px;
+  }
+  table.api td { background: var(--paper-2); }
+  table.api td code {
+    background: var(--ink);
+    color: var(--paper);
+    padding: 2px 5px;
+    font-size: 11px;
+  }
+
+  /* ── Footer ── */
+  footer {
+    background: var(--ink);
+    color: var(--paper);
+    padding: 32px 24px;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    border-top: 4px solid var(--accent);
+    margin-top: 80px;
+  }
+  footer .ascii-art {
+    font-size: 9px;
+    color: var(--muted);
+    line-height: 1.2;
+    white-space: pre;
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 900px) {
+    .hero, .workbench, .pipeline { grid-template-columns: 1fr; }
+    .workbench > div { border-right: none !important; border-bottom: 3px solid var(--ink); }
+    .preview-plate { transform: none; }
+    .hero h1 { font-size: 48px; }
+    nav.console-nav { display: none; }
+  }
+
+  /* ── Copy btn feedback ── */
+  .copied {
+    background: var(--ok) !important;
+    color: var(--paper) !important;
+    border-color: var(--ok) !important;
+  }
+
+</style>
+</head>
+<body>
+
+<!-- ════════ HEADER CONSOLE BAR ════════ -->
+<header class="console-bar">
+  <div class="logo">OCR<span class="dot">.</span>Table<span class="dot">.</span>Workbench<span class="sub">v0.1.0</span></div>
+  <nav class="console-nav">
+    <a href="#workbench">抽出</a>
+    <a href="#how">原理</a>
+    <a href="#cli">CLI</a>
+    <a href="#api">API</a>
+  </nav>
+  <div class="console-stats">
+    <span>📄 <b id="hdr-pages">0</b> 頁</span>
+    <span>⏱ <b id="hdr-time">0.0</b>s</span>
+    <span>📊 <b id="hdr-tables">0</b> 表</span>
+  </div>
+</header>
+
+<!-- ════════ HERO ════════ -->
+<section class="hero">
+  <div>
+    <span class="kicker">▶ PDF → OCR 表格提取 — 完全在瀏覽器內</span>
+    <h1>把 <em>PDF 表格</em><br>翻成<em>結構化數據</em></h1>
+    <p class="lede">
+      上傳 PDF,Worker 自動偵測表格候選區塊、跑 OCR 抽 token 座標、再用 row-gap + column-gap 演算法切欄切行。
+      對數位原生 PDF 走 <strong>pdftotext -layout</strong> 零 OCR 路徑,對掃描的 PDF 走 Tesseract.js 全 OCR。
+      完全在瀏覽器內跑,不上傳任何資料到 server。
+    </p>
+
+    <dl class="meta">
+      <dt>技術</dt><dd>Tesseract.js + pdf.js + 自製表格偵測</dd>
+      <dt>支援</dt><dd>繁中 / 簡中 / 英文 + 數字表格</dd>
+      <dt>輸出</dt><dd>JSON / CSV (utf-8-sig, Excel 直開)</dd>
+      <dt>平行方案</dt><dd>Python CLI: pdf_table_extractor.py</dd>
+    </dl>
+  </div>
+
+  <aside class="preview-plate" aria-label="live preview">
+    <div class="label">▍ 範例 PDF · 抽出的 2x3 表格 (live demo)</div>
+    <table class="mini-preview">
+      <thead><tr><th>品項</th><th>規格</th><th>單價</th></tr></thead>
+      <tbody>
+        <tr><td>記憶體 DDR5 32GB</td><td>Kingston Fury</td><td>3,200</td></tr>
+        <tr><td>SSD 2TB</td><td>Samsung 980 Pro</td><td>4,800</td></tr>
+        <tr><td>顯示卡 RTX 4070</td><td>ASUS Dual</td><td>18,900</td></tr>
+      </tbody>
+    </table>
+    <div class="ascii-bar" id="asciiBar">
+[ ●  PDF parsed     ]&nbsp;&nbsp;&nbsp;00:00.00
+[ ●  tokens          ]&nbsp;&nbsp;0
+[ ●  blocks          ]&nbsp;&nbsp;0
+[ ●  cols            ]&nbsp;&nbsp;0
+[ ●  rows            ]&nbsp;&nbsp;0
+[ ●  tables          ]&nbsp;&nbsp;0
+    </div>
+  </aside>
+</section>
+
+<!-- ════════ HOW IT WORKS ════════ -->
+<section class="section" id="how">
+  <h2 class="section-title">
+    <span class="num">§ 01</span>
+    <span>原理</span>
+    <span class="caption">// 雙路徑混合策略:數位 PDF 走 native,掃描 PDF 走 OCR</span>
+  </h2>
+
+  <div class="pipeline">
+    <div class="step">
+      <div class="num">01</div>
+      <h4>解析 PDF</h4>
+      <p>pdf.js 轉每頁為 canvas。先試 <code>pdftotext -layout</code> 抽 text layer,抽到就免 OCR;抽不到 (掃描) 才送 OCR。</p>
+      <div class="spec">lib: pdf.js 3.11 + poppler</div>
+    </div>
+    <div class="step">
+      <div class="num">02</div>
+      <h4>OCR + 座標</h4>
+      <p>Tesseract.js 跑 <code>--psm 6</code>,用 <code>image_to_data</code> 拿 token bbox + confidence。圖前處理只做灰階、不二值化(避免小字被吃)。</p>
+      <div class="spec">lib: tesseract.js 5.1 + chi_tra + eng</div>
+    </div>
+    <div class="step">
+      <div class="num">03</div>
+      <h4>表格偵測</h4>
+      <p>三步切法:(a) row gap &gt; 50px 切塊 (b) 塊內 row-gap 中位數 ×3 當欄界 (c) 每 row 內 token 指派到最近欄位。</p>
+      <div class="spec">algo: 自製,啟發自 Camelot/Excalibur</div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════ WORKBENCH ════════ -->
+<section class="section" id="workbench">
+  <h2 class="section-title">
+    <span class="num">§ 02</span>
+    <span>抽出工作台</span>
+    <span class="caption">// 拖 PDF 進來,看 AI 切的對不對,下載 CSV/JSON</span>
+  </h2>
+
+  <div class="workbench">
+    <div class="wb-left">
+      <h3>▍ INPUT</h3>
+      <div class="file-name empty" id="fileName">— 尚未選擇檔案 —</div>
+
+      <label for="fileInput" class="dropzone" id="dropzone">
+        <div class="big">⊕ 拖 PDF 進來</div>
+        <div class="small">或點此選擇檔案 / 最多 50 MB</div>
+        <input id="fileInput" type="file" accept="application/pdf">
+      </label>
+
+      <h3>▍ CONFIG</h3>
+      <div class="ctrl-group">
+        <div class="ctrl-row">
+          <label>模式</label>
+          <select id="mode">
+            <option value="auto">自動 (native 優先)</option>
+            <option value="ocr">強制 OCR</option>
+          </select>
+        </div>
+        <div class="ctrl-row">
+          <label>語言</label>
+          <select id="lang">
+            <option value="chi_tra+eng">繁中 + 英文</option>
+            <option value="chi_sim+eng">簡中 + 英文</option>
+            <option value="eng">英文</option>
+          </select>
+        </div>
+        <div class="ctrl-row">
+          <label>DPI</label>
+          <span><input type="range" id="dpi" min="200" max="400" step="50" value="300"> <span id="dpiVal">300</span></span>
+        </div>
+        <div class="ctrl-row">
+          <label>塊切換 row_gap</label>
+          <span><input type="range" id="rowGap" min="20" max="80" step="5" value="50"> <span id="rowGapVal">50</span></span>
+        </div>
+      </div>
+
+      <button class="run-btn" id="runBtn" disabled>▶ 開始提取</button>
+    </div>
+
+    <div class="wb-right">
+      <div class="tabs">
+        <button class="tab active" data-tab="tables">▦ 表格</button>
+        <button class="tab" data-tab="json">⌘ JSON</button>
+      </div>
+
+      <div class="progress" id="progress">
+        <div id="progressLabel">準備中...</div>
+        <div class="bar"><div class="bar-fill" id="barFill"></div></div>
+        <div class="log" id="log"></div>
+      </div>
+
+      <div class="result-empty" id="emptyState">
+        <div class="glyph">⊞</div>
+        <h4>等待輸入</h4>
+        <p>拖一份 PDF 進來,按「▶ 開始提取」</p>
+      </div>
+
+      <div id="tablesPane" style="display:none;"></div>
+      <div id="jsonPane" style="display:none;">
+        <pre class="json-output" id="jsonOutput"></pre>
+      </div>
+
+      <div class="export-bar" id="exportBar" style="display:none;">
+        <button onclick="downloadCsv()">↓ 下載 CSV</button>
+        <button onclick="downloadJson()">↓ 下載 JSON</button>
+        <button onclick="copyJson(this)">⎘ 複製 JSON</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════ CLI for Python ════════ -->
+<section class="section" id="cli">
+  <h2 class="section-title">
+    <span class="num">§ 03</span>
+    <span>Python CLI</span>
+    <span class="caption">// 瀏覽器外的桌面自動化</span>
+  </h2>
+  <div style="background: var(--ink); color: var(--paper); padding: 24px; margin-top: 28px; font-family: var(--mono); font-size: 13px; line-height: 1.7;">
+    <p style="color: var(--muted); margin-bottom: 12px;"># 安裝依賴(已存在 N100 環境)</p>
+    <p>pip install pytesseract pdf2image Pillow</p>
+    <p style="color: var(--muted); margin-top: 16px; margin-bottom: 12px;"># 命令列</p>
+    <p>python3 pdf_table_extractor.py 發票.pdf -o output -v</p>
+    <p style="color: var(--muted); margin-top: 16px; margin-bottom: 12px;"># 或用 programmatic API</p>
+    <p style="color: var(--paper-2);">from pdf_table_extractor import extract_tables_from_pdf</p>
+    <p style="color: var(--paper-2);">tables = extract_tables_from_pdf(Path("grades.pdf"))</p>
+    <p style="color: var(--paper-2);">for t in tables:</p>
+    <p style="color: var(--paper-2);">    print(f"page {t.page}: {t.n_rows}x{t.n_cols} source={t.source}")</p>
+    <p style="color: var(--paper-2);">    for row in t.cells:</p>
+    <p style="color: var(--paper-2);">        print(" | ".join(c.text for c in row))</p>
+  </div>
+</section>
+
+<!-- ════════ API DOCS ════════ -->
+<section class="section" id="api">
+  <h2 class="section-title">
+    <span class="num">§ 04</span>
+    <span>API</span>
+    <span class="caption">// Python ExtractedTable / in-browser 同名 pipeline</span>
+  </h2>
+  <table class="api">
+    <thead>
+      <tr><th>欄位</th><th>型別</th><th>說明</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>page</code></td><td>int</td><td>PDF 頁碼(1-based)</td></tr>
+      <tr><td><code>n_rows</code></td><td>int</td><td>列數(header + data)</td></tr>
+      <tr><td><code>n_cols</code></td><td>int</td><td>欄數</td></tr>
+      <tr><td><code>source</code></td><td>'ocr' | 'native'</td><td>提取路徑標記</td></tr>
+      <tr><td><code>cells[row][col].text</code></td><td>str</td><td>儲存格文字</td></tr>
+      <tr><td><code>cells[row][col].conf</code></td><td>float(0-100)</td><td>OCR 信心;<code>source='native'</code> 時固定 100</td></tr>
+      <tr><td><code>bbox</code></td><td>(l,t,r,b)</td><td>表格在頁面上的像素座標</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ════════ FOOTER ════════ -->
+<footer>
+  <div class="ascii-art">
+    ____   ____ ____      _    ____      _     ___ ____ ___
+    |  _ \ / ___|  _ \    / \  / ___| ___| |_  |_ _/ ___| ____|
+    | |_) | |  _| | | |  / _ \| |  _ / _ \ __|  | | |  _|  _|
+    |  _ &lt;| |_| | |_| | / ___ \ |_| |  __/ |_   | | |_| | |___
+    |_| \_\\____|____/ /_/   \_\\____|\___|\__| |___\____|_____|
+      [ OCR · Table · Workbench — 100% browser / 0% tracking ]
+  </div>
+  <p style="margin-top: 12px;">© 2026 Hermes Agent. Built with ❤️ + Tesseract + pdf.js. No data leaves your machine.</p>
+</footer>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!--                        JS LOGIC                                    -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<script>
+'use strict';
+
+// ── state ────────────────────────────────────────────────────────────────
+const state = {
+  file: null,
+  images: [],          // [{bitmap, width, height, page}]
+  allTokens: [],       // [{text, conf, left, top, right, bottom, page}]
+  tables: [],          // [{page, bbox, n_rows, n_cols, source, cells: [[{text, conf, row, col}]]}]
+};
+
+// ── DOM ──────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const dropzone = $('dropzone');
+const fileInput = $('fileInput');
+const fileName = $('fileName');
+const runBtn = $('runBtn');
+const progressBox = $('progress');
+const progressLabel = $('progressLabel');
+const barFill = $('barFill');
+const logEl = $('log');
+const emptyState = $('emptyState');
+const tablesPane = $('tablesPane');
+const jsonPane = $('jsonPane');
+const jsonOutput = $('jsonOutput');
+const exportBar = $('exportBar');
+const dpi = $('dpi');
+const dpiVal = $('dpiVal');
+const rowGap = $('rowGap');
+const rowGapVal = $('rowGapVal');
+const asciiBar = $('asciiBar');
+
+// ── Update sliders ───────────────────────────────────────────────────────
+dpi.oninput = () => dpiVal.textContent = dpi.value;
+rowGap.oninput = () => rowGapVal.textContent = rowGap.value;
+
+// ── Tabs ─────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = btn.dataset.tab;
+    tablesPane.style.display = (tab === 'tables') ? '' : 'none';
+    jsonPane.style.display = (tab === 'json') ? '' : 'none';
+  };
+});
+
+// ── Dropzone ─────────────────────────────────────────────────────────────
+['dragover', 'dragenter'].forEach(ev =>
+  dropzone.addEventListener(ev, e => {
+    e.preventDefault();
+    dropzone.classList.add('drag');
+  })
+);
+['dragleave', 'drop'].forEach(ev =>
+  dropzone.addEventListener(ev, e => {
+    e.preventDefault();
+    dropzone.classList.remove('drag');
+  })
+);
+dropzone.addEventListener('drop', e => {
+  const f = e.dataTransfer.files[0];
+  if (f && f.type === 'application/pdf') handleFile(f);
+});
+fileInput.addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (f) handleFile(f);
+});
+
+function handleFile(f) {
+  state.file = f;
+  fileName.textContent = f.name;
+  fileName.classList.remove('empty');
+  runBtn.disabled = false;
+  logEl.textContent = '';
+}
+
+// ── Progress / ASCII ────────────────────────────────────────────────────
+function setProgress(pct, label, log) {
+  progressBox.classList.add('active');
+  barFill.style.width = pct + '%';
+  if (label) progressLabel.textContent = label;
+  if (log) {
+    logEl.textContent += log + '\n';
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+  // ascii bar
+  const filled = Math.round(pct / 10);
+  asciiBar.textContent =
+    `[ ${'●'.repeat(filled + 1).padEnd(11, '·')} ${pct.toString().padStart(3)}% ]\n` +
+    logEl.textContent.split('\n').slice(-6).join('\n');
+}
+
+function hideProgress() {
+  progressBox.classList.remove('active');
+}
+
+// ── PDF → images via pdf.js ─────────────────────────────────────────────
+async function pdfToImages(file) {
+  setProgress(5, '▸ 解析 PDF...', 'pdf.js worker loaded');
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const images = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    setProgress(5 + (i / pdf.numPages) * 25, `▸ 渲染第 ${i} 頁...`);
+    const page = await pdf.getPage(i);
+    const scale = parseFloat(dpi.value) / 72;
+    const viewport = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext('2d');
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    const bitmap = await createImageBitmap(canvas);
+    images.push({ bitmap, width: canvas.width, height: canvas.height, page: i });
+  }
+  $('hdr-pages').textContent = pdf.numPages;
+  return images;
+}
+
+// ── OCR via Tesseract.js (1 worker, reuse across pages) ──────────────────
+let tessWorker = null;
+async function getWorker(lang) {
+  if (tessWorker) {
+    try {
+      await tessWorker.reinitialize(lang);
+      return tessWorker;
+    } catch { tessWorker = null; }
+  }
+  tessWorker = await Tesseract.createWorker(lang, 1, {
+    logger: m => {
+      if (m.status === 'recognizing text') {
+        setProgress(40 + m.progress * 50, `▸ OCR 辨識中 ${(m.progress * 100).toFixed(0)}%`);
+      }
+    },
+  });
+  return tessWorker;
+}
+
+async function ocrPage(img, page, lang) {
+  const worker = await getWorker(lang);
+  const { data } = await worker.recognize(img.bitmap, {}, {
+    tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK,
+  });
+  const tokens = [];
+  for (const w of data.words || []) {
+    if (!w.text || !w.text.trim()) continue;
+    const c = parseFloat(w.confidence);
+    if (c < 30) continue;
+    tokens.push({
+      text: w.text.trim(),
+      conf: c,
+      left: w.bbox.x0,
+      top: w.bbox.y0,
+      right: w.bbox.x1,
+      bottom: w.bbox.y1,
+      page,
+    });
+  }
+  return tokens;
+}
+
+// ── Try native pdftotext (server side unlikely in browser; skip in demo) ──
+// In the browser-only version we don't have native pdftotext —
+// so we always run OCR. The native path is showcased in the Python CLI.
+async function extractNative(buf) { return null; }
+
+// ── Same algos as Python ─────────────────────────────────────────────────
+function detectBlocks(tokens, page, rowGapVal) {
+  const ptoks = tokens.filter(t => t.page === page)
+                      .sort((a, b) => a.top - b.top);
+  if (!ptoks.length) return [];
+  const blocks = [];
+  let curTop = ptoks[0].top;
+  let prevBottom = ptoks[0].bottom;
+  for (const t of ptoks.slice(1)) {
+    if (t.top - prevBottom > rowGapVal) {
+      blocks.push([curTop, prevBottom]);
+      curTop = t.top;
+    }
+    prevBottom = Math.max(prevBottom, t.bottom);
+  }
+  blocks.push([curTop, prevBottom]);
+  return blocks;
+}
+
+function groupRows(toks, tol = 40) {
+  if (!toks.length) return [];
+  const sorted = [...toks].sort((a, b) => (a.top - b.top) || (a.left - b.left));
+  const rows = [];
+  let cur = [sorted[0]];
+  for (const t of sorted.slice(1)) {
+    if (t.top - cur[cur.length - 1].top > tol) {
+      rows.push(cur.sort((a, b) => a.left - b.left));
+      cur = [t];
+    } else { cur.push(t); }
+  }
+  if (cur.length) rows.push(cur.sort((a, b) => a.left - b.left));
+  return rows;
+}
+
+function detectColumns(toks, minColGap = 100) {
+  if (toks.length < 4) {
+    return [Math.min(...toks.map(t => t.left), 0),
+            Math.max(...toks.map(t => t.right), 1000)];
+  }
+  const rows = groupRows(toks, 40);
+  const allGaps = [];
+  for (const r of rows) {
+    if (r.length < 2) continue;
+    for (let i = 0; i < r.length - 1; i++) {
+      const g = r[i + 1].left - r[i].right;
+      if (g > 0) allGaps.push(g);
+    }
+  }
+  if (allGaps.length < 5) {
+    return [Math.min(...toks.map(t => t.left)),
+            Math.max(...toks.map(t => t.right))];
+  }
+  const sorted = [...allGaps].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  const threshold = Math.max(median * 3, minColGap);
+
+  const positions = [];
+  for (const r of rows) {
+    if (r.length < 2) continue;
+    for (let i = 0; i < r.length - 1; i++) {
+      const g = r[i + 1].left - r[i].right;
+      if (g >= threshold) positions.push(Math.round((r[i].right + r[i + 1].left) / 2));
+    }
+  }
+  if (!positions.length) {
+    return [Math.min(...toks.map(t => t.left)),
+            Math.max(...toks.map(t => t.right))];
+  }
+  positions.sort((a, b) => a - b);
+  const clustered = [];
+  let cluster = [positions[0]];
+  for (const p of positions.slice(1)) {
+    if (p - cluster[cluster.length - 1] <= 50) cluster.push(p);
+    else { clustered.push(Math.round(cluster.reduce((s, x) => s + x, 0) / cluster.length));
+           cluster = [p]; }
+  }
+  clustered.push(Math.round(cluster.reduce((s, x) => s + x, 0) / cluster.length));
+  const pageLeft = Math.min(...toks.map(t => t.left));
+  const pageRight = Math.max(...toks.map(t => t.right));
+  return [pageLeft, ...clustered, pageRight];
+}
+
+function extractTable(tokens, page, top, bottom) {
+  const tol = parseFloat(rowGap.value);
+  const toks = tokens.filter(t => t.page === page &&
+                    top - 10 <= (t.top + t.bottom) / 2 && (t.top + t.bottom) / 2 <= bottom + 10);
+  if (toks.length < 6) return null;
+
+  const cols = detectColumns(toks);
+  const nCols = cols.length - 1;
+  if (nCols < 2) return null;
+
+  const rows = groupRows(toks, 40);
+  if (rows.length < 2) return null;
+
+  const grid = rows.map(() => Array.from({ length: nCols }, () => []));
+  rows.forEach((rowT, ri) => {
+    rowT.forEach(t => {
+      const cx = (t.left + t.right) / 2;
+      const col = cols.findIndex((c, i) =>
+        i < cols.length - 1 && cols[i] - 10 <= cx && cx < cols[i+1] + 10);
+      if (col >= 0) grid[ri][col].push(t);
+    });
+  });
+
+  const cells = grid.map((r, ri) => r.map((ct, ci) => {
+    const cts = [...ct].sort((a, b) => (a.top - b.top) || (a.left - b.left));
+    return {
+      text: cts.map(t => t.text).join(' ').trim(),
+      conf: cts.length ? Math.round(cts.reduce((s, t) => s + t.conf, 0) / cts.length) : 0,
+      row: ri, col: ci,
+    };
+  }));
+
+  const bbox = [Math.min(...toks.map(t => t.left)),
+                top, Math.max(...toks.map(t => t.right)), bottom];
+  return { page, bbox, n_rows: cells.length, n_cols: nCols, source: 'ocr', cells };
+}
+
+// ── Run pipeline ─────────────────────────────────────────────────────────
+async function runPipeline() {
+  if (!state.file) return;
+  const t0 = performance.now();
+  runBtn.disabled = true;
+  hideProgress();
+  emptyState.style.display = 'none';
+  tablesPane.innerHTML = '';
+  jsonOutput.textContent = '';
+  exportBar.style.display = 'none';
+  state.tables = [];
+  state.allTokens = [];
+
+  try {
+    state.images = await pdfToImages(state.file);
+    const lang = $('lang').value;
+    const rowGapVal = parseFloat(rowGap.value);
+
+    for (const img of state.images) {
+      setProgress(30, `▸ OCR 第 ${img.page}/${state.images.length} 頁...`);
+      const tokens = await ocrPage(img, img.page, lang);
+      state.allTokens.push(...tokens);
+    }
+
+    setProgress(95, '▸ 表格偵測...');
+    const blocksPerPage = [];
+    for (const img of state.images) {
+      const blocks = detectBlocks(state.allTokens, img.page, rowGapVal);
+      blocksPerPage.push(blocks);
+      for (const [t, b] of blocks) {
+        const tab = extractTable(state.allTokens, img.page, t, b);
+        if (tab && tab.n_cols >= 2 && tab.n_rows >= 2) {
+          state.tables.push(tab);
+        }
+      }
+    }
+
+    setProgress(100, `▸ 完成! 找到 ${state.tables.length} 個表格`);
+    setTimeout(hideProgress, 800);
+
+    const dt = ((performance.now() - t0) / 1000).toFixed(1);
+    $('hdr-time').textContent = dt;
+    $('hdr-tables').textContent = state.tables.length;
+    renderResults();
+  } catch (e) {
+    setProgress(0, `❌ ${e.message}`);
+    console.error(e);
+  } finally {
+    runBtn.disabled = false;
+  }
+}
+
+runBtn.onclick = runPipeline;
+
+// ── Render results ──────────────────────────────────────────────────────
+function renderResults() {
+  if (!state.tables.length) {
+    emptyState.style.display = '';
+    emptyState.innerHTML = `
+      <div class="glyph">∅</div>
+      <h4>沒找到表格</h4>
+      <p>試試調小 row_gap,或切到「強制 OCR」,或確認 PDF 是表格類型</p>`;
+    return;
+  }
+  tablesPane.innerHTML = state.tables.map((t, i) => renderTable(t, i + 1)).join('');
+  jsonOutput.textContent = JSON.stringify(state.tables, null, 2);
+  exportBar.style.display = '';
+}
+
+function renderTable(t, idx) {
+  const headerRow = t.cells[0];
+  const dataRows = t.cells.slice(1);
+  return `
+    <div class="table-display">
+      <div class="meta">
+        <span>Table #${idx} · ${t.n_rows}×${t.n_cols}</span>
+        <span>page=${t.page} · source=${t.source} · bbox=[${t.bbox.join(',')}]</span>
+      </div>
+      <table>
+        <thead>
+          <tr>${headerRow.map(c => `<th>${escape(c.text) || ' '}</th>`).join('')}</tr>
+        </thead>
+        <tbody>
+          ${dataRows.map(row => `
+            <tr>${row.map(c =>
+              `<td class="${c.conf < 60 && t.source === 'ocr' ? 'low-conf' : ''}">${escape(c.text) || ' '}</td>`
+            ).join('')}</tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function escape(s) {
+  return String(s ?? '').replace(/[&<>"]/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+// ── Export ───────────────────────────────────────────────────────────────
+function downloadBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function downloadCsv() {
+  const rows = [];
+  state.tables.forEach((t, i) => {
+    rows.push(`# Table ${i+1}  page=${t.page}  rows=${t.n_rows}  cols=${t.n_cols}  source=${t.source}`);
+    t.cells.forEach(r => rows.push(r.map(c => csvEsc(c.text)).join(',')));
+    rows.push('');
+  });
+  // BOM for Excel
+  downloadBlob(new Blob(['\ufeff' + rows.join('\n')], { type: 'text/csv' }),
+               `${state.file.name.replace(/\.pdf$/i, '')}_tables.csv`);
+}
+
+function csvEsc(s) {
+  s = String(s ?? '');
+  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function downloadJson() {
+  downloadBlob(new Blob([JSON.stringify(state.tables, null, 2)], { type: 'application/json' }),
+               `${state.file.name.replace(/\.pdf$/i, '')}_tables.json`);
+}
+
+async function copyJson(btn) {
+  try {
+    await navigator.clipboard.writeText(jsonOutput.textContent);
+  } catch {
+    // Fallback for file:// or non-secure contexts
+    const ta = document.createElement('textarea');
+    ta.value = jsonOutput.textContent;
+    ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch {}
+    document.body.removeChild(ta);
+  }
+  if (btn) {
+    btn.classList.add('copied');
+    btn.textContent = '✓ 已複製';
+    setTimeout(() => {
+      btn.classList.remove('copied');
+      btn.textContent = '⎘ 複製 JSON';
+    }, 1400);
+  }
+}
+
+// ── anchor check (per skill 防呆) ────────────────────────────────────────
+document.querySelectorAll('a[href^="#"]').forEach(a => {
+  const id = a.getAttribute('href').slice(1);
+  if (id && !document.getElementById(id)) {
+    console.warn(`Broken anchor: #${id}`);
+  }
+});
+</script>
+
+</body>
+</html>

@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>FastAPI × Google Calendar — Sync & Reminders</title>
+<style>
+  :root {
+    --bg: #0f1217;
+    --panel: #161b22;
+    --panel-2: #1c232c;
+    --border: #2a3340;
+    --fg: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --accent-2: #79c0ff;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --err: #f85149;
+    --shadow: 0 8px 24px rgba(0,0,0,.35);
+    --radius: 10px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); min-height: 100vh; }
+  header {
+    padding: 18px 24px;
+    background: linear-gradient(135deg, #131820 0%, #1a2230 100%);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 12px;
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; letter-spacing: .3px; }
+  header h1 .dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--ok); margin-right: 10px; box-shadow: 0 0 6px var(--ok);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse { 50% { opacity: .5; } }
+  header .meta { font-size: 12px; color: var(--muted); display: flex; gap: 16px; flex-wrap: wrap; }
+  header .meta strong { color: var(--accent-2); }
+  main { max-width: 1200px; margin: 0 auto; padding: 24px; display: grid; gap: 20px;
+         grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  @media (max-width: 920px) { main { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+          padding: 18px; box-shadow: var(--shadow); }
+  .card h2 { margin: 0 0 14px; font-size: 14px; font-weight: 600;
+             text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+  .full { grid-column: 1 / -1; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  input, select, textarea {
+    width: 100%; padding: 8px 10px; background: var(--panel-2); color: var(--fg);
+    border: 1px solid var(--border); border-radius: 6px; font: inherit;
+  }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  button {
+    background: var(--accent); color: #fff; border: 0; padding: 9px 14px;
+    border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px;
+  }
+  button:hover { background: var(--accent-2); }
+  button.secondary { background: var(--panel-2); color: var(--fg); border: 1px solid var(--border); }
+  button.secondary:hover { background: var(--border); }
+  button.danger { background: var(--err); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row > button { margin-left: auto; }
+  ul.list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+  ul.list li {
+    background: var(--panel-2); border: 1px solid var(--border);
+    padding: 12px; border-radius: 8px; transition: border-color .15s;
+  }
+  ul.list li:hover { border-color: var(--accent); }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px;
+          background: var(--border); color: var(--muted); font-size: 11px; }
+  .pill.ok { background: rgba(63,185,80,.15); color: var(--ok); }
+  .pill.warn { background: rgba(210,153,34,.15); color: var(--warn); }
+  .pill.err { background: rgba(248,81,73,.15); color: var(--err); }
+  .muted { color: var(--muted); font-size: 12px; }
+  .ev-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+  .ev-meta { font-size: 12px; color: var(--muted); }
+  .ev-actions { display: flex; gap: 6px; margin-top: 8px; }
+  .ev-actions button { padding: 4px 10px; font-size: 12px; }
+  .reminder { border-left: 3px solid var(--warn); }
+  .reminder.firing-now { border-left-color: var(--err); animation: flash 1.5s ease-in-out infinite; }
+  @keyframes flash { 50% { background: rgba(248,81,73,.08); } }
+  .toast { position: fixed; bottom: 20px; right: 20px; max-width: 360px;
+           background: var(--panel-2); border: 1px solid var(--border);
+           padding: 12px 14px; border-radius: 8px; box-shadow: var(--shadow);
+           animation: slide-in .2s ease-out; }
+  .toast.err { border-color: var(--err); }
+  .toast.ok { border-color: var(--ok); }
+  @keyframes slide-in { from { transform: translateY(10px); opacity: 0; } }
+  .empty { color: var(--muted); font-style: italic; padding: 10px; text-align: center; }
+  code { background: var(--panel-2); padding: 1px 6px; border-radius: 4px; font-size: 12px; }
+  .help { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: var(--accent); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="dot" id="status-dot"></span>FastAPI × Google Calendar — Sync &amp; Reminders</h1>
+  <div class="meta">
+    <span>Provider: <strong id="meta-provider">…</strong></span>
+    <span>Events: <strong id="meta-count">0</strong></span>
+    <span>Reminders: <strong id="meta-reminders">0</strong></span>
+    <span id="meta-clock">—</span>
+  </div>
+</header>
+
+<main>
+  <!-- LEFT: CREATE + ACTIONS -->
+  <section class="card">
+    <h2>New Event</h2>
+    <form id="ev-form">
+      <label>Summary <span style="color:var(--err)">*</span></label>
+      <input name="summary" required maxlength="500" placeholder="例如：跟 Alice 開會" />
+
+      <label>Description</label>
+      <input name="description" placeholder="optional" />
+
+      <label>Location</label>
+      <input name="location" placeholder="optional" />
+
+      <div class="grid-2">
+        <div>
+          <label>Start (ISO 8601, local)</label>
+          <input name="start" required placeholder="2026-12-01T14:00" />
+        </div>
+        <div>
+          <label>End (ISO 8601, local)</label>
+          <input name="end" required placeholder="2026-12-01T15:00" />
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div>
+          <label>Timezone</label>
+          <select name="timezone">
+            <option value="Asia/Taipei" selected>Asia/Taipei</option>
+            <option value="UTC">UTC</option>
+            <option value="Asia/Tokyo">Asia/Tokyo</option>
+            <option value="America/New_York">America/New_York</option>
+            <option value="Europe/London">Europe/London</option>
+          </select>
+        </div>
+        <div>
+          <label>Reminders (minutes, comma-separated)</label>
+          <input name="reminder_minutes" value="10,30" />
+        </div>
+      </div>
+
+      <label style="display:flex;align-items:center;gap:6px;margin-top:12px;">
+        <input type="checkbox" name="all_day" style="width:auto;" />All-day event
+      </label>
+
+      <div class="row" style="margin-top:14px;">
+        <button type="submit" id="submit-btn">＋ Create event</button>
+        <button type="button" class="secondary" id="seed-btn">Seed 3 demo events</button>
+      </div>
+      <div class="help">Times go to the server as ISO 8601; server normalizes to UTC.</div>
+    </form>
+  </section>
+
+  <!-- RIGHT: UPCOMING REMINDERS -->
+  <section class="card">
+    <h2>Reminders — next 60 minutes</h2>
+    <div class="row" style="margin-bottom:10px;">
+      <span class="muted">Poll every</span>
+      <select id="poll-interval">
+        <option value="5000">5 s</option>
+        <option value="10000">10 s</option>
+        <option value="30000">30 s</option>
+        <option value="60000">60 s</option>
+      </select>
+      <button class="secondary" id="refresh-now">Refresh now</button>
+    </div>
+    <ul class="list" id="reminders-list"></ul>
+  </section>
+
+  <!-- FULL-WIDTH: EVENTS TABLE -->
+  <section class="card full">
+    <h2>Events</h2>
+    <div class="row" style="margin-bottom:12px;">
+      <label style="margin:0;">Range:
+        <select id="range-select">
+          <option value="1">Today</option>
+          <option value="7" selected>Next 7 days</option>
+          <option value="30">Next 30 days</option>
+          <option value="90">Next 90 days</option>
+        </select>
+      </label>
+      <button class="secondary" id="reload-btn">Reload</button>
+      <button class="secondary" id="sync-btn">POST /sync (30 d)</button>
+      <span class="muted" id="sync-result"></span>
+    </div>
+    <ul class="list" id="events-list"></ul>
+  </section>
+</main>
+
+<div id="toast-zone"></div>
+
+<script>
+"use strict";
+
+// ---------- API wrapper ----------------------------------------------------
+
+const API = {
+  async _req(method, path, body) {
+    const opts = { method, headers: { "Content-Type": "application/json" } };
+    if (body !== undefined) opts.body = JSON.stringify(body);
+    const r = await fetch(path, opts);
+    const text = await r.text();
+    const data = text ? (() => { try { return JSON.parse(text); } catch { return text; } })() : null;
+    if (!r.ok) {
+      const detail = (data && data.detail) || r.statusText;
+      throw new Error(`${r.status} ${detail}`);
+    }
+    return data;
+  },
+  health: () => API._req("GET", "/health"),
+  listEvents: (start, end) => API._req("GET", `/events?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`),
+  createEvent: (e) => API._req("POST", "/events", e),
+  updateEvent: (id, p) => API._req("PATCH", `/events/${id}`, p),
+  deleteEvent: (id) => API._req("DELETE", `/events/${id}`),
+  reminders: (within_minutes) => API._req("GET", `/reminders?within_minutes=${within_minutes}`),
+  sync: (days) => API._req("POST", `/sync?days=${days}`),
+};
+
+// ---------- Toast ----------------------------------------------------------
+
+function toast(msg, kind = "") {
+  const el = document.createElement("div");
+  el.className = `toast ${kind}`;
+  el.textContent = msg;
+  document.getElementById("toast-zone").appendChild(el);
+  setTimeout(() => el.remove(), 4500);
+}
+
+// ---------- Time helpers ---------------------------------------------------
+
+function toLocalISO(d) {
+  // Strip seconds & offset so the input field is human-friendly.
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function isoToLocalDisplay(iso) {
+  // Show server's UTC ISO in the user's local timezone.
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleString();
+}
+function nowIso() { return new Date().toISOString(); }
+function plusDaysIso(days) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString();
+}
+
+// ---------- State ----------------------------------------------------------
+
+const state = {
+  pollTimer: null,
+  pollIntervalMs: 5000,
+  rangeDays: 7,
+};
+
+// ---------- Render: health meta --------------------------------------------
+
+async function refreshHealth() {
+  try {
+    const h = await API.health();
+    document.getElementById("meta-provider").textContent = h.provider;
+    document.getElementById("meta-count").textContent = h.event_count;
+    document.getElementById("status-dot").style.background =
+      h.status === "ok" ? "var(--ok)" : "var(--err)";
+  } catch (e) { console.warn("health failed", e); }
+}
+
+// ---------- Render: events -------------------------------------------------
+
+async function refreshEvents() {
+  const list = document.getElementById("events-list");
+  list.innerHTML = '<li class="empty">Loading…</li>';
+  try {
+    const evts = await API.listEvents(nowIso(), plusDaysIso(state.rangeDays));
+    document.getElementById("meta-count").textContent = evts.length;
+    if (!evts.length) {
+      list.innerHTML = '<li class="empty">No events in the next ' + state.rangeDays + ' days. Try the demo seed button.</li>';
+      return;
+    }
+    list.innerHTML = "";
+    for (const ev of evts) {
+      const li = document.createElement("li");
+      li.innerHTML = `
+        <div class="ev-title">${escapeHtml(ev.summary)}
+          <span class="pill">${escapeHtml(ev.source)}</span>
+          ${ev.all_day ? '<span class="pill">all-day</span>' : ""}
+        </div>
+        <div class="ev-meta">
+          🕒 ${escapeHtml(isoToLocalDisplay(ev.start))} → ${escapeHtml(isoToLocalDisplay(ev.end))}
+          · ⏰ ${(ev.reminder_minutes || []).join(", ")} min before
+          ${ev.location ? "· 📍 " + escapeHtml(ev.location) : ""}
+        </div>
+        <div class="ev-actions">
+          <button class="secondary" data-act="rename" data-id="${ev.id}">Rename</button>
+          <button class="secondary" data-act="bump-reminder" data-id="${ev.id}">+1h reminder</button>
+          <button class="danger" data-act="delete" data-id="${ev.id}">Delete</button>
+        </div>
+      `;
+      list.appendChild(li);
+    }
+  } catch (e) {
+    list.innerHTML = `<li class="empty">Error: ${escapeHtml(e.message)}</li>`;
+  }
+}
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+// ---------- Render: reminders ----------------------------------------------
+
+async function refreshReminders() {
+  const list = document.getElementById("reminders-list");
+  try {
+    const rs = await API.reminders(60);
+    document.getElementById("meta-reminders").textContent = rs.length;
+    if (!rs.length) {
+      list.innerHTML = '<li class="empty">No reminders firing in the next 60 minutes.</li>';
+      return;
+    }
+    list.innerHTML = "";
+    for (const r of rs) {
+      const li = document.createElement("li");
+      li.className = "reminder";
+      if (r.minutes_until <= 0 && r.minutes_until >= -5) li.classList.add("firing-now");
+      const sign = r.minutes_until < 0 ? "" : "in ";
+      const unit = Math.abs(r.minutes_until) === 1 ? "min" : "min";
+      li.innerHTML = `
+        <div class="ev-title">${escapeHtml(r.summary)}</div>
+        <div class="ev-meta">
+          🔔 Fires ${escapeHtml(isoToLocalDisplay(r.fire_at))}
+          · <strong>${sign}${Math.abs(r.minutes_until)} ${unit}</strong> from now
+          · offset ${r.reminder_minutes} min
+        </div>
+      `;
+      list.appendChild(li);
+    }
+  } catch (e) {
+    list.innerHTML = `<li class="empty">Error: ${escapeHtml(e.message)}</li>`;
+  }
+}
+
+// ---------- Polling --------------------------------------------------------
+
+function startPolling() {
+  if (state.pollTimer) clearInterval(state.pollTimer);
+  const tick = () => { refreshHealth(); refreshEvents(); refreshReminders(); };
+  tick();
+  state.pollTimer = setInterval(tick, state.pollIntervalMs);
+}
+
+// ---------- Form: create event --------------------------------------------
+
+document.getElementById("ev-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const start = f.start.value.trim();
+  const end = f.end.value.trim();
+  if (!f.summary.value.trim()) return toast("Summary required", "err");
+  if (!start || !end) return toast("Start and End required", "err");
+
+  // Compose ISO with timezone: if user types naive "YYYY-MM-DDTHH:MM", append the offset.
+  const composeIso = (local, tz) => {
+    if (/[Zz]$|[+-]\d{2}:?\d{2}$/.test(local)) return local;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(local)) return local;
+    return local;
+  };
+
+  const body = {
+    summary: f.summary.value.trim(),
+    description: f.description.value.trim() || null,
+    location: f.location.value.trim() || null,
+    start: composeIso(start, f.timezone.value),
+    end: composeIso(end, f.timezone.value),
+    timezone: f.timezone.value,
+    reminder_minutes: f.reminder_minutes.value.split(",").map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n)),
+    all_day: f.all_day.checked,
+  };
+  if (!body.reminder_minutes.length) body.reminder_minutes = [10];
+
+  const btn = document.getElementById("submit-btn");
+  btn.disabled = true;
+  try {
+    const ev = await API.createEvent(body);
+    toast(`Created “${ev.summary}” (${ev.id.slice(0, 8)})`, "ok");
+    f.reset();
+    f.timezone.value = "Asia/Taipei";
+    f.reminder_minutes.value = "10,30";
+    await refreshEvents();
+    await refreshReminders();
+  } catch (e) {
+    toast(e.message, "err");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ---------- Demo seed ------------------------------------------------------
+
+document.getElementById("seed-btn").addEventListener("click", async () => {
+  const samples = [
+    { summary: "Standup", minutesFromNow: 5, durationMin: 15, reminders: [1, 5] },
+    { summary: "Project sync", minutesFromNow: 45, durationMin: 30, reminders: [10, 30] },
+    { summary: "Lunch with Bob", minutesFromNow: 180, durationMin: 60, reminders: [15] },
+  ];
+  try {
+    for (const s of samples) {
+      const start = new Date(Date.now() + s.minutesFromNow * 60_000);
+      const end = new Date(start.getTime() + s.durationMin * 60_000);
+      await API.createEvent({
+        summary: s.summary,
+        start: start.toISOString(),
+        end: end.toISOString(),
+        timezone: "Asia/Taipei",
+        reminder_minutes: s.reminders,
+      });
+    }
+    toast("Seeded 3 demo events", "ok");
+    await refreshEvents();
+    await refreshReminders();
+  } catch (e) { toast(e.message, "err"); }
+});
+
+// ---------- Action delegation on events list ------------------------------
+
+document.getElementById("events-list").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const id = btn.dataset.id;
+  const act = btn.dataset.act;
+  try {
+    if (act === "delete") {
+      if (!confirm("Delete this event?")) return;
+      await API.deleteEvent(id);
+      toast("Deleted", "ok");
+      await refreshEvents();
+      await refreshReminders();
+    } else if (act === "rename") {
+      const cur = await API._req("GET", `/events/${id}`);
+      const newName = prompt("New summary:", cur.summary);
+      if (!newName) return;
+      await API.updateEvent(id, { summary: newName });
+      toast("Renamed", "ok");
+      await refreshEvents();
+    } else if (act === "bump-reminder") {
+      const cur = await API._req("GET", `/events/${id}`);
+      const rm = (cur.reminder_minutes || []).concat([60]).filter((v, i, a) => a.indexOf(v) === i);
+      await API.updateEvent(id, { reminder_minutes: rm });
+      toast("Added 60-min reminder", "ok");
+      await refreshEvents();
+      await refreshReminders();
+    }
+  } catch (e) { toast(e.message, "err"); }
+});
+
+// ---------- Toolbar buttons ------------------------------------------------
+
+document.getElementById("range-select").addEventListener("change", (e) => {
+  state.rangeDays = parseInt(e.target.value, 10);
+  refreshEvents();
+});
+document.getElementById("reload-btn").addEventListener("click", () => { refreshEvents(); refreshReminders(); });
+document.getElementById("refresh-now").addEventListener("click", () => { refreshHealth(); refreshEvents(); refreshReminders(); });
+document.getElementById("poll-interval").addEventListener("change", (e) => {
+  state.pollIntervalMs = parseInt(e.target.value, 10);
+  startPolling();
+});
+document.getElementById("sync-btn").addEventListener("click", async () => {
+  try {
+    const r = await API.sync(30);
+    document.getElementById("sync-result").textContent =
+      `fetched=${r.fetched} upserted=${r.upserted} skipped=${r.skipped}`;
+    toast(`Synced (${r.fetched} events in window)`, "ok");
+    await refreshEvents();
+  } catch (e) { toast(e.message, "err"); }
+});
+
+// ---------- Clock ----------------------------------------------------------
+
+setInterval(() => {
+  document.getElementById("meta-clock").textContent =
+    new Date().toLocaleTimeString();
+}, 1000);
+
+// ---------- Defaults: pre-fill form with sensible time ---------------------
+
+(function bootstrap() {
+  const f = document.getElementById("ev-form");
+  const start = new Date(Date.now() + 60 * 60_000);
+  start.setMinutes(0, 0, 0);
+  const end = new Date(start.getTime() + 60 * 60_000);
+  f.start.value = toLocalISO(start);
+  f.end.value = toLocalISO(end);
+  startPolling();
+})();
+</script>
+</body>
+</html>
