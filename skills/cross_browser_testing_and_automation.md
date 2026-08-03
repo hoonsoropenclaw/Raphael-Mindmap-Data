@@ -1,21 +1,20 @@
-# Cross-Browser System Monitoring and Testing
+# Cross-Browser Testing and Automation
 
 ## Overview
-The **cross_browser_system_monitoring_and_testing** micro-skill focuses on establishing a robust testing matrix across various browsers and devices, coupled with a comprehensive system monitoring and testing strategy. This ensures software quality, reliability, and stability through a combination of automated testing, performance tracking, and visual verification.
+The **cross_browser_testing_and_automation** micro-skill provides a comprehensive framework for automating testing, monitoring, and reporting across various browsers and devices. This includes configuring browser-specific launch parameters, executing automated tests, performing visual regression analysis, and generating detailed reports to ensure software quality, reliability, and consistency.
 
 ## Key Components
 
 ### 1. Cross-Browser Testing Matrix
 
 #### Purpose
-- **Versatility**: Support multiple browsers (Chromium, Firefox, WebKit) and device viewports (desktop, tablet, mobile) to ensure consistent functionality and appearance.
+- **Versatility**: Ensure consistent functionality and appearance across multiple browsers (Chromium, Firefox, WebKit) and device viewports (desktop, tablet, mobile).
 
 #### Setup and Configuration
 - **Configuration Management**: Maintain a centralized configuration for active browsers and viewports.
   ```python
   from framework.config import active_browsers, active_viewports
   ```
-
 - **Parameterized Testing**: Utilize pytest's parametrization to iterate through all browser and viewport combinations.
   ```python
   @pytest.mark.parametrize("browser, viewport", [(b, v) for b in active_browsers for v in active_viewports])
@@ -125,61 +124,6 @@ The **cross_browser_system_monitoring_and_testing** micro-skill focuses on estab
     browser = p.chromium.launch(headless=False)
     ```
 
-- **Visual Regression Testing**:
-  ```python
-  import difflib
-
-  def compare_screenshots(old_image_path, new_image_path):
-      with open(old_image_path, 'rb') as f1, open(new_image_path, 'rb') as f2:
-          old_image = f1.read()
-          new_image = f2.read()
-      diff = difflib.unified_diff(old_image, new_image)
-      return ''.join(diff)
-
-  # Example usage
-  difference = compare_screenshots('/tmp/sim_v3.png', '/tmp/sim_v4.png')
-  if difference:
-      print("Visual changes detected!")
-  else:
-      print("No visual changes.")
-  ```
-
-  - **Best Practices**:
-    - **Baseline Management**: Maintain a set of baseline screenshots.
-    - **Threshold Settings**: Set acceptable thresholds for differences.
-
-- **Asynchronous Crawling with Relative URLs**:
-  ```javascript
-  const { chromium } = require('playwright');
-
-  (async () => {
-    const browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
-    await page.goto('https://example.com');
-    
-    // Handle relative URLs
-    const links = await page.$$eval('a', anchors => anchors.map(anchor => anchor.href));
-    
-    for (const link of links) {
-      await page.goto(link);
-      // Perform actions or scrape data
-    }
-    
-    await browser.close();
-  })();
-  ```
-
-  - **Error Prevention**:
-    - **Handling Navigation Errors**:
-      ```javascript
-      try {
-        await page.goto(link, { timeout: 60000 });
-      } catch (error) {
-        console.error(`Failed to navigate to ${link}:`, error);
-      }
-      ```
-    - **Rate Limiting**: Implement rate limiting to avoid overwhelming the target server.
-
 ### 3. FastAPI and Playwright Async Integration
 
 #### Explanation
@@ -242,4 +186,32 @@ mismatch = pixelmatch(base_bytes, other_bytes, bw, bh, diff_buf, threshold=thres
 
 - **Consistent Selector Usage**: Use unique and consistent selectors to interact with page elements, reducing test flakiness.
 - **Headless vs. Headful Mode**: Use headful mode for debugging and headless mode for faster testing.
-- **Error Handling**: Implement robust error handling to manage unexpected issues during test
+- **Error Handling**: Implement robust error handling to manage unexpected issues during test execution.
+
+### Cross Browser Launch Options
+
+#### Explanation
+In cross-browser automation testing, different browsers require different launch parameters. For example, Chromium needs `--no-sandbox` and `--disable-dev-shm-usage` to resolve issues in headless environments, while WebKit and Firefox do not accept these parameters.
+
+#### Key Code Snippets
+```python
+LAUNCH_OPTIONS = {
+    "chromium": {
+        "headless": True,
+        "args": ["--no-sandbox", "--disable-dev-shm-usage"],
+    },
+    "firefox": {
+        "headless": True,
+    },
+    "webkit": {
+        "headless": True,
+    },
+}
+
+browser_type = p.chromium if browser_name == "chromium" else p.firefox if browser_name == "firefox" else p.webkit
+browser = browser_type.launch(**LAUNCH_OPTIONS[browser_name])
+```
+
+#### Common Errors and Solutions
+- **Error**: WebKit or Firefox crashes due to unrecognized Chromium-specific parameters.
+  - **Solution**: Configure launch parameters separately for different browsers to avoid applying Chromium-specific parameters to other browsers.

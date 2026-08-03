@@ -1,76 +1,31 @@
 # 學習微技能目錄 (SKILL CATALOG)
 此目錄為拉斐爾已掌握的微技能模組。在進行任務前，應先檢索此目錄尋找可重用的經驗。
 
-# SKILL_CATALOG
+# SKILL_CATALOG.md
 
-1. **design_system_configuration_and_module_management**  
-   Configuration and management of design system modules.
-
-2. **headless_environment_and_iframe_integration**  
-   Integration techniques for headless environments and iframes.
-
-3. **baseline_management_with_fingerprinting**  
-   Baseline management using fingerprinting technology.
-
-4. **advanced_dynamic_form_management**  
-   Advanced management of dynamic forms.
-
-5. **advanced_fetch_interception_and_control**  
-   Advanced interception and control of fetch requests.
-
-6. **advanced_game_and_ui_development**  
-   Development of advanced games and user interfaces.
-
-7. **schema_management_and_application_development**  
-   Management of schemas and development of applications.
-
-8. **playwright_automation_testing_and_interception**  
-   Automation testing and interception using Playwright.
-
-9. **cross_browser_system_monitoring_and_testing**  
-   Cross-browser system monitoring and testing.
-
-10. **advanced_ui_with_dynamic_output**  
-    Advanced UI with dynamic output capabilities.
-
-11. **data_cleaning_and_information_management**  
-    Data cleaning and management of information.
-
-12. **dag_workflow_management_and_validation**  
-    Management and validation of DAG workflows.
-
-13. **event_and_error_handling_optimization**  
-    Optimization of event and error handling.
-
-14. **react_flow_integration_and_custom_node_design**  
-    Integration of React Flow and design of custom nodes.
-
-15. **domain_expansion_proposal**  
-    Proposal for expanding domain capabilities.
-
-16. **rule_engine_and_testing_framework**  
-    Development of a rule engine and testing framework.
-
-17. **fastapi_robust_integration_and_testing**  
-    Robust integration and testing for FastAPI.
-
-18. **advanced_telegram_bot_development**  
-    Development of advanced Telegram bots.
-
-19. **rbac_implementation**  
-    Implementation of Role-Based Access Control (RBAC).
-
-20. **test_report_generation_with_rendering**  
-    Generation of test reports with rendering.
-
-21. **media_processing_and_communication**  
-    Processing and communication of media.
-
-22. **Advanced JSX Integration and Processing**  
-    Advanced integration and processing of JSX.
-
-23. **advanced_web_scraping_and_security**  
-    Advanced web scraping techniques and security measures.
-
-24. **graph_algorithm_and_traversal**  
-    Implementation of graph algorithms and traversal methods.
+1. **trial_and_error** - Mastering the art of iterative problem-solving through experimentation.
+2. **headless_environment_and_iframe_integration** - Seamless integration of headless environments with iframe components.
+3. **baseline_management_with_fingerprinting** - Efficient baseline management using fingerprinting techniques.
+4. **media_processing_and_bot_development** - Developing bots for advanced media processing tasks.
+5. **advanced_dynamic_form_management** - Managing dynamic forms with advanced techniques for enhanced user experience.
+6. **user_message_security_and_priority_handling** - Ensuring secure and prioritized handling of user messages.
+7. **playwright_skill** - Leveraging Playwright for efficient automation and testing.
+8. **schema_management_and_application_development** - Effective schema management for streamlined application development.
+9. **advanced_jsx_integration** - Advanced integration of JSX for dynamic and interactive user interfaces.
+10. **robust_task_management_and_security** - Implementing robust task management with a focus on security.
+11. **advanced_request_interception** - Mastering advanced techniques for intercepting and managing requests.
+12. **data_cleaning_and_information_management** - Efficient data cleaning and management for better information handling.
+13. **advanced_ui_and_flow_development** - Developing advanced user interfaces and seamless user flows.
+14. **dag_workflow_management_and_validation** - Managing and validating DAG workflows for efficient process management.
+15. **event_and_error_handling_optimization** - Optimizing event and error handling for improved system reliability.
+16. **domain_expansion_proposal** - Proposing strategies for expanding and scaling system domains.
+17. **rule_engine_and_testing_framework** - Implementing a rule engine with an integrated testing framework for robust applications.
+18. **fastapi_robust_integration_and_testing** - Achieving robust integration and testing with FastAPI for high-performance applications.
+19. **rbac_implementation** - Implementing Role-Based Access Control (RBAC) for enhanced security and access management.
+20. **anti_pattern_management** - Identifying and managing anti-patterns to improve system design and performance.
+21. **visual_testing_and_reporting** - Conducting visual testing and generating comprehensive reports for quality assurance.
+22. **Advanced JSX Integration and Processing** - Advanced techniques for integrating and processing JSX in modern web applications.
+23. **advanced_web_scraping_and_security** - Implementing secure and efficient web scraping techniques for data extraction.
+24. **advanced_design_system_integration** - Seamlessly integrating advanced design systems into application development workflows.
+25. **graph_algorithm_and_traversal** - Utilizing graph algorithms and traversal techniques for complex problem-solving.
+26. **cross_browser_testing_and_automation** - Automating cross-browser testing for consistent user experiences across different platforms.

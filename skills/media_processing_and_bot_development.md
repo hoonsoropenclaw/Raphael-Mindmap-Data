@@ -1,10 +1,10 @@
-# Media Processing and Communication
+# Media Processing and Bot Development
 
 ## Target Skill Name
-media_processing_and_communication
+media_processing_and_bot_development
 
 ## Target Summary
-This skill integrates media processing, Optical Character Recognition (OCR), and real-time communication systems, enabling seamless handling of audio, video, and text data across various platforms.
+This skill encompasses the processing and communication of media, including audio, video, and text data, alongside the development of advanced Telegram bots using FastAPI and `python-telegram-bot`. It integrates real-time speech-to-text, asynchronous communication, media streaming, and interactive bot features to create robust and scalable applications.
 
 ---
 
@@ -241,6 +241,4 @@ captureMedia();
 ### 3.2 Asynchronous WebSocket Media Streaming
 
 #### 3.2.1 Features
-- **Connection Management**: Establish and maintain a WebSocket connection for real-time data transmission using asynchronous methods.
-- **Data Handling**: Receive and process media data slices from the frontend asynchronously.
-- **Latency Optimization**: Ensure minimal
+- **Connection Management**: Establish and maintain a WebSocket connection for real-time

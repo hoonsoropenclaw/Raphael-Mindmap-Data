@@ -1,0 +1,554 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>API Probe — Reverse Engineer Web APIs</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root {
+    --bg: #0e1116;
+    --surface: #161b22;
+    --surface-2: #1f2630;
+    --border: #2d3540;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --accent-2: #79c0ff;
+    --green: #56d364;
+    --yellow: #d29922;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --orange: #ffa657;
+    --method-get: #56d364;
+    --method-post: #d29922;
+    --method-put: #ffa657;
+    --method-delete: #f85149;
+    --method-patch: #bc8cff;
+    --code-bg: #0d1117;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, "PingFang TC", "Microsoft JhengHei", sans-serif; font-size: 14px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  button {
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+    padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;
+    transition: background 120ms, border-color 120ms;
+  }
+  button:hover { background: #2a3340; border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #0e1116; border-color: var(--accent); font-weight: 600; }
+  button.primary:hover { background: var(--accent-2); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  input, select, textarea {
+    background: var(--code-bg); border: 1px solid var(--border); color: var(--text);
+    padding: 8px 10px; border-radius: 6px; font-size: 13px; font-family: inherit;
+  }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  textarea { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+
+  /* layout */
+  .app { display: grid; grid-template-columns: 320px 1fr; height: 100vh; }
+  .sidebar { background: var(--surface); border-right: 1px solid var(--border); overflow: auto; padding: 16px; }
+  .main { overflow: auto; padding: 24px 32px; }
+  .logo { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+  .logo .dot { width: 14px; height: 14px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--purple)); }
+  .logo h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  .logo .ver { font-size: 11px; color: var(--text-dim); margin-left: 4px; }
+
+  .section { margin-bottom: 24px; }
+  .section h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); margin: 0 0 10px 0; font-weight: 600; }
+  .session-item {
+    padding: 10px 12px; border-radius: 6px; cursor: pointer; margin-bottom: 4px;
+    border: 1px solid transparent; font-size: 12px;
+  }
+  .session-item:hover { background: var(--surface-2); }
+  .session-item.active { background: var(--surface-2); border-color: var(--accent); }
+  .session-item .id { color: var(--accent); font-family: ui-monospace, monospace; }
+  .session-item .url { color: var(--text); display: block; margin-top: 2px; word-break: break-all; }
+  .session-item .meta { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+  .badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; text-transform: uppercase; }
+  .badge.ok { background: rgba(86,211,100,0.15); color: var(--green); }
+  .badge.error { background: rgba(248,81,73,0.15); color: var(--red); }
+  .badge.running { background: rgba(88,166,255,0.15); color: var(--accent); }
+
+  .probe-form { display: flex; flex-direction: column; gap: 8px; }
+  .form-row { display: flex; gap: 8px; align-items: center; }
+  .form-row label { font-size: 11px; color: var(--text-dim); min-width: 80px; }
+  .form-row input, .form-row select { flex: 1; }
+
+  .empty { color: var(--text-dim); text-align: center; padding: 60px 20px; font-size: 13px; }
+  .empty h3 { color: var(--text); margin-top: 0; }
+
+  .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .stat .label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat .value { font-size: 24px; font-weight: 600; margin-top: 4px; color: var(--text); }
+  .stat .sub { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+
+  .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+  .toolbar .spacer { flex: 1; }
+
+  .endpoint {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    margin-bottom: 10px; overflow: hidden;
+  }
+  .endpoint-header {
+    padding: 12px 16px; cursor: pointer; display: flex; align-items: center; gap: 12px;
+    user-select: none;
+  }
+  .endpoint-header:hover { background: var(--surface-2); }
+  .method-badge {
+    font-family: ui-monospace, monospace; font-weight: 700; font-size: 11px;
+    padding: 3px 8px; border-radius: 4px; min-width: 56px; text-align: center;
+  }
+  .method-GET { background: rgba(86,211,100,0.18); color: var(--method-get); }
+  .method-POST { background: rgba(210,153,34,0.18); color: var(--method-post); }
+  .method-PUT { background: rgba(255,166,87,0.18); color: var(--method-put); }
+  .method-DELETE { background: rgba(248,81,73,0.18); color: var(--method-delete); }
+  .method-PATCH { background: rgba(188,140,255,0.18); color: var(--method-patch); }
+  .endpoint-path { font-family: ui-monospace, monospace; font-size: 13px; flex: 1; word-break: break-all; }
+  .endpoint-meta { color: var(--text-dim); font-size: 11px; display: flex; gap: 12px; }
+  .endpoint-body { display: none; padding: 14px 16px; border-top: 1px solid var(--border); background: var(--code-bg); }
+  .endpoint.open .endpoint-body { display: block; }
+  .endpoint-body .tab-row { display: flex; gap: 4px; margin-bottom: 10px; }
+  .endpoint-body .tab {
+    padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 11px;
+    color: var(--text-dim); border: 1px solid transparent;
+  }
+  .endpoint-body .tab.active { background: var(--surface-2); color: var(--text); border-color: var(--border); }
+  .endpoint-body pre {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 12px; overflow: auto; max-height: 320px; font-size: 12px; line-height: 1.5;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    margin: 0;
+  }
+  .endpoint-body .schema-view { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5; }
+  .endpoint-body .schema-prop { display: flex; gap: 8px; padding: 4px 0; border-bottom: 1px dashed var(--border); }
+  .endpoint-body .schema-prop:last-child { border-bottom: none; }
+  .endpoint-body .schema-key { color: var(--accent-2); min-width: 140px; }
+  .endpoint-body .schema-type { color: var(--purple); }
+  .endpoint-body .schema-meta { color: var(--text-dim); font-size: 11px; }
+  .endpoint-body .schema-required { color: var(--orange); font-size: 10px; }
+
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .panel h3 { margin: 0 0 10px 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); }
+
+  .toast {
+    position: fixed; bottom: 24px; right: 24px; background: var(--surface); border: 1px solid var(--border);
+    padding: 12px 18px; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.4); z-index: 999;
+    max-width: 380px;
+  }
+  .toast.error { border-color: var(--red); }
+  .toast.ok { border-color: var(--green); }
+  .toast.info { border-color: var(--accent); }
+
+  .spinner {
+    display: inline-block; width: 12px; height: 12px;
+    border: 2px solid var(--text-dim); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin 700ms linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  details summary { cursor: pointer; user-select: none; }
+  .code-pill { background: var(--code-bg); border: 1px solid var(--border); padding: 2px 6px; border-radius: 4px; font-family: ui-monospace, monospace; font-size: 11px; color: var(--accent-2); }
+
+  .metrics { display: flex; gap: 16px; align-items: center; }
+  .metrics .pill { background: var(--surface-2); border: 1px solid var(--border); padding: 4px 10px; border-radius: 12px; font-size: 11px; }
+  .metrics .pill strong { color: var(--accent); margin-left: 4px; }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+  @media (max-width: 800px) {
+    .app { grid-template-columns: 1fr; }
+    .sidebar { height: auto; max-height: 40vh; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="logo">
+      <span class="dot"></span>
+      <h1>API Probe</h1>
+      <span class="ver">v0.1.0</span>
+    </div>
+
+    <div class="section">
+      <h2>New Probe</h2>
+      <div class="probe-form">
+        <input type="text" id="probe-url" placeholder="https://example.com" value="https://httpbin.org/get">
+        <div class="form-row">
+          <label>Mode</label>
+          <select id="probe-mode">
+            <option value="dynamic">dynamic (Playwright)</option>
+            <option value="static">static (requests)</option>
+            <option value="both">both</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Scroll</label>
+          <input type="number" id="probe-scroll" value="2" min="0" max="20" step="1">
+        </div>
+        <div class="form-row">
+          <label>Timeout</label>
+          <input type="number" id="probe-timeout" value="30" min="5" max="300" step="5">
+          <span style="color: var(--text-dim); font-size: 11px;">sec</span>
+        </div>
+        <button class="primary" id="btn-probe">▶  Start Probe</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Sessions <span id="session-count" style="color: var(--text-dim); font-weight: normal;"></span></h2>
+      <div id="session-list"></div>
+    </div>
+
+    <div class="section" style="font-size: 11px; color: var(--text-dim); line-height: 1.6;">
+      <strong style="color: var(--text);">API Probe</strong> — 自動偵測網站底層 API。
+      <br>結合 Playwright 攔截 fetch/XHR + JSON Schema 推斷 + OpenAPI 3.0 規格生成。
+      <br>SSRF guard 內建,阻擋私有/loopback IP。
+    </div>
+  </aside>
+
+  <main class="main">
+    <div id="main-content">
+      <div class="empty">
+        <h3>🛰️ Probe a target URL</h3>
+        <p>Enter a URL on the left and click <strong>Start Probe</strong>.<br>
+        The launcher will open a headless browser, intercept all fetch / XHR / GraphQL calls,<br>
+        infer JSON schemas, and generate an OpenAPI 3.0 specification.</p>
+        <p style="margin-top: 24px; font-size: 11px;">
+          Try: <code class="code-pill">https://httpbin.org/get</code>
+          <code class="code-pill">https://jsonplaceholder.typicode.com/</code>
+        </p>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="toast-container"></div>
+
+<script type="module">
+  // ===== API Probe Web UI =====
+  const API = {
+    health:      () => fetch('/health').then(r => r.json()),
+    probe:       (body) => fetch('/api/probe', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)}).then(r => r.json()),
+    sessions:    () => fetch('/api/sessions').then(r => r.json()),
+    session:     (id) => fetch(`/api/session/${id}`).then(r => r.json()),
+    openapiUrl:  (id) => `/api/session/${id}/openapi`,
+    harUrl:      (id) => `/api/session/${id}/har`,
+  };
+
+  // ===== State =====
+  const state = {
+    sessions: [],
+    currentSession: null,
+    polling: null,
+  };
+
+  // ===== Utilities =====
+  function $(sel, root = document) { return root.querySelector(sel); }
+  function $$(sel, root = document) { return Array.from(root.querySelectorAll(sel)); }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function toast(msg, type = 'info', timeout = 5000) {
+    const c = $('#toast-container');
+    const el = document.createElement('div');
+    el.className = `toast ${type}`;
+    el.textContent = msg;
+    c.appendChild(el);
+    setTimeout(() => el.remove(), timeout);
+  }
+
+  function formatJson(v) {
+    try { return JSON.stringify(v, null, 2); } catch (e) { return String(v); }
+  }
+
+  function methodClass(method) {
+    return 'method-' + (method || 'GET').toUpperCase();
+  }
+
+  function renderSchemaNode(schema, depth = 0) {
+    if (!schema) return '<span style="color: var(--text-dim);">null</span>';
+    if (schema.anyOf) {
+      return schema.anyOf.map(s => renderSchemaNode(s, depth)).join(' <span style="color: var(--text-dim);">|</span> ');
+    }
+    if (schema.type === 'object') {
+      const props = schema.properties || {};
+      const required = new Set(schema.required || []);
+      const keys = Object.keys(props);
+      if (!keys.length) return '<span style="color: var(--text-dim);">{}</span>';
+      let html = '<div style="border-left: 1px solid var(--border); padding-left: 10px; margin-left: 4px;">';
+      for (const k of keys) {
+        const p = props[k];
+        const isReq = required.has(k);
+        html += `<div class="schema-prop">
+          <span class="schema-key">${escapeHtml(k)}${isReq ? '<span class="schema-required"> *required</span>' : ''}</span>
+          <span class="schema-type">${escapeHtml(p.type || 'any')}${p.format ? `&lt;${escapeHtml(p.format)}&gt;` : ''}</span>
+          <span class="schema-meta">${p.example !== undefined ? `e.g. <code>${escapeHtml(String(p.example).slice(0, 60))}</code>` : ''}</span>
+        </div>`;
+        if (p.type === 'object' || p.type === 'array') {
+          html += renderSchemaNode(p, depth + 1);
+        }
+      }
+      html += '</div>';
+      return html;
+    }
+    if (schema.type === 'array') {
+      return '<div style="color: var(--text-dim); padding-left: 12px;">[ ' + renderSchemaNode(schema.items || {type: 'any'}, depth + 1) + ' ]</div>';
+    }
+    return `<span class="schema-type">${escapeHtml(schema.type)}</span>`;
+  }
+
+  // ===== Sidebar =====
+  async function refreshSessions() {
+    try {
+      const r = await API.sessions();
+      if (!r.ok) return;
+      state.sessions = r.sessions;
+      const list = $('#session-list');
+      list.innerHTML = '';
+      const head = $('#session-count');
+      head.textContent = `(${r.sessions.length})`;
+      if (!r.sessions.length) {
+        list.innerHTML = '<div style="color: var(--text-dim); font-size: 12px;">No sessions yet.</div>';
+        return;
+      }
+      for (const s of r.sessions) {
+        const item = document.createElement('div');
+        item.className = 'session-item' + (state.currentSession?.id === s.id ? ' active' : '');
+        item.innerHTML = `
+          <span class="id">#${s.id}</span>
+          <span class="badge ${s.status}">${s.status}</span>
+          <span class="url">${escapeHtml(s.target_url)}</span>
+          <span class="meta">${escapeHtml(s.mode)} · ${new Date(s.started_at * 1000).toLocaleString()}</span>
+        `;
+        item.addEventListener('click', () => loadSession(s.id));
+        list.appendChild(item);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  // ===== Probe action =====
+  async function startProbe() {
+    const url = $('#probe-url').value.trim();
+    if (!url) { toast('URL is required', 'error'); return; }
+    try { new URL(url); } catch { toast('Invalid URL', 'error'); return; }
+    const btn = $('#btn-probe');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Probing...';
+    try {
+      const r = await API.probe({
+        url,
+        mode: $('#probe-mode').value,
+        scroll_down: parseInt($('#probe-scroll').value || '0', 10),
+        timeout_ms: parseInt($('#probe-timeout').value || '30', 10) * 1000,
+      });
+      if (!r.ok) {
+        toast('Probe failed: ' + (r.error || 'unknown'), 'error', 8000);
+        return;
+      }
+      const result = r.result;
+      toast(`Session #${result.session_id} done · ${result.events_count} events → ${result.endpoints_count} endpoints`, 'ok', 6000);
+      await refreshSessions();
+      await loadSession(result.session_id);
+    } catch (e) {
+      toast('Network error: ' + e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '▶  Start Probe';
+    }
+  }
+
+  // ===== Session detail =====
+  async function loadSession(id) {
+    const r = await API.session(id);
+    if (!r.ok) { toast('Session not found', 'error'); return; }
+    state.currentSession = r.session;
+    renderSession(r.session);
+    refreshSessions();
+  }
+
+  function renderSession(s) {
+    const root = $('#main-content');
+    const meta = s.summary || {};
+    const endpoints = s.endpoints || [];
+    const arts = s.artifacts || [];
+    const openapiPath = arts.find(a => a.kind === 'openapi');
+    const harPath = arts.find(a => a.kind === 'har');
+
+    let html = `
+      <div class="toolbar">
+        <h2 style="margin: 0; font-size: 18px;">Session #${s.id}</h2>
+        <span class="badge ${s.status}">${s.status}</span>
+        ${s.title ? `<span class="code-pill">${escapeHtml(s.title)}</span>` : ''}
+        <span class="code-pill">${escapeHtml(s.target_url)}</span>
+        <div class="spacer"></div>
+        <div class="metrics">
+          <span class="pill">events<strong>${meta.events_count || 0}</strong></span>
+          <span class="pill">endpoints<strong>${meta.endpoints_count || 0}</strong></span>
+        </div>
+        ${openapiPath ? `<a href="${API.openapiUrl(s.id)}" target="_blank"><button>⬇ OpenAPI</button></a>` : ''}
+        ${harPath ? `<a href="${API.harUrl(s.id)}" target="_blank"><button>⬇ HAR</button></a>` : ''}
+      </div>
+
+      <div class="summary-grid">
+        <div class="stat">
+          <div class="label">Captured</div>
+          <div class="value">${meta.events_count || 0}</div>
+          <div class="sub">fetch / XHR / network events</div>
+        </div>
+        <div class="stat">
+          <div class="label">Endpoints</div>
+          <div class="value">${meta.endpoints_count || 0}</div>
+          <div class="sub">grouped by (method, path)</div>
+        </div>
+        <div class="stat">
+          <div class="label">Mode</div>
+          <div class="value" style="font-size: 18px;">${escapeHtml(s.mode)}</div>
+          <div class="sub">${s.status === 'ok' ? 'completed' : s.status}</div>
+        </div>
+        <div class="stat">
+          <div class="label">Started</div>
+          <div class="value" style="font-size: 14px;">${escapeHtml(new Date(s.started_at * 1000).toLocaleString())}</div>
+          <div class="sub">${s.finished_at ? 'finished ' + new Date(s.finished_at * 1000).toLocaleTimeString() : 'running'}</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3>Detected Endpoints (${endpoints.length})</h3>
+    `;
+
+    if (!endpoints.length) {
+      html += '<div style="color: var(--text-dim); font-size: 12px;">No API calls captured. The page may be fully static or all calls were filtered.</div>';
+    } else {
+      html += endpoints.map((ep, i) => renderEndpoint(ep, i)).join('');
+    }
+    html += '</div>';
+
+    if (s.api_calls && s.api_calls.length) {
+      html += `
+        <div class="panel">
+          <h3>Raw API Calls (${s.api_calls.length})</h3>
+          <details>
+            <summary style="color: var(--text-dim); font-size: 12px;">Show all calls</summary>
+            <div style="max-height: 400px; overflow: auto; margin-top: 10px;">
+              <table style="width: 100%; font-size: 12px; border-collapse: collapse;">
+                <thead>
+                  <tr style="border-bottom: 1px solid var(--border); text-align: left; color: var(--text-dim);">
+                    <th style="padding: 6px;">Method</th>
+                    <th style="padding: 6px;">URL</th>
+                    <th style="padding: 6px;">Status</th>
+                    <th style="padding: 6px;">Type</th>
+                    <th style="padding: 6px;">Duration</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${s.api_calls.map(c => `
+                    <tr style="border-bottom: 1px solid var(--border);">
+                      <td style="padding: 6px;"><span class="method-badge ${methodClass(c.method)}">${escapeHtml(c.method)}</span></td>
+                      <td style="padding: 6px; font-family: ui-monospace, monospace; word-break: break-all;">${escapeHtml(c.url)}</td>
+                      <td style="padding: 6px;">${c.response_status || ''}</td>
+                      <td style="padding: 6px; color: var(--text-dim);">${escapeHtml(c.response_content_type || '')}</td>
+                      <td style="padding: 6px; color: var(--text-dim);">${c.duration_ms || 0} ms</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </div>
+      `;
+    }
+
+    root.innerHTML = html;
+    // Add toggle handlers
+    $$('.endpoint-header').forEach(h => {
+      h.addEventListener('click', () => h.parentElement.classList.toggle('open'));
+    });
+    $$('.endpoint .tab').forEach(t => {
+      t.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const ep = t.closest('.endpoint');
+        ep.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+        t.classList.add('active');
+        const tab = t.dataset.tab;
+        ep.querySelectorAll('.tab-body').forEach(b => b.style.display = 'none');
+        const target = ep.querySelector(`.tab-body[data-tab="${tab}"]`);
+        if (target) target.style.display = 'block';
+      });
+    });
+  }
+
+  function renderEndpoint(ep, idx) {
+    const samples = ep.samples_json || {};
+    const requestJson = (samples.request || []).map(s => formatJson(s)).join('\n\n');
+    const responseJson = (samples.response || []).map(s => formatJson(s)).join('\n\n');
+    const sampleCount = samples.request?.length || 0;
+    const sampleCountR = samples.response?.length || 0;
+    const qparams = ep.query_params || {};
+    const qparamsHtml = Object.keys(qparams).length
+      ? `<div class="schema-meta">query: ${Object.entries(qparams).map(([k, v]) => `${escapeHtml(k)}=<code>${escapeHtml((v[0] || '').slice(0, 40))}</code>`).join(' · ')}</div>`
+      : '';
+    return `
+      <div class="endpoint" data-i="${idx}">
+        <div class="endpoint-header">
+          <span class="method-badge ${methodClass(ep.method)}">${escapeHtml(ep.method)}</span>
+          <span class="endpoint-path">${escapeHtml(ep.path)}</span>
+          <span class="endpoint-meta">
+            <span>×${ep.sample_count || 0}</span>
+            <span>${(ep.statuses || []).map(s => `<span class="code-pill">${escapeHtml(s)}</span>`).join(' ')}</span>
+          </span>
+        </div>
+        <div class="endpoint-body">
+          ${qparamsHtml}
+          ${ep.graphql_operation ? `<div class="schema-meta" style="margin-bottom: 8px;">GraphQL: <code>${escapeHtml(ep.graphql_operation)}</code></div>` : ''}
+          <div class="tab-row">
+            <span class="tab active" data-tab="req-schema">Request Schema</span>
+            <span class="tab" data-tab="req-sample">Request Sample (${sampleCount})</span>
+            <span class="tab" data-tab="res-schema">Response Schema</span>
+            <span class="tab" data-tab="res-sample">Response Sample (${sampleCountR})</span>
+          </div>
+          <div class="tab-body" data-tab="req-schema">
+            ${ep.request_schema ? renderSchemaNode(ep.request_schema) : '<div style="color: var(--text-dim);">No request body observed.</div>'}
+          </div>
+          <div class="tab-body" data-tab="req-sample" style="display: none;">
+            ${requestJson ? `<pre>${escapeHtml(requestJson)}</pre>` : '<div style="color: var(--text-dim);">No sample.</div>'}
+          </div>
+          <div class="tab-body" data-tab="res-schema" style="display: none;">
+            ${ep.response_schema ? renderSchemaNode(ep.response_schema) : '<div style="color: var(--text-dim);">No response body captured.</div>'}
+          </div>
+          <div class="tab-body" data-tab="res-sample" style="display: none;">
+            ${responseJson ? `<pre>${escapeHtml(responseJson)}</pre>` : '<div style="color: var(--text-dim);">No sample.</div>'}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ===== Init =====
+  $('#btn-probe').addEventListener('click', startProbe);
+  $('#probe-url').addEventListener('keydown', (e) => { if (e.key === 'Enter') startProbe(); });
+
+  // First load
+  (async () => {
+    const h = await API.health();
+    console.log('API Probe health:', h);
+    await refreshSessions();
+    // Auto poll every 5s if running sessions exist
+    setInterval(refreshSessions, 5000);
+  })();
+</script>
+</body>
+</html>

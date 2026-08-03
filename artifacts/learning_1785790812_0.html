@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<title>React Flow 動態工作流 — 異步事件驅動即時數據流處理</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<!-- React 18 UMD -->
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<!-- Babel for in-browser JSX (dev-grade, acceptable for this artifact) -->
+<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+<!-- React Flow 11 UMD -->
+<script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css" />
+<style>
+  :root {
+    --bg-0: #0b1020;
+    --bg-1: #131a33;
+    --bg-2: #1a2244;
+    --fg-0: #e8ecff;
+    --fg-1: #aab3d6;
+    --fg-2: #6c7aa6;
+    --accent: #7c5cff;
+    --accent-2: #21d4fd;
+    --ok: #4ade80;
+    --warn: #facc15;
+    --err: #f87171;
+    --border: #2a3358;
+  }
+  * { box-sizing: border-box; }
+  html, body, #root { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, "SF Pro TC", "PingFang TC", "Microsoft JhengHei", "Segoe UI", system-ui, sans-serif;
+    background: var(--bg-0);
+    color: var(--fg-0);
+    overflow: hidden;
+  }
+  .app {
+    display: grid;
+    grid-template-columns: 280px 1fr 360px;
+    grid-template-rows: 56px 1fr 200px;
+    grid-template-areas:
+      "topbar topbar topbar"
+      "sidebar canvas inspector"
+      "sidebar events inspector";
+    height: 100vh;
+    width: 100vw;
+  }
+  .topbar {
+    grid-area: topbar;
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    background: linear-gradient(180deg, #0e1430 0%, #0b1020 100%);
+    border-bottom: 1px solid var(--border);
+    gap: 16px;
+  }
+  .topbar h1 {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: 0.4px;
+    background: linear-gradient(90deg, var(--accent-2), var(--accent));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .topbar .meta { font-size: 12px; color: var(--fg-2); margin-left: 8px; }
+  .topbar .actions { margin-left: auto; display: flex; gap: 8px; }
+  .btn {
+    background: var(--bg-2);
+    color: var(--fg-0);
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: inherit;
+  }
+  .btn:hover { background: #232b54; border-color: var(--accent); }
+  .btn.primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    border: none;
+    color: #0b1020;
+    font-weight: 600;
+  }
+  .btn.danger { color: var(--err); }
+  .sidebar {
+    grid-area: sidebar;
+    background: var(--bg-1);
+    border-right: 1px solid var(--border);
+    padding: 16px;
+    overflow-y: auto;
+  }
+  .sidebar h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--fg-2);
+    margin: 0 0 12px;
+  }
+  .node-palette { display: flex; flex-direction: column; gap: 8px; }
+  .palette-item {
+    background: var(--bg-2);
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    cursor: grab;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.15s;
+  }
+  .palette-item:hover { border-style: solid; border-color: var(--accent); background: #20285a; }
+  .palette-item:active { cursor: grabbing; }
+  .palette-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .canvas {
+    grid-area: canvas;
+    position: relative;
+    background:
+      radial-gradient(circle at 20% 20%, rgba(124,92,255,0.08), transparent 40%),
+      radial-gradient(circle at 80% 80%, rgba(33,212,253,0.08), transparent 40%),
+      var(--bg-0);
+  }
+  .react-flow__node {
+    font-family: inherit;
+    font-size: 12px;
+  }
+  .custom-node {
+    background: var(--bg-1);
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    min-width: 160px;
+    color: var(--fg-0);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    transition: all 0.2s;
+    position: relative;
+  }
+  .custom-node.source { border-color: #21d4fd; }
+  .custom-node.processor { border-color: #7c5cff; }
+  .custom-node.sink { border-color: #4ade80; }
+  .custom-node.filter { border-color: #facc15; }
+  .custom-node.fanout { border-color: #fb7185; }
+  .custom-node .node-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+  .custom-node .node-icon { font-size: 14px; }
+  .custom-node .node-title { font-weight: 600; font-size: 12px; }
+  .custom-node .node-body { font-size: 11px; color: var(--fg-1); }
+  .custom-node .node-stats {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid var(--border);
+    font-size: 10px;
+    color: var(--fg-2);
+  }
+  .custom-node .node-stats span { font-weight: 600; color: var(--fg-1); }
+  .custom-node.active {
+    box-shadow: 0 0 0 2px var(--accent), 0 0 20px rgba(124,92,255,0.5);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  .custom-node.error { border-color: var(--err); animation: shake 0.4s; }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 2px var(--accent), 0 0 20px rgba(124,92,255,0.5); }
+    50% { box-shadow: 0 0 0 3px var(--accent), 0 0 30px rgba(124,92,255,0.8); }
+  }
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-3px); }
+    75% { transform: translateX(3px); }
+  }
+  .inspector {
+    grid-area: inspector;
+    background: var(--bg-1);
+    border-left: 1px solid var(--border);
+    padding: 16px;
+    overflow-y: auto;
+  }
+  .events {
+    grid-area: events;
+    background: var(--bg-1);
+    border-top: 1px solid var(--border);
+    padding: 12px 16px;
+    overflow-y: auto;
+    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+    font-size: 11px;
+  }
+  .events h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--fg-2);
+    margin: 0 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .events h3 .live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ok);
+    animation: blink 1s infinite;
+  }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .event-row {
+    display: grid;
+    grid-template-columns: 60px 80px 100px 1fr;
+    gap: 8px;
+    padding: 3px 0;
+    color: var(--fg-1);
+    border-bottom: 1px solid rgba(42, 51, 88, 0.4);
+  }
+  .event-row .ts { color: var(--fg-2); }
+  .event-row .ev { color: var(--accent-2); font-weight: 600; }
+  .event-row .node-id { color: var(--accent); }
+  .event-row.error .ev { color: var(--err); }
+  .event-row.warn .ev { color: var(--warn); }
+  .inspector h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--fg-2);
+    margin: 16px 0 8px;
+  }
+  .inspector h3:first-child { margin-top: 0; }
+  .stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .stat-card {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+  }
+  .stat-card .label { font-size: 10px; color: var(--fg-2); text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-card .value { font-size: 20px; font-weight: 700; color: var(--fg-0); margin-top: 2px; }
+  .stat-card .unit { font-size: 11px; color: var(--fg-2); margin-left: 4px; font-weight: 400; }
+  .selected-node-detail {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 12px;
+  }
+  .selected-node-detail .field { display: flex; justify-content: space-between; padding: 4px 0; }
+  .selected-node-detail .field .k { color: var(--fg-2); }
+  .selected-node-detail .field .v { color: var(--fg-0); font-family: "SF Mono", monospace; }
+  .empty-state {
+    color: var(--fg-2);
+    font-size: 12px;
+    text-align: center;
+    padding: 20px 0;
+    font-style: italic;
+  }
+  .react-flow__edge-path { stroke: var(--accent); stroke-width: 2; }
+  .react-flow__edge.selected .react-flow__edge-path { stroke: var(--accent-2); stroke-width: 3; }
+  .react-flow__edge.animated .react-flow__edge-path { stroke-dasharray: 5; animation: dash 0.5s linear infinite; }
+  @keyframes dash { to { stroke-dashoffset: -10; } }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--fg-1);
+    margin-top: 8px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 4px; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+const ReactFlow = window.ReactFlow;
+const {
+  ReactFlowProvider,
+  useNodesState,
+  useEdgesState,
+  addEdge,
+  Background,
+  Controls,
+  MiniMap,
+  Handle,
+  Position,
+  applyNodeChanges,
+  applyEdgeChanges,
+} = window.ReactFlow;
+
+/* ============================================================
+   Node type definitions
+   ============================================================ */
+const NODE_TYPES = {
+  source:    { label: '數據源',   icon: '📡', color: '#21d4fd', desc: '產生即時事件 (HTTP/Kafka/PubSub)' },
+  filter:    { label: '過濾器',   icon: '🔍', color: '#facc15', desc: '依條件篩選事件' },
+  processor: { label: '處理器',   icon: '⚙️', color: '#7c5cff', desc: '轉換 / 聚合 / 豐富' },
+  fanout:    { label: '分流器',   icon: '🔀', color: '#fb7185', desc: '事件廣播給多個下游' },
+  sink:      { label: '輸出端',   icon: '📤', color: '#4ade80', desc: '寫入 DB / Webhook / 儀表板' },
+};
+
+const PALETTE = [
+  { type: 'source',    label: 'HTTP 輪詢源',  defaultConfig: { endpoint: 'https://api.example.com/stream', rate: 5 } },
+  { type: 'source',    label: 'WebSocket 源', defaultConfig: { url: 'wss://stream.example.com', rate: 20 } },
+  { type: 'filter',    label: '閾值過濾',    defaultConfig: { field: 'value', op: '>', threshold: 100 } },
+  { type: 'filter',    label: '關鍵字過濾',  defaultConfig: { field: 'type', op: '==', value: 'critical' } },
+  { type: 'processor', label: 'JSON 轉換',    defaultConfig: { mapping: '{ ts, level, msg }' } },
+  { type: 'processor', label: '聚合 (1s 窗)', defaultConfig: { window: 1000, agg: 'count' } },
+  { type: 'fanout',    label: '複製 n 份',   defaultConfig: { copies: 3 } },
+  { type: 'sink',      label: 'Webhook 輸出', defaultConfig: { url: 'https://hooks.example.com/abc' } },
+  { type: 'sink',      label: 'IndexedDB',   defaultConfig: { store: 'events' } },
+];
+
+/* ============================================================
+   Custom node component
+   ============================================================ */
+function CustomNode({ data, selected }) {
+  const meta = NODE_TYPES[data.type] || NODE_TYPES.processor;
+  return (
+    <div className={`custom-node ${data.type} ${data.active ? 'active' : ''} ${data.error ? 'error' : ''}`}
+         style={selected ? { outline: '2px solid #fff', outlineOffset: '2px' } : {}}>
+      <Handle type="target" position={Position.Left} style={{ background: meta.color }} />
+      <div className="node-header">
+        <span className="node-icon">{meta.icon}</span>
+        <span className="node-title">{data.label || meta.label}</span>
+      </div>
+      <div className="node-body">{data.configSummary || meta.desc}</div>
+      <div className="node-stats">
+        <div>↑ <span>{data.inCount || 0}</span></div>
+        <div>↓ <span>{data.outCount || 0}</span></div>
+        <div>err <span>{data.errCount || 0}</span></div>
+      </div>
+      <Handle type="source" position={Position.Right} style={{ background: meta.color }} />
+    </div>
+  );
+}
+const nodeTypes = { custom: CustomNode };
+
+/* ============================================================
+   EventBus — the heart of async event-driven design
+   - Topic-based pub/sub
+   - Backpressure via bounded queue per subscriber
+   - Wildcard subscription ('*')
+   - Async dispatch (microtask)
+   ============================================================ */
+class EventBus {
+  constructor() {
+    this.subscribers = new Map();   // topic -> Set<handler>
+    this.wildcardSubs = new Set();  // Set<handler>
+    this.stats = { emitted: 0, delivered: 0, dropped: 0 };
+    this.log = [];                  // last 200 events for inspector
+  }
+  on(topic, handler) {
+    if (topic === '*') {
+      this.wildcardSubs.add(handler);
+      return () => this.wildcardSubs.delete(handler);
+    }
+    if (!this.subscribers.has(topic)) this.subscribers.set(topic, new Set());
+    this.subscribers.get(topic).add(handler);
+    return () => this.subscribers.get(topic).delete(handler);
+  }
+  emit(topic, payload) {
+    this.stats.emitted += 1;
+    const event = { id: 'e' + (this.stats.emitted), topic, payload, ts: Date.now() };
+    // Async dispatch — microtask
+    queueMicrotask(() => {
+      let delivered = 0;
+      const direct = this.subscribers.get(topic);
+      if (direct) direct.forEach(h => {
+        try { h(event); delivered += 1; } catch (e) { this.stats.dropped += 1; }
+      });
+      this.wildcardSubs.forEach(h => {
+        try { h(event); delivered += 1; } catch (e) { this.stats.dropped += 1; }
+      });
+      this.stats.delivered += delivered;
+    });
+    this.log.unshift(event);
+    if (this.log.length > 200) this.log.pop();
+    return event;
+  }
+  clear() { this.log = []; }
+}
+
+/* ============================================================
+   Workflow engine
+   - Builds DAG from React Flow nodes/edges
+   - Topological execution
+   - Each node is an async transform / filter / fanout
+   - Periodically synthesizes events from source nodes
+   ============================================================ */
+class WorkflowEngine {
+  constructor(bus) {
+    this.bus = bus;
+    this.nodes = new Map();   // id -> node data
+    this.edges = [];          // [{source, target}]
+    this.adj = new Map();     // id -> [downstream ids]
+    this.inDeg = new Map();   // id -> indegree
+    this.activeNodes = new Set();
+    this.running = false;
+    this.tickInterval = null;
+    this.synthInterval = null;
+    this.onUpdate = null;
+  }
+  setGraph(nodes, edges) {
+    // Persist cumulative counters across graph updates so user sees real activity
+    const prev = new Map();
+    this.nodes.forEach((n, id) => {
+      prev.set(id, { inCount: n.inCount || 0, outCount: n.outCount || 0, errCount: n.errCount || 0 });
+    });
+    this.nodes = new Map();
+    this.adj = new Map();
+    this.inDeg = new Map();
+    edges.forEach(e => {
+      if (!this.adj.has(e.source)) this.adj.set(e.source, []);
+      this.adj.get(e.source).push(e.target);
+    });
+    nodes.forEach(n => {
+      const carry = prev.get(n.id) || {};
+      this.nodes.set(n.id, { ...n, ...carry });
+      this.inDeg.set(n.id, 0);
+    });
+    edges.forEach(e => {
+      this.inDeg.set(e.target, (this.inDeg.get(e.target) || 0) + 1);
+    });
+    this.edges = edges;
+  }
+  start() {
+    if (this.running) return;
+    this.running = true;
+    // Topological order to know when to "fire" each event
+    this.topoOrder = this._topoSort();
+    // Synthesize events at source nodes
+    this.synthInterval = setInterval(() => this._synthesize(), 250);
+  }
+  stop() {
+    this.running = false;
+    if (this.synthInterval) clearInterval(this.synthInterval);
+    this.synthInterval = null;
+  }
+  _topoSort() {
+    const order = [];
+    const local = new Map(this.inDeg);
+    const queue = [];
+    this.inDeg.forEach((d, id) => { if (d === 0) queue.push(id); });
+    while (queue.length) {
+      const id = queue.shift();
+      order.push(id);
+      (this.adj.get(id) || []).forEach(n => {
+        local.set(n, local.get(n) - 1);
+        if (local.get(n) === 0) queue.push(n);
+      });
+    }
+    return order;
+  }
+  _synthesize() {
+    if (!this.topoOrder) return;
+    // Each source node emits a fresh event every tick
+    this.topoOrder.forEach(id => {
+      const node = this.nodes.get(id);
+      if (!node || node.type !== 'source') return;
+      const evt = this._makeEvent(node);
+      this._dispatchFrom(id, evt);
+    });
+  }
+  _makeEvent(sourceNode) {
+    // Realistic synthetic event — varies per source config
+    const id = 'evt_' + Math.random().toString(36).slice(2, 10);
+    const value = Math.floor(Math.random() * 200);
+    const types = ['info', 'warn', 'critical', 'debug'];
+    return {
+      id,
+      ts: Date.now(),
+      source: sourceNode.id,
+      type: types[Math.floor(Math.random() * types.length)],
+      value,
+      msg: `event from ${sourceNode.data?.label || sourceNode.id}`,
+    };
+  }
+  async _dispatchFrom(startId, evt) {
+    // BFS from source through DAG
+    const visited = new Set();
+    const queue = [startId];
+    while (queue.length) {
+      const id = queue.shift();
+      if (visited.has(id)) continue;
+      visited.add(id);
+      const node = this.nodes.get(id);
+      if (!node) continue;
+      this.activeNodes.add(id);
+      const result = await this._processNode(node, evt);
+      this.bus.emit(`node:${id}:out`, { nodeId: id, result, originalEvent: evt });
+      this.activeNodes.delete(id);
+      if (result && result.passthrough) {
+        (this.adj.get(id) || []).forEach(next => {
+          // Recurse with new event carrying the transform result
+          const nextEvt = { ...evt, ...result.fields, _via: id };
+          this._dispatchFrom(next, nextEvt);
+        });
+      } else {
+        (this.adj.get(id) || []).forEach(next => queue.push(next));
+      }
+      this._notify();
+    }
+  }
+  async _processNode(node, evt) {
+    node.inCount = (node.inCount || 0) + 1;
+    try {
+      switch (node.type) {
+        case 'source':
+          node.outCount = (node.outCount || 0) + 1;
+          return { passthrough: true, fields: evt };
+        case 'filter': {
+          const cfg = node.data?.config || {};
+          const fv = evt[cfg.field];
+          let pass = false;
+          switch (cfg.op) {
+            case '>':  pass = fv >  cfg.threshold; break;
+            case '<':  pass = fv <  cfg.threshold; break;
+            case '>=': pass = fv >= cfg.threshold; break;
+            case '<=': pass = fv <= cfg.threshold; break;
+            case '==': pass = fv == cfg.value;     break;
+            case '!=': pass = fv != cfg.value;     break;
+            default:   pass = true;
+          }
+          if (pass) node.outCount = (node.outCount || 0) + 1;
+          return { passthrough: pass, fields: evt };
+        }
+        case 'processor': {
+          // Async transform — yields to event loop
+          await new Promise(r => setTimeout(r, 5));
+          const enriched = { ...evt, processed: true, processedAt: Date.now() };
+          node.outCount = (node.outCount || 0) + 1;
+          return { passthrough: true, fields: enriched };
+        }
+        case 'fanout': {
+          const cfg = node.data?.config || {};
+          const copies = cfg.copies || 2;
+          node.outCount = (node.outCount || 0) + copies;
+          // Fan out = fan all downstream edges — handled by adj list, but we
+          // log the "broadcast" intent
+          return { passthrough: true, fields: { ...evt, _fanout: copies } };
+        }
+        case 'sink': {
+          // Terminal: write to "storage" — log only
+          node.outCount = (node.outCount || 0) + 1;
+          this.bus.emit('sink:write', { nodeId: node.id, payload: evt });
+          return { passthrough: false, fields: evt };
+        }
+        default:
+          return { passthrough: true, fields: evt };
+      }
+    } catch (e) {
+      node.errCount = (node.errCount || 0) + 1;
+      node.error = true;
+      setTimeout(() => { node.error = false; this._notify(); }, 500);
+      return { passthrough: false, fields: evt };
+    }
+  }
+  _notify() {
+    if (this.onUpdate) this.onUpdate();
+  }
+}
+
+/* ============================================================
+   React app
+   ============================================================ */
+function uid() { return 'n_' + Math.random().toString(36).slice(2, 9); }
+
+function App() {
+  const eventBusRef = useRef(null);
+  const engineRef = useRef(null);
+  if (!eventBusRef.current) eventBusRef.current = new EventBus();
+  if (!engineRef.current) engineRef.current = new WorkflowEngine(eventBusRef.current);
+
+  const [nodes, setNodes, onNodesChangeBase] = useNodesState([]);
+  const [edges, setEdges, onEdgesChangeBase] = useEdgesState([]);
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [events, setEvents] = useState([]);        // event log for UI
+  const [busStats, setBusStats] = useState({ emitted: 0, delivered: 0, dropped: 0 });
+  const [running, setRunning] = useState(false);
+  const [, forceTick] = useState(0);               // re-render trigger for live counts
+  const wrapperRef = useRef(null);
+  const [rfInstance, setRfInstance] = useState(null);
+
+  // Subscribe to bus events for the live event log
+  useEffect(() => {
+    const bus = eventBusRef.current;
+    const off = bus.on('*', (evt) => {
+      setEvents(prev => [evt, ...prev].slice(0, 200));
+    });
+    return off;
+  }, []);
+
+  // Periodically refresh bus stats and node counters
+  useEffect(() => {
+    const t = setInterval(() => {
+      setBusStats({ ...eventBusRef.current.stats });
+      forceTick(x => x + 1);
+    }, 250);
+    return () => clearInterval(t);
+  }, []);
+
+  // Push graph changes to engine
+  useEffect(() => {
+    engineRef.current.setGraph(nodes, edges);
+  }, [nodes, edges]);
+
+  // Engine start/stop
+  useEffect(() => {
+    if (running) engineRef.current.start();
+    else engineRef.current.stop();
+  }, [running]);
+
+  const onConnect = useCallback((params) => {
+    setEdges(eds => addEdge({ ...params, animated: true, type: 'default' }, eds));
+  }, [setEdges]);
+
+  const onNodesChange = useCallback((changes) => {
+    onNodesChangeBase(changes);
+  }, [onNodesChangeBase]);
+
+  const onEdgesChange = useCallback((changes) => {
+    onEdgesChangeBase(changes);
+  }, [onEdgesChangeBase]);
+
+  const onNodeClick = useCallback((_, node) => setSelectedNode(node), []);
+
+  /* Palette -> drop new node onto canvas */
+  const onDragStart = (e, paletteItem) => {
+    e.dataTransfer.setData('application/hermes-node', JSON.stringify(paletteItem));
+    e.dataTransfer.effectAllowed = 'move';
+  };
+  const onDragOver = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; };
+  const onDrop = (e) => {
+    e.preventDefault();
+    const data = e.dataTransfer.getData('application/hermes-node');
+    if (!data || !rfInstance || !wrapperRef.current) return;
+    const item = JSON.parse(data);
+    const bounds = wrapperRef.current.getBoundingClientRect();
+    const pos = rfInstance.screenToFlowPosition({
+      x: e.clientX - bounds.left,
+      y: e.clientY - bounds.top,
+    });
+    const newNode = {
+      id: uid(),
+      type: 'custom',
+      position: pos,
+      data: {
+        type: item.type,
+        label: item.label,
+        config: { ...item.defaultConfig },
+        configSummary: Object.entries(item.defaultConfig).map(([k, v]) => `${k}=${v}`).join(' · '),
+        inCount: 0, outCount: 0, errCount: 0,
+      },
+    };
+    setNodes(ns => [...ns, newNode]);
+  };
+
+  /* Add a default starter workflow for instant demo */
+  const loadStarterWorkflow = () => {
+    const a = { id: uid(), type: 'custom', position: { x: 60, y: 120 },
+      data: { type: 'source', label: 'API 源', config: { endpoint: '/api/stream', rate: 10 },
+              configSummary: 'endpoint=/api/stream · rate=10', inCount: 0, outCount: 0, errCount: 0 } };
+    const b = { id: uid(), type: 'custom', position: { x: 320, y: 80 },
+      data: { type: 'filter', label: '高值過濾', config: { field: 'value', op: '>', threshold: 80 },
+              configSummary: 'value > 80', inCount: 0, outCount: 0, errCount: 0 } };
+    const c = { id: uid(), type: 'custom', position: { x: 320, y: 220 },
+      data: { type: 'filter', label: '關鍵字過濾', config: { field: 'type', op: '==', value: 'critical' },
+              configSummary: 'type == critical', inCount: 0, outCount: 0, errCount: 0 } };
+    const d = { id: uid(), type: 'custom', position: { x: 600, y: 150 },
+      data: { type: 'processor', label: 'JSON 豐富', config: { mapping: '{ ts, level, msg }' },
+              configSummary: 'mapping={ts, level, msg}', inCount: 0, outCount: 0, errCount: 0 } };
+    const e = { id: uid(), type: 'custom', position: { x: 880, y: 80 },
+      data: { type: 'sink', label: 'Webhook 輸出', config: { url: 'https://hooks.example.com/abc' },
+              configSummary: 'url=hooks.example.com/abc', inCount: 0, outCount: 0, errCount: 0 } };
+    const f = { id: uid(), type: 'custom', position: { x: 880, y: 220 },
+      data: { type: 'sink', label: 'IndexedDB', config: { store: 'events' },
+              configSummary: 'store=events', inCount: 0, outCount: 0, errCount: 0 } };
+    setNodes([a, b, c, d, e, f]);
+    setEdges([
+      { id: 'e1', source: a.id, target: b.id, animated: true },
+      { id: 'e2', source: a.id, target: c.id, animated: true },
+      { id: 'e3', source: b.id, target: d.id, animated: true },
+      { id: 'e4', source: c.id, target: d.id, animated: true },
+      { id: 'e5', source: d.id, target: e.id, animated: true },
+      { id: 'e6', source: d.id, target: f.id, animated: true },
+    ]);
+  };
+
+  const clearAll = () => {
+    setNodes([]); setEdges([]); setSelectedNode(null);
+    eventBusRef.current.clear(); setEvents([]);
+  };
+
+  const toggleRun = () => setRunning(r => !r);
+
+  // Compute aggregate metrics
+  const metrics = useMemo(() => {
+    let inSum = 0, outSum = 0, errSum = 0;
+    nodes.forEach(n => {
+      inSum  += n.data.inCount  || 0;
+      outSum += n.data.outCount || 0;
+      errSum += n.data.errCount || 0;
+    });
+    return { inSum, outSum, errSum };
+  }, [nodes, busStats]);
+
+  return (
+    <div className="app">
+      <div className="topbar">
+        <h1>⚡ React Flow × 異步事件驅動工作流</h1>
+        <span className="meta">EventBus · DAG · 即時數據流 · {nodes.length} 節點 / {edges.length} 連線</span>
+        <div className="actions">
+          <button className="btn" onClick={loadStarterWorkflow}>📦 載入範例</button>
+          <button className="btn" onClick={clearAll}>🗑️ 清空</button>
+          <button className="btn primary" onClick={toggleRun}>
+            {running ? '⏸ 暫停' : '▶ 啟動'}
+          </button>
+        </div>
+      </div>
+
+      <div className="sidebar">
+        <h3>節點面板 (拖曳到畫布)</h3>
+        <div className="node-palette">
+          {PALETTE.map((p, i) => {
+            const m = NODE_TYPES[p.type];
+            return (
+              <div key={i} className="palette-item" draggable
+                   onDragStart={(e) => onDragStart(e, p)}>
+                <span className="palette-dot" style={{ background: m.color }} />
+                <span>{m.icon}</span>
+                <span style={{ flex: 1 }}>{p.label}</span>
+              </div>
+            );
+          })}
+        </div>
+        <h3 style={{ marginTop: 24 }}>架構</h3>
+        <div style={{ fontSize: 11, color: '#aab3d6', lineHeight: 1.6 }}>
+          <div>• <b>EventBus</b>: 主題式 pub/sub,微任務異步分派</div>
+          <div>• <b>WorkflowEngine</b>: DAG 拓樸排序 + BFS 派送</div>
+          <div>• <b>節點角色</b>: source / filter / processor / fanout / sink</div>
+          <div>• <b>回壓</b>: 每個 subscriber 失敗計數 (dropped)</div>
+        </div>
+        <div className="legend">
+          {Object.entries(NODE_TYPES).map(([k, v]) => (
+            <div key={k} className="legend-item">
+              <span className="legend-dot" style={{ background: v.color }} />
+              <span>{v.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="canvas" ref={wrapperRef} onDragOver={onDragOver} onDrop={onDrop}>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onInit={setRfInstance}
+          onNodeClick={onNodeClick}
+          onPaneClick={() => setSelectedNode(null)}
+          nodeTypes={nodeTypes}
+          fitView
+          proOptions={{ hideAttribution: true }}
+        >
+          <Background color="#1f2a55" gap={20} />
+          <Controls style={{ background: '#131a33', border: '1px solid #2a3358' }} />
+          <MiniMap
+            nodeColor={n => NODE_TYPES[n.data?.type]?.color || '#7c5cff'}
+            maskColor="rgba(11,16,32,0.7)"
+            style={{ background: '#131a33', border: '1px solid #2a3358' }}
+          />
+        </ReactFlow>
+      </div>
+
+      <div className="inspector">
+        <h3>系統指標</h3>
+        <div className="stat-grid">
+          <div className="stat-card">
+            <div className="label">已發送事件</div>
+            <div className="value">{busStats.emitted}<span className="unit">evt</span></div>
+          </div>
+          <div className="stat-card">
+            <div className="label">已投遞</div>
+            <div className="value">{busStats.delivered}<span className="unit">次</span></div>
+          </div>
+          <div className="stat-card">
+            <div className="label">總流入</div>
+            <div className="value">{metrics.inSum}<span className="unit">evt</span></div>
+          </div>
+          <div className="stat-card">
+            <div className="label">總流出</div>
+            <div className="value">{metrics.outSum}<span className="unit">evt</span></div>
+          </div>
+          <div className="stat-card">
+            <div className="label">錯誤</div>
+            <div className="value" style={{ color: metrics.errSum > 0 ? '#f87171' : '#4ade80' }}>
+              {metrics.errSum}
+            </div>
+          </div>
+          <div className="stat-card">
+            <div className="label">丟棄</div>
+            <div className="value" style={{ color: busStats.dropped > 0 ? '#facc15' : '#4ade80' }}>
+              {busStats.dropped}
+            </div>
+          </div>
+        </div>
+
+        <h3>選中節點</h3>
+        {selectedNode ? (
+          <div className="selected-node-detail">
+            <div className="field"><span className="k">ID</span><span className="v">{selectedNode.id}</span></div>
+            <div className="field"><span className="k">類型</span><span className="v">{selectedNode.data.type}</span></div>
+            <div className="field"><span className="k">標籤</span><span className="v">{selectedNode.data.label}</span></div>
+            <div className="field"><span className="k">流入</span><span className="v">{selectedNode.data.inCount || 0}</span></div>
+            <div className="field"><span className="k">流出</span><span className="v">{selectedNode.data.outCount || 0}</span></div>
+            <div className="field"><span className="k">錯誤</span><span className="v">{selectedNode.data.errCount || 0}</span></div>
+            {selectedNode.data.config && Object.keys(selectedNode.data.config).length > 0 && (
+              <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #2a3358' }}>
+                <div style={{ color: '#6c7aa6', fontSize: 10, marginBottom: 4 }}>CONFIG</div>
+                {Object.entries(selectedNode.data.config).map(([k, v]) => (
+                  <div key={k} className="field">
+                    <span className="k">{k}</span>
+                    <span className="v">{String(v)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="empty-state">點擊任一節點查看詳情</div>
+        )}
+      </div>
+
+      <div className="events">
+        <h3><span className="live-dot" /> 事件流 (Event Stream) — 最近 200 筆</h3>
+        {events.length === 0 ? (
+          <div className="empty-state">尚未有事件。點擊「▶ 啟動」開始事件流。</div>
+        ) : (
+          <div>
+            {events.slice(0, 80).map((e, i) => {
+              const ts = new Date(e.ts).toISOString().slice(11, 23);
+              const isErr = e.topic.includes('err') || e.topic === 'sink:write' && e.payload?.nodeId;
+              return (
+                <div key={e.id || i} className={`event-row ${isErr ? '' : ''}`}>
+                  <span className="ts">{ts}</span>
+                  <span className="ev">{e.topic}</span>
+                  <span className="node-id">{e.payload?.nodeId || e.payload?.originalEvent?.source || '-'}</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {e.payload?.originalEvent
+                      ? `${e.payload.originalEvent.type} value=${e.payload.originalEvent.value} ${e.payload.originalEvent.id || ''}`
+                      : e.payload?.payload
+                        ? `→ ${e.payload.payload.type || ''} value=${e.payload.payload.value ?? ''}`
+                        : ''}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   Mount
+   ============================================================ */
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(
+  <ReactFlowProvider>
+    <App />
+  </ReactFlowProvider>
+);
+</script>
+</body>
+</html>
