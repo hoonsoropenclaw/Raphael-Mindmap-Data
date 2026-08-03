@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Playwright 跨瀏覽器 + 視覺回歸 — 互動 Demo</title>
+<style>
+  /* Glassmorphism 風格 — 從 skill #16 借鑑 */
+  :root {
+    --bg: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    --glass-bg: rgba(255, 255, 255, 0.08);
+    --glass-border: rgba(255, 255, 255, 0.18);
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+    --text: #f1f5f9;
+    --accent: #60a5fa;
+    --success: #34d399;
+    --danger: #f87171;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: -apple-system, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    background-attachment: fixed;
+    padding: 24px;
+  }
+  header { max-width: 960px; margin: 0 auto 24px; }
+  h1 { margin: 0 0 4px; font-size: 28px; letter-spacing: 0.5px; }
+  .subtitle { color: #94a3b8; font-size: 14px; }
+  main { max-width: 960px; margin: 0 auto; display: grid; gap: 20px; }
+  .glass {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: var(--glass-shadow);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  button {
+    background: rgba(96, 165, 250, 0.18);
+    color: var(--text);
+    border: 1px solid rgba(96, 165, 250, 0.5);
+    padding: 10px 18px;
+    border-radius: 10px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  button:hover { background: rgba(96, 165, 250, 0.32); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  #counter-card { display: grid; gap: 12px; }
+  .big-number { font-size: 42px; font-weight: 700; color: var(--accent); line-height: 1; }
+  .badge {
+    display: inline-block; padding: 4px 10px; border-radius: 999px;
+    font-size: 12px; font-weight: 600;
+    background: rgba(148, 163, 184, 0.2);
+    color: #cbd5e1;
+  }
+  .badge[data-state="passed"] { background: rgba(52, 211, 153, 0.2); color: var(--success); }
+  .badge[data-state="failed"] { background: rgba(248, 113, 113, 0.2); color: var(--danger); }
+  #theme-toggle { margin-left: auto; }
+  input[type="text"] {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 8px 12px;
+    font-size: 14px;
+    min-width: 200px;
+  }
+  ul#item-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+  ul#item-list li {
+    background: rgba(255, 255, 255, 0.04);
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+  }
+  footer { text-align: center; color: #64748b; font-size: 12px; margin-top: 24px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Playwright 跨瀏覽器 + 視覺回歸測試 Demo</h1>
+  <p class="subtitle">互動式 smoke 測試目標頁 — desktop / tablet / mobile 跨瀏覽器視覺回歸基準</p>
+</header>
+
+<main>
+  <section class="glass" data-testid="status-card">
+    <div class="row">
+      <span class="badge" id="check-status" data-state="idle" data-testid="check-status">Ready to run</span>
+      <button id="run-check" data-testid="run-check">Run smoke check</button>
+      <button id="reset-check" data-testid="reset-check">Reset</button>
+      <button id="theme-toggle" data-testid="theme-toggle">Toggle theme</button>
+    </div>
+  </section>
+
+  <section class="glass" id="counter-card" data-testid="counter-card">
+    <div class="row">
+      <span class="big-number" data-testid="counter-value">0</span>
+      <button id="counter-increment" data-testid="counter-increment">+1</button>
+      <button id="counter-decrement" data-testid="counter-decrement">-1</button>
+    </div>
+  </section>
+
+  <section class="glass" data-testid="todo-card">
+    <div class="row">
+      <input id="todo-input" data-testid="todo-input" type="text" placeholder="輸入項目後按 Enter" />
+      <button id="todo-add" data-testid="todo-add">Add</button>
+    </div>
+    <ul id="item-list" data-testid="item-list" style="margin-top: 12px;"></ul>
+  </section>
+</main>
+
+<footer>Learning task learning_1785796806_0 — Hermes 自動化產生</footer>
+
+<script>
+  // ── Smoke check 互動 ──
+  const status = document.getElementById('check-status');
+  const runBtn = document.getElementById('run-check');
+  const resetBtn = document.getElementById('reset-check');
+  let running = false;
+
+  runBtn.addEventListener('click', () => {
+    if (running) return;
+    running = true;
+    status.textContent = 'Running...';
+    status.dataset.state = 'running';
+    setTimeout(() => {
+      status.textContent = 'Smoke check passed';
+      status.dataset.state = 'passed';
+      running = false;
+    }, 300);
+  });
+
+  resetBtn.addEventListener('click', () => {
+    status.textContent = 'Ready to run';
+    status.dataset.state = 'idle';
+    running = false;
+  });
+
+  // ── Counter 互動 ──
+  const counterVal = document.querySelector('[data-testid="counter-value"]');
+  let counter = 0;
+  document.getElementById('counter-increment').addEventListener('click', () => {
+    counter += 1;
+    counterVal.textContent = String(counter);
+  });
+  document.getElementById('counter-decrement').addEventListener('click', () => {
+    counter -= 1;
+    counterVal.textContent = String(counter);
+  });
+
+  // ── Todo 互動 ──
+  const todoInput = document.getElementById('todo-input');
+  const todoAdd = document.getElementById('todo-add');
+  const itemList = document.getElementById('item-list');
+  function addTodo() {
+    const v = todoInput.value.trim();
+    if (!v) return;
+    const li = document.createElement('li');
+    li.textContent = v;
+    li.dataset.testid = 'item';
+    itemList.appendChild(li);
+    todoInput.value = '';
+  }
+  todoAdd.addEventListener('click', addTodo);
+  todoInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') addTodo(); });
+
+  // ── Theme 切換（用來驗 UI 狀態變化） ──
+  const themeBtn = document.getElementById('theme-toggle');
+  let dark = true;
+  themeBtn.addEventListener('click', () => {
+    dark = !dark;
+    document.body.style.background = dark
+      ? 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)'
+      : 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 50%, #cbd5e1 100%)';
+    document.body.style.color = dark ? '#f1f5f9' : '#0f172a';
+  });
+</script>
+</body>
+</html>

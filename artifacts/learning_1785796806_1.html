@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>async_crawler 儀表板 — 實戰觀察</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0b0e14;
+    --bg-2: #131720;
+    --bg-3: #1a1f2c;
+    --border: #2a3142;
+    --text: #e6e8ec;
+    --text-dim: #8b94a7;
+    --accent: #00d9ff;
+    --accent-2: #7c3aed;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --info: #3b82f6;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 24px;
+    min-height: 100vh;
+  }
+  .container { max-width: 1400px; margin: 0 auto; }
+  header {
+    text-align: center;
+    margin-bottom: 32px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  h1 {
+    font-size: 2.4rem;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 8px;
+  }
+  .subtitle { color: var(--text-dim); font-size: 0.95rem; }
+  .generated-at { color: var(--text-dim); font-size: 0.8rem; margin-top: 8px; font-family: monospace; }
+
+  .grid { display: grid; gap: 20px; margin-bottom: 24px; }
+  .grid-4 { grid-template-columns: repeat(4, 1fr); }
+  .grid-2 { grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 900px) {
+    .grid-4, .grid-2 { grid-template-columns: 1fr; }
+  }
+
+  .card {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    transition: transform 0.2s, border-color 0.2s;
+  }
+  .card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .card-label { color: var(--text-dim); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+  .card-value { font-size: 2rem; font-weight: 700; color: var(--text); font-family: 'SF Mono', Menlo, monospace; }
+  .card-sub { color: var(--text-dim); font-size: 0.85rem; margin-top: 4px; }
+
+  .stat-ok { color: var(--success); }
+  .stat-warn { color: var(--warning); }
+  .stat-err { color: var(--danger); }
+  .stat-info { color: var(--info); }
+
+  .panel {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  .panel-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 16px;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel-title::before {
+    content: '';
+    width: 4px;
+    height: 18px;
+    background: linear-gradient(180deg, var(--accent), var(--accent-2));
+    border-radius: 2px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    color: var(--text-dim);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+  }
+  tr:hover td { background: var(--bg-3); }
+  code {
+    background: var(--bg-3);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    color: var(--accent);
+  }
+
+  .pill {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .pill-200 { background: rgba(16, 185, 129, 0.15); color: var(--success); }
+  .pill-302 { background: rgba(245, 158, 11, 0.15); color: var(--warning); }
+  .pill-4xx, .pill-5xx { background: rgba(239, 68, 68, 0.15); color: var(--danger); }
+  .pill-0 { background: rgba(139, 148, 167, 0.15); color: var(--text-dim); }
+
+  .chart-wrap { position: relative; height: 280px; }
+  .chart-wrap-sm { height: 200px; }
+
+  .config-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+  }
+  .config-item {
+    background: var(--bg-3);
+    padding: 12px 14px;
+    border-radius: 8px;
+    border-left: 3px solid var(--accent);
+  }
+  .config-name { color: var(--text-dim); font-size: 0.75rem; }
+  .config-value { color: var(--text); font-weight: 600; font-family: monospace; margin-top: 2px; }
+
+  .timeline { position: relative; padding-left: 24px; }
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--border);
+  }
+  .timeline-item {
+    position: relative;
+    padding: 8px 0;
+    font-size: 0.85rem;
+  }
+  .timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -20px;
+    top: 14px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--bg);
+  }
+  .timeline-item.retry::before { background: var(--warning); }
+  .timeline-item .ts { color: var(--text-dim); font-family: monospace; font-size: 0.8rem; }
+  .timeline-item .msg { color: var(--text); margin-top: 2px; }
+
+  footer {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    margin-top: 40px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>🐙 async_crawler 儀表板</h1>
+    <p class="subtitle">asyncio + retry/backoff + LRU cache + URL frontier — 實戰觀察</p>
+    <p class="generated-at">Generated: <span id="generated-at"></span></p>
+  </header>
+
+  <!-- 關鍵指標卡 -->
+  <div class="grid grid-4">
+    <div class="card">
+      <div class="card-label">總請求數</div>
+      <div class="card-value" id="kpi-total">0</div>
+      <div class="card-sub">含重試</div>
+    </div>
+    <div class="card">
+      <div class="card-label">成功率</div>
+      <div class="card-value stat-ok" id="kpi-success-rate">0%</div>
+      <div class="card-sub" id="kpi-success-sub">0 / 0</div>
+    </div>
+    <div class="card">
+      <div class="card-label">平均延遲</div>
+      <div class="card-value stat-info" id="kpi-avg">0 ms</div>
+      <div class="card-sub">P95: <span id="kpi-p95">0 ms</span></div>
+    </div>
+    <div class="card">
+      <div class="card-label">吞吐量</div>
+      <div class="card-value stat-warn" id="kpi-rps">0</div>
+      <div class="card-sub">requests / sec</div>
+    </div>
+  </div>
+
+  <!-- 緩存 + 重試 + frontier 副指標 -->
+  <div class="grid grid-4">
+    <div class="card">
+      <div class="card-label">緩存命中率</div>
+      <div class="card-value stat-ok" id="kpi-cache-rate">0%</div>
+      <div class="card-sub" id="kpi-cache-sub">0 hits / 0 lookups</div>
+    </div>
+    <div class="card">
+      <div class="card-label">重試總次數</div>
+      <div class="card-value stat-warn" id="kpi-retries">0</div>
+      <div class="card-sub">自動恢復</div>
+    </div>
+    <div class="card">
+      <div class="card-label">URL 去重</div>
+      <div class="card-value stat-info" id="kpi-dedup">0</div>
+      <div class="card-sub">重複 URL 被拒</div>
+    </div>
+    <div class="card">
+      <div class="card-label">資料傳輸</div>
+      <div class="card-value" id="kpi-bytes">0 KB</div>
+      <div class="card-sub">原始 body</div>
+    </div>
+  </div>
+
+  <!-- 圖表區 -->
+  <div class="grid grid-2">
+    <div class="panel">
+      <div class="panel-title">📊 HTTP 狀態碼分佈</div>
+      <div class="chart-wrap"><canvas id="status-chart"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">💾 緩存狀態</div>
+      <div class="chart-wrap"><canvas id="cache-chart"></canvas></div>
+    </div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="panel">
+      <div class="panel-title">⏱️ 重試時間軸（每次失敗 → 等待 → 重試）</div>
+      <div class="chart-wrap-sm"><canvas id="retry-chart"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">🚦 Frontier 流量</div>
+      <div class="chart-wrap-sm"><canvas id="frontier-chart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- 已爬頁面清單 -->
+  <div class="panel">
+    <div class="panel-title">📄 已爬頁面（成功）</div>
+    <table>
+      <thead>
+        <tr>
+          <th>URL</th>
+          <th>標題</th>
+          <th>萃取連結</th>
+          <th>文字預覽</th>
+        </tr>
+      </thead>
+      <tbody id="pages-tbody"></tbody>
+    </table>
+  </div>
+
+  <!-- 重試事件 -->
+  <div class="panel">
+    <div class="panel-title">🔁 重試事件</div>
+    <table>
+      <thead>
+        <tr><th>#</th><th>URL</th><th>錯誤類型</th><th>訊息</th><th>等待 (s)</th></tr>
+      </thead>
+      <tbody id="retries-tbody"></tbody>
+    </table>
+  </div>
+
+  <!-- 套用配置 -->
+  <div class="panel">
+    <div class="panel-title">⚙️ 套用配置</div>
+    <div class="config-grid" id="config-grid"></div>
+  </div>
+
+  <!-- 程式碼範例 -->
+  <div class="panel">
+    <div class="panel-title">💻 使用範例</div>
+    <pre style="background: var(--bg-3); padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 0.85rem; line-height: 1.5;"><code>
+import asyncio
+from async_crawler import AsyncCrawler, CrawlerConfig, RetryPolicy
+
+async def main():
+    config = CrawlerConfig(
+        max_concurrency=8,
+        rate_per_sec=10.0,
+        max_pages=50,
+        timeout_sec=15.0,
+        cache_max_size=1024,
+        cache_disk_path="./cache.jsonl",
+        retry_policy=RetryPolicy(max_attempts=5, base_delay=0.5, max_delay=30.0, jitter=0.5),
+    )
+
+    async with AsyncCrawler(config) as crawler:
+        crawler.on_page = lambda p: print(p.title, p.url)
+        await crawler.crawl(["https://example.com", "https://example.org"])
+
+asyncio.run(main())
+    </code></pre>
+  </div>
+
+  <footer>
+    async_crawler v1.0.0 — asyncio + aiohttp + BeautifulSoup + aiofiles<br>
+    所有數據來自實際執行於本地測試 HTTP server 的真實結果
+  </footer>
+</div>
+
+<script>
+  const DATA = {"generated_at": 1785797209.3580027, "crawler_stats": {"elapsed_sec": 1.62, "total_requests": 8, "successful": 6, "failed": 2, "total_retries": 9, "total_bytes": 438, "avg_duration_ms": 409.12, "p95_duration_ms": 1544.15, "rps": 4.92, "status_codes": {"200": 6, "0": 2}, "errors_by_type": {"ClientResponseError": 2}}, "cache_stats": {"hits": 0, "misses": 8, "disk_hits": 0, "writes": 6, "evictions": 0, "expired": 0, "hit_rate": 0.0}, "frontier_stats": {"enqueued": 8, "dequeued": 8, "rejected_dup": 0, "rejected_invalid": 0, "max_concurrency": 6}, "config": {"max_concurrency": 6, "rate_per_sec": 0.0, "max_pages": 20, "timeout_sec": 5.0, "cache_max_size": 256, "retry_max_attempts": 4, "retry_base_delay": 0.15, "retry_max_delay": 2.0, "retry_jitter": 0.5}, "pages": [{"url": "http://127.0.0.1:33407/ok", "title": "", "n_links": 0, "text_preview": "OK"}, {"url": "http://127.0.0.1:33407/html", "title": "Test Page", "n_links": 4, "text_preview": "Test Page Hello This is a test page with a link to OK and a link to self and a link to bad . external"}, {"url": "http://127.0.0.1:33407/redirect", "title": "", "n_links": 0, "text_preview": "OK"}, {"url": "http://127.0.0.1:33407/flaky/b/2", "title": "", "n_links": 0, "text_preview": "flaky-b-ok"}, {"url": "http://127.0.0.1:33407/flaky/a/3", "title": "", "n_links": 0, "text_preview": "flaky-a-ok"}, {"url": "http://127.0.0.1:33407/flaky/c/4", "title": "", "n_links": 0, "text_preview": "flaky-c-ok"}], "retries": [{"attempt": 1, "exc": "ClientResponseError(503, message='Service Unavailable', url='http://127.0.0.1:33407/flaky/a/3')", "delay": 0.183}, {"attempt": 1, "exc": "ClientResponseError(503, message='Service Unavailable', url='http://127.0.0.1:33407/flaky/b/2')", "delay": 0.206}, {"attempt": 1, "exc": "ClientResponseError(503, message='Service Unavailable', url='http://127.0.0.1:33407/flaky/c/4')", "delay": 0.216}, {"attempt": 1, "exc": "ClientResponseError(503, message='Service Unavailable', url='http://127.0.0.1:33407/never')", "delay": 0.104}, {"attempt": 2, "exc": "ClientResponseError(503, message='Service Unavailable', url='http://127.0.0.1:33407/never')", "delay": 0.441}, {"attempt": 2, "exc": "ClientResponseError(503, message='Service Unavailable', url='http://127.0.0.1:33407/flaky/a/3')", "delay": 0.182}, {"attempt": 2, "exc": "ClientResponseError(503, message='Service Unavailable', url='http://127.0.0.1:33407/flaky/c/4')", "delay": 0.439}, {"attempt": 3, "exc": "ClientResponseError(503, message='Service Unavailable', url='http://127.0.0.1:33407/never')", "delay": 0.573}, {"attempt": 3, "exc": "ClientResponseError(503, message='Service Unavailable', url='http://127.0.0.1:33407/flaky/c/4')", "delay": 0.877}], "log": [{"ts": 1785797207.7375734, "type": "page", "url": "http://127.0.0.1:33407/ok", "title": ""}, {"ts": 1785797207.7385807, "type": "page", "url": "http://127.0.0.1:33407/html", "title": "Test Page"}, {"ts": 1785797207.7387795, "type": "retry", "attempt": 1, "exc": "503, message='Service Unavailable', url='http://127.0.0.1:33407/flaky/a/3'"}, {"ts": 1785797207.7388465, "type": "retry", "attempt": 1, "exc": "503, message='Service Unavailable', url='http://127.0.0.1:33407/flaky/b/2'"}, {"ts": 1785797207.7388983, "type": "retry", "attempt": 1, "exc": "503, message='Service Unavailable', url='http://127.0.0.1:33407/flaky/c/4'"}, {"ts": 1785797207.7389498, "type": "retry", "attempt": 1, "exc": "503, message='Service Unavailable', url='http://127.0.0.1:33407/never'"}, {"ts": 1785797207.7399015, "type": "page", "url": "http://127.0.0.1:33407/redirect", "title": ""}, {"ts": 1785797207.847097, "type": "retry", "attempt": 2, "exc": "503, message='Service Unavailable', url='http://127.0.0.1:33407/never'"}, {"ts": 1785797207.9248695, "type": "retry", "attempt": 2, "exc": "503, message='Service Unavailable', url='http://127.0.0.1:33407/flaky/a/3'"}, {"ts": 1785797207.948262, "type": "page", "url": "http://127.0.0.1:33407/flaky/b/2", "title": ""}, {"ts": 1785797207.9574428, "type": "retry", "attempt": 2, "exc": "503, message='Service Unavailable', url='http://127.0.0.1:33407/flaky/c/4'"}, {"ts": 1785797208.1109293, "type": "page", "url": "http://127.0.0.1:33407/flaky/a/3", "title": ""}, {"ts": 1785797208.2909696, "type": "retry", "attempt": 3, "exc": "503, message='Service Unavailable', url='http://127.0.0.1:33407/never'"}, {"ts": 1785797208.3994424, "type": "retry", "attempt": 3, "exc": "503, message='Service Unavailable', url='http://127.0.0.1:33407/flaky/c/4'"}, {"ts": 1785797209.2802784, "type": "page", "url": "http://127.0.0.1:33407/flaky/c/4", "title": ""}]};
+
+  // ---------- KPI ----------
+  document.getElementById('generated-at').textContent = new Date(DATA.generated_at * 1000).toLocaleString('zh-TW');
+  const cs = DATA.crawler_stats;
+  document.getElementById('kpi-total').textContent = cs.total_requests;
+  const sr = cs.total_requests ? Math.round(cs.successful / cs.total_requests * 100) : 0;
+  document.getElementById('kpi-success-rate').textContent = sr + '%';
+  document.getElementById('kpi-success-sub').textContent = cs.successful + ' / ' + cs.total_requests;
+  document.getElementById('kpi-avg').textContent = cs.avg_duration_ms.toFixed(1) + ' ms';
+  document.getElementById('kpi-p95').textContent = cs.p95_duration_ms.toFixed(1) + ' ms';
+  document.getElementById('kpi-rps').textContent = cs.rps.toFixed(2);
+  const cache = DATA.cache_stats;
+  document.getElementById('kpi-cache-rate').textContent = (cache.hit_rate * 100).toFixed(1) + '%';
+  document.getElementById('kpi-cache-sub').textContent = cache.hits + ' hits / ' + (cache.hits + cache.misses) + ' lookups';
+  document.getElementById('kpi-retries').textContent = cs.total_retries;
+  document.getElementById('kpi-dedup').textContent = DATA.frontier_stats.rejected_dup;
+  document.getElementById('kpi-bytes').textContent = (cs.total_bytes / 1024).toFixed(1) + ' KB';
+
+  // ---------- Charts ----------
+  const chartColors = {
+    success: '#10b981',
+    warn: '#f59e0b',
+    danger: '#ef4444',
+    info: '#3b82f6',
+    accent: '#00d9ff',
+    accent2: '#7c3aed',
+  };
+
+  // 狀態碼分佈
+  const statusEntries = Object.entries(cs.status_codes).sort((a, b) => a[0] - b[0]);
+  const statusLabels = statusEntries.map(([k, v]) => k);
+  const statusValues = statusEntries.map(([k, v]) => v);
+  const statusColors = statusLabels.map(s => {
+    const n = parseInt(s);
+    if (n === 200) return chartColors.success;
+    if (n >= 300 && n < 400) return chartColors.warn;
+    if (n >= 400) return chartColors.danger;
+    return chartColors.info;
+  });
+
+  new Chart(document.getElementById('status-chart'), {
+    type: 'doughnut',
+    data: {
+      labels: statusLabels.map(s => s + ' (' + (statusValues[statusLabels.indexOf(s)]) + ')'),
+      datasets: [{
+        data: statusValues,
+        backgroundColor: statusColors,
+        borderColor: '#131720',
+        borderWidth: 2,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'right', labels: { color: '#e6e8ec' } },
+      },
+    },
+  });
+
+  // 緩存狀態
+  new Chart(document.getElementById('cache-chart'), {
+    type: 'bar',
+    data: {
+      labels: ['記憶體命中', '磁碟命中', 'Miss', '寫入', '淘汰', '過期'],
+      datasets: [{
+        label: '筆數',
+        data: [cache.hits - cache.disk_hits, cache.disk_hits, cache.misses, cache.writes, cache.evictions, cache.expired],
+        backgroundColor: [
+          chartColors.success, chartColors.info, chartColors.warn,
+          chartColors.accent, chartColors.danger, '#8b94a7',
+        ],
+        borderRadius: 6,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#8b94a7' }, grid: { color: '#2a3142' } },
+        y: { ticks: { color: '#8b94a7' }, grid: { color: '#2a3142' }, beginAtZero: true },
+      },
+    },
+  });
+
+  // 重試時間軸
+  if (DATA.retries.length > 0) {
+    new Chart(document.getElementById('retry-chart'), {
+      type: 'line',
+      data: {
+        labels: DATA.retries.map(r => '#' + r.attempt),
+        datasets: [{
+          label: '等待秒數',
+          data: DATA.retries.map(r => r.delay),
+          borderColor: chartColors.warn,
+          backgroundColor: 'rgba(245, 158, 11, 0.15)',
+          tension: 0.3,
+          fill: true,
+          pointRadius: 6,
+          pointHoverRadius: 8,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#e6e8ec' } } },
+        scales: {
+          x: { ticks: { color: '#8b94a7' }, grid: { color: '#2a3142' } },
+          y: { ticks: { color: '#8b94a7' }, grid: { color: '#2a3142' }, beginAtZero: true, title: { display: true, text: 'seconds', color: '#8b94a7' } },
+        },
+      },
+    });
+  } else {
+    document.getElementById('retry-chart').parentElement.innerHTML = '<p style="color: var(--text-dim); text-align: center; padding: 40px;">本次任務無重試事件</p>';
+  }
+
+  // Frontier 流量
+  new Chart(document.getElementById('frontier-chart'), {
+    type: 'bar',
+    data: {
+      labels: ['加入', '取出', '去重拒', '無效拒'],
+      datasets: [{
+        label: '事件數',
+        data: [
+          DATA.frontier_stats.enqueued,
+          DATA.frontier_stats.dequeued,
+          DATA.frontier_stats.rejected_dup,
+          DATA.frontier_stats.rejected_invalid,
+        ],
+        backgroundColor: [chartColors.accent, chartColors.success, chartColors.warn, chartColors.danger],
+        borderRadius: 6,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#8b94a7' }, grid: { color: '#2a3142' } },
+        y: { ticks: { color: '#8b94a7' }, grid: { color: '#2a3142' }, beginAtZero: true },
+      },
+    },
+  });
+
+  // ---------- 頁面表 ----------
+  const pagesTbody = document.getElementById('pages-tbody');
+  DATA.pages.forEach(p => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><code>${p.url}</code></td>
+      <td>${p.title || '<span style="color: var(--text-dim)">(no title)</span>'}</td>
+      <td><span class="pill pill-200">${p.n_links}</span></td>
+      <td style="color: var(--text-dim); font-size: 0.85rem;">${p.text_preview}</td>
+    `;
+    pagesTbody.appendChild(tr);
+  });
+
+  // ---------- 重試表 ----------
+  const retriesTbody = document.getElementById('retries-tbody');
+  DATA.retries.forEach((r, i) => {
+    const tr = document.createElement('tr');
+    const urlMatch = r.exc.match(/url='([^']+)'/);
+    const url = urlMatch ? urlMatch[1] : '?';
+    const excType = r.exc.split('(')[0];
+    const msg = r.exc.split('message=\'')[1]?.split('\'')[0] || r.exc;
+    tr.innerHTML = `
+      <td>${i + 1}</td>
+      <td><code>${url}</code></td>
+      <td><span class="pill pill-5xx">${excType}</span></td>
+      <td style="color: var(--text-dim);">${msg}</td>
+      <td><strong>${r.delay.toFixed(3)}</strong></td>
+    `;
+    retriesTbody.appendChild(tr);
+  });
+
+  // ---------- 配置 ----------
+  const configGrid = document.getElementById('config-grid');
+  const configLabels = {
+    max_concurrency: '並發上限',
+    rate_per_sec: '速率限制 (req/s)',
+    max_pages: '頁數上限',
+    timeout_sec: '逾時秒數',
+    cache_max_size: '緩存容量',
+    retry_max_attempts: '最大重試次數',
+    retry_base_delay: '基礎延遲 (s)',
+    retry_max_delay: '最大延遲 (s)',
+    retry_jitter: 'Jitter 幅度',
+  };
+  Object.entries(DATA.config).forEach(([k, v]) => {
+    const div = document.createElement('div');
+    div.className = 'config-item';
+    div.innerHTML = `
+      <div class="config-name">${configLabels[k] || k}</div>
+      <div class="config-value">${v}</div>
+    `;
+    configGrid.appendChild(div);
+  });
+</script>
+</body>
+</html>

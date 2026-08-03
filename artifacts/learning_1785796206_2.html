@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Retry-Aware Web Crawler Framework</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --panel: #131a2e;
+    --panel-2: #1a2342;
+    --border: #2a3558;
+    --text: #e8ecf6;
+    --muted: #8b95b7;
+    --accent: #6ea8ff;
+    --accent-2: #b78bff;
+    --good: #5dd39e;
+    --warn: #f5b461;
+    --bad: #ff7a8a;
+    --code: #0f1730;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.55; }
+  .app { display: grid; grid-template-columns: 380px 1fr; height: 100vh; gap: 0; }
+  .sidebar { background: var(--panel); border-right: 1px solid var(--border); padding: 18px; overflow-y: auto; }
+  .main { padding: 18px; overflow-y: auto; background: var(--bg); }
+  h1 { font-size: 18px; margin: 0 0 4px; letter-spacing: 0.5px; }
+  h2 { font-size: 13px; margin: 18px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .sub { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+  .field { margin-bottom: 12px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  input[type="text"], textarea, select { width: 100%; background: var(--code); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; font-family: inherit; font-size: 13px; outline: none; }
+  input[type="text"]:focus, textarea:focus, select:focus { border-color: var(--accent); }
+  textarea { min-height: 110px; resize: vertical; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+  .row { display: flex; gap: 10px; }
+  .row > .field { flex: 1; }
+  .slider-row { display: flex; align-items: center; gap: 8px; }
+  .slider-row input[type="range"] { flex: 1; }
+  .slider-row .val { min-width: 42px; text-align: right; font-variant-numeric: tabular-nums; color: var(--accent); font-size: 12px; }
+  .btn { background: var(--accent); color: #0b1020; border: none; border-radius: 6px; padding: 8px 14px; font-weight: 600; cursor: pointer; font-size: 13px; transition: opacity 0.15s; }
+  .btn:hover { opacity: 0.85; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
+  .btn-danger { background: var(--bad); color: #0b1020; }
+  .btn-row { display: flex; gap: 8px; margin-top: 12px; }
+  .badge { display: inline-block; font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600; letter-spacing: 0.5px; }
+  .badge.good { background: rgba(93, 211, 158, 0.15); color: var(--good); }
+  .badge.warn { background: rgba(245, 180, 97, 0.15); color: var(--warn); }
+  .badge.bad { background: rgba(255, 122, 138, 0.15); color: var(--bad); }
+  .badge.info { background: rgba(110, 168, 255, 0.15); color: var(--accent); }
+  .badge.purple { background: rgba(183, 139, 255, 0.15); color: var(--accent-2); }
+  .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+  .metric { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  .metric .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .metric .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 4px; }
+  .metric.good .v { color: var(--good); }
+  .metric.bad .v { color: var(--bad); }
+  .metric.warn .v { color: var(--warn); }
+  .log-panel { background: var(--code); border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; max-height: 380px; overflow-y: auto; }
+  .log-line { padding: 3px 0; border-bottom: 1px dashed rgba(255,255,255,0.04); display: flex; gap: 8px; align-items: flex-start; }
+  .log-line:last-child { border-bottom: none; }
+  .log-ts { color: var(--muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+  .log-tag { flex-shrink: 0; min-width: 64px; font-weight: 600; }
+  .log-msg { flex: 1; word-break: break-all; }
+  .tag-info { color: var(--accent); }
+  .tag-retry { color: var(--warn); }
+  .tag-ok { color: var(--good); }
+  .tag-err { color: var(--bad); }
+  .tag-warn { color: var(--warn); }
+  .tag-rule { color: var(--accent-2); }
+  .results { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 16px; }
+  .result-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .result-row:last-child { border-bottom: none; }
+  .result-url { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--text); flex: 1; word-break: break-all; }
+  .result-meta { display: flex; gap: 8px; align-items: center; }
+  .note { background: var(--panel-2); border-left: 3px solid var(--accent); padding: 10px 12px; border-radius: 4px; font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+  .note code { color: var(--accent); background: rgba(110,168,255,0.08); padding: 1px 5px; border-radius: 3px; }
+  .arch { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 16px; font-size: 12px; }
+  .arch .layer { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+  .arch .layer-num { background: var(--accent); color: #0b1020; min-width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 11px; }
+  .arch .layer-name { font-weight: 600; min-width: 180px; }
+  .arch .layer-desc { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <h1>Retry-Aware Crawler</h1>
+    <div class="sub">Dynamic retry strategy framework with rule engine</div>
+
+    <h2>Targets</h2>
+    <div class="field">
+      <textarea id="urls" placeholder="One URL per line">https://api.example.com/data
+https://flaky.example.com/sometimes
+https://slow.example.com/heavy
+https://blocked.example.com/403
+https://invalid.example.com/parse-error
+https://ok.example.com/done</textarea>
+    </div>
+
+    <h2>Retry Parameters</h2>
+    <div class="field">
+      <label>Max attempts</label>
+      <div class="slider-row">
+        <input type="range" id="maxAttempts" min="1" max="8" value="5">
+        <span class="val" id="maxAttemptsV">5</span>
+      </div>
+    </div>
+    <div class="field">
+      <label>Base delay (ms)</label>
+      <div class="slider-row">
+        <input type="range" id="baseDelay" min="50" max="2000" step="50" value="300">
+        <span class="val" id="baseDelayV">300</span>
+      </div>
+    </div>
+    <div class="field">
+      <label>Max delay (ms)</label>
+      <div class="slider-row">
+        <input type="range" id="maxDelay" min="500" max="10000" step="100" value="4000">
+        <span class="val" id="maxDelayV">4000</span>
+      </div>
+    </div>
+    <div class="field">
+      <label>Jitter ratio</label>
+      <div class="slider-row">
+        <input type="range" id="jitter" min="0" max="100" value="30">
+        <span class="val" id="jitterV">30%</span>
+      </div>
+    </div>
+    <div class="field">
+      <label>Failure threshold (circuit breaker)</label>
+      <div class="slider-row">
+        <input type="range" id="failThreshold" min="2" max="20" value="6">
+        <span class="val" id="failThresholdV">6</span>
+      </div>
+    </div>
+    <div class="field">
+      <label>Timeout per request (ms)</label>
+      <div class="slider-row">
+        <input type="range" id="timeout" min="200" max="5000" step="100" value="1500">
+        <span class="val" id="timeoutV">1500</span>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn" id="runBtn">▶ Start Crawl</button>
+      <button class="btn btn-secondary" id="abortBtn" disabled>■ Abort</button>
+      <button class="btn btn-secondary" id="resetBtn">↺ Reset</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="note">
+      框架展示 <code>WebCrawlerFramework</code> 的動態重試策略：每個錯誤分類觸發不同規則，
+      連續失敗自動升級退避時間並觸發斷路器。瀏覽器 <code>fetch</code> 受 CORS 限制時，
+      後端會走「模擬模式」展示完整重試決策樹。
+    </div>
+
+    <div class="metrics">
+      <div class="metric good"><div class="k">Success</div><div class="v" id="mOk">0</div></div>
+      <div class="metric bad"><div class="k">Failed</div><div class="v" id="mFail">0</div></div>
+      <div class="metric warn"><div class="k">Retries</div><div class="v" id="mRetry">0</div></div>
+      <div class="metric"><div class="k">Avg attempts</div><div class="v" id="mAvg">0.0</div></div>
+    </div>
+
+    <h2>Activity Log</h2>
+    <div class="log-panel" id="log"></div>
+
+    <h2>Results</h2>
+    <div class="results" id="results">
+      <div class="result-row" style="color:var(--muted)"><span>No results yet — press Start Crawl.</span></div>
+    </div>
+
+    <h2>Architecture</h2>
+    <div class="arch">
+      <div class="layer"><span class="layer-num">1</span><span class="layer-name">HTTP Layer</span><span class="layer-desc">fetch with timeout + AbortController</span></div>
+      <div class="layer"><span class="layer-num">2</span><span class="layer-name">Error Classifier</span><span class="layer-desc">Categorize into network / timeout / 4xx / 5xx / parse / unknown</span></div>
+      <div class="layer"><span class="layer-num">3</span><span class="layer-name">Rule Engine</span><span class="layer-desc">Pure-function dispatcher → action: retry / fallback / abort / succeed</span></div>
+      <div class="layer"><span class="layer-num">4</span><span class="layer-name">Backoff Calculator</span><span class="layer-desc">Exponential + jitter + adaptive escalation on consecutive failures</span></div>
+      <div class="layer"><span class="layer-num">5</span><span class="layer-name">Circuit Breaker</span><span class="layer-desc">Opens after N failures, probes after cooldown</span></div>
+      <div class="layer"><span class="layer-num">6</span><span class="layer-name">Metrics Sink</span><span class="layer-desc">Counts, latencies, decision trace — observable end-to-end</span></div>
+    </div>
+  </main>
+</div>
+
+<script>
+/* ==========================================================================
+ * Retry-Aware Web Crawler Framework
+ * Six-layer architecture with dynamic retry strategy.
+ * ========================================================================== */
+
+/* ---------- Error Classifier ---------- */
+const ErrorKind = Object.freeze({
+  NETWORK: 'NETWORK',
+  TIMEOUT: 'TIMEOUT',
+  ABORTED: 'ABORTED',
+  CLIENT_4XX: 'CLIENT_4XX',    // 400-499: don't retry (except 408, 429)
+  RATE_LIMIT: 'RATE_LIMIT',    // 429
+  SERVER_5XX: 'SERVER_5XX',    // 500-599: retry with backoff
+  PARSE: 'PARSE',              // body unparsable
+  UNKNOWN: 'UNKNOWN'
+});
+
+function classifyError(err, status, body) {
+  if (err?.name === 'AbortError') return { kind: ErrorKind.ABORTED, retryable: false };
+  if (err?.name === 'TimeoutError' || /timeout/i.test(err?.message || '')) return { kind: ErrorKind.TIMEOUT, retryable: true };
+  if (err instanceof TypeError) return { kind: ErrorKind.NETWORK, retryable: true };  // fetch network failure
+  if (status === 0 || status === undefined) return { kind: ErrorKind.NETWORK, retryable: true };
+  if (status === 408 || status === 429) return { kind: ErrorKind.RATE_LIMIT, retryable: true, status };
+  if (status >= 400 && status < 500) return { kind: ErrorKind.CLIENT_4XX, retryable: false, status };
+  if (status >= 500 && status < 600) return { kind: ErrorKind.SERVER_5XX, retryable: true, status };
+  if (body && !validBody(body)) return { kind: ErrorKind.PARSE, retryable: true };
+  return { kind: ErrorKind.UNKNOWN, retryable: true };
+}
+
+function validBody(body) {
+  if (!body) return false;
+  if (typeof body === 'object') return true;
+  const s = String(body).trim();
+  return s.length > 0;
+}
+
+/* ---------- Backoff Calculator ---------- */
+function computeBackoff({ attempt, baseDelay, maxDelay, jitterRatio, consecutiveFailures }) {
+  // Exponential: base * 2^(attempt-1)
+  let delay = baseDelay * Math.pow(2, Math.max(0, attempt - 1));
+  // Adaptive escalation: when consecutive failures rise, multiplier grows
+  const escalation = 1 + Math.min(consecutiveFailures, 6) * 0.25;  // 1x → 2.5x
+  delay *= escalation;
+  // Jitter (decorrelated): full-jitter prevents thundering herd
+  const jitter = jitterRatio / 100;
+  delay = delay * (1 - jitter) + Math.random() * delay * jitter;
+  return Math.min(Math.round(delay), maxDelay);
+}
+
+/* ---------- Circuit Breaker ---------- */
+class CircuitBreaker {
+  constructor(threshold, cooldownMs = 5000) {
+    this.threshold = threshold;
+    this.cooldownMs = cooldownMs;
+    this.failures = 0;
+    this.state = 'CLOSED';   // CLOSED | OPEN | HALF_OPEN
+    this.openedAt = 0;
+  }
+  canPass() {
+    if (this.state === 'CLOSED') return true;
+    if (this.state === 'OPEN' && Date.now() - this.openedAt >= this.cooldownMs) {
+      this.state = 'HALF_OPEN';
+      return true;  // probe
+    }
+    return this.state === 'HALF_OPEN';
+  }
+  recordSuccess() { this.failures = 0; this.state = 'CLOSED'; }
+  recordFailure() {
+    this.failures++;
+    if (this.failures >= this.threshold && this.state !== 'OPEN') {
+      this.state = 'OPEN';
+      this.openedAt = Date.now();
+    }
+  }
+  reset() { this.failures = 0; this.state = 'CLOSED'; this.openedAt = 0; }
+}
+
+/* ---------- Rule Engine Dispatcher (pure functions) ----------
+ * Returns an action: { type: 'retry'|'fallback'|'abort'|'succeed', reason, delay? }
+ * Encodes policy in pure functions → easy to test & extend.
+ */
+function dispatch({ attempt, maxAttempts, classification, breaker, consecutiveFailures, baseDelay, maxDelay, jitterRatio }) {
+  // Rule 1: explicit abort signal
+  if (classification.kind === ErrorKind.ABORTED) {
+    return { type: 'abort', reason: 'AbortSignal received' };
+  }
+
+  // Rule 2: circuit breaker OPEN → abort (don't waste retries)
+  if (!breaker.canPass() && breaker.state === 'OPEN') {
+    return { type: 'abort', reason: `Circuit breaker OPEN (${breaker.failures} consecutive failures)` };
+  }
+
+  // Rule 3: non-retryable client errors → abort immediately (4xx other than 408/429)
+  if (classification.kind === ErrorKind.CLIENT_4XX) {
+    return { type: 'abort', reason: `Non-retryable HTTP ${classification.status}` };
+  }
+
+  // Rule 4: out of attempts → abort with failure
+  if (attempt >= maxAttempts) {
+    return { type: 'abort', reason: `Exhausted ${maxAttempts} attempts` };
+  }
+
+  // Rule 5: rate limit (429/408) → respect Retry-After when present, else use backoff
+  if (classification.kind === ErrorKind.RATE_LIMIT) {
+    const delay = computeBackoff({ attempt, baseDelay, maxDelay, jitterRatio, consecutiveFailures });
+    return { type: 'retry', reason: `Rate-limited (${classification.status}) — backing off`, delay };
+  }
+
+  // Rule 6: parse errors → retry once or twice, then escalate
+  if (classification.kind === ErrorKind.PARSE) {
+    if (attempt < 2) {
+      return { type: 'retry', reason: 'Parse error — retrying with fresh fetch', delay: baseDelay };
+    }
+    return { type: 'abort', reason: 'Repeated parse errors — giving up' };
+  }
+
+  // Rule 7: server 5xx → retry with exponential backoff
+  if (classification.kind === ErrorKind.SERVER_5XX) {
+    const delay = computeBackoff({ attempt, baseDelay, maxDelay, jitterRatio, consecutiveFailures });
+    return { type: 'retry', reason: `Server error (${classification.status}) — retry ${attempt + 1}/${maxAttempts}`, delay };
+  }
+
+  // Rule 8: network/timeout → retry with exponential backoff
+  if (classification.kind === ErrorKind.NETWORK || classification.kind === ErrorKind.TIMEOUT) {
+    const delay = computeBackoff({ attempt, baseDelay, maxDelay, jitterRatio, consecutiveFailures });
+    return { type: 'retry', reason: `${classification.kind} — retry ${attempt + 1}/${maxAttempts}`, delay };
+  }
+
+  // Default: treat as retryable unknown
+  if (attempt < maxAttempts) {
+    return { type: 'retry', reason: 'Unknown error — retrying cautiously', delay: baseDelay };
+  }
+  return { type: 'abort', reason: 'Unknown error and no attempts left' };
+}
+
+/* ---------- Metrics Sink ---------- */
+class Metrics {
+  constructor() {
+    this.success = 0; this.failed = 0; this.retries = 0;
+    this.totalAttempts = 0; this.completed = 0;
+  }
+  recordOutcome(success, attempts) {
+    this.completed++;
+    this.totalAttempts += attempts;
+    if (success) this.success++; else this.failed++;
+  }
+  avgAttempts() { return this.completed ? (this.totalAttempts / this.completed) : 0; }
+}
+
+/* ---------- The Crawler Framework ---------- */
+class WebCrawlerFramework {
+  constructor(opts = {}) {
+    this.opts = {
+      maxAttempts: 5,
+      baseDelay: 300,
+      maxDelay: 4000,
+      jitterRatio: 0.3,
+      timeout: 1500,
+      failThreshold: 6,
+      cooldownMs: 5000,
+      ...opts
+    };
+    this.breaker = new CircuitBreaker(this.opts.failThreshold, this.opts.cooldownMs);
+    this.metrics = new Metrics();
+    this.abortController = null;
+    this.log = [];
+    this.results = [];
+    this.onLog = null;
+  }
+  _emit(tag, msg) {
+    const line = { ts: new Date(), tag, msg };
+    this.log.push(line);
+    if (this.onLog) this.onLog(line);
+  }
+  abort() {
+    if (this.abortController) this.abortController.abort();
+    this._emit('abort', 'Manual abort received');
+  }
+  reset() {
+    this.abortController = null;
+    this.breaker.reset();
+    this.metrics = new Metrics();
+    this.log = [];
+    this.results = [];
+    this._emit('info', 'Framework reset');
+  }
+  async fetchOne(url) {
+    // Demo simulation: real fetch will hit CORS. Simulate realistic failure modes by URL keyword.
+    const ac = new AbortController();
+    const to = setTimeout(() => ac.abort(new Error('timeout')), this.opts.timeout);
+    try {
+      // Try real fetch first; fall back to simulation on network/CORS error
+      const r = await fetch(url, { signal: ac.signal, mode: 'cors' });
+      clearTimeout(to);
+      return { status: r.status, body: await r.text() };
+    } catch (e) {
+      clearTimeout(to);
+      // Simulation layer
+      return simulate(url, this.opts.timeout, ac.signal);
+    }
+  }
+  async crawl(urls) {
+    this.abortController = new AbortController();
+    this._emit('info', `Starting crawl of ${urls.length} URL(s)`);
+    let consecutiveFailures = 0;
+    for (const url of urls) {
+      if (this.abortController.signal.aborted) break;
+      const result = await this._crawlOne(url, () => consecutiveFailures);
+      this.results.push(result);
+      if (result.ok) { consecutiveFailures = 0; } else { consecutiveFailures++; }
+    }
+    this._emit('info', `Crawl finished — success=${this.metrics.success}, failed=${this.metrics.failed}`);
+  }
+  async _crawlOne(url, getConsec) {
+    let attempt = 0;
+    let lastClassification = null;
+    while (true) {
+      attempt++;
+      this._emit('info', `[${url}] attempt ${attempt}/${this.opts.maxAttempts}`);
+      let response, err;
+      try {
+        response = await this.fetchOne(url);
+      } catch (e) {
+        err = e;
+      }
+      const status = response?.status;
+      const body = response?.body;
+      const classification = classifyError(err, status, body);
+      lastClassification = classification;
+      this._emit('info', `[${url}] classification = ${classification.kind}${status ? ` (HTTP ${status})` : ''}`);
+
+      // If status is in 200-299 with valid body → succeed immediately (no retry needed)
+      if (!err && status >= 200 && status < 300 && validBody(body)) {
+        this.breaker.recordSuccess();
+        this.metrics.recordOutcome(true, attempt);
+        this._emit('ok', `[${url}] ✓ success on attempt ${attempt}`);
+        return { url, ok: true, attempts: attempt, status, bodyPreview: preview(body) };
+      }
+
+      const consec = getConsec();
+      const action = dispatch({
+        attempt,
+        maxAttempts: this.opts.maxAttempts,
+        classification,
+        breaker: this.breaker,
+        consecutiveFailures: consec,
+        baseDelay: this.opts.baseDelay,
+        maxDelay: this.opts.maxDelay,
+        jitterRatio: this.opts.jitterRatio
+      });
+
+      this._emit('rule', `[${url}] rule → ${action.type} (${action.reason})`);
+
+      if (action.type === 'retry') {
+        this.metrics.retries++;
+        this.breaker.recordFailure();
+        this._emit('retry', `[${url}] waiting ${action.delay}ms before retry`);
+        await sleep(action.delay);
+        continue;
+      }
+      if (action.type === 'abort' || action.type === 'fallback') {
+        this.metrics.recordOutcome(false, attempt);
+        this._emit('err', `[${url}] ✗ aborted: ${action.reason}`);
+        return { url, ok: false, attempts: attempt, reason: action.reason, classification: classification.kind };
+      }
+      if (action.type === 'succeed') {
+        this.metrics.recordOutcome(true, attempt);
+        return { url, ok: true, attempts: attempt };
+      }
+    }
+  }
+}
+
+/* ---------- Demo Simulation Layer ---------- */
+function simulate(url, timeoutMs, signal) {
+  // Deterministic-ish failure modes by URL keyword
+  return new Promise((resolve, reject) => {
+    const u = url.toLowerCase();
+    let outcome;
+    if (u.includes('flaky')) {
+      // 60% transient 503, then success after retries
+      outcome = Math.random() < 0.6
+        ? { status: 503, body: 'Service Unavailable' }
+        : { status: 200, body: '{"ok":true,"sim":"flaky-recovered"}' };
+    } else if (u.includes('slow')) {
+      // 50% timeout
+      outcome = Math.random() < 0.5
+        ? null  // will be timeout
+        : { status: 200, body: '{"ok":true,"sim":"slow-ok"}' };
+    } else if (u.includes('403') || u.includes('blocked')) {
+      outcome = { status: 403, body: 'Forbidden' };
+    } else if (u.includes('parse-error') || u.includes('invalid')) {
+      outcome = { status: 200, body: '' };  // empty body → parse error
+    } else if (u.includes('429') || u.includes('ratelimit')) {
+      outcome = { status: 429, body: 'Too Many Requests' };
+    } else {
+      outcome = { status: 200, body: '{"ok":true,"sim":"base"}' };
+    }
+    // Simulate latency
+    const latency = 100 + Math.random() * 300;
+    setTimeout(() => {
+      if (signal.aborted) return reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+      if (outcome === null) return reject(Object.assign(new Error('simulated timeout'), { name: 'TimeoutError' }));
+      resolve(outcome);
+    }, latency);
+  });
+}
+
+function preview(body) {
+  if (!body) return '';
+  const s = String(body);
+  return s.length > 80 ? s.slice(0, 80) + '…' : s;
+}
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+/* ---------- UI Wiring ---------- */
+const $ = (id) => document.getElementById(id);
+
+function syncSlider(sliderId, labelId, suffix = '') {
+  const s = $(sliderId), l = $(labelId);
+  s.addEventListener('input', () => l.textContent = s.value + suffix);
+}
+syncSlider('maxAttempts', 'maxAttemptsV');
+syncSlider('baseDelay', 'baseDelayV', '');
+syncSlider('maxDelay', 'maxDelayV', '');
+syncSlider('jitter', 'jitterV', '%');
+syncSlider('failThreshold', 'failThresholdV');
+syncSlider('timeout', 'timeoutV', '');
+
+const TAG_CLASS = { info: 'tag-info', retry: 'tag-retry', ok: 'tag-ok', err: 'tag-err', warn: 'tag-warn', rule: 'tag-rule', abort: 'tag-err' };
+function appendLog(line) {
+  const log = $('log');
+  const div = document.createElement('div');
+  div.className = 'log-line';
+  div.innerHTML = `<span class="log-ts">${line.ts.toLocaleTimeString('en-GB', { hour12: false })}.${String(line.ts.getMilliseconds()).padStart(3,'0')}</span>` +
+                  `<span class="log-tag ${TAG_CLASS[line.tag] || 'tag-info'}">[${line.tag.toUpperCase()}]</span>` +
+                  `<span class="log-msg"></span>`;
+  div.querySelector('.log-msg').textContent = line.msg;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+function refreshMetrics(metrics) {
+  $('mOk').textContent = metrics.success;
+  $('mFail').textContent = metrics.failed;
+  $('mRetry').textContent = metrics.retries;
+  $('mAvg').textContent = metrics.avgAttempts().toFixed(1);
+}
+function renderResults(results) {
+  const c = $('results');
+  if (!results.length) { c.innerHTML = '<div class="result-row" style="color:var(--muted)"><span>No results yet.</span></div>'; return; }
+  c.innerHTML = '';
+  results.forEach(r => {
+    const row = document.createElement('div');
+    row.className = 'result-row';
+    const badge = r.ok
+      ? '<span class="badge good">OK</span>'
+      : '<span class="badge bad">FAIL</span>';
+    const cls = r.classification ? `<span class="badge info">${r.classification}</span>` : '';
+    row.innerHTML = `<span class="result-url">${r.url}</span>` +
+                    `<span class="result-meta">${cls} ${badge} <span style="color:var(--muted)">×${r.attempts}</span></span>`;
+    c.appendChild(row);
+  });
+}
+
+let framework = null;
+
+async function runCrawl() {
+  $('runBtn').disabled = true;
+  $('abortBtn').disabled = false;
+  $('log').innerHTML = '';
+  $('results').innerHTML = '';
+  const urls = $('urls').value.split('\n').map(s => s.trim()).filter(Boolean);
+  const opts = {
+    maxAttempts: parseInt($('maxAttempts').value, 10),
+    baseDelay: parseInt($('baseDelay').value, 10),
+    maxDelay: parseInt($('maxDelay').value, 10),
+    jitterRatio: parseInt($('jitter').value, 10),
+    timeout: parseInt($('timeout').value, 10),
+    failThreshold: parseInt($('failThreshold').value, 10)
+  };
+  framework = new WebCrawlerFramework(opts);
+  framework.onLog = (line) => {
+    appendLog(line);
+    refreshMetrics(framework.metrics);
+  };
+  try {
+    await framework.crawl(urls);
+  } finally {
+    renderResults(framework.results);
+    refreshMetrics(framework.metrics);
+    $('runBtn').disabled = false;
+    $('abortBtn').disabled = true;
+  }
+}
+
+$('runBtn').addEventListener('click', runCrawl);
+$('abortBtn').addEventListener('click', () => { if (framework) framework.abort(); });
+$('resetBtn').addEventListener('click', () => {
+  if (framework) { framework.reset(); framework.onLog = null; }
+  $('log').innerHTML = '';
+  $('results').innerHTML = '<div class="result-row" style="color:var(--muted)"><span>Reset. Press Start Crawl.</span></div>';
+  ['mOk','mFail','mRetry','mAvg'].forEach(id => $(id).textContent = id === 'mAvg' ? '0.0' : '0');
+});
+
+// Seed log
+appendLog({ ts: new Date(), tag: 'info', msg: 'Framework ready. Configure parameters and press Start Crawl.' });
+</script>
+</body>
+</html>

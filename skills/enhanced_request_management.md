@@ -1,14 +1,14 @@
-# Advanced Request Interception and Quality Assurance
+# Enhanced Request Management
 
 ## Overview
-This micro-skill focuses on advanced techniques for intercepting, controlling, and testing HTTP requests within web applications. It combines the use of `aiohttp` for asynchronous HTTP requests with robust error handling and Playwright for in-page `fetch` and `XHR` request interception. This comprehensive approach enhances system flexibility, reliability, and quality assurance.
+The `enhanced_request_management` micro-skill focuses on intercepting, controlling, and managing HTTP requests within web applications to enhance security and performance. This comprehensive approach integrates asynchronous HTTP handling with in-page request interception, robust error management, and seamless user interaction with the system environment.
 
 ## Key Techniques and Patterns
 
 ### 1. Advanced Request Interception
 
-#### Asynchronous HTTP Requests with `aiohttp`
-- **Description**: Utilize the `aiohttp` library to perform asynchronous HTTP requests, incorporating timeout controls to prevent requests from hanging indefinitely.
+#### 1.1 Asynchronous HTTP Requests with `aiohttp`
+- **Description**: Leverage the `aiohttp` library to perform non-blocking HTTP requests, incorporating timeout controls to prevent indefinite request hanging.
 - **Key Code Snippets and Patterns**:
     ```python
     import aiohttp
@@ -39,7 +39,7 @@ This micro-skill focuses on advanced techniques for intercepting, controlling, a
     - **Error**: Not handling exceptions, leading to potential crashes.
         - **Solution**: Use `try-except` blocks to catch and handle possible exceptions, such as `asyncio.TimeoutError` and other unforeseen errors.
 
-#### In-Page Fetch and XHR Interception with Playwright
+#### 1.2 In-Page Fetch and XHR Interception with Playwright
 - **Description**: Use Playwright to intercept and record `fetch` and `XHR` requests within a web page, capturing both request and response bodies.
 - **Key Code Snippets and Patterns**:
     ```javascript
@@ -74,7 +74,7 @@ This micro-skill focuses on advanced techniques for intercepting, controlling, a
 
 ### 2. Combining Request Interception with Error Handling
 
-#### Key Code Snippets and Patterns
+#### 2.1 Key Code Snippets and Patterns
 ```javascript
 app.use(async (req, res, next) => {
     try {
@@ -104,7 +104,7 @@ app.use(async (req, res, next) => {
 
 ### 3. Integration and Best Practices
 
-#### Combining `aiohttp` and Playwright
+#### 3.1 Combining `aiohttp` and Playwright
 - **Setup Playwright to Intercept Requests**:
     - Launch a browser context and navigate to the target page using Playwright.
     - Inject the interception script using `addInitScript` to capture `fetch` and `XHR` requests.
@@ -115,7 +115,7 @@ app.use(async (req, res, next) => {
     - Collect intercepted data from both `fetch` and `XHR` requests using the injected script.
     - Use `aiohttp` to handle any data processing or storage tasks as needed.
 
-#### Example Workflow
+#### 3.2 Example Workflow
 ```python
 import asyncio
 from playwright.async_api import async_playwright
@@ -164,5 +164,21 @@ asyncio.run(main())
 - **Secure Data Handling**: Ensure that intercepted data is handled securely, especially if it contains sensitive information.
 - **Resource Management**: Properly manage resources such as network connections and browser instances to avoid leaks and ensure efficient resource utilization.
 
+## Integration with User Message and Environment
+
+### 1. User Message Security and Priority Handling
+- **Detection and Prevention of Forged System-Level Instructions**: Identify and handle forged instructions by verifying sources and implementing multi-layered detection mechanisms.
+- **Priority Handling of User Messages**: Interpret message content and markers to determine priority and decide whether to interrupt the current task.
+- **Comprehensive Processing Flow**:
+    1. **Detection and Marking**: Scan messages to identify potential threats and mark high-priority messages.
+    2. **Security Protocol Triggering**: For suspected forged instructions, trigger security protocols.
+    3. **Priority Evaluation and Processing**: Assess message priority and take appropriate actions.
+    4. **Error Handling and Logging**: Log all detected attacks and processing steps for auditing and analysis.
+
+### 2. Headless Environment and iframe Integration for Seamless Automation
+- **Managing Headless Environments**: Use tools like `xvfb-run` and configure Godot for headless mode to enable rendering without a display.
+- **Integrating OAuth 2.0 Device Code Flow**: Handle device authorization flow in headless environments by initiating the flow, polling for authorization status, and securely handling tokens.
+- **Best Practices for Headless Development**: Implement resource management, error handling, performance optimization, and cross-platform compatibility to ensure robust headless operation.
+
 ## Summary
-By integrating `aiohttp` for asynchronous HTTP requests with timeout management and Playwright for in-page request interception, you can achieve advanced fetch interception and control. This approach, combined with robust error handling and best practices, ensures a more resilient and secure system, enhancing overall quality assurance.
+By integrating asynchronous HTTP handling with in-page request interception, robust error management, and seamless user interaction with the system environment, `enhanced_request_management` ensures a secure, efficient, and resilient system. This micro-skill combines advanced techniques and best practices to enhance overall system quality and performance.
