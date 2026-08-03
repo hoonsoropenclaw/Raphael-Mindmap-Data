@@ -1,0 +1,691 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>React Flow 動態工作流引擎 — RBAC + Performance + Extensibility</title>
+<style>
+/* ============================================================
+   Z-Index 管理（來自 advanced_react_flow_management §3）
+   - background 0  / container 1 / nodes-edges-viewport 2
+   - toolbar / overlay 拉到 10+ 才能壓在畫布上方
+   ============================================================ */
+:root{
+  --bg:#0a0c12;
+  --panel:#14171f;
+  --panel-2:#1b1f29;
+  --line:#262b36;
+  --fg:#e8ecf3;
+  --muted:#8a93a3;
+  --accent:#7c5cff;
+  --accent-2:#22d3ee;
+  --ok:#22c55e;
+  --warn:#f59e0b;
+  --bad:#ef4444;
+  --lock:#475569;
+  --shadow:0 6px 24px rgba(0,0,0,.45);
+  --radius:10px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang TC","Microsoft JhengHei",sans-serif}
+button{font:inherit;color:inherit;background:transparent;border:1px solid var(--line);padding:6px 10px;border-radius:8px;cursor:pointer;transition:background .15s,border-color .15s}
+button:hover{background:#1f2330;border-color:#3a4150}
+button.primary{background:linear-gradient(135deg,var(--accent),#5b4dff);border-color:transparent;color:#fff}
+button.primary:hover{filter:brightness(1.1)}
+button.danger{border-color:#3b1f24;color:#ff8a8a}
+button.danger:hover{background:#2a1518}
+select,input[type="text"],textarea{
+  background:#0e1118;color:var(--fg);border:1px solid var(--line);
+  border-radius:8px;padding:6px 10px;font:inherit;outline:none
+}
+textarea{resize:vertical;min-height:64px}
+hr{border:none;border-top:1px solid var(--line);margin:8px 0}
+
+#app{display:grid;grid-template-columns:280px 1fr 300px;height:100vh;min-height:0}
+@media (max-width: 1100px){ #app{grid-template-columns:1fr; grid-template-rows:auto 1fr auto} }
+
+/* ===== 左欄 ===== */
+.sidebar{background:var(--panel);border-right:1px solid var(--line);overflow:auto;padding:14px;min-height:0}
+.sidebar h2{margin:0 0 8px;font-size:13px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.role-card{padding:10px;border:1px solid var(--line);border-radius:var(--radius);background:var(--panel-2);margin-bottom:10px}
+.role-card .row{display:flex;justify-content:space-between;align-items:center;margin:4px 0;font-size:12px}
+.perm-on{color:var(--ok)}
+.perm-off{color:var(--bad)}
+.node-palette{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.palette-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px dashed var(--line);border-radius:8px;cursor:grab;user-select:none;background:#11141c}
+.palette-item:hover{border-color:var(--accent);background:#161a26}
+.palette-item .swatch{width:14px;height:14px;border-radius:4px;flex:0 0 auto}
+
+/* ===== 中欄:畫布 ===== */
+.canvas-wrap{position:relative;min-height:0}
+.react-flow__background{background-color:var(--bg);z-index:0 !important}
+.react-flow__background svg{pointer-events:none !important}
+.react-flow__container{pointer-events:auto !important;z-index:1 !important}
+.react-flow__nodes,.react-flow__edges,.react-flow__viewport{z-index:2 !important;position:relative}
+
+/* 工具列:浮在畫布上方,z-index 10 */
+.toolbar{position:absolute;top:12px;left:12px;z-index:10;display:flex;gap:6px;background:rgba(20,23,31,.85);backdrop-filter:blur(8px);padding:6px;border-radius:10px;border:1px solid var(--line);box-shadow:var(--shadow)}
+.toolbar .group{display:flex;gap:4px;padding-right:6px;border-right:1px solid var(--line)}
+.toolbar .group:last-child{border-right:none;padding-right:0}
+.toolbar label{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px;padding:0 6px}
+
+.stats{position:absolute;bottom:12px;left:12px;z-index:10;background:rgba(20,23,31,.85);backdrop-filter:blur(8px);padding:8px 12px;border-radius:10px;border:1px solid var(--line);font-size:12px;color:var(--muted);box-shadow:var(--shadow)}
+.stats b{color:var(--fg)}
+
+/* 浮動小地圖包到右下方 */
+.minimap-wrap{position:absolute;bottom:12px;right:12px;z-index:10;background:rgba(20,23,31,.85);backdrop-filter:blur(8px);padding:6px;border-radius:10px;border:1px solid var(--line);box-shadow:var(--shadow)}
+
+/* ===== 右欄:細節 + JSON ===== */
+.inspector{background:var(--panel);border-left:1px solid var(--line);overflow:auto;padding:14px;min-height:0}
+.inspector h2{margin:0 0 8px;font-size:13px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.kv{display:grid;grid-template-columns:90px 1fr;gap:6px 10px;margin:6px 0}
+.kv label{color:var(--muted);font-size:12px;align-self:center}
+.kv .val{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+.field{display:flex;flex-direction:column;gap:4px;margin-bottom:8px}
+.field label{font-size:12px;color:var(--muted)}
+.json-box{width:100%;height:200px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;background:#0e1118}
+
+/* ===== 自訂節點 ===== */
+.rf-node{
+  padding:10px 12px;border-radius:10px;border:1px solid var(--line);
+  background:var(--panel-2);color:var(--fg);min-width:160px;
+  box-shadow:var(--shadow);position:relative;
+  transition:transform .12s ease, border-color .12s ease;
+}
+.rf-node:hover{transform:translateY(-1px);border-color:#3a4150}
+.rf-node .head{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.rf-node .dot{width:10px;height:10px;border-radius:50%;flex:0 0 auto}
+.rf-node .title{font-weight:600;font-size:13px}
+.rf-node .meta{font-size:11px;color:var(--muted)}
+.rf-node.locked{opacity:.6;filter:grayscale(.3)}
+.rf-node.locked::after{
+  content:"🔒 唯讀";position:absolute;top:6px;right:8px;font-size:10px;
+  color:var(--warn);background:rgba(245,158,11,.12);padding:1px 6px;border-radius:999px;border:1px solid rgba(245,158,11,.35)
+}
+.rf-node.hidden-pii{filter:blur(5px);pointer-events:none;user-select:none}
+.rf-node .bar{height:3px;border-radius:3px;background:linear-gradient(90deg,var(--accent),var(--accent-2));margin-top:6px}
+
+/* 連線限制視覺化:把 disallowed 連線在 reconnect 過程中變紅 */
+.react-flow__edge.connectingfrom .react-flow__edge-path,
+.react-flow__connection-path{stroke:var(--bad) !important}
+
+/* 提示 toast */
+.toast{position:absolute;top:60px;left:50%;transform:translateX(-50%);z-index:20;background:rgba(20,23,31,.95);border:1px solid var(--line);padding:8px 14px;border-radius:8px;font-size:13px;box-shadow:var(--shadow);animation:fadein .2s}
+.toast.ok{border-color:#1f3a2a}
+.toast.bad{border-color:#3a1f22;color:#ff8a8a}
+@keyframes fadein{from{opacity:0;transform:translate(-50%,-6px)}to{opacity:1;transform:translate(-50%,0)}}
+</style>
+
+<!-- React 18 + ReactDOM UMD -->
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<!-- Babel for in-browser JSX (單檔 HTML 必要) -->
+<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+<!-- React Flow v11 (UMD,瀏覽器直跑) -->
+<script crossorigin src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css" />
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="env,react">
+const { useState, useMemo, useCallback, useEffect, useRef, memo } = React;
+const RF = window.ReactFlow;
+const {
+  ReactFlow, ReactFlowProvider, Background, Controls, MiniMap,
+  useNodesState, useEdgesState, addEdge, Handle, Position,
+  applyNodeChanges, applyEdgeChanges, MarkerType
+} = RF;
+
+/* ============================================================
+   §1  RBAC 模型（來自 advanced_react_flow_management §1）
+   ============================================================ */
+const ROLES = {
+  admin:    { name:'管理員',   perms:{ read:true,  write:true,  delete:true,  connect:true,  revealPII:true  } },
+  editor:   { name:'編輯者',   perms:{ read:true,  write:true,  delete:true,  connect:true,  revealPII:false } },
+  viewer:   { name:'檢視者',   perms:{ read:true,  write:false, delete:false, connect:false, revealPII:false } },
+  auditor:  { name:'稽核員',   perms:{ read:true,  write:false, delete:false, connect:false, revealPII:true  } },
+};
+const SENSITIVITY = {
+  public:   { readable:true,  writable:true,  deletable:true,  connectable:true,  pii:false, label:'公開' },
+  internal: { readable:true,  writable:true,  deletable:true,  connectable:true,  pii:false, label:'內部' },
+  private:  { readable:true,  writable:false, deletable:false, connectable:true,  pii:false, label:'機密' },
+  pii:      { readable:true,  writable:false, deletable:false, connectable:false, pii:true,  label:'PII' },
+};
+function checkAccess(role, node, action){
+  const p = ROLES[role].perms;
+  const s = SENSITIVITY[node?.data?.sensitivity ?? 'public'];
+  switch(action){
+    case 'read':       return p.read && s.readable;
+    case 'write':      return p.write && s.writable;
+    case 'delete':     return p.delete && s.deletable;
+    case 'connect':    return p.connect && s.connectable;
+    case 'revealPII':  return p.revealPII && s.pii;
+    default: return false;
+  }
+}
+
+/* ============================================================
+   §2  插件註冊表 — 可擴展節點類型
+   （本檔內建 4 種,可用 registerNodeType 動態新增）
+   ============================================================ */
+const NODE_TYPES_REGISTRY = {
+  task: {
+    label:'任務', color:'#7c5cff', sensitivity:'internal',
+    defaults:{ description:'', status:'todo' },
+    fields:[
+      { key:'description', label:'描述', type:'textarea' },
+      { key:'status',      label:'狀態', type:'select', options:['todo','doing','done','blocked'] },
+    ],
+  },
+  gate: {
+    label:'審核閘道', color:'#22d3ee', sensitivity:'private',
+    defaults:{ rule:'金額 > 10000' },
+    fields:[ { key:'rule', label:'規則', type:'text' } ],
+  },
+  data: {
+    label:'資料節點', color:'#22c55e', sensitivity:'public',
+    defaults:{ schema:'user_profile' },
+    fields:[ { key:'schema', label:'Schema', type:'text' } ],
+  },
+  pii: {
+    label:'PII 個資', color:'#ef4444', sensitivity:'pii',
+    defaults:{ mask:'身分證字號' },
+    fields:[ { key:'mask', label:'遮罩欄位', type:'text' } ],
+  },
+};
+function getNodeTypeMeta(type){ return NODE_TYPES_REGISTRY[type] || NODE_TYPES_REGISTRY.task; }
+function registerNodeType(type, meta){
+  if (!type || typeof type !== 'string') throw new Error('registerNodeType: type 必填');
+  NODE_TYPES_REGISTRY[type] = {
+    label: meta.label || type,
+    color: meta.color || '#7c5cff',
+    sensitivity: meta.sensitivity || 'internal',
+    defaults: meta.defaults || {},
+    fields: meta.fields || [],
+  };
+  if (window.__RF_SET_TYPES__) window.__RF_SET_TYPES__();
+}
+window.registerNodeType = registerNodeType;
+
+/* ============================================================
+   §3  自訂節點元件（RBAC 鎖/遮罩）
+   ============================================================ */
+const BaseNode = memo(function BaseNode({ id, data, selected }){
+  const meta = getNodeTypeMeta(data.type);
+  // role 由 FlowApp 透過 nodes[].data.__role 注入(見 renderedNodes)
+  const role = (data && data.__role) || 'editor';
+  const canWrite = checkAccess(role, { data }, 'write');
+  const canReveal = checkAccess(role, { data }, 'revealPII');
+  const isPii = data && data.sensitivity ? SENSITIVITY[data.sensitivity].pii : false;
+  const showMasked = isPii && !canReveal;
+  const cls = ['rf-node'];
+  if (!canWrite) cls.push('locked');
+  if (showMasked) cls.push('hidden-pii');
+  if (selected) cls.push('selected');
+  return (
+    <div className={cls.join(' ')} style={{ borderColor: selected ? meta.color : undefined }}>
+      <Handle type="target" position={Position.Left}  style={{ background: meta.color }} />
+      <div className="head">
+        <span className="dot" style={{ background: meta.color }} />
+        <span className="title">{meta.label}</span>
+      </div>
+      <div className="meta">{data.label || id}</div>
+      {showMasked
+        ? <div className="meta">•••••••••••</div>
+        : (data.description || data.rule || data.schema || data.mask
+            ? <div className="meta">{data.description || data.rule || data.schema || data.mask}</div>
+            : null)
+      }
+      <div className="bar" style={{ background: `linear-gradient(90deg, ${meta.color}, transparent)` }} />
+      <Handle type="source" position={Position.Right} style={{ background: meta.color }} />
+    </div>
+  );
+});
+
+const nodeTypes = { base: BaseNode };
+
+/* ============================================================
+   §4  工具列
+   ============================================================ */
+function Toolbar({ role, setRole, perfEnabled, setPerfEnabled, onAddNode, onFit, onExport, onImport, onStress, onReset }){
+  return (
+    <div className="toolbar">
+      <div className="group">
+        <label>角色</label>
+        <select value={role} onChange={e=>setRole(e.target.value)}>
+          {Object.entries(ROLES).map(([k,v])=><option key={k} value={k}>{v.name}</option>)}
+        </select>
+      </div>
+      <div className="group">
+        <label><input type="checkbox" checked={perfEnabled} onChange={e=>setPerfEnabled(e.target.checked)} /> onlyRenderVisible</label>
+      </div>
+      <div className="group">
+        <button onClick={onFit}>適配視窗</button>
+        <button onClick={onStress}>壓力測試</button>
+        <button onClick={onReset}>重置</button>
+      </div>
+      <div className="group">
+        <button onClick={onExport}>匯出 JSON</button>
+        <button onClick={()=>document.getElementById('import-file').click()}>匯入 JSON</button>
+        <input id="import-file" type="file" accept="application/json" hidden onChange={onImport} />
+      </div>
+      <div className="group">
+        <button className="primary" onClick={onAddNode}>＋ 新增節點</button>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   §5  側欄：節點面板 + 角色權限
+   ============================================================ */
+function Sidebar({ role, onAddByDrag }){
+  return (
+    <aside className="sidebar">
+      <h2>角色權限 (RBAC)</h2>
+      <div className="role-card">
+        <div style={{fontWeight:600,marginBottom:6}}>{ROLES[role].name}</div>
+        {Object.entries(ROLES[role].perms).map(([k,v])=>(
+          <div className="row" key={k}>
+            <span>{k}</span>
+            <span className={v?'perm-on':'perm-off'}>{v?'✓':'✕'}</span>
+          </div>
+        ))}
+      </div>
+      <h2>節點類型（拖曳到畫布）</h2>
+      <div className="node-palette">
+        {Object.entries(NODE_TYPES_REGISTRY).map(([type,meta])=>(
+          <div key={type} className="palette-item"
+               draggable
+               onDragStart={ev=>ev.dataTransfer.setData('application/rf-type', type)}>
+            <span className="swatch" style={{background:meta.color}}/>
+            <div>
+              <div style={{fontWeight:600}}>{meta.label}</div>
+              <div style={{fontSize:11,color:'var(--muted)'}}>敏感度:{SENSITIVITY[meta.sensitivity].label}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <hr/>
+      <h2>API：註冊新節點類型</h2>
+      <div style={{fontSize:12,color:'var(--muted)'}}>
+        在 console 執行：<br/>
+        <code style={{display:'block',background:'#0e1118',padding:6,borderRadius:6,marginTop:4}}>
+          registerNodeType('webhook', &#123;<br/>
+          &nbsp;&nbsp;label:'Webhook', color:'#f59e0b',<br/>
+          &nbsp;&nbsp;sensitivity:'internal',<br/>
+          &nbsp;&nbsp;defaults:&#123;url:'https://...'&#125;,<br/>
+          &nbsp;&nbsp;fields:[&#123;key:'url',label:'URL',type:'text'&#125;]<br/>
+          &#125;)
+        </code>
+      </div>
+    </aside>
+  );
+}
+
+/* ============================================================
+   §6  細節面板
+   ============================================================ */
+function Inspector({ selected, role, onPatch, onDelete }){
+  if (!selected){
+    return (
+      <aside className="inspector">
+        <h2>節點細節</h2>
+        <div style={{color:'var(--muted)'}}>請點選畫布上任一節點以檢視 / 編輯屬性。</div>
+        <hr/>
+        <h2>提示</h2>
+        <ul style={{paddingLeft:18,color:'var(--muted)'}}>
+          <li>用上方「＋ 新增節點」加入節點</li>
+          <li>從左欄拖曳節點類型到畫布</li>
+          <li>不同角色會看到鎖頭與 PII 遮罩效果</li>
+          <li>壓力測試按鈕一鍵產生 200 節點</li>
+          <li>匯出 / 匯入 JSON 把整張流程圖打包</li>
+        </ul>
+      </aside>
+    );
+  }
+  const meta = getNodeTypeMeta(selected.data.type);
+  const canWrite = checkAccess(role, { data:selected.data }, 'write');
+  const canDelete = checkAccess(role, { data:selected.data }, 'delete');
+  return (
+    <aside className="inspector">
+      <h2>節點細節</h2>
+      <div className="kv">
+        <label>ID</label><div className="val">{selected.id}</div>
+        <label>類型</label><div className="val">{meta.label}</div>
+        <label>敏感度</label><div className="val">{SENSITIVITY[selected.data.sensitivity].label}</div>
+        <label>權限</label><div className="val" style={{color:canWrite?'var(--ok)':'var(--bad)'}}>{canWrite?'可寫':'唯讀'}</div>
+      </div>
+      <hr/>
+      <div className="field">
+        <label>顯示名稱</label>
+        <input type="text" value={selected.data.label||''} disabled={!canWrite}
+               onChange={e=>onPatch(selected.id, { label:e.target.value })} />
+      </div>
+      {meta.fields.map(f=>(
+        <div className="field" key={f.key}>
+          <label>{f.label}</label>
+          {f.type==='textarea' && (
+            <textarea value={selected.data[f.key]||''} disabled={!canWrite}
+                      onChange={e=>onPatch(selected.id, {[f.key]:e.target.value})} />
+          )}
+          {f.type==='text' && (
+            <input type="text" value={selected.data[f.key]||''} disabled={!canWrite}
+                   onChange={e=>onPatch(selected.id, {[f.key]:e.target.value})} />
+          )}
+          {f.type==='select' && (
+            <select value={selected.data[f.key]||''} disabled={!canWrite}
+                    onChange={e=>onPatch(selected.id, {[f.key]:e.target.value})}>
+              {f.options.map(o=><option key={o} value={o}>{o}</option>)}
+            </select>
+          )}
+        </div>
+      ))}
+      <div className="field">
+        <label>敏感度</label>
+        <select value={selected.data.sensitivity} disabled={!canWrite}
+                onChange={e=>onPatch(selected.id, { sensitivity:e.target.value })}>
+          {Object.entries(SENSITIVITY).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+        </select>
+      </div>
+      <hr/>
+      <button className="danger" disabled={!canDelete} onClick={()=>onDelete(selected.id)}>刪除節點</button>
+      {!canWrite && <div style={{marginTop:8,fontSize:12,color:'var(--warn)'}}>目前角色 ({ROLES[role].name}) 對此節點無寫入權限,欄位已鎖定。</div>}
+    </aside>
+  );
+}
+
+/* ============================================================
+   §7  Toast
+   ============================================================ */
+function Toast({ msg }){
+  if (!msg) return null;
+  return <div className={`toast ${msg.kind||''}`}>{msg.text}</div>;
+}
+
+/* ============================================================
+   §8  Demo 種子資料
+   ============================================================ */
+const SEED = {
+  nodes: [
+    { id:'n1', type:'base', position:{x:40,  y:40},  data:{ type:'data',  label:'使用者來源',  schema:'signup_events',  sensitivity:'public' } },
+    { id:'n2', type:'base', position:{x:280, y:40},  data:{ type:'task',  label:'註冊驗證',    description:'email + OTP 驗證',   status:'doing', sensitivity:'internal' } },
+    { id:'n3', type:'base', position:{x:520, y:40},  data:{ type:'gate',  label:'KYC 審核',     rule:'年齡 >= 18 且證件有效',     sensitivity:'private' } },
+    { id:'n4', type:'base', position:{x:760, y:40},  data:{ type:'pii',   label:'個資儲存',    mask:'身分證字號',                sensitivity:'pii' } },
+    { id:'n5', type:'base', position:{x:520, y:240}, data:{ type:'task',  label:'寄送歡迎信',  description:'歡迎信件 + onboarding',  status:'todo',  sensitivity:'internal' } },
+    { id:'n6', type:'base', position:{x:40,  y:240}, data:{ type:'data',  label:'產品 DB',      schema:'products',                sensitivity:'internal' } },
+  ],
+  edges: [
+    { id:'e1', source:'n1', target:'n2', markerEnd:{type:MarkerType.ArrowClosed}, animated:true },
+    { id:'e2', source:'n2', target:'n3' },
+    { id:'e3', source:'n3', target:'n4' },
+    { id:'e4', source:'n2', target:'n5' },
+    { id:'e5', source:'n6', target:'n2' },
+  ],
+};
+
+/* ============================================================
+   §9  主元件
+   ============================================================ */
+function FlowApp(){
+  const [role, setRole]   = useState('editor');
+  const [perfEnabled, setPerfEnabled] = useState(false);
+  const [nodes, setNodes, onNodesChangeBase] = useNodesState(SEED.nodes);
+  const [edges, setEdges, onEdgesChangeBase] = useEdgesState(SEED.edges);
+  const [selectedId, setSelectedId] = useState(null);
+  const [toast, setToast]   = useState(null);
+  const toastTimer = useRef(null);
+  const wrapRef = useRef(null);
+  const idCounter = useRef(100);
+
+  // 給插件註冊用：當 registry 更新時,ReactFlow 才能感知新 nodeType
+  const [typesVersion, setTypesVersion] = useState(0);
+  useEffect(()=>{
+    window.__RF_SET_TYPES__ = () => setTypesVersion(v=>v+1);
+    return ()=>{ delete window.__RF_SET_TYPES__; };
+  },[]);
+  const liveNodeTypes = useMemo(()=>({ ...nodeTypes, _v: typesVersion }), [typesVersion]);
+  // 注意：ReactFlow 的 nodeTypes 是純物件對照,版本號只是觸發元件重渲
+
+  const flash = useCallback((text, kind)=>{
+    setToast({ text, kind });
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(()=>setToast(null), 2200);
+  },[]);
+
+  /* —— 節點變更 (包裝 useNodesState 以套 RBAC) —— */
+  const onNodesChange = useCallback((changes)=>{
+    // 阻擋 write 違規
+    const filtered = changes.filter(ch=>{
+      if (ch.type === 'position' && ch.dragging === false){
+        const node = nodes.find(n=>n.id===ch.id);
+        if (node && !checkAccess(role, { data:node.data }, 'write')) return false;
+      }
+      if (ch.type === 'remove'){
+        const node = nodes.find(n=>n.id===ch.id);
+        if (node && !checkAccess(role, { data:node.data }, 'delete')){
+          flash('此角色無刪除權限','bad');
+          return false;
+        }
+      }
+      return true;
+    });
+    onNodesChangeBase(filtered);
+  },[role, nodes, onNodesChangeBase, flash]);
+
+  const onEdgesChange = useCallback((changes)=>{
+    onEdgesChangeBase(changes);
+  },[onEdgesChangeBase]);
+
+  /* —— 連線:依 RBAC 決定能否新建 —— */
+  const onConnect = useCallback((params)=>{
+    const sourceNode = nodes.find(n=>n.id===params.source);
+    const targetNode = nodes.find(n=>n.id===params.target);
+    if (!sourceNode || !targetNode){ flash('找不到來源或目標節點','bad'); return; }
+    const sOK = checkAccess(role, { data:sourceNode.data }, 'connect');
+    const tOK = checkAccess(role, { data:targetNode.data }, 'connect');
+    if (!sOK || !tOK){ flash('此節點不可連線 (敏感度阻擋)','bad'); return; }
+    setEdges(es=>addEdge({ ...params, markerEnd:{type:MarkerType.ArrowClosed}, animated:true }, es));
+    flash('連線已建立','ok');
+  },[role, nodes, setEdges, flash]);
+
+  /* —— 點選 —— */
+  const onNodeClick = useCallback((_, node)=>setSelectedId(node.id), []);
+  const onPaneClick = useCallback(()=>setSelectedId(null), []);
+
+  /* —— 細節面板 patch —— */
+  const patchNode = useCallback((id, partial)=>{
+    setNodes(ns=>ns.map(n=>n.id===id ? { ...n, data:{ ...n.data, ...partial } } : n));
+  },[setNodes]);
+
+  const deleteNode = useCallback((id)=>{
+    setNodes(ns=>ns.filter(n=>n.id!==id));
+    setEdges(es=>es.filter(e=>e.source!==id && e.target!==id));
+    setSelectedId(null);
+    flash('節點已刪除','ok');
+  },[setNodes, setEdges, flash]);
+
+  /* —— 新增節點 —— */
+  const newId = ()=> 'n' + (++idCounter.current);
+  const addNodeAt = useCallback((type, x, y)=>{
+    const meta = getNodeTypeMeta(type);
+    const id = newId();
+    const node = {
+      id, type:'base', position:{ x, y },
+      data:{ type, label: meta.label, sensitivity: meta.sensitivity, ...meta.defaults },
+    };
+    setNodes(ns=>[...ns, node]);
+    setSelectedId(id);
+    flash(`新增 ${meta.label}`,'ok');
+  },[setNodes, flash]);
+
+  const onAddNode = useCallback(()=>{
+    addNodeAt('task', 80 + Math.random()*200, 80 + Math.random()*200);
+  },[addNodeAt]);
+
+  /* —— 拖入畫布 —— */
+  const onDragOver = useCallback(ev=>{ ev.preventDefault(); ev.dataTransfer.dropEffect='move'; },[]);
+  const onDrop = useCallback(ev=>{
+    ev.preventDefault();
+    const type = ev.dataTransfer.getData('application/rf-type');
+    if (!type) return;
+    const rect = wrapRef.current.getBoundingClientRect();
+    const pos = RF.ScreenToFlowPosition
+      ? null : null; // v11 沒有 ScreenToFlowPosition,自己換算
+    // 用 react-flow 提供的 project (在 ReactFlowProvider 內)
+    const x = ev.clientX - rect.left;
+    const y = ev.clientY - rect.top;
+    addNodeAt(type, x, y);
+  },[addNodeAt]);
+
+  /* —— 適配視窗 —— */
+  const rfRef = useRef(null);
+  const onFit = useCallback(()=>{
+    if (rfRef.current) rfRef.current.fitView({ padding:0.2, duration:300 });
+  },[]);
+
+  /* —— 壓力測試 —— */
+  const onStress = useCallback(()=>{
+    const TYPES = Object.keys(NODE_TYPES_REGISTRY);
+    const big = [];
+    const bigE = [];
+    for (let i=0;i<200;i++){
+      const t = TYPES[i % TYPES.length];
+      const meta = getNodeTypeMeta(t);
+      big.push({
+        id:'s'+i, type:'base',
+        position:{ x:(i%20)*160, y:Math.floor(i/20)*120 + 500 },
+        data:{ type:t, label: meta.label+'#'+i, sensitivity: meta.sensitivity, ...meta.defaults },
+      });
+      if (i>0) bigE.push({ id:'se'+(i-1), source:'s'+(i-1), target:'s'+i });
+    }
+    setNodes(ns=>[...ns, ...big]);
+    setEdges(es=>[...es, ...bigE]);
+    flash('已新增 200 個節點,測試虛擬化效能','ok');
+  },[setNodes, setEdges, flash]);
+
+  /* —— 重置 —— */
+  const onReset = useCallback(()=>{
+    setNodes(SEED.nodes);
+    setEdges(SEED.edges);
+    setSelectedId(null);
+    flash('已重置為預設工作流','ok');
+  },[setNodes, setEdges, flash]);
+
+  /* —— 匯出 / 匯入 —— */
+  const onExport = useCallback(()=>{
+    const payload = { version:1, exportedAt:new Date().toISOString(), nodes, edges };
+    const blob = new Blob([JSON.stringify(payload,null,2)], { type:'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'workflow.json'; a.click();
+    URL.revokeObjectURL(url);
+    flash('workflow.json 已下載','ok');
+  },[nodes, edges, flash]);
+
+  const onImport = useCallback(ev=>{
+    const f = ev.target.files?.[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      try{
+        const data = JSON.parse(reader.result);
+        if (!Array.isArray(data.nodes) || !Array.isArray(data.edges)) throw new Error('JSON 結構不正確');
+        setNodes(data.nodes);
+        setEdges(data.edges);
+        flash(`匯入成功 (${data.nodes.length} 節點 / ${data.edges.length} 連線)`,'ok');
+      }catch(err){
+        flash('匯入失敗:'+err.message,'bad');
+      }
+      ev.target.value = '';
+    };
+    reader.readAsText(f);
+  },[setNodes, setEdges, flash]);
+
+  /* —— 計算節點 view:RBAC 注入 —— */
+  const renderedNodes = useMemo(()=>
+    nodes.map(n=>({ ...n, data:{ ...n.data, __role:role } }))
+  ,[nodes, role]);
+
+  const selectedNode = useMemo(()=>nodes.find(n=>n.id===selectedId) || null, [nodes, selectedId]);
+
+  /* —— 統計 —— */
+  const stats = useMemo(()=>({
+    nodeCount: nodes.length,
+    edgeCount: edges.length,
+    typeCount: new Set(nodes.map(n=>n.data.type)).size,
+    piiCount: nodes.filter(n=>SENSITIVITY[n.data.sensitivity].pii).length,
+  }),[nodes, edges]);
+
+  return (
+    <div id="app">
+      <Sidebar role={role} />
+      <div className="canvas-wrap" ref={wrapRef} onDrop={onDrop} onDragOver={onDragOver}>
+        <ReactFlow
+          nodes={renderedNodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onNodeClick={onNodeClick}
+          onPaneClick={onPaneClick}
+          onInit={(inst)=>{ rfRef.current = inst; }}
+          onlyRenderVisibleElements={perfEnabled}
+          fitView
+          fitViewOptions={{ padding:0.2, maxZoom:1 }}
+          minZoom={0.1}
+          maxZoom={2}
+          defaultViewport={{ x:0, y:0, zoom:0.85 }}
+          proOptions={{ hideAttribution:true }}
+          connectionLineStyle={{ stroke:'#7c5cff', strokeWidth:2 }}
+          snapToGrid
+          snapGrid={[15,15]}
+        >
+          <Background color="#1a2030" gap={20} />
+          <Controls position="bottom-right" />
+          <MiniMap pannable zoomable nodeColor={n=>getNodeTypeMeta(n.data?.type||'task').color}
+                   nodeStrokeWidth={3} maskColor="rgba(10,12,18,.7)" position="bottom-right"
+                   style={{ display:'none' }} /* 用自訂浮動小地圖 */
+          />
+        </ReactFlow>
+        <Toolbar
+          role={role} setRole={setRole}
+          perfEnabled={perfEnabled} setPerfEnabled={setPerfEnabled}
+          onAddNode={onAddNode} onFit={onFit}
+          onExport={onExport} onImport={onImport}
+          onStress={onStress} onReset={onReset}
+        />
+        <div className="stats">
+          節點 <b>{stats.nodeCount}</b> · 連線 <b>{stats.edgeCount}</b> ·
+          類型 <b>{stats.typeCount}</b> · PII <b>{stats.piiCount}</b>
+          {' · '}角色 <b>{ROLES[role].name}</b>
+          {' · '}perf <b>{perfEnabled?'ON':'off'}</b>
+        </div>
+        <div className="minimap-wrap">
+          <div style={{fontSize:11,color:'var(--muted)',marginBottom:4,padding:'0 4px'}}>小地圖</div>
+          <MiniMap pannable zoomable nodeColor={n=>getNodeTypeMeta(n.data?.type||'task').color}
+                   nodeStrokeWidth={3} maskColor="rgba(10,12,18,.7)" />
+        </div>
+        <Toast msg={toast} />
+      </div>
+      <Inspector selected={selectedNode} role={role}
+                 onPatch={patchNode} onDelete={deleteNode} />
+    </div>
+  );
+}
+
+/* 對外暴露 hook for 註冊後即時生效 */
+function mount(){
+  const root = ReactDOM.createRoot(document.getElementById('root'));
+  root.render(<ReactFlowProvider><FlowApp /></ReactFlowProvider>);
+  // console hook
+  console.log('%c[Workflow Engine] 已掛載','color:#7c5cff;font-weight:bold');
+  console.log('註冊自訂節點類型：window.registerNodeType(type, meta)');
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
+else mount();
+</script>
+</body>
+</html>

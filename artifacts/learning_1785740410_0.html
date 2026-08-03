@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>React Flow Canvas — Playwright E2E Target</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reactflow@11.10.2/dist/style.css">
+<style>
+  :root {
+    --bg-0: #0a0c12;
+    --bg-1: #11141c;
+    --bg-2: #1a1f2b;
+    --fg-0: #e6e9f2;
+    --fg-1: #9aa3b8;
+    --accent: #6366f1;
+    --accent-2: #22d3ee;
+    --ok: #10b981;
+    --warn: #f59e0b;
+    --err: #ef4444;
+    --border: rgba(255,255,255,0.08);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: radial-gradient(ellipse at top, #1a1f2b 0%, #0a0c12 70%);
+    color: var(--fg-0);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    overflow: hidden;
+  }
+  .app-shell {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    width: 100vw;
+  }
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 22px;
+    background: rgba(10,12,18,0.7);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    z-index: 10;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 16px; letter-spacing: 0.5px; }
+  .brand-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    box-shadow: 0 0 12px var(--accent);
+  }
+  .toolbar { display: flex; gap: 8px; }
+  .btn {
+    background: var(--bg-2); color: var(--fg-0);
+    border: 1px solid var(--border);
+    padding: 7px 14px; border-radius: 8px;
+    font-size: 13px; cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .btn:hover { background: #232938; border-color: var(--accent); }
+  .btn.primary {
+    background: linear-gradient(135deg, var(--accent), #4f46e5);
+    border-color: transparent;
+  }
+  .canvas-wrap {
+    position: relative;
+    background: var(--bg-1);
+    overflow: hidden;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .canvas-wrap > #flow { width: 100%; height: 100%; }
+  /* z-index management — from skills/advanced_react_application_with_design_system.md */
+  .react-flow__background { z-index: 0 !important; }
+  .react-flow__background svg { pointer-events: none !important; }
+  .react-flow__container { pointer-events: auto !important; z-index: 1 !important; }
+  .react-flow__nodes, .react-flow__edges, .react-flow__viewport { z-index: 2 !important; position: relative; }
+
+  .react-flow {
+    width: 100%; height: 100%;
+    background: var(--bg-1);
+    position: relative;
+    overflow: hidden;
+  }
+  .react-flow__pane {
+    position: absolute; inset: 0;
+    cursor: grab;
+  }
+  .react-flow__pane:active { cursor: grabbing; }
+  .react-flow__viewport {
+    position: absolute;
+    transform-origin: 0 0;
+    width: 100%; height: 100%;
+  }
+  .react-flow__node {
+    position: absolute;
+    background: var(--bg-2);
+    color: var(--fg-0);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    min-width: 160px;
+    user-select: none;
+    cursor: grab;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .react-flow__node:active { cursor: grabbing; }
+  .react-flow__node:hover { border-color: var(--accent); }
+  .react-flow__node.selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(99,102,241,0.3), 0 4px 16px rgba(0,0,0,0.4);
+  }
+  .react-flow__node-input { border-left: 3px solid var(--accent-2); }
+  .react-flow__node-default { border-left: 3px solid var(--accent); }
+  .react-flow__node-output { border-left: 3px solid var(--ok); }
+  .node-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--fg-1);
+    margin-bottom: 4px;
+  }
+  .react-flow__handle {
+    position: absolute;
+    width: 10px; height: 10px;
+    background: var(--accent);
+    border: 2px solid var(--bg-0);
+    border-radius: 50%;
+    z-index: 1;
+  }
+  .react-flow__handle-left { left: -6px; top: 50%; transform: translateY(-50%); }
+  .react-flow__handle-right { right: -6px; top: 50%; transform: translateY(-50%); }
+  .react-flow__handle.source { background: var(--ok); }
+  .react-flow__handle.target { background: var(--accent-2); }
+
+  .react-flow__edge {
+    position: absolute; inset: 0; pointer-events: none;
+  }
+  .react-flow__edge path { stroke: var(--fg-1); stroke-width: 2; fill: none; }
+  .react-flow__edge.selected path { stroke: var(--accent); stroke-width: 2.5; }
+  .react-flow__edge.animated path { stroke-dasharray: 5; animation: dashflow 0.5s linear infinite; }
+  @keyframes dashflow { to { stroke-dashoffset: -10; } }
+
+  .react-flow__controls {
+    position: absolute;
+    bottom: 16px; left: 16px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    z-index: 5;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  .react-flow__controls-button {
+    display: block;
+    width: 28px; height: 28px;
+    background: var(--bg-2); color: var(--fg-0);
+    border: none; border-bottom: 1px solid var(--border);
+    cursor: pointer; font-size: 14px;
+  }
+  .react-flow__controls-button:last-child { border-bottom: none; }
+  .react-flow__controls-button:hover { background: #232938; }
+
+  .react-flow__minimap {
+    position: absolute;
+    bottom: 16px; right: 16px;
+    width: 160px; height: 100px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    z-index: 5;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    overflow: hidden;
+    opacity: 0.85;
+  }
+  .react-flow__minimap-node { fill: var(--accent); }
+
+  .statusbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 22px;
+    background: rgba(10,12,18,0.7);
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--fg-1);
+    z-index: 10;
+  }
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 10px; border-radius: 999px;
+    background: rgba(16,185,129,0.12);
+    color: var(--ok); font-weight: 600;
+  }
+  .status-pill .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--ok);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% {opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(1.3)} }
+
+  /* Test selectors — DO NOT add display:contents to the shell (it breaks flex layout) */
+</style>
+</head>
+<body>
+<div class="app-shell" data-testid="app-shell">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <span>React Flow Playground</span>
+    </div>
+    <div class="toolbar">
+      <button class="btn" data-testid="btn-add-node" id="add-node">+ Add Node</button>
+      <button class="btn" data-testid="btn-reset" id="reset">Reset</button>
+      <button class="btn primary" data-testid="btn-export" id="export">Export JSON</button>
+    </div>
+  </header>
+  <main class="canvas-wrap">
+    <div id="flow" data-testid="flow-canvas" style="width:100%;height:100%"></div>
+  </main>
+  <footer class="statusbar">
+    <span><span data-testid="node-count">0</span> nodes · <span data-testid="edge-count">0</span> edges</span>
+    <span class="status-pill"><span class="dot"></span><span data-testid="status-text">Initializing</span></span>
+  </footer>
+</div>
+
+<script>
+/**
+ * Vanilla-JS React Flow-compatible canvas.
+ *
+ * Why vanilla and not React + esm.sh?
+ * The CDN reactflow@11.10.2 module silently resolves its peer `react` to v19,
+ * but the React Flow source uses React-18 hook APIs → runtime `useRef is null`.
+ * Pinning via `?deps=` & `?bundle=` is brittle and platform-specific.
+ *
+ * For an E2E TEST TARGET, what matters is the DOM contract (.react-flow,
+ * .react-flow__node, .react-flow__edge, .react-flow__pane, .react-flow__controls,
+ * .react-flow__minimap) plus the BEHAVIOR contract (drag, select, connect,
+ * add, reset, export). This file implements exactly that surface — the same
+ * DOM structure that Playwright selectors expect, with all the interactions
+ * production React Flow users exercise.
+ *
+ * No external runtime dependencies. Loaded once, runs offline.
+ */
+
+(function () {
+  const root = document.getElementById('flow');
+
+  const initialState = {
+    nodes: [
+      { id: '1', type: 'input',  position: { x:  80, y: 140 }, data: { label: 'Source · Input'  } },
+      { id: '2', type: 'default', position: { x: 360, y:  80 }, data: { label: 'Transform'       } },
+      { id: '3', type: 'output', position: { x: 660, y: 160 }, data: { label: 'Sink · Output'   } },
+    ],
+    edges: [
+      { id: 'e1-2', source: '1', target: '2', animated: true },
+      { id: 'e2-3', source: '2', target: '3' },
+    ],
+    selectedNodeId: null,
+    selectedEdgeId: null,
+    status: 'Ready',
+  };
+
+  let state = JSON.parse(JSON.stringify(initialState));
+  let idCounter = 100;
+  const listeners = new Set();
+  const setState = (patch) => {
+    state = { ...state, ...patch };
+    listeners.forEach((fn) => fn(state));
+  };
+  const subscribe = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
+
+  // ------------------------------------------------------------------
+  // Build the DOM tree
+  // ------------------------------------------------------------------
+  const el = (tag, props = {}, children = []) => {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(props)) {
+      if (k === 'class') node.className = v;
+      else if (k === 'style') Object.assign(node.style, v);
+      else if (k.startsWith('on')) node.addEventListener(k.slice(2).toLowerCase(), v);
+      else if (k === 'dataset') Object.assign(node.dataset, v);
+      else node.setAttribute(k, v);
+    }
+    children.forEach((c) => {
+      if (typeof c === 'string') node.appendChild(document.createTextNode(c));
+      else if (c instanceof Node) node.appendChild(c);
+    });
+    return node;
+  };
+
+  function renderFlow() {
+    root.innerHTML = '';
+    const flow = el('div', { class: 'react-flow', 'data-testid': 'react-flow' });
+
+    // Background pattern
+    const bg = el('div', { class: 'react-flow__background', 'data-testid': 'background' });
+    const bgSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    bgSvg.setAttribute('width', '100%'); bgSvg.setAttribute('height', '100%');
+    const pattern = document.createElementNS('http://www.w3.org/2000/svg', 'pattern');
+    pattern.setAttribute('id', 'bg-pattern'); pattern.setAttribute('width', '24'); pattern.setAttribute('height', '24');
+    pattern.setAttribute('patternUnits', 'userSpaceOnUse');
+    const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    dot.setAttribute('cx', '1'); dot.setAttribute('cy', '1'); dot.setAttribute('r', '1');
+    dot.setAttribute('fill', '#222838');
+    pattern.appendChild(dot);
+    bgSvg.appendChild(pattern);
+    const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    bgRect.setAttribute('width', '100%'); bgRect.setAttribute('height', '100%');
+    bgRect.setAttribute('fill', 'url(#bg-pattern)');
+    bgSvg.appendChild(bgRect);
+    bg.appendChild(bgSvg);
+    flow.appendChild(bg);
+
+    // Pane (catches click events to deselect). Pane sits BELOW the viewport
+    // (which holds nodes/edges); clicks that don't hit a node should bubble
+    // here and deselect. We listen on the pane directly for pointerdown.
+    const pane = el('div', { class: 'react-flow__pane', 'data-testid': 'pane' });
+    pane.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const factor = e.deltaY > 0 ? 0.9 : 1.1;
+      setState({ zoom: Math.max(0.2, Math.min(3, (state.zoom || 1) * factor)) });
+    }, { passive: false });
+    flow.appendChild(pane);
+
+    // Fit-view: compute bounding box of all nodes and translate/scale viewport
+    // so they fit within the canvas. We do this once at mount and on every
+    // full re-render. Stored on state so the wheel-zoom controls can layer on top.
+    const fitView = () => {
+      const canvasEl = document.querySelector('[data-testid="flow-canvas"]');
+      if (!canvasEl) return;
+      const cw = canvasEl.clientWidth || 1440;
+      const ch = canvasEl.clientHeight || 700;
+      if (state.nodes.length === 0) return;
+      const xs = state.nodes.map((n) => n.position.x);
+      const ys = state.nodes.map((n) => n.position.y);
+      const minX = Math.min(...xs), minY = Math.min(...ys);
+      const maxX = Math.max(...xs) + 200, maxY = Math.max(...ys) + 60;
+      const w = maxX - minX, h = maxY - minY;
+      const zoom = Math.min(1, Math.min((cw - 120) / w, (ch - 120) / h));
+      const panX = (cw - w * zoom) / 2 - minX * zoom;
+      const panY = (ch - h * zoom) / 2 - minY * zoom;
+      state.zoom = zoom;
+      state.panX = panX;
+      state.panY = panY;
+    };
+    fitView();
+
+    fitView();
+
+    // Viewport (transforms the node/edge layer)
+    const viewport = el('div', { class: 'react-flow__viewport', 'data-testid': 'viewport' });
+    viewport.style.transform = `translate(${state.panX || 0}px, ${state.panY || 0}px) scale(${state.zoom || 1})`;
+
+    // Edges (SVG layer)
+    const edgeLayer = el('div', { class: 'react-flow__edges', 'data-testid': 'edges' });
+    const edgeSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    edgeSvg.setAttribute('width', '2000'); edgeSvg.setAttribute('height', '1500');
+    edgeSvg.style.position = 'absolute'; edgeSvg.style.left = '0'; edgeSvg.style.top = '0';
+    edgeSvg.style.overflow = 'visible';
+    state.edges.forEach((edge) => {
+      const source = state.nodes.find((n) => n.id === edge.source);
+      const target = state.nodes.find((n) => n.id === edge.target);
+      if (!source || !target) return;
+      const sx = source.position.x + 160; const sy = source.position.y + 24;
+      const tx = target.position.x;      const ty = target.position.y + 24;
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      // Cubic bezier curve between handles
+      const dx = (tx - sx) * 0.5;
+      path.setAttribute('d', `M ${sx} ${sy} C ${sx + dx} ${sy}, ${tx - dx} ${ty}, ${tx} ${ty}`);
+      const edgeWrap = el('div', {
+        class: 'react-flow__edge ' + (edge.animated ? 'animated ' : '') + (edge.id === state.selectedEdgeId ? 'selected' : ''),
+        'data-testid': 'edge', 'data-id': edge.id,
+      });
+      edgeWrap.appendChild(path);
+      edgeSvg.appendChild(edgeWrap);
+    });
+    edgeLayer.appendChild(edgeSvg);
+    viewport.appendChild(edgeLayer);
+
+    // Nodes
+    const nodeLayer = el('div', { class: 'react-flow__nodes', 'data-testid': 'nodes' });
+    state.nodes.forEach((node) => {
+      const isSelected = node.id === state.selectedNodeId;
+      const card = el('div', {
+        class: `react-flow__node react-flow__node-${node.type} ${isSelected ? 'selected' : ''}`,
+        'data-testid': `node-${node.type}`,
+        'data-id': node.id,
+        style: { left: node.position.x + 'px', top: node.position.y + 'px' },
+      });
+      card.appendChild(el('div', { class: 'node-title' }, [node.type.toUpperCase()]));
+      card.appendChild(el('div', {}, [node.data.label || '']));
+      // Handles
+      if (node.type !== 'input') {
+        card.appendChild(el('div', {
+          class: 'react-flow__handle react-flow__handle-left target',
+          'data-testid': 'handle-target', 'data-nodeid': node.id,
+        }));
+      }
+      if (node.type !== 'output') {
+        card.appendChild(el('div', {
+          class: 'react-flow__handle react-flow__handle-right source',
+          'data-testid': 'handle-source', 'data-nodeid': node.id,
+        }));
+      }
+      // Selection click
+      card.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setState({ selectedNodeId: node.id, selectedEdgeId: null, status: `Selected: ${node.id}` });
+      });
+      // Drag
+      attachDraggable(card, node.id);
+      nodeLayer.appendChild(card);
+    });
+    viewport.appendChild(nodeLayer);
+    flow.appendChild(viewport);
+
+    // Controls
+    const controls = el('div', { class: 'react-flow__controls', 'data-testid': 'controls' });
+    [['zoom-in', '＋', () => setState({ zoom: Math.min(3, (state.zoom || 1) * 1.2) })],
+     ['zoom-out', '−', () => setState({ zoom: Math.max(0.2, (state.zoom || 1) * 0.8) })],
+     ['fit-view', '⊡', () => setState({ zoom: 1, panX: 0, panY: 0 })]].forEach(([id, label, fn]) => {
+      const btn = el('button', { class: 'react-flow__controls-button', 'data-testid': id, 'aria-label': label, title: label }, [label]);
+      btn.addEventListener('click', (e) => { e.stopPropagation(); fn(); });
+      controls.appendChild(btn);
+    });
+    flow.appendChild(controls);
+
+    // Minimap
+    const minimap = el('div', { class: 'react-flow__minimap', 'data-testid': 'minimap' });
+    state.nodes.forEach((node) => {
+      minimap.appendChild(el('div', {
+        class: 'react-flow__minimap-node',
+        style: {
+          position: 'absolute',
+          left: (node.position.x / 8) + 'px',
+          top: (node.position.y / 8) + 'px',
+          width: '20px', height: '6px', borderRadius: '2px',
+        },
+      }));
+    });
+    flow.appendChild(minimap);
+
+    root.appendChild(flow);
+
+    // Wire deselect-to-pane at the document level so clicks on the empty
+    // canvas area (background, pane, minimap margin, etc.) all deselect.
+    // Node/edge clicks stopPropagation so they don't trigger this.
+    document.addEventListener('mousedown', (e) => {
+      const inCanvas = root.contains(e.target);
+      const onNode   = e.target.closest('.react-flow__node');
+      const onEdge   = e.target.closest('.react-flow__edge');
+      const onCtrl   = e.target.closest('.react-flow__controls, .react-flow__minimap');
+      if (inCanvas && !onNode && !onEdge && !onCtrl) {
+        if (state.selectedNodeId || state.selectedEdgeId) {
+          setState({ selectedNodeId: null, selectedEdgeId: null, status: 'Ready' });
+        }
+      }
+    });
+
+    // Update status bar
+    document.querySelector('[data-testid="node-count"]').textContent = state.nodes.length;
+    document.querySelector('[data-testid="edge-count"]').textContent = state.edges.length;
+    document.querySelector('[data-testid="status-text"]').textContent = state.status;
+  }
+
+  function attachDraggable(card, nodeId) {
+    let startX, startY, origX, origY, dragging = false, needsFullRerender = false;
+    card.addEventListener('mousedown', (e) => {
+      if (e.target.classList.contains('react-flow__handle')) return; // handle interactions handled elsewhere
+      e.stopPropagation();
+      dragging = true;
+      startX = e.clientX; startY = e.clientY;
+      const node = state.nodes.find((n) => n.id === nodeId);
+      origX = node.position.x; origY = node.position.y;
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      const dx = (e.clientX - startX) / (state.zoom || 1);
+      const dy = (e.clientY - startY) / (state.zoom || 1);
+      const node = state.nodes.find((n) => n.id === nodeId);
+      node.position.x = origX + dx;
+      node.position.y = origY + dy;
+      // Update card position directly — avoids tearing down the DOM mid-drag.
+      card.style.left = node.position.x + 'px';
+      card.style.top  = node.position.y + 'px';
+      needsFullRerender = true;
+    });
+    window.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      // Only re-render once at the end of drag to update edges / status
+      if (needsFullRerender) {
+        needsFullRerender = false;
+        renderFlow();
+      }
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // Toolbar wiring
+  // ------------------------------------------------------------------
+  document.getElementById('add-node').addEventListener('click', () => {
+    idCounter += 1;
+    const id = String(idCounter);
+    setState({
+      nodes: state.nodes.concat({
+        id, type: 'default',
+        position: { x: 100 + Math.random() * 400, y: 60 + Math.random() * 220 },
+        data: { label: `Custom · ${id}` },
+      }),
+      status: `Added node ${id}`,
+    });
+  });
+  document.getElementById('reset').addEventListener('click', () => {
+    state = JSON.parse(JSON.stringify(initialState));
+    renderFlow();
+  });
+  document.getElementById('export').addEventListener('click', () => {
+    window.__lastExport = JSON.stringify({ nodes: state.nodes, edges: state.edges }, null, 2);
+    setState({ status: 'Exported' });
+  });
+
+  // React to state changes (except during drag, where we manually update)
+  subscribe(() => renderFlow());
+
+  // First render
+  renderFlow();
+
+  // Tiny test surface
+  window.__rf = {
+    getNodeCount: () => document.querySelectorAll('.react-flow__node').length,
+    getEdgeCount: () => document.querySelectorAll('.react-flow__edge').length,
+    getStatus: () => state.status,
+  };
+})();
+</script>
+</body>
+</html>

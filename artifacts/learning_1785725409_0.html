@@ -1,0 +1,1233 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>FlowForge · 動態工作流程可視化編輯器（React Flow 11.11.4 UMD）</title>
+
+<!-- ============================================================ -->
+<!--  模組化載入（react / react-dom / babel / reactflow）            -->
+<!--  全部使用 unpkg.com 公開 CDN（11.11.4 為學習日誌中穩定版本）       -->
+<!-- ============================================================ -->
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+<script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css" />
+
+<style>
+  :root {
+    color-scheme: dark;
+    --bg-0: #06080c;
+    --bg-1: #0b1018;
+    --bg-2: #121a26;
+    --bg-3: #1b2533;
+    --bg-4: #243044;
+    --line: #2a3a55;
+    --line-2: #3a4d6e;
+    --fg-1: #e7eef8;
+    --fg-2: #9fb0c8;
+    --fg-3: #6a7a92;
+    --accent: #6ee7b7;
+    --accent-dim: #34d399;
+    --warn: #facc15;
+    --bad:  #f87171;
+    --info: #60a5fa;
+    --purple: #c4b5fd;
+    --pink:   #f472b6;
+    --orange: #fb923c;
+    --kinds: {
+      trigger:  #60a5fa;
+      action:   #c4b5fd;
+      decision: #facc15;
+      approval: #fb923c;
+      output:   #34d399;
+    };
+    --shadow-1: 0 1px 0 rgba(255,255,255,0.04), 0 8px 24px rgba(0,0,0,0.35);
+    --radius-1: 6px;
+    --radius-2: 10px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body, #root { height: 100%; margin: 0; padding: 0; background: var(--bg-0); color: var(--fg-1); }
+  body {
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+    font-size: 13px;
+    overflow: hidden;
+  }
+  button { font: inherit; }
+  input, textarea, select { font: inherit; color: inherit; }
+
+  /* ============== 載入畫面 ============== */
+  #boot {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: var(--bg-0); z-index: 9999; transition: opacity 220ms ease;
+  }
+  #boot.hidden { opacity: 0; pointer-events: none; }
+  #boot .card {
+    background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px;
+    padding: 22px 24px; min-width: 280px; max-width: 460px; box-shadow: var(--shadow-1);
+  }
+  #boot h2 { margin: 0 0 6px; font-size: 14px; }
+  #boot p  { margin: 4px 0; color: var(--fg-2); font-size: 12px; }
+  #boot .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 12px; }
+  #boot .row .ok   { color: var(--accent); }
+  #boot .row .wait { color: var(--warn); }
+  #boot .row .err  { color: var(--bad); }
+  #boot .actions { margin-top: 14px; display: flex; gap: 8px; }
+  #boot button {
+    background: var(--bg-3); color: var(--fg-1); border: 1px solid var(--line-2);
+    padding: 6px 12px; border-radius: 6px; cursor: pointer;
+  }
+  #boot button.primary { background: var(--accent); color: #04221a; border-color: var(--accent); font-weight: 600; }
+
+  /* ============== 應用程式佈局 ============== */
+  .app {
+    display: grid;
+    grid-template-columns: 240px 1fr 320px;
+    grid-template-rows: 52px 1fr 28px;
+    grid-template-areas:
+      "topbar topbar topbar"
+      "left   canvas right"
+      "status status status";
+    height: 100vh;
+  }
+  .topbar {
+    grid-area: topbar;
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 14px;
+    background: linear-gradient(180deg, #131b27, #0c121b);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar h1 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.4px; }
+  .topbar h1 .pill {
+    margin-left: 8px; background: rgba(110, 231, 183, 0.12);
+    color: var(--accent); padding: 2px 8px; border-radius: 999px; font-size: 10px;
+    border: 1px solid rgba(110, 231, 183, 0.25);
+  }
+  .topbar .spacer { flex: 1; }
+  .topbar .group { display: flex; gap: 6px; align-items: center; }
+  .topbar button {
+    background: var(--bg-3); color: var(--fg-1); border: 1px solid var(--line-2);
+    padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 12px;
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: background 120ms ease, border-color 120ms ease, transform 60ms ease;
+  }
+  .topbar button:hover { background: var(--bg-4); border-color: var(--line-2); }
+  .topbar button:active { transform: translateY(1px); }
+  .topbar button.primary { background: var(--accent); color: #04221a; border-color: var(--accent); font-weight: 600; }
+  .topbar button.primary:hover { background: #84f0c4; }
+  .topbar button.ghost { background: transparent; }
+  .topbar button.danger { background: #2a1414; color: #fecaca; border-color: #5b1d1d; }
+  .topbar .stat {
+    display: inline-flex; gap: 4px; align-items: center;
+    font-size: 11px; color: var(--fg-2);
+    background: var(--bg-2); border: 1px solid var(--line);
+    padding: 3px 8px; border-radius: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  .topbar .stat b { color: var(--fg-1); font-weight: 600; }
+  .topbar .sep { width: 1px; height: 18px; background: var(--line); margin: 0 4px; }
+
+  /* ============== 左側節點調色盤 ============== */
+  .left {
+    grid-area: left;
+    background: var(--bg-1);
+    border-right: 1px solid var(--line);
+    overflow-y: auto;
+    padding: 12px;
+  }
+  .left h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--fg-3); margin: 12px 0 6px; font-weight: 600;
+  }
+  .left h2:first-child { margin-top: 0; }
+  .palette-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; margin-bottom: 6px;
+    background: var(--bg-2); border: 1px solid var(--line);
+    border-radius: 8px; cursor: grab; font-size: 12px;
+    transition: border-color 120ms ease, transform 60ms ease, background 120ms ease;
+    user-select: none;
+  }
+  .palette-item:hover { border-color: var(--accent); background: var(--bg-3); }
+  .palette-item:active { cursor: grabbing; transform: scale(0.99); }
+  .palette-item .swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+  .palette-item .meta { display: flex; flex-direction: column; }
+  .palette-item .name { font-weight: 600; }
+  .palette-item .desc { color: var(--fg-3); font-size: 10px; }
+
+  .left .templates { display: flex; flex-direction: column; gap: 6px; }
+  .left .template-btn {
+    background: var(--bg-2); border: 1px solid var(--line); color: var(--fg-1);
+    border-radius: 6px; padding: 7px 10px; cursor: pointer; text-align: left;
+    font-size: 12px;
+  }
+  .left .template-btn:hover { border-color: var(--accent); }
+  .left .template-btn small { color: var(--fg-3); font-size: 10px; display: block; margin-top: 2px; }
+
+  /* ============== 中央畫布 ============== */
+  .canvas-wrap {
+    grid-area: canvas;
+    position: relative; background: var(--bg-0); overflow: hidden;
+  }
+  .canvas-wrap .rf-host { width: 100%; height: 100%; }
+
+  .canvas-overlay {
+    position: absolute; inset: 0; pointer-events: none; z-index: 5;
+  }
+  .canvas-overlay .legend {
+    pointer-events: auto;
+    position: absolute; left: 12px; bottom: 12px;
+    background: rgba(11, 16, 24, 0.85); backdrop-filter: blur(6px);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 10px; display: flex; gap: 12px; font-size: 11px; color: var(--fg-2);
+  }
+  .canvas-overlay .legend .item { display: inline-flex; align-items: center; gap: 6px; }
+  .canvas-overlay .legend .swatch { width: 10px; height: 10px; border-radius: 2px; }
+
+  .canvas-overlay .help {
+    pointer-events: auto;
+    position: absolute; right: 12px; bottom: 12px;
+    background: rgba(11, 16, 24, 0.85); backdrop-filter: blur(6px);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 10px; font-size: 11px; color: var(--fg-2);
+    max-width: 230px;
+  }
+  .canvas-overlay .help b { color: var(--fg-1); }
+  .canvas-overlay .help kbd {
+    background: var(--bg-3); border: 1px solid var(--line-2);
+    border-radius: 4px; padding: 1px 5px; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 10px; color: var(--fg-1);
+  }
+
+  /* ============== 右側細節面板 ============== */
+  .right {
+    grid-area: right;
+    background: var(--bg-1);
+    border-left: 1px solid var(--line);
+    overflow-y: auto;
+    padding: 12px;
+  }
+  .right h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--fg-3); margin: 12px 0 6px; font-weight: 600;
+  }
+  .right h2:first-child { margin-top: 0; }
+  .right .group {
+    background: var(--bg-2); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; font-size: 12px;
+  }
+  .right .group .row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 4px 0;
+  }
+  .right .group .row + .row { border-top: 1px dashed var(--line); }
+  .right .group .row .label { color: var(--fg-2); }
+  .right .group .row .value { color: var(--fg-1); font-variant-numeric: tabular-nums; }
+  .right .empty {
+    color: var(--fg-3); font-size: 12px; padding: 14px 8px;
+    border: 1px dashed var(--line); border-radius: 8px; text-align: center;
+  }
+  .right label {
+    display: block; font-size: 11px; color: var(--fg-2); margin: 8px 0 4px;
+  }
+  .right input[type=text], .right textarea, .right select {
+    width: 100%; background: var(--bg-0); border: 1px solid var(--line);
+    color: var(--fg-1); border-radius: 6px; padding: 6px 8px; font-size: 12px;
+  }
+  .right textarea { min-height: 60px; resize: vertical; }
+  .right input:focus, .right textarea:focus, .right select:focus {
+    outline: none; border-color: var(--accent);
+  }
+  .right .btn-row { display: flex; gap: 6px; margin-top: 8px; }
+  .right .btn-row button {
+    flex: 1; background: var(--bg-3); border: 1px solid var(--line-2);
+    color: var(--fg-1); padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 12px;
+  }
+  .right .btn-row button:hover { background: var(--bg-4); }
+  .right .btn-row button.danger { background: #2a1414; color: #fecaca; border-color: #5b1d1d; }
+
+  /* ============== 狀態列 ============== */
+  .statusbar {
+    grid-area: status;
+    display: flex; align-items: center; gap: 14px;
+    padding: 0 14px;
+    background: var(--bg-1);
+    border-top: 1px solid var(--line);
+    font-size: 11px; color: var(--fg-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .statusbar .sep { width: 1px; height: 14px; background: var(--line); }
+  .statusbar .kv { display: inline-flex; align-items: center; gap: 6px; }
+  .statusbar .kv b { color: var(--fg-1); font-weight: 600; }
+  .statusbar .kv .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .statusbar .kv .dot.warn { background: var(--warn); }
+  .statusbar .kv .dot.bad  { background: var(--bad); }
+  .statusbar .kv .dot.idle { background: var(--fg-3); }
+  .statusbar .spacer { flex: 1; }
+  .statusbar .run-controls { display: flex; gap: 4px; }
+  .statusbar .run-controls button {
+    background: var(--bg-3); border: 1px solid var(--line-2); color: var(--fg-1);
+    padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;
+  }
+  .statusbar .run-controls button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .statusbar .run-controls button.go { background: var(--accent); color: #04221a; border-color: var(--accent); font-weight: 600; }
+
+  /* ============== 自訂節點視覺 ============== */
+  .rf-node {
+    background: var(--bg-2);
+    border: 1.5px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 10px 10px;
+    min-width: 168px;
+    max-width: 220px;
+    color: var(--fg-1);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+    transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+  }
+  .rf-node:hover { border-color: var(--line-2); }
+  .rf-node.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 6px 18px rgba(110, 231, 183, 0.18); }
+  .rf-node .n-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .rf-node .n-head .swatch { width: 10px; height: 10px; border-radius: 50%; }
+  .rf-node .n-head .label {
+    font-weight: 600; font-size: 12px; line-height: 1.25; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; max-width: 160px;
+  }
+  .rf-node .n-head .badge {
+    margin-left: auto; font-size: 9px; padding: 1px 5px; border-radius: 999px;
+    background: var(--bg-3); color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .rf-node .n-sub { font-size: 10px; color: var(--fg-3); line-height: 1.35; }
+  .rf-node .n-status {
+    position: absolute; top: -4px; right: -4px;
+    width: 10px; height: 10px; border-radius: 50%;
+    border: 2px solid var(--bg-0);
+    background: var(--fg-3);
+  }
+  .rf-node .n-status.running { background: var(--warn); }
+  .rf-node .n-status.success { background: var(--accent); }
+  .rf-node .n-status.failed  { background: var(--bad);  }
+  .rf-node.running { border-color: var(--warn); }
+  .rf-node.success { border-color: var(--accent); }
+  .rf-node.failed  { border-color: var(--bad);  }
+  .rf-node .n-rail {
+    position: absolute; left: -1.5px; top: 8px; bottom: 8px; width: 3px;
+    border-radius: 2px; background: var(--line);
+  }
+  .rf-node[data-kind="trigger"]  .n-rail { background: var(--info); }
+  .rf-node[data-kind="action"]   .n-rail { background: var(--purple); }
+  .rf-node[data-kind="decision"] .n-rail { background: var(--warn); }
+  .rf-node[data-kind="approval"] .n-rail { background: var(--orange); }
+  .rf-node[data-kind="output"]   .n-rail { background: var(--accent-dim); }
+
+  /* React Flow 主題覆寫 */
+  .react-flow { background: var(--bg-0); }
+  .react-flow__background { background-color: var(--bg-0); }
+  .react-flow__controls {
+    background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
+  }
+  .react-flow__controls-button {
+    background: var(--bg-2); border: none; border-bottom: 1px solid var(--line);
+    color: var(--fg-2); fill: var(--fg-2);
+  }
+  .react-flow__controls-button:hover { background: var(--bg-3); color: var(--fg-1); fill: var(--fg-1); }
+  .react-flow__minimap { background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; }
+  .react-flow__attribution { display: none; }
+  .react-flow__edge-path { stroke: var(--accent-dim); stroke-width: 1.5; }
+  .react-flow__edge.selected .react-flow__edge-path,
+  .react-flow__edge:focus .react-flow__edge-path {
+    stroke: var(--accent); stroke-width: 2.5;
+  }
+  .react-flow__edge.animated .react-flow__edge-path {
+    stroke-dasharray: 4 4; animation: flow 0.6s linear infinite;
+  }
+  .react-flow__edge-text { fill: var(--fg-1); font-size: 10px; }
+  .react-flow__edge-textbg { fill: var(--bg-1); }
+  .react-flow__handle { width: 8px; height: 8px; background: var(--accent); border: 2px solid var(--bg-0); }
+  .react-flow__node { font-size: 11px; }
+  .react-flow__node.selected { outline: none; }
+  .react-flow__panel { background: transparent; }
+
+  @keyframes flow { to { stroke-dashoffset: -8; } }
+
+  /* ============== 滾動條 ============== */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: var(--bg-1); }
+  ::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--bg-4); }
+
+  /* ============== 響應式（<980px 自動收起面板） ============== */
+  @media (max-width: 980px) {
+    .app { grid-template-columns: 200px 1fr; grid-template-areas: "topbar topbar" "left canvas" "status status"; }
+    .right { display: none; }
+  }
+  @media (max-width: 720px) {
+    .app { grid-template-columns: 1fr; grid-template-areas: "topbar" "canvas" "status"; }
+    .left, .right { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="boot" role="status" aria-live="polite">
+  <div class="card">
+    <h2>FlowForge 啟動中…</h2>
+    <p id="boot-sub">正在載入 React / ReactDOM / React Flow。</p>
+    <div class="row" id="r-react"><span>·</span><span>React 18</span></div>
+    <div class="row" id="r-dom"><span>·</span><span>ReactDOM 18</span></div>
+    <div class="row" id="r-babel"><span>·</span><span>Babel Standalone</span></div>
+    <div class="row" id="r-rf"><span>·</span><span>React Flow 11.11.4 (UMD)</span></div>
+    <div class="actions">
+      <button class="primary" id="boot-retry" style="display:none">重試載入</button>
+      <button id="boot-offline" style="display:none">離線模式說明</button>
+    </div>
+  </div>
+</div>
+
+<div id="root" style="visibility:hidden"></div>
+
+<script type="text/babel" data-presets="env,react" data-type="module">
+"use strict";
+
+const {
+  useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect, Fragment
+} = React;
+const RF = window.ReactFlow;
+if (!RF) throw new Error("ReactFlow UMD not available");
+const {
+  ReactFlow, ReactFlowProvider, Background, Controls, MiniMap,
+  addEdge, applyEdgeChanges, applyNodeChanges,
+  Handle, Position, MarkerType, useReactFlow,
+} = RF;
+const { createRoot } = ReactDOM;
+
+/* =====================================================================
+ *  模組 1 — 節點種類定義（kind catalog）
+ *  - 將調色盤、節點視覺、模板都用同一份「kind」設定
+ * ===================================================================== */
+const KIND_CATALOG = [
+  { kind: "trigger",  name: "觸發器",  color: "#60a5fa", icon: "⚡", desc: "流程起點 / 事件觸發" },
+  { kind: "action",   name: "執行動作", color: "#c4b5fd", icon: "⚙", desc: "呼叫 API、寫入、轉換" },
+  { kind: "decision", name: "條件判斷", color: "#facc15", icon: "◇", desc: "布林/規則分支" },
+  { kind: "approval", name: "人工簽核", color: "#fb923c", icon: "✍", desc: "需要人工核准" },
+  { kind: "output",   name: "輸出結果", color: "#34d399", icon: "✓", desc: "流程終點 / 結果" },
+];
+const KIND_MAP = Object.fromEntries(KIND_CATALOG.map(k => [k.kind, k]));
+
+/* =====================================================================
+ *  模組 2 — 範本（starter templates）
+ * ===================================================================== */
+const TEMPLATES = [
+  {
+    id: "blank",
+    name: "空白畫布",
+    desc: "完全空的起點",
+    build: () => ({ nodes: [], edges: [] }),
+  },
+  {
+    id: "approval-flow",
+    name: "簽核流程",
+    desc: "申請 → 審核 → 結果（3 節點 / 2 邊）",
+    build: () => {
+      const a = { id: nid("t"), kind: "trigger",  label: "提交申請" };
+      const b = { id: nid("a"), kind: "approval", label: "主管簽核" };
+      const c = { id: nid("o"), kind: "output",   label: "通知申請人" };
+      return {
+        nodes: [
+          nodeOf(a, 80, 120),
+          nodeOf(b, 360, 80),
+          nodeOf(c, 640, 120),
+        ],
+        edges: [
+          edgeOf("t", "a", "送出"),
+          edgeOf("a", "o", "核准"),
+        ],
+      };
+    },
+  },
+  {
+    id: "decision-flow",
+    name: "條件分流",
+    desc: "輸入 → 判斷 → 是/否 雙路徑 → 合併輸出",
+    build: () => {
+      const t = { id: nid("t"), kind: "trigger",  label: "事件進入" };
+      const d = { id: nid("d"), kind: "decision", label: "金額 > 10000？" };
+      const ay = { id: nid("a"), kind: "action", label: "自動核准" };
+      const an = { id: nid("b"), kind: "approval", label: "人工覆核" };
+      const o = { id: nid("o"), kind: "output",  label: "結果輸出" };
+      return {
+        nodes: [
+          nodeOf(t, 60,  140),
+          nodeOf(d, 320, 140),
+          nodeOf(ay, 600, 60),
+          nodeOf(an, 600, 240),
+          nodeOf(o, 880, 140),
+        ],
+        edges: [
+          edgeOf("t", "d", ""),
+          edgeOf("d", "ay", "是", "是"),
+          edgeOf("d", "an", "否", "否"),
+          edgeOf("ay", "o", ""),
+          edgeOf("an", "o", ""),
+        ],
+      };
+    },
+  },
+  {
+    id: "etl-flow",
+    name: "ETL 資料流",
+    desc: "提取 → 轉換 → 載入（3 節點）",
+    build: () => {
+      const t = { id: nid("t"), kind: "trigger", label: "排程觸發" };
+      const e = { id: nid("a"), kind: "action",  label: "提取來源" };
+      const x = { id: nid("b"), kind: "action",  label: "清洗轉換" };
+      const o = { id: nid("o"), kind: "output",  label: "寫入倉儲" };
+      return {
+        nodes: [
+          nodeOf(t, 60, 120),
+          nodeOf(e, 300, 120),
+          nodeOf(x, 540, 120),
+          nodeOf(o, 780, 120),
+        ],
+        edges: [
+          edgeOf("t", "e"),
+          edgeOf("e", "x"),
+          edgeOf("x", "o"),
+        ],
+      };
+    },
+  },
+];
+
+/* =====================================================================
+ *  模組 3 — id 工廠 + 節點/邊工廠
+ * ===================================================================== */
+let _nidSeed = Math.floor(Math.random() * 1e6);
+function nid(prefix) { _nidSeed += 1; return `${prefix}_${_nidSeed.toString(36)}`; }
+function nodeOf(meta, x, y) {
+  return {
+    id: meta.id,
+    type: "ff",
+    position: { x, y },
+    data: {
+      kind: meta.kind,
+      label: meta.label,
+      description: meta.description || KIND_MAP[meta.kind]?.desc || "",
+      status: "idle",
+    },
+  };
+}
+function edgeOf(source, target, label = "", labelKey = "") {
+  return {
+    id: `e_${source}_${target}_${(labelKey || label || "").toString().slice(0,8)}_${Math.random().toString(36).slice(2,6)}`,
+    source, target, label, type: "smoothstep", animated: false,
+    markerEnd: { type: MarkerType.ArrowClosed, color: "#34d399" },
+  };
+}
+
+/* =====================================================================
+ *  模組 4 — DAG 拓撲排序（workflow_management_and_simulation 微技能）
+ *  - 偵測循環依賴 → 拋出；模擬器靠這個排序逐層推進
+ * ===================================================================== */
+function topologicalLayers(nodes, edges) {
+  const inMap = new Map(nodes.map(n => [n.id, []]));
+  const outMap = new Map(nodes.map(n => [n.id, []]));
+  edges.forEach(e => {
+    if (inMap.has(e.target) && outMap.has(e.source)) {
+      inMap.get(e.target).push(e.source);
+      outMap.get(e.source).push(e.target);
+    }
+  });
+  const layers = [];
+  const remaining = new Set(nodes.map(n => n.id));
+  while (remaining.size > 0) {
+    const layer = [...remaining].filter(id => (inMap.get(id) || []).every(p => !remaining.has(p)));
+    if (layer.length === 0) {
+      throw new Error("偵測到循環依賴，無法建立合法 DAG。");
+    }
+    layers.push(layer);
+    layer.forEach(id => remaining.delete(id));
+  }
+  return { layers, outMap };
+}
+
+/* =====================================================================
+ *  模組 5 — 自訂節點元件（FFNode）
+ *  - 視覺：左側 kind rail、圓點 + 標籤 + 副標、狀態點
+ *  - 行為：使用 React Flow 的 Handle 連線（target/source）
+ * ===================================================================== */
+function FFNode({ data, selected }) {
+  const k = KIND_MAP[data.kind] || KIND_MAP.action;
+  const status = data.status || "idle";
+  return (
+    <div
+      className={`rf-node ${selected ? "selected" : ""} ${status}`}
+      data-kind={data.kind}
+      data-status={status}
+      style={{ position: "relative" }}
+    >
+      <div className="n-rail" />
+      <span className={`n-status ${status}`} title={`狀態：${status}`} />
+      <Handle type="target" position={Position.Left} />
+      <div className="n-head">
+        <span className="swatch" style={{ background: k.color }} />
+        <span className="label" title={data.label}>{data.label || "(未命名)"}</span>
+        <span className="badge">{data.kind}</span>
+      </div>
+      <div className="n-sub">{data.description || k.desc}</div>
+      <Handle type="source" position={Position.Right} />
+    </div>
+  );
+}
+const nodeTypes = { ff: FFNode };
+
+/* =====================================================================
+ *  模組 6 — 拖放 + 點擊新增（從左側 palette 拖到畫布 / 點擊新增於中央）
+ *  - 採用 HTML5 drag-and-drop：palette 是 drag source、畫布是 drop target
+ *  - React Flow 內部已使用 dnd-kit / 滑鼠事件；我們在 onDrop 計算位置
+ * ===================================================================== */
+function useFlowDnd(setNodes, setSelection) {
+  const wrapperRef = useRef(null);
+  const reactFlow = useReactFlowSafe();
+
+  useEffect(() => {
+    const host = wrapperRef.current;
+    if (!host) return;
+    const onDragOver = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; };
+    const onDrop = (e) => {
+      e.preventDefault();
+      const kind = e.dataTransfer.getData("application/x-ff-kind");
+      if (!kind) return;
+      const bounds = host.getBoundingClientRect();
+      const position = reactFlow.screenToFlowPosition({
+        x: e.clientX - bounds.left,
+        y: e.clientY - bounds.top,
+      });
+      const id = nid(kind[0]);
+      const node = nodeOf({ id, kind, label: KIND_MAP[kind]?.name || "新節點" }, position.x, position.y);
+      setNodes((nds) => [...nds, node]);
+      setSelection({ kind: "node", id });
+    };
+    host.addEventListener("dragover", onDragOver);
+    host.addEventListener("drop", onDrop);
+    return () => {
+      host.removeEventListener("dragover", onDragOver);
+      host.removeEventListener("drop", onDrop);
+    };
+  }, [reactFlow, setNodes, setSelection]);
+  return wrapperRef;
+}
+function useReactFlowSafe() {
+  try { return useReactFlow(); } catch (e) { return { screenToFlowPosition: ({x, y}) => ({x, y}) }; }
+}
+
+/* =====================================================================
+ *  模組 7 — Undo/Redo（有限歷史）
+ *  - 每次「結構性」變更（新增 / 刪除 / 連線 / 改 label）推入 stack
+ *  - 不把「節點拖曳中每個 mousemove」也推入（會爆 stack）→ 改成 onNodesChange 收 position 變化但 throttle
+ * ===================================================================== */
+function useHistory(initial) {
+  const past = useRef([]);
+  const future = useRef([]);
+  const [present, setPresent] = useState(initial);
+
+  const commit = useCallback((next, opts = {}) => {
+    past.current.push(present);
+    if (past.current.length > 80) past.current.shift();
+    if (!opts.skipFuture) future.current = [];
+    setPresent(next);
+  }, [present]);
+  const set = useCallback((next) => setPresent(next), []);
+  const replace = useCallback((next) => {
+    past.current = [];
+    future.current = [];
+    setPresent(next);
+  }, []);
+  const undo = useCallback(() => {
+    if (past.current.length === 0) return;
+    const prev = past.current.pop();
+    future.current.push(present);
+    if (future.current.length > 80) future.current.shift();
+    setPresent(prev);
+  }, [present]);
+  const redo = useCallback(() => {
+    if (future.current.length === 0) return;
+    const next = future.current.pop();
+    past.current.push(present);
+    if (past.current.length > 80) past.current.shift();
+    setPresent(next);
+  }, [present]);
+  return { state: present, set, commit, replace, undo, redo,
+    canUndo: past.current.length > 0, canRedo: future.current.length > 0 };
+}
+
+/* =====================================================================
+ *  模組 8 — WorkflowCanvas（中央畫布）
+ * ===================================================================== */
+function WorkflowCanvas(props) {
+  const {
+    nodes, edges, setNodes, setEdges,
+    onSelect,
+  } = props;
+  const [reactFlowInstance, setReactFlowInstance] = useState(null);
+  const [minimapVisible, setMinimapVisible] = useState(true);
+  const [gridVisible, setGridVisible] = useState(true);
+
+  const hostRef = useFlowDnd(setNodes, onSelect);
+
+  const onNodesChange = useCallback((changes) => {
+    setNodes((nds) => applyNodeChanges(changes, nds));
+  }, [setNodes]);
+  const onEdgesChange = useCallback((changes) => {
+    setEdges((eds) => applyEdgeChanges(changes, eds));
+  }, [setEdges]);
+  const onConnect = useCallback((connection) => {
+    if (!connection.source || !connection.target) return;
+    if (connection.source === connection.target) return;
+    setEdges((eds) => addEdge({ ...connection, type: "smoothstep", animated: false }, eds));
+  }, [setEdges]);
+
+  const onNodeClick = useCallback((_, node) => onSelect({ kind: "node", id: node.id }), [onSelect]);
+  const onEdgeClick = useCallback((_, edge) => onSelect({ kind: "edge", id: edge.id }), [onSelect]);
+  const onPaneClick = useCallback(() => onSelect(null), [onSelect]);
+
+  return (
+    <div className="canvas-wrap">
+      <div className="rf-host" ref={hostRef}>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onNodeClick={onNodeClick}
+          onEdgeClick={onEdgeClick}
+          onPaneClick={onPaneClick}
+          nodeTypes={nodeTypes}
+          onInit={setReactFlowInstance}
+          fitView
+          fitViewOptions={{ padding: 0.2 }}
+          proOptions={{ hideAttribution: true }}
+          defaultEdgeOptions={{ type: "smoothstep", animated: false }}
+          minZoom={0.1}
+          maxZoom={2.5}
+          deleteKeyCode={["Backspace", "Delete"]}
+          multiSelectionKeyCode={["Shift"]}
+          elevateNodesOnSelect
+        >
+          {gridVisible ? <Background variant="dots" gap={20} size={1} color="#1f2633" /> : null}
+          <Controls position="bottom-right" showInteractive={false} />
+          {minimapVisible ? (
+            <MiniMap
+              position="top-right"
+              nodeColor={(n) => KIND_MAP[n.data?.kind]?.color || "#6a7a92"}
+              maskColor="rgba(6, 8, 12, 0.7)"
+              style={{ background: "#0e141d" }}
+              pannable
+              zoomable
+            />
+          ) : null}
+        </ReactFlow>
+      </div>
+
+      <div className="canvas-overlay">
+        <div className="legend">
+          {KIND_CATALOG.map(k => (
+            <span className="item" key={k.kind}>
+              <span className="swatch" style={{ background: k.color }} />
+              {k.name}
+            </span>
+          ))}
+        </div>
+        <div className="help">
+          <b>操作提示</b><br />
+          拖左側節點到畫布 → 從右側 handle 拉到左側 handle 建立連線
+          <br />
+          <kbd>Del</kbd> 刪除 · <kbd>Shift</kbd>+點擊 多選 · <kbd>Esc</kbd> 取消選取
+          <br />
+          雙擊節點可改名；切換到「執行」分頁看模擬動畫
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =====================================================================
+ *  模組 9 — 細節面板（右側）
+ *  - 顯示當前選取的節點 / 邊的屬性
+ *  - 提供 label、description、kind、刪除按鈕
+ * ===================================================================== */
+function Inspector({ selection, nodes, edges, onPatch, onDelete, onClear }) {
+  if (!selection) {
+    const counts = countKinds(nodes);
+    return (
+      <Fragment>
+        <h2>未選取</h2>
+        <div className="empty">點擊畫布中的節點或邊以編輯屬性。</div>
+        <h2>畫布總覽</h2>
+        <div className="group">
+          <div className="row"><span className="label">節點總數</span><span className="value">{nodes.length}</span></div>
+          <div className="row"><span className="label">邊總數</span><span className="value">{edges.length}</span></div>
+          {KIND_CATALOG.map(k => (
+            <div className="row" key={k.kind}>
+              <span className="label"><span style={{display:"inline-block",width:8,height:8,background:k.color,borderRadius:2,marginRight:6}} />{k.name}</span>
+              <span className="value">{counts[k.kind] || 0}</span>
+            </div>
+          ))}
+        </div>
+        <h2>快速動作</h2>
+        <div className="btn-row">
+          <button onClick={onClear}>清空畫布</button>
+        </div>
+      </Fragment>
+    );
+  }
+  if (selection.kind === "node") {
+    const node = nodes.find(n => n.id === selection.id);
+    if (!node) return <div className="empty">節點不存在</div>;
+    return (
+      <Fragment>
+        <h2>節點屬性</h2>
+        <div className="group">
+          <div className="row"><span className="label">ID</span><span className="value" style={{fontFamily:"ui-monospace,monospace",fontSize:11}}>{node.id}</span></div>
+          <div className="row"><span className="label">類型</span><span className="value">{node.data.kind}</span></div>
+          <div className="row"><span className="label">狀態</span><span className="value">{node.data.status || "idle"}</span></div>
+        </div>
+        <label>標籤</label>
+        <input type="text" value={node.data.label || ""} onChange={(e) => onPatch("node", node.id, { label: e.target.value })} />
+        <label>描述</label>
+        <textarea value={node.data.description || ""} onChange={(e) => onPatch("node", node.id, { description: e.target.value })} />
+        <label>類型（kind）</label>
+        <select value={node.data.kind} onChange={(e) => onPatch("node", node.id, { kind: e.target.value })}>
+          {KIND_CATALOG.map(k => <option key={k.kind} value={k.kind}>{k.name}</option>)}
+        </select>
+        <div className="btn-row">
+          <button className="danger" onClick={() => onDelete("node", node.id)}>刪除節點</button>
+        </div>
+      </Fragment>
+    );
+  }
+  if (selection.kind === "edge") {
+    const edge = edges.find(e => e.id === selection.id);
+    if (!edge) return <div className="empty">邊不存在</div>;
+    return (
+      <Fragment>
+        <h2>邊屬性</h2>
+        <div className="group">
+          <div className="row"><span className="label">來源</span><span className="value" style={{fontFamily:"ui-monospace,monospace",fontSize:11}}>{edge.source}</span></div>
+          <div className="row"><span className="label">目標</span><span className="value" style={{fontFamily:"ui-monospace,monospace",fontSize:11}}>{edge.target}</span></div>
+        </div>
+        <label>標籤（例如：是 / 否 / 送出）</label>
+        <input type="text" value={edge.label || ""} onChange={(e) => onPatch("edge", edge.id, { label: e.target.value })} />
+        <label>動畫邊</label>
+        <div className="btn-row">
+          <button onClick={() => onPatch("edge", edge.id, { animated: !edge.animated })}>{edge.animated ? "關閉動畫" : "開啟動畫"}</button>
+        </div>
+        <div className="btn-row">
+          <button className="danger" onClick={() => onDelete("edge", edge.id)}>刪除邊</button>
+        </div>
+      </Fragment>
+    );
+  }
+  return null;
+}
+function countKinds(nodes) {
+  const c = {};
+  nodes.forEach(n => { c[n.data.kind] = (c[n.data.kind] || 0) + 1; });
+  return c;
+}
+
+/* =====================================================================
+ *  模組 10 — 主應用程式（含歷史、模擬、JSON 匯入/匯出、模板）
+ * ===================================================================== */
+function App() {
+  /* ---- 啟動模板 ---- */
+  const [workspace, setWorkspace] = useState(() => TEMPLATES[1].build()); // 預設「簽核流程」
+  const { state, set, commit, replace, undo, redo, canUndo, canRedo } = useHistory(workspace);
+  const { nodes, edges } = state;
+
+  const [selection, setSelection] = useState(null);
+  const [runState, setRunState] = useState({ running: false, done: false, wave: 0, totalWaves: 0, error: null });
+  const runTimers = useRef([]);
+  const [zoom, setZoom] = useState(1);
+
+  /* ---- 鍵盤快捷鍵 ---- */
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+      const meta = e.metaKey || e.ctrlKey;
+      if (meta && (e.key === "z" || e.key === "Z") && !e.shiftKey) { e.preventDefault(); undo(); }
+      else if (meta && (e.key === "y" || e.key === "Y")) { e.preventDefault(); redo(); }
+      else if (meta && e.shiftKey && (e.key === "z" || e.key === "Z")) { e.preventDefault(); redo(); }
+      else if (e.key === "Escape") { setSelection(null); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo]);
+
+  /* ---- 結構性 setter（會進 history） ---- */
+  const setNodes = useCallback((updater) => {
+    set((prev) => ({ ...prev, nodes: typeof updater === "function" ? updater(prev.nodes) : updater }));
+  }, [set]);
+  const setEdges = useCallback((updater) => {
+    set((prev) => ({ ...prev, edges: typeof updater === "function" ? updater(prev.edges) : updater }));
+  }, [set]);
+  const commitWorkspace = useCallback((next) => {
+    commit(next);
+  }, [commit]);
+
+  /* ---- 刪除 / 修改屬性 ---- */
+  const handleDelete = useCallback((kind, id) => {
+    if (kind === "node") {
+      const next = {
+        nodes: nodes.filter(n => n.id !== id),
+        edges: edges.filter(e => e.source !== id && e.target !== id),
+      };
+      commitWorkspace(next);
+      setSelection(null);
+    } else if (kind === "edge") {
+      commitWorkspace({ nodes, edges: edges.filter(e => e.id !== id) });
+      setSelection(null);
+    }
+  }, [nodes, edges, commitWorkspace]);
+
+  const handlePatch = useCallback((kind, id, patch) => {
+    if (kind === "node") {
+      const next = {
+        nodes: nodes.map(n => n.id === id ? { ...n, data: { ...n.data, ...patch } } : n),
+        edges,
+      };
+      commitWorkspace(next);
+    } else if (kind === "edge") {
+      const next = {
+        nodes,
+        edges: edges.map(e => e.id === id ? { ...e, ...patch } : e),
+      };
+      commitWorkspace(next);
+    }
+  }, [nodes, edges, commitWorkspace]);
+
+  /* ---- 匯入 / 匯出 ---- */
+  const fileInput = useRef(null);
+  const handleExport = useCallback(() => {
+    const data = {
+      version: 1,
+      kind: "flowforge.graph",
+      exportedAt: new Date().toISOString(),
+      nodes: nodes.map(n => ({
+        id: n.id, type: n.type, position: n.position, data: n.data,
+      })),
+      edges: edges.map(e => ({
+        id: e.id, source: e.source, target: e.target, label: e.label,
+        type: e.type, animated: e.animated,
+      })),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "flowforge-graph.json"; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }, [nodes, edges]);
+  const handleImport = useCallback((file) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const obj = JSON.parse(String(e.target?.result || ""));
+        if (!Array.isArray(obj.nodes) || !Array.isArray(obj.edges)) {
+          throw new Error("缺少 nodes / edges 陣列");
+        }
+        const safe = {
+          nodes: obj.nodes.map(n => ({
+            id: String(n.id || nid("n")),
+            type: "ff",
+            position: n.position || { x: 80, y: 80 },
+            data: {
+              kind: KIND_MAP[n.data?.kind] ? n.data.kind : "action",
+              label: String(n.data?.label || "未命名"),
+              description: String(n.data?.description || ""),
+              status: "idle",
+            },
+          })),
+          edges: obj.edges
+            .filter(e => e && e.source && e.target)
+            .map(e => ({
+              id: String(e.id || `e_${Math.random().toString(36).slice(2)}`),
+              source: e.source, target: e.target,
+              label: e.label ? String(e.label) : "",
+              type: e.type || "smoothstep",
+              animated: !!e.animated,
+            })),
+        };
+        replace(safe);
+        setSelection(null);
+      } catch (err) {
+        alert("匯入失敗：" + err.message);
+      }
+    };
+    reader.readAsText(file);
+  }, [replace]);
+
+  /* ---- 載入模板 ---- */
+  const handleTemplate = useCallback((id) => {
+    const t = TEMPLATES.find(t => t.id === id);
+    if (!t) return;
+    replace(t.build());
+    setSelection(null);
+  }, [replace]);
+  const handleClear = useCallback(() => {
+    if (!confirm("清空畫布？（可 Undo 還原）")) return;
+    replace({ nodes: [], edges: [] });
+    setSelection(null);
+  }, [replace]);
+
+  /* ---- 模擬執行（DAG 拓撲排序 + 波次推進） ---- */
+  const stopRun = useCallback(() => {
+    runTimers.current.forEach(t => clearTimeout(t));
+    runTimers.current = [];
+    setNodes(nds => nds.map(n => ({ ...n, data: { ...n.data, status: "idle" } })));
+    setRunState({ running: false, done: false, wave: 0, totalWaves: 0, error: null });
+  }, [setNodes]);
+
+  const runSimulation = useCallback(() => {
+    stopRun();
+    if (nodes.length === 0) {
+      setRunState({ running: false, done: false, wave: 0, totalWaves: 0, error: "沒有可執行的節點" });
+      return;
+    }
+    let layers, outMap;
+    try { ({ layers, outMap } = topologicalLayers(nodes, edges)); }
+    catch (e) { setRunState({ running: false, done: false, wave: 0, totalWaves: 0, error: e.message }); return; }
+
+    const total = layers.length;
+    setRunState({ running: true, done: false, wave: 0, totalWaves: total, error: null });
+
+    layers.forEach((layer, idx) => {
+      const t = setTimeout(() => {
+        setNodes(nds => nds.map(n => {
+          if (layer.includes(n.id)) return { ...n, data: { ...n.data, status: "running" } };
+          if (layers.slice(0, idx).flat().includes(n.id)) return { ...n, data: { ...n.data, status: "success" } };
+          return n;
+        }));
+        setRunState(s => ({ ...s, wave: idx + 1 }));
+        // 模擬「該層完成」
+        const t2 = setTimeout(() => {
+          setNodes(nds => nds.map(n => layer.includes(n.id) ? { ...n, data: { ...n.data, status: "success" } } : n));
+          if (idx === total - 1) {
+            setRunState(s => ({ ...s, running: false, done: true }));
+          }
+        }, 520);
+        runTimers.current.push(t2);
+      }, idx * 850);
+      runTimers.current.push(t);
+    });
+  }, [nodes, edges, setNodes, stopRun]);
+
+  useEffect(() => () => stopRun(), [stopRun]);
+
+  /* ---- 渲染 ---- */
+  return (
+    <div className="app" onMouseLeave={() => { /* keep timers */ }}>
+      <header className="topbar" role="banner">
+        <h1>FlowForge <span className="pill">動態工作流程編輯器</span></h1>
+        <div className="spacer" />
+        <div className="group">
+          <button className="ghost" disabled={!canUndo} onClick={undo} title="復原 (Ctrl/Cmd+Z)">↶ 復原</button>
+          <button className="ghost" disabled={!canRedo} onClick={redo} title="重做 (Ctrl/Cmd+Y)">↷ 重做</button>
+          <span className="sep" />
+          <button onClick={() => { fileInput.current?.click(); }}>📥 匯入 JSON</button>
+          <button onClick={handleExport}>💾 匯出 JSON</button>
+          <input
+            ref={fileInput} type="file" accept="application/json"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) handleImport(f);
+              e.target.value = "";
+            }}
+          />
+          <span className="sep" />
+          <span className="stat">節點 <b>{nodes.length}</b></span>
+          <span className="stat">邊 <b>{edges.length}</b></span>
+          <span className="stat">縮放 <b>{(zoom * 100).toFixed(0)}%</b></span>
+          <span className="sep" />
+          <button onClick={handleClear} className="danger">清空畫布</button>
+        </div>
+      </header>
+
+      <aside className="left" aria-label="節點調色盤">
+        <h2>節點調色盤</h2>
+        {KIND_CATALOG.map(k => (
+          <div
+            key={k.kind}
+            className="palette-item"
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData("application/x-ff-kind", k.kind);
+              e.dataTransfer.effectAllowed = "move";
+            }}
+            onClick={() => {
+              const id = nid(k.kind[0]);
+              const offset = nodes.length * 24;
+              const node = nodeOf({ id, kind: k.kind, label: k.name }, 80 + offset, 80 + offset);
+              commitWorkspace({ nodes: [...nodes, node], edges });
+              setSelection({ kind: "node", id });
+            }}
+            title="拖到畫布 或 點擊新增"
+          >
+            <span className="swatch" style={{ background: k.color }} />
+            <span className="meta">
+              <span className="name">{k.icon} {k.name}</span>
+              <span className="desc">{k.desc}</span>
+            </span>
+          </div>
+        ))}
+
+        <h2>範本</h2>
+        <div className="templates">
+          {TEMPLATES.map(t => (
+            <button key={t.id} className="template-btn" onClick={() => handleTemplate(t.id)}>
+              {t.name}
+              <small>{t.desc}</small>
+            </button>
+          ))}
+        </div>
+
+        <h2>說明</h2>
+        <div className="group" style={{ fontSize: 11, color: "var(--fg-2)" }}>
+          拖曳左側任一節點到畫布以新增；從節點右側圓點拉到另一節點左側圓點即可建立連線；可隨時復原/重做。
+        </div>
+      </aside>
+
+      <ReactFlowProvider>
+        <CanvasWithZoom
+          nodes={nodes} edges={edges}
+          setNodes={setNodes} setEdges={setEdges}
+          onSelect={setSelection}
+          onZoomChange={setZoom}
+        />
+      </ReactFlowProvider>
+
+      <aside className="right" aria-label="細節與屬性">
+        <Inspector
+          selection={selection}
+          nodes={nodes} edges={edges}
+          onPatch={handlePatch} onDelete={handleDelete} onClear={handleClear}
+        />
+      </aside>
+
+      <footer className="statusbar" role="status">
+        <span className="kv">
+          <span className={`dot ${runState.running ? "" : (runState.error ? "bad" : (runState.done ? "" : "idle"))}`} />
+          模擬：{runState.running ? `執行中 (${runState.wave}/${runState.totalWaves})`
+            : runState.done ? "已完成"
+            : runState.error ? `錯誤：${runState.error}`
+            : "未執行"}
+        </span>
+        <span className="sep" />
+        <span className="kv">節點 <b>{nodes.length}</b></span>
+        <span className="kv">邊 <b>{edges.length}</b></span>
+        <span className="kv">復原堆疊 <b>已啟用</b></span>
+        <span className="spacer" />
+        <div className="run-controls">
+          <button className="go" onClick={runSimulation} disabled={runState.running}>▶ 執行模擬</button>
+          <button onClick={stopRun} disabled={!runState.running}>■ 停止</button>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+/* ---- 監聽縮放事件（用 useReactFlow 在 Provider 內） ---- */
+function CanvasWithZoom(props) {
+  const inner = useReactFlowSafe();
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (inner && typeof inner.getZoom === "function") {
+        try { props.onZoomChange(inner.getZoom()); } catch (_) { /* ignore */ }
+      }
+    }, 250);
+    return () => clearInterval(id);
+  }, [inner, props]);
+  return <WorkflowCanvas {...props} />;
+}
+
+/* =====================================================================
+ *  模組 11 — 啟動掛載
+ * ===================================================================== */
+const rootEl = document.getElementById("root");
+const root = createRoot(rootEl);
+root.render(
+  <ReactFlowProvider>
+    <App />
+  </ReactFlowProvider>
+);
+</script>
+
+<script>
+/* 載入狀態檢查（不在 React 內；保證 boot 畫面能收尾） */
+(function bootstrap() {
+  function tick() {
+    const reactOK = typeof React !== "undefined";
+    const domOK   = typeof ReactDOM !== "undefined";
+    const rfOK    = !!(window.ReactFlow && window.ReactFlow.ReactFlow);
+    const babelOK = !!(window.Babel && window.Babel.transform);
+    const setRow = (id, ok) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.querySelector("span:first-child").textContent = ok ? "✓" : "✗";
+      el.classList.toggle("ok", ok);
+      el.classList.toggle("err", !ok);
+    };
+    setRow("r-react", reactOK);
+    setRow("r-dom",   domOK);
+    setRow("r-babel", babelOK);
+    setRow("r-rf",    rfOK);
+    if (reactOK && domOK && rfOK && babelOK) {
+      document.getElementById("boot-sub").textContent = "就緒，初始化 React 樹…";
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          document.getElementById("root").style.visibility = "visible";
+          const boot = document.getElementById("boot");
+          boot.classList.add("hidden");
+          setTimeout(() => boot.remove(), 300);
+        }, 50);
+      });
+      return;
+    }
+    setTimeout(tick, 120);
+  }
+  function ready() {
+    const sub = document.getElementById("boot-sub");
+    const retry = document.getElementById("boot-retry");
+    const offline = document.getElementById("boot-offline");
+    let tries = 0;
+    const handler = setInterval(() => {
+      tries += 1;
+      const allOK = typeof React !== "undefined" && typeof ReactDOM !== "undefined"
+        && !!(window.ReactFlow && window.ReactFlow.ReactFlow)
+        && !!(window.Babel && window.Babel.transform);
+      if (allOK) { clearInterval(handler); tick(); return; }
+      if (tries > 50) {
+        clearInterval(handler);
+        if (sub) sub.innerHTML = "依賴載入逾時（>6 秒）。請檢查網路或稍後重試。";
+        if (retry) retry.style.display = "inline-flex";
+        if (offline) offline.style.display = "inline-flex";
+      }
+    }, 120);
+    if (retry) retry.addEventListener("click", () => {
+      tries = 0;
+      if (sub) sub.textContent = "重新嘗試中…";
+      if (retry) retry.style.display = "none";
+      handler._rebind = setInterval(handler, 0);
+      ready();
+    });
+    if (offline) offline.addEventListener("click", () => {
+      alert("FlowForge 為純前端單檔編輯器，需網路首次載入 React 與 ReactFlow CDN 套件；載入後即可離線操作。\n若環境無網路，請連網後重整本頁。");
+    });
+  }
+  document.addEventListener("DOMContentLoaded", ready);
+  if (document.readyState !== "loading") ready();
+})();
+</script>
+</body>
+</html>

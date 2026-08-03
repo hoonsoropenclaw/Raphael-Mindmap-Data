@@ -1,0 +1,815 @@
+<!doctype html>
+<html lang="zh-Hant" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Glassmorphism × Framer Motion — Dynamic UI Kit</title>
+
+<!-- Tailwind 3 Play CDN (matches the documented pattern from the prior
+     Tailwind+DaisyUI+Glassmorphism run; no build step required). The
+     root URL 302-redirects to the current pinned version. -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- Motion (the engine that powers Framer Motion — zero React dependency,
+     exposes window.Motion.animate / .inView / .stagger). The framer-motion
+     "react" bundle needs React on globalThis; this standalone bundle is
+     the right primitive for vanilla-JS web pages and is what Framer
+     Motion uses internally for its animation runtime. -->
+<script src="https://cdn.jsdelivr.net/npm/motion@11.18.2/dist/motion.js"></script>
+
+<!-- Optional ambient grain + aurora gradient backdrop. -->
+<style>
+  :root {
+    /* Brand color tokens (Tailwind reads via rgb(var(--accent) / <alpha>)). */
+    --accent: 124 92 255;      /* electric violet */
+    --accent-2: 56 189 248;    /* sky cyan */
+    --ink: 230 232 244;        /* near-white for text on dark glass */
+    --glass-bg: 18 22 38;       /* deep ink for behind the glass */
+  }
+  html[data-theme="light"] {
+    --ink: 24 28 48;
+    --glass-bg: 238 240 252;
+  }
+
+  html, body { height: 100%; }
+  body {
+    font-family: "Outfit", "Inter", ui-sans-serif, system-ui, sans-serif;
+    color: rgb(var(--ink));
+    /* No `background-attachment: fixed` — that breaks `full_page`
+       screenshots (only first viewport gets the gradient) and also
+       behaves oddly on mobile during pull-to-refresh. The gradient
+       instead tiles naturally with the document height. */
+    background-color: #141838;
+    background-image:
+      radial-gradient(60vmax 60vmax at 12% 8%, rgba(124,92,255,.70), transparent 60%),
+      radial-gradient(55vmax 55vmax at 88% 32%, rgba(56,189,248,.55), transparent 60%),
+      radial-gradient(40vmax 40vmax at 50% 55%, rgba(244,114,182,.45), transparent 60%),
+      radial-gradient(35vmax 35vmax at 15% 80%, rgba(124,92,255,.50), transparent 60%),
+      radial-gradient(35vmax 35vmax at 85% 95%, rgba(56,189,248,.45), transparent 60%),
+      linear-gradient(180deg, #0a0d22 0%, #141838 50%, #0a0d22 100%);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    overflow-x: hidden;
+  }
+  html[data-theme="light"] body {
+    background-color: #ecedfb;
+    background-image:
+      radial-gradient(60vmax 60vmax at 12% 8%, rgba(167,139,250,.70), transparent 60%),
+      radial-gradient(55vmax 55vmax at 88% 32%, rgba(125,211,252,.55), transparent 60%),
+      radial-gradient(40vmax 40vmax at 50% 55%, rgba(251,113,133,.40), transparent 60%),
+      radial-gradient(35vmax 35vmax at 15% 80%, rgba(167,139,250,.50), transparent 60%),
+      radial-gradient(35vmax 35vmax at 85% 95%, rgba(125,211,252,.45), transparent 60%),
+      linear-gradient(180deg, #e4e7f8 0%, #ecedfb 50%, #e4e7f8 100%);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+  }
+
+  /* Grain overlay — sits above the gradient, below glass. Keeps texture without
+     overwhelming the blur. pointer-events:none so it never blocks clicks. */
+  body::before {
+    content: "";
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.07 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    opacity: .35;
+    mix-blend-mode: overlay;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Glass primitive. Use this anywhere the design wants translucent + blurred.
+     Stronger fill + border than typical glassmorphism so the cards stay
+     legible against the gradient backdrop. */
+  .glass {
+    background: linear-gradient(135deg,
+      rgba(255,255,255,0.14) 0%,
+      rgba(255,255,255,0.06) 100%);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+            backdrop-filter: blur(22px) saturate(160%);
+    border: 1px solid rgba(255,255,255,0.22);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.28),
+      inset 0 -1px 0 rgba(255,255,255,0.06),
+      0 30px 80px rgba(3,12,28,0.55);
+    border-radius: 1.25rem;
+    color: rgb(245 247 255);
+  }
+  html[data-theme="light"] .glass {
+    background: linear-gradient(135deg,
+      rgba(255,255,255,0.70) 0%,
+      rgba(255,255,255,0.45) 100%);
+    border-color: rgba(255,255,255,0.75);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.95),
+      0 30px 80px rgba(60,70,120,0.25);
+    color: rgb(24 28 48);
+  }
+
+  /* Reduced-motion: collapse all transitions to ~0 and skip the aurora float. */
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+
+  /* Floating orbs are no longer needed — the body background now has
+     five radial-gradient layers covering the full document height, so
+     the page has visible aurora color throughout, not just in the first
+     viewport (which was the bug `position: fixed` caused). Keeping the
+     .orb class definition here in case future styling wants a quick
+     decorative layer. */
+  .orb { display: none; }
+</style>
+
+<script>
+  // Tailwind theme extension. Done inline (CDN has no config file).
+  tailwind.config = {
+    darkMode: ['class', '[data-theme="dark"]'],
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ['Outfit', 'Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+          mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+        },
+        colors: {
+          accent: 'rgb(var(--accent) / <alpha-value>)',
+          'accent-2': 'rgb(var(--accent-2) / <alpha-value>)',
+          ink: 'rgb(var(--ink) / <alpha-value>)',
+        },
+        borderRadius: { glass: '1.25rem' },
+        boxShadow: {
+          glass: 'inset 0 1px 0 rgb(255 255 255 / .22), 0 30px 80px rgb(3 12 28 / .35)',
+        },
+      },
+    },
+  };
+</script>
+</head>
+
+<body class="relative min-h-screen">
+  <!-- (Aurora orb <div>s removed; CSS .orb is hidden and the body
+       background gradient covers the full document instead.) -->
+
+  <!-- Sticky nav. glass primitive + Framer Motion fade-in on mount. -->
+  <nav class="glass fixed top-4 inset-x-0 mx-auto max-w-5xl z-30
+              flex items-center justify-between px-5 py-3"
+       id="nav">
+    <a href="#top" class="flex items-center gap-2 font-semibold tracking-tight">
+      <span class="inline-block w-7 h-7 rounded-lg
+                   bg-gradient-to-br from-accent to-accent-2
+                   shadow-[0_8px_24px_rgba(124,92,255,.55)]"></span>
+      <span>Glassmorphism UI Kit</span>
+    </a>
+    <ul class="hidden sm:flex items-center gap-1 text-sm">
+      <li><a class="px-3 py-1.5 rounded-full hover:bg-white/10 transition"
+             href="#cards">Components</a></li>
+      <li><a class="px-3 py-1.5 rounded-full hover:bg-white/10 transition"
+             href="#form">Form</a></li>
+      <li><a class="px-3 py-1.5 rounded-full hover:bg-white/10 transition"
+             href="#pricing">Pricing</a></li>
+      <li><a class="px-3 py-1.5 rounded-full hover:bg-white/10 transition"
+             href="#faq">FAQ</a></li>
+    </ul>
+    <div class="flex items-center gap-2">
+      <button id="theme-toggle"
+              class="glass !rounded-full px-3 py-1.5 text-xs font-medium
+                     hover:scale-[1.03] active:scale-95 transition"
+              aria-label="Toggle theme">
+        <span id="theme-icon">☾</span>
+      </button>
+      <a href="#form"
+         class="text-xs font-medium px-3 py-1.5 rounded-full
+                bg-gradient-to-r from-accent to-accent-2
+                text-white shadow-[0_10px_28px_rgba(124,92,255,.45)]
+                hover:scale-[1.03] active:scale-95 transition">
+        Get started
+      </a>
+    </div>
+  </nav>
+
+  <main id="top" class="relative z-10 pt-32 pb-24">
+    <!-- HERO -->
+    <section class="max-w-5xl mx-auto px-6">
+      <div id="hero" class="glass p-8 sm:p-12 text-center">
+        <p class="inline-flex items-center gap-2 text-xs font-medium tracking-widest
+                  uppercase px-3 py-1 rounded-full
+                  bg-white/5 border border-white/10 text-accent">
+          <span class="w-1.5 h-1.5 rounded-full bg-accent animate-pulse"></span>
+          Live · Framer Motion + Tailwind
+        </p>
+        <h1 class="mt-6 text-4xl sm:text-6xl font-semibold leading-[1.05] tracking-tight">
+          <span class="block">Frosted glass,</span>
+          <span class="block bg-gradient-to-r from-accent via-fuchsia-400 to-accent-2
+                       bg-clip-text text-transparent">real motion.</span>
+        </h1>
+        <p class="mt-5 max-w-xl mx-auto text-base sm:text-lg opacity-80">
+          A self-contained UI kit blending Tailwind utilities, hand-tuned glass surfaces,
+          and Framer Motion micro-interactions — every card, modal and toggle below is
+          wired and tappable.
+        </p>
+        <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+          <a href="#cards"
+             class="px-5 py-2.5 rounded-full font-medium
+                    bg-gradient-to-r from-accent to-accent-2 text-white
+                    shadow-[0_18px_40px_rgba(124,92,255,.45)]
+                    hover:scale-[1.03] active:scale-95 transition">
+            Explore components
+          </a>
+          <a href="#form"
+             class="px-5 py-2.5 rounded-full font-medium glass hover:scale-[1.03]
+                    active:scale-95 transition">
+            Try the form →
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- METRICS STRIP — staggered count-up on mount -->
+    <section class="max-w-5xl mx-auto px-6 mt-10 grid grid-cols-2 sm:grid-cols-4 gap-4"
+             id="metrics">
+      <!-- Each metric card is wired to Framer Motion (count-up + stagger). -->
+    </section>
+
+    <!-- COMPONENT GALLERY -->
+    <section id="cards" class="max-w-5xl mx-auto px-6 mt-20">
+      <header class="mb-8">
+        <h2 class="text-2xl sm:text-3xl font-semibold tracking-tight">Components</h2>
+        <p class="opacity-70 mt-1">Hover any card. Drag the slider card. Open the modal.</p>
+      </header>
+
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-5" id="grid">
+        <!-- Cards are injected by JS so we can wire Framer Motion per-card cleanly. -->
+      </div>
+    </section>
+
+    <!-- FORM -->
+    <section id="form" class="max-w-3xl mx-auto px-6 mt-20">
+      <div class="glass p-7 sm:p-10">
+        <h2 class="text-2xl sm:text-3xl font-semibold tracking-tight">Talk to us</h2>
+        <p class="opacity-70 mt-1">Validated with native HTML + a tiny JS shim.</p>
+
+        <form id="contact-form" class="mt-6 grid gap-5" novalidate>
+          <div class="grid sm:grid-cols-2 gap-5">
+            <label class="block">
+              <span class="text-xs uppercase tracking-wider opacity-70">Name</span>
+              <input required name="name" type="text"
+                     class="mt-1 w-full glass !rounded-xl px-4 py-3
+                            bg-white/5 border-white/10 placeholder-white/40
+                            focus:outline-none focus:ring-2 focus:ring-accent"
+                     placeholder="Ada Lovelace" />
+            </label>
+            <label class="block">
+              <span class="text-xs uppercase tracking-wider opacity-70">Email</span>
+              <input required name="email" type="email"
+                     class="mt-1 w-full glass !rounded-xl px-4 py-3
+                            bg-white/5 border-white/10 placeholder-white/40
+                            focus:outline-none focus:ring-2 focus:ring-accent"
+                     placeholder="ada@analytical.engine" />
+            </label>
+          </div>
+
+          <label class="block">
+            <span class="text-xs uppercase tracking-wider opacity-70">Plan</span>
+            <select name="plan" id="plan-select"
+                    class="mt-1 w-full glass !rounded-xl px-4 py-3
+                           bg-white/5 border-white/10
+                           focus:outline-none focus:ring-2 focus:ring-accent">
+              <option value="hobby">Hobby — free</option>
+              <option value="pro" selected>Pro — $19/mo</option>
+              <option value="team">Team — $49/mo</option>
+            </select>
+          </label>
+
+          <!-- Live range slider bound to Framer Motion. -->
+          <div class="glass !rounded-xl p-5">
+            <div class="flex items-center justify-between">
+              <span class="text-xs uppercase tracking-wider opacity-70">Seats</span>
+              <span id="seat-readout" class="font-mono text-accent">5</span>
+            </div>
+            <input id="seat-range" type="range" min="1" max="50" value="5"
+                   class="w-full mt-3 accent-accent" />
+            <div class="mt-3 h-2 rounded-full bg-white/10 overflow-hidden">
+              <div id="seat-bar" class="h-full bg-gradient-to-r from-accent to-accent-2"
+                   style="width:10%"></div>
+            </div>
+          </div>
+
+          <label class="block">
+            <span class="text-xs uppercase tracking-wider opacity-70">Notes</span>
+            <textarea name="notes" rows="4"
+                      class="mt-1 w-full glass !rounded-xl px-4 py-3
+                             bg-white/5 border-white/10 placeholder-white/40
+                             focus:outline-none focus:ring-2 focus:ring-accent"
+                      placeholder="What are you building?"></textarea>
+          </label>
+
+          <button type="submit"
+                  class="self-start px-5 py-2.5 rounded-full font-medium
+                         bg-gradient-to-r from-accent to-accent-2 text-white
+                         shadow-[0_18px_40px_rgba(124,92,255,.45)]
+                         hover:scale-[1.03] active:scale-95 transition">
+            Send request →
+          </button>
+
+          <p id="form-status" role="status"
+             class="text-sm opacity-0 transition-opacity duration-300"></p>
+        </form>
+      </div>
+    </section>
+
+    <!-- PRICING -->
+    <section id="pricing" class="max-w-5xl mx-auto px-6 mt-20">
+      <header class="mb-8">
+        <h2 class="text-2xl sm:text-3xl font-semibold tracking-tight">Pricing</h2>
+        <p class="opacity-70 mt-1">Hover a tier — it lifts. Click "Choose" — the modal opens.</p>
+      </header>
+      <div class="grid sm:grid-cols-3 gap-5" id="pricing-grid"></div>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq" class="max-w-3xl mx-auto px-6 mt-20">
+      <h2 class="text-2xl sm:text-3xl font-semibold tracking-tight mb-6">FAQ</h2>
+      <div class="grid gap-3" id="faq-list"></div>
+    </section>
+
+    <footer class="max-w-5xl mx-auto px-6 mt-24 text-center text-xs opacity-60">
+      Built with Tailwind CDN + Framer Motion UMD · single-file demo
+    </footer>
+  </main>
+
+  <!-- MODAL (hidden until triggered) -->
+  <div id="modal-root"
+       class="fixed inset-0 z-40 hidden items-center justify-center p-4">
+    <div id="modal-backdrop" class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
+    <div id="modal-card"
+         class="glass relative z-10 max-w-md w-full p-7">
+      <h3 id="modal-title" class="text-xl font-semibold">Pro plan selected</h3>
+      <p id="modal-body" class="opacity-80 mt-2 text-sm">
+        We'll be in touch within one business day with onboarding details.
+      </p>
+      <div class="mt-6 flex justify-end gap-2">
+        <button id="modal-cancel"
+                class="px-4 py-2 rounded-full glass hover:scale-[1.03]
+                       active:scale-95 transition">Close</button>
+        <button id="modal-confirm"
+                class="px-4 py-2 rounded-full font-medium
+                       bg-gradient-to-r from-accent to-accent-2 text-white
+                       shadow-[0_14px_32px_rgba(124,92,255,.45)]
+                       hover:scale-[1.03] active:scale-95 transition">
+          Confirm
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST (bottom-right). Animation handled by Motion (not CSS transitions)
+       so we never hit the "computed style is 0 during transition" measurement
+       race. -->
+  <div id="toast"
+       class="fixed bottom-6 right-6 z-50 glass px-4 py-3 text-sm max-w-xs"
+       style="opacity:0; transform:translateY(1rem); pointer-events:none;">
+    <span id="toast-msg">Copied</span>
+  </div>
+
+<script>
+"use strict";
+
+/* ----------------------------------------------------------------------
+   Boot guard
+   ----------------------------------------------------------------------
+   Framer Motion UMD attaches window.Motion (with .animate, .AnimatePresence,
+   .motion, .useReducedMotion, etc.) and a few helpers like stagger.
+   If the CDN failed to load we still want the page to be usable, so we wrap
+   every animation call in `safeAnimate` that no-ops gracefully.
+---------------------------------------------------------------------- */
+const Motion = window.Motion || null;
+const noMotion = !Motion;
+
+function safeAnimate(el, keyframes, opts) {
+  if (!el) return;
+  if (noMotion || !Motion?.animate) {
+    // Apply the final state directly so layout still ends up correct.
+    const last = keyframes[keyframes.length - 1];
+    if (last && typeof last === "object") Object.assign(el.style, last);
+    return;
+  }
+  try { return Motion.animate(el, keyframes, opts); }
+  catch (err) { console.warn("animate failed:", err); }
+}
+
+function safeInView(el, keyframes, opts) {
+  if (!el) return;
+  if (noMotion || !Motion?.inView) return safeAnimate(el, keyframes, opts);
+  try { return Motion.inView(el, () => safeAnimate(el, keyframes, opts), opts); }
+  catch (err) { console.warn("inView failed:", err); }
+}
+
+/* ----------------------------------------------------------------------
+   (Aurora orbs removed — see CSS .orb { display: none } rationale. The
+   body background gradient already covers the full document height.)
+
+/* ----------------------------------------------------------------------
+   Nav + hero mount-in. Each element reveals with a small stagger.
+---------------------------------------------------------------------- */
+const reduce = Motion?.useReducedMotion ? Motion.useReducedMotion() : { current: false };
+if (!reduce.current) {
+  safeInView(document.getElementById("nav"),
+    { opacity: [0, 1], transform: ["translateY(-12px)", "translateY(0)"] },
+    { duration: 0.55, ease: [0.16, 1, 0.3, 1] });
+
+  safeInView(document.getElementById("hero"),
+    { opacity: [0, 1], transform: ["translateY(20px) scale(.98)", "translateY(0) scale(1)"] },
+    { duration: 0.7, ease: [0.16, 1, 0.3, 1] });
+}
+
+/* ----------------------------------------------------------------------
+   Metric strip — count-up numbers, staggered.
+---------------------------------------------------------------------- */
+const metricsData = [
+  { label: "Components", value: 14 },
+  { label: "Animations", value: 28 },
+  { label: "Themes",     value: 2  },
+  { label: "Bundle cost", value: 64, suffix: "KB" },
+];
+const metricsEl = document.getElementById("metrics");
+metricsData.forEach((m, i) => {
+  const card = document.createElement("div");
+  card.className = "glass p-5 flex flex-col gap-1";
+  card.innerHTML = `
+    <span class="text-3xl font-semibold font-mono"
+          data-counter='${JSON.stringify(m)}'>0${m.suffix || ""}</span>
+    <span class="text-xs uppercase tracking-wider opacity-60">${m.label}</span>
+  `;
+  metricsEl.appendChild(card);
+
+  const target = card.querySelector("[data-counter]");
+  safeInView(target,
+    { opacity: [0, 1], transform: ["translateY(8px)", "translateY(0)"] },
+    { duration: 0.5, delay: i * 0.08, ease: [0.16, 1, 0.3, 1] });
+
+  // Count-up. Frame-rate independent, finishes in ~1.2s.
+  const start = performance.now();
+  const dur = 1200;
+  function tick(now) {
+    const t = Math.min(1, (now - start) / dur);
+    const eased = 1 - Math.pow(1 - t, 3); // easeOutCubic
+    const v = Math.round(m.value * eased);
+    target.textContent = v + (m.suffix || "");
+    if (t < 1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+});
+
+/* ----------------------------------------------------------------------
+   Component gallery
+---------------------------------------------------------------------- */
+const cards = [
+  { icon: "✦", title: "Glass Card", body: "Backdrop-blur surface with hover lift and gradient border." },
+  { icon: "◐", title: "Toggle",    body: "Theme-aware toggle that animates the knob with spring physics.", control: "toggle" },
+  { icon: "❖", title: "Live Counter", body: "Animated count-up that resets on click.", control: "counter" },
+  { icon: "⌘", title: "Drag",      body: "Pointer-following card using Framer Motion values.", control: "drag" },
+  { icon: "✺", title: "Progress",  body: "Looping gradient bar that paces itself with the audio mix.", control: "progress" },
+  { icon: "✪", title: "Toast",     body: "Bottom-right ephemeral message with springy entrance.", control: "toast" },
+];
+
+const grid = document.getElementById("grid");
+cards.forEach((c, i) => {
+  const el = document.createElement("article");
+  el.className = "glass p-6 cursor-pointer select-none";
+  el.tabIndex = 0;
+  el.innerHTML = `
+    <div class="flex items-center gap-3">
+      <span class="text-2xl">${c.icon}</span>
+      <h3 class="font-semibold tracking-tight">${c.title}</h3>
+    </div>
+    <p class="opacity-75 mt-2 text-sm">${c.body}</p>
+    <div class="mt-5" data-slot></div>
+  `;
+  grid.appendChild(el);
+
+  // Hover lift. Hand-rolled to keep working even if Motion is absent.
+  el.addEventListener("pointerenter", () => {
+    safeAnimate(el, { transform: "translateY(-6px) scale(1.015)" },
+      { duration: 0.25, ease: [0.16, 1, 0.3, 1] });
+  });
+  el.addEventListener("pointerleave", () => {
+    safeAnimate(el, { transform: "translateY(0) scale(1)" },
+      { duration: 0.35, ease: [0.16, 1, 0.3, 1] });
+  });
+
+  // Reveal on scroll.
+  safeInView(el,
+    { opacity: [0, 1], transform: ["translateY(24px)", "translateY(0)"] },
+    { duration: 0.55, delay: i * 0.06, ease: [0.16, 1, 0.3, 1] });
+
+  // Per-card interactive widget.
+  const slot = el.querySelector("[data-slot]");
+  switch (c.control) {
+    case "toggle": {
+      const btn = document.createElement("button");
+      btn.className = "relative w-14 h-8 rounded-full bg-white/10 border border-white/15";
+      btn.setAttribute("aria-pressed", "false");
+      const knob = document.createElement("span");
+      knob.className = "absolute top-1 left-1 w-6 h-6 rounded-full bg-white shadow";
+      btn.appendChild(knob);
+      btn.addEventListener("click", () => {
+        const on = btn.getAttribute("aria-pressed") === "true";
+        const next = !on;
+        btn.setAttribute("aria-pressed", String(next));
+        btn.style.background = next
+          ? "linear-gradient(90deg, rgb(124 92 255), rgb(56 189 248))"
+          : "rgba(255,255,255,0.10)";
+        safeAnimate(knob,
+          { left: next ? "calc(100% - 1.75rem)" : "0.25rem" },
+          { type: "spring", stiffness: 500, damping: 30 });
+      });
+      slot.appendChild(btn);
+      break;
+    }
+    case "counter": {
+      const wrap = document.createElement("div");
+      wrap.className = "flex items-center gap-3";
+      const num = document.createElement("span");
+      num.className = "font-mono text-3xl text-accent";
+      num.textContent = "0";
+      const btn = document.createElement("button");
+      btn.className = "px-3 py-1.5 rounded-full glass text-xs";
+      btn.textContent = "Bump";
+      let n = 0;
+      btn.addEventListener("click", () => {
+        n += 1;
+        num.textContent = String(n);
+        safeAnimate(num,
+          { transform: ["scale(1)", "scale(1.25)", "scale(1)"] },
+          { duration: 0.35, ease: [0.16, 1, 0.3, 1] });
+      });
+      wrap.append(num, btn);
+      slot.appendChild(wrap);
+      break;
+    }
+    case "drag": {
+      const inner = document.createElement("div");
+      inner.className = "h-16 rounded-xl bg-gradient-to-r from-accent to-accent-2 " +
+                        "shadow-[0_14px_40px_rgba(124,92,255,.5)]";
+      slot.appendChild(inner);
+      let raf = null, tx = 0;
+      slot.addEventListener("pointermove", (e) => {
+        const r = slot.getBoundingClientRect();
+        const x = (e.clientX - r.left) / r.width - 0.5;
+        if (raf) cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(() => {
+          safeAnimate(inner,
+            { transform: `translate(${x * 30}px, 0) rotate(${x * 8}deg)` },
+            { duration: 0.25, ease: [0.16, 1, 0.3, 1] });
+        });
+      });
+      slot.addEventListener("pointerleave", () => {
+        safeAnimate(inner, { transform: "translate(0,0) rotate(0)" },
+          { duration: 0.45, ease: [0.16, 1, 0.3, 1] });
+      });
+      break;
+    }
+    case "progress": {
+      const bar = document.createElement("div");
+      bar.className = "h-2 rounded-full bg-white/10 overflow-hidden";
+      const fill = document.createElement("div");
+      fill.className = "h-full w-0 bg-gradient-to-r from-accent to-accent-2";
+      bar.appendChild(fill);
+      slot.appendChild(bar);
+      safeAnimate(fill,
+        { width: ["0%", "100%"] },
+        { duration: 2.4, ease: "easeInOut", repeat: Infinity, repeatType: "reverse" });
+      break;
+    }
+    case "toast": {
+      const btn = document.createElement("button");
+      btn.className = "px-3 py-1.5 rounded-full glass text-xs";
+      btn.textContent = "Fire toast";
+      btn.addEventListener("click", () => showToast("Hello from " + c.title));
+      slot.appendChild(btn);
+      break;
+    }
+  }
+});
+
+/* ----------------------------------------------------------------------
+   Pricing tiers
+---------------------------------------------------------------------- */
+const tiers = [
+  { name: "Hobby", price: 0,  blurb: "For solo tinkering.", featured: false },
+  { name: "Pro",   price: 19, blurb: "For shipping real things.", featured: true },
+  { name: "Team",  price: 49, blurb: "For squads up to 25.", featured: false },
+];
+const pricingGrid = document.getElementById("pricing-grid");
+tiers.forEach((t, i) => {
+  const el = document.createElement("article");
+  el.className = "glass p-6 flex flex-col gap-3 cursor-pointer" +
+    (t.featured ? " ring-2 ring-accent/50" : "");
+  el.innerHTML = `
+    <header class="flex items-baseline justify-between">
+      <h3 class="font-semibold">${t.name}</h3>
+      ${t.featured ? '<span class="text-[10px] uppercase tracking-widest text-accent">Most popular</span>' : ""}
+    </header>
+    <p class="text-3xl font-semibold font-mono">$${t.price}<span class="text-sm opacity-60">/mo</span></p>
+    <p class="opacity-70 text-sm">${t.blurb}</p>
+    <button class="mt-auto px-4 py-2 rounded-full text-sm font-medium
+                   ${t.featured
+                     ? "bg-gradient-to-r from-accent to-accent-2 text-white shadow-[0_14px_32px_rgba(124,92,255,.45)]"
+                     : "glass"}">
+      Choose ${t.name}
+    </button>
+  `;
+  pricingGrid.appendChild(el);
+  safeInView(el,
+    { opacity: [0, 1], transform: ["translateY(20px)", "translateY(0)"] },
+    { duration: 0.55, delay: i * 0.07, ease: [0.16, 1, 0.3, 1] });
+  el.addEventListener("pointerenter", () => {
+    safeAnimate(el, { transform: "translateY(-6px)" },
+      { duration: 0.25, ease: [0.16, 1, 0.3, 1] });
+  });
+  el.addEventListener("pointerleave", () => {
+    safeAnimate(el, { transform: "translateY(0)" },
+      { duration: 0.35, ease: [0.16, 1, 0.3, 1] });
+  });
+  el.querySelector("button").addEventListener("click", () => openModal(t));
+});
+
+/* ----------------------------------------------------------------------
+   FAQ — animated height accordion.
+   Tailwind's `max-h-0` clips the box before scrollHeight can measure the
+   full text. We measure each answer's natural height once at startup
+   (before any click) and store it on a data attribute for the open path.
+---------------------------------------------------------------------- */
+const faqs = [
+  { q: "Does this work without a build step?", a: "Yes — everything is one HTML file using Tailwind Play CDN and the Motion animation engine." },
+  { q: "Can I drop in my own brand tokens?", a: "Yes — edit the CSS variables at the top of <style>: --accent, --accent-2, --ink." },
+  { q: "Is it keyboard accessible?", a: "The nav anchors, cards, and toggles all expose focus styles. Tab through to verify." },
+];
+const faqList = document.getElementById("faq-list");
+faqs.forEach((f, i) => {
+  const wrap = document.createElement("div");
+  wrap.className = "glass p-5 cursor-pointer";
+  wrap.innerHTML = `
+    <div class="flex items-center justify-between">
+      <h3 class="font-medium">${f.q}</h3>
+      <span data-caret class="transition-transform duration-300">▾</span>
+    </div>
+    <div data-answer-wrap class="overflow-hidden transition-[max-height] duration-300 ease-out"
+         style="max-height:0">
+      <p class="text-sm opacity-75 mt-2">${f.a}</p>
+    </div>
+  `;
+  faqList.appendChild(wrap);
+  const caret = wrap.querySelector("[data-caret]");
+  const ansWrap = wrap.querySelector("[data-answer-wrap]");
+  // Measure the natural height once while the panel is open, then close it.
+  ansWrap.style.maxHeight = "9999px";
+  const naturalHeight = Math.round(ansWrap.getBoundingClientRect().height);
+  ansWrap.style.maxHeight = "0";
+  ansWrap.dataset.naturalHeight = String(naturalHeight);
+  wrap.addEventListener("click", () => {
+    const open = ansWrap.style.maxHeight && ansWrap.style.maxHeight !== "0px";
+    ansWrap.style.maxHeight = open ? "0" : naturalHeight + "px";
+    caret.style.transform = open ? "rotate(0deg)" : "rotate(180deg)";
+    wrap.setAttribute("aria-expanded", open ? "false" : "true");
+  });
+  wrap.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); wrap.click(); }
+  });
+  wrap.tabIndex = 0;
+  wrap.setAttribute("role", "button");
+  wrap.setAttribute("aria-expanded", "false");
+  safeInView(wrap,
+    { opacity: [0, 1], transform: ["translateY(14px)", "translateY(0)"] },
+    { duration: 0.45, delay: i * 0.06, ease: [0.16, 1, 0.3, 1] });
+});
+
+/* ----------------------------------------------------------------------
+   Form — seats slider + submit handler
+---------------------------------------------------------------------- */
+const seatRange = document.getElementById("seat-range");
+const seatReadout = document.getElementById("seat-readout");
+const seatBar = document.getElementById("seat-bar");
+function syncSeat() {
+  const v = Number(seatRange.value);
+  seatReadout.textContent = v;
+  seatBar.style.width = ((v / 50) * 100) + "%";
+}
+seatRange.addEventListener("input", syncSeat);
+syncSeat();
+
+const form = document.getElementById("contact-form");
+const status = document.getElementById("form-status");
+form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const data = Object.fromEntries(new FormData(form).entries());
+  if (!data.name || !data.email) {
+    status.textContent = "Name and email are required.";
+    status.style.color = "rgb(248 113 113)";
+    status.style.opacity = "1";
+    return;
+  }
+  status.textContent = `Thanks ${data.name} — we'll email ${data.email} re: the ${data.plan} plan (${seatRange.value} seats).`;
+  status.style.color = "rgb(124 92 255)";
+  status.style.opacity = "1";
+  showToast("Request sent");
+});
+
+/* ----------------------------------------------------------------------
+   Modal
+---------------------------------------------------------------------- */
+const modalRoot = document.getElementById("modal-root");
+const modalCard = document.getElementById("modal-card");
+function openModal(tier) {
+  document.getElementById("modal-title").textContent = tier.name + " plan selected";
+  document.getElementById("modal-body").textContent =
+    `You'll be billed $${tier.price}/mo. Confirm to continue.`;
+  modalRoot.classList.remove("hidden");
+  modalRoot.classList.add("flex");
+  safeAnimate(modalCard,
+    { opacity: [0, 1], transform: ["translateY(16px) scale(.96)", "translateY(0) scale(1)"] },
+    { duration: 0.35, ease: [0.16, 1, 0.3, 1] });
+}
+function closeModal() {
+  safeAnimate(modalCard,
+    { opacity: [1, 0], transform: ["translateY(0) scale(1)", "translateY(8px) scale(.98)"] },
+    { duration: 0.2, ease: "easeIn" });
+  setTimeout(() => {
+    modalRoot.classList.add("hidden");
+    modalRoot.classList.remove("flex");
+  }, 200);
+}
+document.getElementById("modal-cancel").addEventListener("click", closeModal);
+document.getElementById("modal-backdrop").addEventListener("click", closeModal);
+document.getElementById("modal-confirm").addEventListener("click", () => {
+  showToast("Confirmed!");
+  closeModal();
+});
+
+/* ----------------------------------------------------------------------
+   Toast
+---------------------------------------------------------------------- */
+const toast = document.getElementById("toast");
+const toastMsg = document.getElementById("toast-msg");
+let toastTimer = null;
+function showToast(msg) {
+  toastMsg.textContent = msg;
+  // Cancel any in-flight exit animation so the new "in" can run cleanly.
+  if (toastTimer) clearTimeout(toastTimer);
+  safeAnimate(toast,
+    { opacity: [0, 1], transform: ["translateY(1rem)", "translateY(0)"] },
+    { duration: 0.35, ease: [0.16, 1, 0.3, 1] });
+  toast.style.pointerEvents = "auto";
+  toastTimer = setTimeout(() => {
+    safeAnimate(toast,
+      { opacity: [1, 0], transform: ["translateY(0)", "translateY(1rem)"] },
+      { duration: 0.25, ease: "easeIn" });
+    toast.style.pointerEvents = "none";
+  }, 2400);
+}
+
+/* ----------------------------------------------------------------------
+   Theme toggle (with persistence).
+---------------------------------------------------------------------- */
+const themeBtn = document.getElementById("theme-toggle");
+const themeIcon = document.getElementById("theme-icon");
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  themeIcon.textContent = theme === "dark" ? "☾" : "☀";
+  try { localStorage.setItem("glass-theme", theme); } catch {}
+}
+themeBtn.addEventListener("click", () => {
+  const cur = document.documentElement.getAttribute("data-theme") || "dark";
+  applyTheme(cur === "dark" ? "light" : "dark");
+});
+try {
+  const saved = localStorage.getItem("glass-theme");
+  if (saved === "light" || saved === "dark") applyTheme(saved);
+} catch {}
+
+/* ----------------------------------------------------------------------
+   Smooth in-page scroll for topnav anchors (no framework needed).
+---------------------------------------------------------------------- */
+document.querySelectorAll('a[href^="#"]').forEach(a => {
+  a.addEventListener("click", (e) => {
+    const id = a.getAttribute("href").slice(1);
+    const target = id ? document.getElementById(id) : null;
+    if (!target) return;
+    e.preventDefault();
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    history.replaceState(null, "", "#" + id);
+  });
+});
+
+/* ----------------------------------------------------------------------
+   Self-check (runs once): every topnav anchor must resolve to an element.
+   Surface warnings loudly so broken links never ship silently.
+---------------------------------------------------------------------- */
+window.addEventListener("load", () => {
+  document.querySelectorAll('a[href^="#"]').forEach(a => {
+    const id = a.getAttribute("href").slice(1);
+    if (id && !document.getElementById(id)) {
+      console.warn(`[self-check] Broken anchor: #${id}`);
+    }
+  });
+});
+</script>
+</body>
+</html>

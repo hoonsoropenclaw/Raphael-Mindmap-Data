@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BS Scraper + Google Sheets — 同步管道儀表板</title>
+<style>
+  :root {
+    --bg-0: #0b0b16;
+    --bg-1: #161629;
+    --fg-0: #f0f0fa;
+    --fg-1: #a4a4c7;
+    --accent-0: #7c5cff;
+    --accent-1: #22d3ee;
+    --ok: #34d399;
+    --err: #f87171;
+    --glass-bg: rgba(255,255,255,0.04);
+    --glass-bd: rgba(255,255,255,0.10);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: radial-gradient(circle at 20% 0%, #1c1740 0%, var(--bg-0) 60%);
+    color: var(--fg-0);
+    font-family: ui-sans-serif, -apple-system, "Segoe UI", system-ui,
+                 "Noto Sans TC", "PingFang TC", sans-serif;
+    line-height: 1.55;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 32px 24px 96px; }
+  header.hero {
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 28px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-bd);
+    border-radius: 18px;
+    backdrop-filter: blur(14px);
+  }
+  header.hero h1 {
+    margin: 0; font-size: 28px; letter-spacing: -0.5px;
+    background: linear-gradient(135deg, var(--accent-0), var(--accent-1));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  header.hero p { margin: 0; color: var(--fg-1); }
+  .meta-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px; margin-top: 18px;
+  }
+  .meta-card {
+    background: var(--glass-bg); border: 1px solid var(--glass-bd);
+    border-radius: 12px; padding: 14px 16px;
+  }
+  .meta-card .k { font-size: 11px; color: var(--fg-1);
+                   text-transform: uppercase; letter-spacing: 1px; }
+  .meta-card .v { font-size: 22px; font-weight: 700; margin-top: 4px; }
+  .tabs {
+    display: flex; gap: 6px; margin: 28px 0 12px;
+    border-bottom: 1px solid var(--glass-bd);
+  }
+  .tab {
+    background: none; border: 0; padding: 12px 18px;
+    color: var(--fg-1); cursor: pointer; font-weight: 600;
+    border-bottom: 2px solid transparent;
+  }
+  .tab[aria-selected="true"] {
+    color: var(--fg-0);
+    border-bottom-color: var(--accent-0);
+  }
+  .panel {
+    display: none;
+    background: var(--glass-bg); border: 1px solid var(--glass-bd);
+    border-radius: 18px; padding: 24px;
+    backdrop-filter: blur(10px);
+  }
+  .panel[aria-hidden="false"] { display: block; }
+  table {
+    width: 100%; border-collapse: collapse;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left; padding: 10px 12px;
+    border-bottom: 1px solid var(--glass-bd);
+  }
+  th { color: var(--fg-1); font-weight: 600; cursor: pointer;
+        user-select: none; }
+  th:hover { color: var(--fg-0); }
+  tbody tr:hover { background: rgba(124,92,255,0.08); }
+  code {
+    font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
+    background: rgba(255,255,255,0.06);
+    padding: 1px 6px; border-radius: 4px; font-size: 13px;
+  }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 999px;
+    background: rgba(34,211,238,0.18); color: var(--accent-1);
+    font-size: 11px; font-weight: 700; letter-spacing: 0.5px;
+  }
+  .badge.warn { background: rgba(248,113,113,0.18); color: var(--err); }
+  .muted { color: var(--fg-1); }
+  .err { color: var(--err); }
+  .ok { color: var(--ok); }
+  .filter {
+    width: 100%; padding: 10px 14px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--glass-bd);
+    border-radius: 10px; color: var(--fg-0);
+    margin-bottom: 16px; font-size: 14px;
+  }
+  .arch { width: 100%; height: auto; margin: 12px 0; }
+  .csv-mirror {
+    background: rgba(0,0,0,0.4); padding: 16px; border-radius: 12px;
+    overflow-x: auto; font-size: 12px;
+  }
+  .path-pill {
+    display: inline-block; padding: 4px 10px; border-radius: 999px;
+    background: rgba(34,211,238,0.15); color: var(--accent-1);
+    font-family: ui-monospace, monospace; font-size: 12px;
+    word-break: break-all;
+  }
+  footer { margin-top: 32px; color: var(--fg-1); font-size: 12px;
+            text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <h1>BS Scraper + Google Sheets 同步管道</h1>
+    <p>基於 BeautifulSoup 的網頁爬蟲、gspread 同步至 Google Sheets API。v0.1.0。</p>
+    <div class="meta-row">
+      <div class="meta-card">
+        <div class="k">Driver</div>
+        <div class="v"><span class="badge">mock</span></div>
+      </div>
+      <div class="meta-card">
+        <div class="k">Sheets Backend</div>
+        <div class="v"><span class="badge">mock</span></div>
+      </div>
+      <div class="meta-card">
+        <div class="k">Records</div>
+        <div class="v">4</div>
+      </div>
+      <div class="meta-card">
+        <div class="k">Avg / URL (ms)</div>
+        <div class="v">0.00</div>
+      </div>
+      <div class="meta-card">
+        <div class="k">Sheets Sync (ms)</div>
+        <div class="v">0.27</div>
+      </div>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab" aria-selected="true"  data-tab="data">📊 Scraped Data</button>
+    <button class="tab" aria-selected="false" data-tab="sync">🗒️ Sheets Sync</button>
+    <button class="tab" aria-selected="false" data-tab="arch">🏗️ Architecture</button>
+  </nav>
+
+  <section class="panel" aria-hidden="false" id="panel-data">
+    <input class="filter" type="search" id="filter" placeholder="搜尋標題 / URL / 標籤…">
+    <table id="data-table">
+      <thead><tr><th data-col="title" onclick="sortBy(this)">title <span class="sort-ind">↕</span></th><th data-col="url" onclick="sortBy(this)">url <span class="sort-ind">↕</span></th><th data-col="summary" onclick="sortBy(this)">summary <span class="sort-ind">↕</span></th><th data-col="tags" onclick="sortBy(this)">tags <span class="sort-ind">↕</span></th></tr></thead>
+      <tbody><tr><td data-col="title">Hello BeautifulSoup World</td><td data-col="url">/articles/1</td><td data-col="summary">A friendly introduction to defensive HTML scraping.</td><td data-col="tags">python, scraping</td></tr>
+<tr><td data-col="title">Pushing Data to Google Sheets</td><td data-col="url">/articles/2</td><td data-col="summary">From a CSV on disk to a live Sheet via gspread.</td><td data-col="tags">google, api</td></tr>
+<tr><td data-col="title">Anti-Pattern: The Infinite Loop</td><td data-col="url">/articles/3</td><td data-col="summary">Why naive scraping scripts hit CAPTCHAs in production.</td><td data-col="tags">anti-pattern, defensive</td></tr>
+<tr><td data-col="title">No link here, edge case for DefParser</td><td data-col="url"></td><td data-col="summary">Tag list is empty.</td><td data-col="tags"></td></tr></tbody>
+    </table>
+    <p class="muted">共 4 筆資料、4 個欄位。點欄位標頭可排序。</p>
+  </section>
+
+  <section class="panel" aria-hidden="true" id="panel-sync">
+    <h2 style="margin-top:0">Sheets Sync 詳情</h2>
+    <p>目標：<span class="badge">BS_Demo / Articles</span></p>
+    <p>Backend：<span class="badge">mock</span></p>
+    <p>寫入：<strong>4</strong> 列、耗時 <strong>0.27</strong> ms</p>
+    <p>錯誤：<span class="muted">無錯誤</span></p>
+    <p>輸出檔：<span class="path-pill">sheets_mock/BS_Demo__Articles.csv</span></p>
+    <h3>CSV 內容（mock 寫入鏡像）</h3>
+    <pre class="csv-mirror"><code>title,url,summary,tags
+Hello BeautifulSoup World,/articles/1,A friendly introduction to defensive HTML scraping.,&quot;python, scraping&quot;
+Pushing Data to Google Sheets,/articles/2,From a CSV on disk to a live Sheet via gspread.,&quot;google, api&quot;
+Anti-Pattern: The Infinite Loop,/articles/3,Why naive scraping scripts hit CAPTCHAs in production.,&quot;anti-pattern, defensive&quot;
+&quot;No link here, edge case for DefParser&quot;,,Tag list is empty.,
+</code></pre>
+    <h3>各 URL 抓取報告</h3>
+    <table>
+      <thead>
+        <tr><th>URL</th><th>Status</th><th>Mode</th>
+            <th>Elapsed (ms)</th><th>Records</th><th>Error</th></tr>
+      </thead>
+      <tbody>
+        <tr class="ok">
+            <td><code>https://example.test/articles</code></td>
+            <td>200</td>
+            <td><span class="badge">mock</span></td>
+            <td>0.00</td>
+            <td>3</td>
+            <td><span class="muted">—</span></td>
+        </tr>
+
+        <tr class="ok">
+            <td><code>https://example.test/table</code></td>
+            <td>200</td>
+            <td><span class="badge">mock</span></td>
+            <td>0.00</td>
+            <td>0</td>
+            <td><span class="muted">—</span></td>
+        </tr>
+
+        <tr class="ok">
+            <td><code>https://example.test/broken</code></td>
+            <td>200</td>
+            <td><span class="badge">mock</span></td>
+            <td>0.00</td>
+            <td>1</td>
+            <td><span class="muted">—</span></td>
+        </tr></tbody>
+    </table>
+  </section>
+
+  <section class="panel" aria-hidden="true" id="panel-arch">
+    <h2 style="margin-top:0">四層管道架構</h2>
+    <p>從 <code>PolitenessGate → DriverLayer → DefParser → SheetsSync</code> 串接,
+       沿用 <code>data_synchronization_and_analysis</code> 微技能的抽象分層。
+    </p>
+    
+    <svg viewBox="0 0 800 220" xmlns="http://www.w3.org/2000/svg" class="arch">
+      <defs>
+        <linearGradient id="g1" x1="0" x2="1" y1="0" y2="1">
+          <stop offset="0%" stop-color="#7c5cff"/>
+          <stop offset="100%" stop-color="#22d3ee"/>
+        </linearGradient>
+      </defs>
+      <style>
+        .box { fill: rgba(255,255,255,0.06); stroke: url(#g1); stroke-width: 1.5;
+               rx: 12; ry: 12; }
+        .label { fill: #e7e7f6; font: 600 13px system-ui; text-anchor: middle; }
+        .sub { fill: #a4a4c7; font: 11px system-ui; text-anchor: middle; }
+        .arr { stroke: #7c5cff; stroke-width: 1.5; fill: none; marker-end: url(#a); }
+        .arr2 { stroke: #22d3ee; stroke-width: 1.5; fill: none; marker-end: url(#a); }
+      </style>
+      <defs>
+        <marker id="a" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#7c5cff"/>
+        </marker>
+      </defs>
+      <rect class="box" x="20"  y="50" width="140" height="80"/>
+      <text class="label" x="90"  y="85">URLs</text>
+      <text class="sub"    x="90"  y="105">robots.txt checked</text>
+      <text class="sub"    x="90"  y="120">UA + rate-limit</text>
+
+      <rect class="box" x="200" y="50" width="140" height="80"/>
+      <text class="label" x="270" y="85">PolitenessGate</text>
+      <text class="sub"    x="270" y="105">→ DriverLayer</text>
+      <text class="sub"    x="270" y="120">requests / mock</text>
+
+      <rect class="box" x="380" y="50" width="140" height="80"/>
+      <text class="label" x="450" y="85">DriverLayer</text>
+      <text class="sub"    x="450" y="105">retry + backoff</text>
+      <text class="sub"    x="450" y="120">→ FetchResult</text>
+
+      <rect class="box" x="560" y="50" width="140" height="80"/>
+      <text class="label" x="630" y="85">DefParser</text>
+      <text class="sub"    x="630" y="105">BeautifulSoup</text>
+      <text class="sub"    x="630" y="120">→ ParsedRecord[]</text>
+
+      <line class="arr" x1="160" y1="90"  x2="200" y2="90"/>
+      <line class="arr" x1="340" y1="90"  x2="380" y2="90"/>
+      <line class="arr" x1="520" y1="90"  x2="560" y2="90"/>
+
+      <rect class="box" x="380" y="160" width="320" height="50"/>
+      <text class="label" x="540" y="190">SheetsSync  →  CSV (mock) / gspread (real)</text>
+
+      <line class="arr2" x1="630" y1="130" x2="540" y2="160"/>
+    </svg>
+    
+    <h3>關鍵設計決策</h3>
+    <ul>
+      <li><strong>PolitenessGate</strong>：robots.txt + per-host rate-limit + UA,
+          在任何 fetch 之前先過濾。失敗 → <code>PermissionError</code>,不污染下游。</li>
+      <li><strong>DriverLayer</strong>：HTTP retry+backoff;有 <code>enable_mock()</code>
+          開關可離線測試 — 不需網路、不需真憑證就能驗整條 pipeline。</li>
+      <li><strong>DefParser</strong>：BeautifulSoup + 多選擇器 fallback +
+          per-selector <code>@attr</code> 縮寫 +
+          <code>required</code> 標記,
+          結構化資料從髒 HTML 抽出,壞掉的 record 自動跳過。</li>
+      <li><strong>SheetsSync</strong>：有 service-account JSON 就走 <code>gspread</code>
+          ;沒有就降級到本地 CSV,<code>SyncResult.backend</code> 欄位透明標示當前路徑。</li>
+    </ul>
+    <h3>單元測試覆蓋</h3>
+    <p>13 個 pytest 案例,涵蓋 <code>DefParser</code> (records / required / to_row / html_to_table)、
+       <code>DriverLayer</code> (mock 200 / 未知 URL / UA)、
+       <code>ScrapeEngine</code> (多 URL 抓取 / 表格解析)、
+       <code>SheetsSync</code> (mock 寫檔 / env fallback)、
+       <code>Pipeline</code> (端到端)。</p>
+  </section>
+
+  <footer>
+    Generated by bs_scraper v0.1.0 · Mock fixtures only — no live network calls.
+  </footer>
+</div>
+
+<script>
+  // Tabs
+  document.querySelectorAll('.tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(b => b.setAttribute('aria-selected', 'false'));
+      document.querySelectorAll('.panel').forEach(p => p.setAttribute('aria-hidden', 'true'));
+      btn.setAttribute('aria-selected', 'true');
+      const id = 'panel-' + btn.dataset.tab;
+      document.getElementById(id).setAttribute('aria-hidden', 'false');
+    });
+  });
+
+  // Filter
+  const filter = document.getElementById('filter');
+  if (filter) {
+    filter.addEventListener('input', e => {
+      const q = e.target.value.toLowerCase();
+      document.querySelectorAll('#data-table tbody tr').forEach(tr => {
+        tr.style.display = tr.textContent.toLowerCase().includes(q) ? '' : 'none';
+      });
+    });
+  }
+
+  // Sort
+  let sortDir = {};
+  function sortBy(th) {
+    const col = th.dataset.col;
+    const tbody = th.closest('table').querySelector('tbody');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    const dir = (sortDir[col] = !(sortDir[col] || false));
+    rows.sort((a, b) => {
+      const av = a.querySelector(`[data-col="${col}"]`).textContent;
+      const bv = b.querySelector(`[data-col="${col}"]`).textContent;
+      return dir ? bv.localeCompare(av) : av.localeCompare(bv);
+    });
+    rows.forEach(r => tbody.appendChild(r));
+    document.querySelectorAll('th .sort-ind').forEach(s => s.textContent = '↕');
+    th.querySelector('.sort-ind').textContent = dir ? '↑' : '↓';
+  }
+</script>
+</body>
+</html>

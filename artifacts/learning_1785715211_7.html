@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>eventflow — 即時事件流儀表板</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --bg2: #131a33;
+    --panel: #182146;
+    --panel2: #1f2a55;
+    --line: #2c3a72;
+    --text: #e7ecff;
+    --muted: #8a98d0;
+    --accent: #4dd0e1;
+    --accent2: #ff9e80;
+    --ok: #6ed07a;
+    --warn: #ffb74d;
+    --err: #ff5c8a;
+    --anomaly: #f06292;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "SF Pro TC", "PingFang TC", "Microsoft JhengHei",
+                 "Segoe UI", system-ui, sans-serif;
+    font-size: 14px; line-height: 1.5; }
+  header { padding: 16px 24px; background: linear-gradient(90deg, #1a2453, #0f1638);
+    border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 16px; }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: .5px; }
+  header .pill { padding: 3px 10px; border-radius: 999px; background: var(--accent);
+    color: #001722; font-weight: 600; font-size: 11px; letter-spacing: 1px; }
+  header .url { margin-left: auto; font-family: ui-monospace, Menlo, monospace;
+    color: var(--muted); font-size: 12px; }
+
+  main { padding: 18px 24px; display: grid; gap: 16px;
+    grid-template-columns: repeat(12, 1fr); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; }
+  .card h2 { margin: 0 0 10px 0; font-size: 12px; letter-spacing: 1.5px;
+    color: var(--muted); text-transform: uppercase; font-weight: 600; }
+  .stat { display: grid; grid-template-columns: 1fr auto; align-items: baseline;
+    gap: 4px 12px; padding: 6px 0; border-bottom: 1px dashed var(--line); }
+  .stat:last-child { border-bottom: 0; }
+  .stat .label { color: var(--muted); font-size: 12px; }
+  .stat .value { font-family: ui-monospace, Menlo, monospace; font-weight: 600;
+    font-size: 18px; color: var(--accent); text-align: right; }
+  .stat .value.warn { color: var(--warn); }
+  .stat .value.err { color: var(--err); }
+  .stat .value.dim { color: var(--muted); }
+
+  /* grid layout */
+  .col-3 { grid-column: span 3; }
+  .col-4 { grid-column: span 4; }
+  .col-5 { grid-column: span 5; }
+  .col-6 { grid-column: span 6; }
+  .col-7 { grid-column: span 7; }
+  .col-8 { grid-column: span 8; }
+  .col-12 { grid-column: span 12; }
+
+  /* counters grid */
+  .counters { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .counter { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px; text-align: center; }
+  .counter .v { font-size: 22px; font-weight: 700; font-family: ui-monospace, Menlo, monospace; }
+  .counter .k { font-size: 11px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; }
+  .counter.normalized .v { color: var(--accent); }
+  .counter.anomaly .v { color: var(--anomaly); }
+  .counter.error .v { color: var(--err); }
+  .counter.heartbeat .v { color: var(--ok); }
+  .counter.raw .v { color: var(--muted); }
+
+  /* event stream */
+  .stream { background: #06091a; border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px; font-family: ui-monospace, Menlo, monospace;
+    font-size: 12px; max-height: 360px; overflow-y: auto; }
+  .stream .row { display: grid; grid-template-columns: 80px 1fr 1fr 1fr;
+    gap: 8px; padding: 4px 0; border-bottom: 1px solid #11193a; }
+  .stream .row:last-child { border-bottom: 0; }
+  .stream .row .id { color: var(--muted); }
+  .stream .row .topic { color: var(--accent); }
+  .stream .row .src { color: var(--accent2); }
+  .stream .row .type { font-weight: 700; }
+  .stream .row .type.normalized { color: var(--accent); }
+  .stream .row .type.anomaly { color: var(--anomaly); }
+  .stream .row .type.error { color: var(--err); }
+  .stream .row .payload { color: var(--muted); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+
+  /* topology diagram */
+  .topology { font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+    white-space: pre; line-height: 1.6; color: var(--text); }
+
+  footer { padding: 10px 24px; color: var(--muted); font-size: 12px;
+    text-align: center; border-top: 1px solid var(--line); }
+
+  /* connection indicator */
+  .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--err); margin-right: 6px; box-shadow: 0 0 6px var(--err); }
+  .status-dot.ok { background: var(--ok); box-shadow: 0 0 6px var(--ok); animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+  @media (max-width: 900px) {
+    .col-3, .col-4, .col-5, .col-6, .col-7, .col-8 { grid-column: span 12; }
+    .counters { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>eventflow — 即時事件流儀表板</h1>
+  <span class="pill">v0.1.0</span>
+  <span class="url"><span class="status-dot" id="statusDot"></span><span id="statusText">connecting…</span> &nbsp; /metrics · /snapshot</span>
+</header>
+
+<main>
+
+  <!-- 計數器 (5 個 event_type) -->
+  <section class="card col-12">
+    <h2>事件計數 (by type)</h2>
+    <div class="counters" id="counters">
+      <div class="counter raw"><div class="v" id="ct-raw">0</div><div class="k">raw</div></div>
+      <div class="counter normalized"><div class="v" id="ct-normalized">0</div><div class="k">normalized</div></div>
+      <div class="counter anomaly"><div class="v" id="ct-anomaly">0</div><div class="k">anomaly</div></div>
+      <div class="counter error"><div class="v" id="ct-error">0</div><div class="k">error</div></div>
+      <div class="counter heartbeat"><div class="v" id="ct-heartbeat">0</div><div class="k">heartbeat</div></div>
+    </div>
+  </section>
+
+  <!-- Bus 統計 -->
+  <section class="card col-4">
+    <h2>EventBus 統計</h2>
+    <div class="stat"><span class="label">已發布 (published)</span>
+      <span class="value" id="s-published">0</span></div>
+    <div class="stat"><span class="label">已分派 (delivered)</span>
+      <span class="value" id="s-delivered">0</span></div>
+    <div class="stat"><span class="label">佇列滿丟棄 (dropped_full)</span>
+      <span class="value warn" id="s-dropped">0</span></div>
+    <div class="stat"><span class="label">分派錯誤 (errors)</span>
+      <span class="value err" id="s-dispatcherr">0</span></div>
+    <div class="stat"><span class="label">snapshot 容量</span>
+      <span class="value dim" id="s-snapshot">0</span></div>
+  </section>
+
+  <!-- Pipeline 拓樸 -->
+  <section class="card col-8">
+    <h2>Pipeline 拓樸</h2>
+    <div class="topology">┌────────────────────────────────────────────────────────────────────────┐
+│                          SOURCES (asyncio producers)                       │
+├────────────────────────────────────────────────────────────────────────┤
+│  📡 HTTPSource        (CoinGecko, Coinbase)        ──┐                     │
+│     polling 2s/3s, retry w/ exponential backoff      │                     │
+│                                                       │  publish(Event)     │
+│  🔌 WSSource          (Binance, mock ws reconnect)  ─┤   topic=market.*   │
+│     reconnect w/ exponential backoff                  │                     │
+│                                                       │                     │
+│  📂 FileSource        (replay.jsonl, 20x speed)     ─┘                     │
+└────────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+                  ┌───────────────────────────────┐
+                  │       EventBus (core)         │
+                  │  - in_queue (10k backpressure)│
+                  │  - dispatch loop              │
+                  │  - topic pattern matching     │
+                  │  - per-sub queue (1k each)    │
+                  └───────────────────────────────┘
+                          │           │           │
+                          ▼           ▼           ▼
+        ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐
+        │ RollingWindow    │ │ AnomalyDetector  │ │ MetricsSink      │
+        │ (5s sliding)     │ │ (3-sigma rule)   │ │ (HTTP /metrics)  │
+        │ → analytics.*    │ │ → analytics.*    │ │ ← YOU ARE HERE   │
+        └──────────────────┘ └──────────────────┘ └──────────────────┘</div>
+  </section>
+
+  <!-- 即時事件流 -->
+  <section class="card col-12">
+    <h2>最近 30 筆事件 (live tail)</h2>
+    <div class="stream" id="stream">
+      <div class="row" style="color:var(--muted);font-weight:600;">
+        <div>id</div><div>topic</div><div>source / type</div><div>payload</div>
+      </div>
+      <div id="streamRows"></div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  eventflow © 2026 · asyncio event-driven multi-source API stream ·
+  backend default <code>http://127.0.0.1:8765</code> ·
+  polling interval 1s
+</footer>
+
+<script>
+// ────────────────── state ──────────────────
+const METRICS_URL = (location.protocol === 'file:'
+    ? 'http://127.0.0.1:8765/metrics'
+    : '/metrics');
+const SNAPSHOT_URL = (location.protocol === 'file:'
+    ? 'http://127.0.0.1:8765/snapshot'
+    : '/snapshot');
+
+let pollTimer = null;
+let prevDelivered = 0;
+let lastThroughputTs = Date.now();
+let throughputEma = 0;
+
+// ────────────────── helpers ──────────────────
+const $ = (id) => document.getElementById(id);
+const setText = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+const fmt = (n) => (n == null ? '—' : Number(n).toLocaleString());
+
+function setStatus(ok, text) {
+  $('statusDot').classList.toggle('ok', ok);
+  $('statusText').textContent = text;
+}
+
+async function fetchJson(url) {
+  const r = await fetch(url, { cache: 'no-store' });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return await r.json();
+}
+
+// ────────────────── render ──────────────────
+function renderMetrics(m) {
+  const bus = m.bus || {};
+  const ct = m.counters || {};
+  setText('s-published', fmt(bus.published));
+  setText('s-delivered', fmt(bus.delivered));
+  setText('s-dropped', fmt(bus.dropped_full));
+  setText('s-dispatcherr', fmt(bus.dispatch_errors));
+  setText('s-snapshot', fmt(m.snapshot_size));
+
+  setText('ct-raw', fmt(ct.raw || 0));
+  setText('ct-normalized', fmt(ct.normalized || 0));
+  setText('ct-anomaly', fmt(ct.anomaly || 0));
+  setText('ct-error', fmt(ct.error || 0));
+  setText('ct-heartbeat', fmt(ct.heartbeat || 0));
+
+  // 簡易 throughput EMA
+  const now = Date.now();
+  const dlt = (bus.delivered || 0) - prevDelivered;
+  prevDelivered = bus.delivered || 0;
+  if (dlt > 0 && now > lastThroughputTs) {
+    const dt = (now - lastThroughputTs) / 1000;
+    const inst = dlt / dt;
+    throughputEma = throughputEma === 0 ? inst : throughputEma * 0.7 + inst * 0.3;
+  }
+  lastThroughputTs = now;
+}
+
+function renderSnapshot(snap) {
+  const rows = (snap || []).slice(-30).reverse();
+  const html = rows.map(r => {
+    const p = (r.payload || '').toString().replace(/</g, '&lt;');
+    return `<div class="row">
+      <div class="id">${r.id || ''}</div>
+      <div class="topic">${r.topic || ''}</div>
+      <div class="src"><span class="type ${r.type || ''}">${r.type || ''}</span> · ${r.source || ''}</div>
+      <div class="payload">${p}</div>
+    </div>`;
+  }).join('');
+  $('streamRows').innerHTML = html || '<div style="color:var(--muted);padding:10px 0;">尚無事件 — 確認 demo 正在跑</div>';
+}
+
+// ────────────────── poll loop ──────────────────
+async function tick() {
+  try {
+    const [m, s] = await Promise.all([fetchJson(METRICS_URL), fetchJson(SNAPSHOT_URL)]);
+    renderMetrics(m);
+    renderSnapshot(s);
+    setStatus(true, `connected · throughput ≈ ${throughputEma.toFixed(1)} ev/s`);
+  } catch (e) {
+    setStatus(false, `disconnected — ${e.message}`);
+  }
+}
+
+function start() {
+  tick();
+  pollTimer = setInterval(tick, 1000);
+}
+
+start();
+</script>
+
+</body>
+</html>

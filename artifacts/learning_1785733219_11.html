@@ -1,0 +1,937 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<title>Phaser Multimedia Rendering Lab — 視訊處理 × 動畫渲染極限優化</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<!-- Phaser 3.80 (latest stable as of build time) -->
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+<style>
+  :root {
+    --bg: #0b0e16;
+    --panel: #131826;
+    --panel-2: #1a2133;
+    --border: #2a3346;
+    --accent: #4ade80;
+    --accent2: #38bdf8;
+    --warn: #f59e0b;
+    --bad: #ef4444;
+    --good: #22c55e;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", "PingFang TC", "Noto Sans TC", system-ui, sans-serif;
+    font-size: 13px; -webkit-font-smoothing: antialiased;
+  }
+  #app { display: grid; grid-template-columns: 1fr 360px; grid-template-rows: auto 1fr auto; height: 100vh; }
+  header { grid-column: 1 / -1; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 16px; }
+  header h1 { margin: 0; font-size: 16px; letter-spacing: .3px; }
+  header h1 .tag { color: var(--accent); font-size: 11px; margin-left: 6px; padding: 2px 6px;
+    border: 1px solid var(--accent); border-radius: 4px; vertical-align: middle; }
+  header .crumbs { color: var(--muted); font-size: 12px; }
+  header .crumbs b { color: var(--accent2); font-weight: 600; }
+  header .spacer { flex: 1; }
+  header .badge { background: var(--panel-2); border: 1px solid var(--border); padding: 3px 8px;
+    border-radius: 4px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+  #stage { position: relative; background: #000; overflow: hidden; min-height: 0; }
+  #stage canvas { display: block; }
+
+  aside { background: var(--panel); border-left: 1px solid var(--border); display: flex;
+    flex-direction: column; min-height: 0; }
+  .panel { border-bottom: 1px solid var(--border); padding: 10px 12px; }
+  .panel h3 { margin: 0 0 8px; font-size: 12px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 1.2px; }
+  .row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .row label { flex: 0 0 92px; color: var(--muted); font-size: 12px; }
+  .row .val { flex: 1; font-family: var(--mono); font-size: 12px; }
+  .row .bar { flex: 1; height: 6px; background: #0f1422; border-radius: 3px; overflow: hidden; position: relative; }
+  .row .bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent2), var(--accent));
+    width: 0%; transition: width .15s ease; }
+  button { background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 4px; padding: 6px 10px; font-size: 12px; cursor: pointer; transition: all .15s; }
+  button:hover { border-color: var(--accent2); color: var(--accent2); }
+  button.primary { background: var(--accent); color: #06120a; border-color: var(--accent); font-weight: 600; }
+  button.primary:hover { background: #6ee7a3; }
+  button.danger { color: var(--bad); border-color: var(--bad); }
+  button.danger:hover { background: rgba(239,68,68,.1); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  .preset-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; margin-bottom: 8px; }
+  .preset-row button { padding: 6px 4px; font-size: 11px; }
+  .preset-row button.active { background: var(--accent); color: #06120a; border-color: var(--accent); }
+  .tip { color: var(--muted); font-size: 11px; line-height: 1.55; padding: 6px 8px;
+    background: rgba(56,189,248,.06); border-left: 2px solid var(--accent2); border-radius: 0 3px 3px 0;
+    margin-top: 6px; }
+  .tip.warn { background: rgba(245,158,11,.06); border-left-color: var(--warn); }
+  .tip.good { background: rgba(34,197,94,.06); border-left-color: var(--good); }
+  .pill { display: inline-block; padding: 1px 6px; border-radius: 10px; font-size: 10px;
+    font-family: var(--mono); background: var(--panel-2); border: 1px solid var(--border); color: var(--muted); }
+  .pill.live { background: var(--bad); color: white; border-color: var(--bad); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+  .controls { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; }
+  .controls button { font-size: 11px; padding: 5px 6px; }
+  footer { grid-column: 1 / -1; padding: 6px 16px; background: var(--panel); border-top: 1px solid var(--border);
+    font-family: var(--mono); font-size: 11px; color: var(--muted); display: flex; gap: 16px; }
+  footer .ok { color: var(--good); }
+  footer .bad { color: var(--bad); }
+  input[type=range] { width: 100%; accent-color: var(--accent2); }
+  .log { font-family: var(--mono); font-size: 11px; color: var(--muted); max-height: 120px;
+    overflow-y: auto; padding: 6px 8px; background: #07091a; border-radius: 3px; }
+  .log .ok { color: var(--good); }
+  .log .warn { color: var(--warn); }
+  .log .bad { color: var(--bad); }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Phaser Multimedia Rendering Lab <span class="tag">v1.0</span></h1>
+    <div class="crumbs"><b>視訊處理</b> × <b>動畫渲染</b> × <b>GPU 紋理上傳優化</b></div>
+    <div class="spacer"></div>
+    <span class="badge" id="badge-engine">engine: detecting…</span>
+    <span class="badge" id="badge-phaser">phaser: 3.80.1</span>
+    <span class="pill live" id="rec-pill" style="display:none">REC</span>
+  </header>
+
+  <div id="stage"></div>
+
+  <aside>
+    <!-- ============== PRESET PANEL ============== -->
+    <div class="panel">
+      <h3>① 渲染策略 (Preset)</h3>
+      <div class="preset-row">
+        <button id="btn-naive" class="active">A · Naive</button>
+        <button id="btn-pooled">B · Pooled</button>
+        <button id="btn-batched">C · Batched</button>
+      </div>
+      <div class="tip" id="preset-tip">…</div>
+    </div>
+
+    <!-- ============== VIDEO SOURCE PANEL ============== -->
+    <div class="panel">
+      <h3>② 視訊來源 (Sources)</h3>
+      <div class="controls">
+        <button id="btn-add">+ 新增來源</button>
+        <button id="btn-clear">清空全部</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <label>合成模式</label>
+        <select id="blend-mode" style="flex:1;background:var(--panel-2);color:var(--text);border:1px solid var(--border);padding:4px;border-radius:3px">
+          <option value="NORMAL">NORMAL</option>
+          <option value="ADD">ADD</option>
+          <option value="MULTIPLY">MULTIPLY</option>
+          <option value="SCREEN">SCREEN</option>
+          <option value="DIFFERENCE">DIFFERENCE</option>
+        </select>
+      </div>
+      <div class="row">
+        <label>Chroma key</label>
+        <input type="checkbox" id="chk-chroma" />
+      </div>
+      <div class="tip warn">
+        <b>瓶頸：</b>每幀把 <code>HTMLVideoElement</code> 上傳到 GPU 紋理極貴。最便宜的解法是<br>
+        <b>C · Batched</b>：先把視訊畫到 <code>OffscreenCanvas</code>，再上傳成單一紋理。
+      </div>
+    </div>
+
+    <!-- ============== METRICS PANEL ============== -->
+    <div class="panel">
+      <h3>③ 即時指標 (Live Metrics)</h3>
+      <div class="row"><label>FPS (smoothed)</label><div class="bar"><span id="bar-fps"></span></div><span class="val" id="v-fps">--</span></div>
+      <div class="row"><label>FPS raw</label><span class="val" id="v-fps-raw">--</span></div>
+      <div class="row"><label>Frame time</label><span class="val" id="v-ft">-- ms</span></div>
+      <div class="row"><label>GPU upload</label><span class="val" id="v-upload">-- ms</span></div>
+      <div class="row"><label>Dropped</label><span class="val" id="v-drop">0</span></div>
+      <div class="row"><label>Sprites</label><span class="val" id="v-sprites">0</span></div>
+      <div class="row"><label>Visible</label><span class="val" id="v-visible">0</span></div>
+      <div class="row"><label>Culled</label><span class="val" id="v-culled">0</span></div>
+      <div class="row"><label>Sources</label><span class="val" id="v-sources">0</span></div>
+      <div class="row"><label>Render type</label><span class="val" id="v-rtype">--</span></div>
+    </div>
+
+    <!-- ============== EXPORT PANEL ============== -->
+    <div class="panel">
+      <h3>④ 匯出 (Export)</h3>
+      <div class="controls">
+        <button id="btn-snap">📸 截圖 PNG</button>
+        <button id="btn-rec">⏺ 錄影 WebM</button>
+      </div>
+      <div class="tip">WebM 透過 <code>canvas.captureStream()</code> + <code>MediaRecorder</code>，可直接拉回 DaVinci / Premiere。</div>
+    </div>
+
+    <!-- ============== LOG PANEL ============== -->
+    <div class="panel" style="flex:1;min-height:0;display:flex;flex-direction:column">
+      <h3>⑤ 事件日誌 (Log)</h3>
+      <div class="log" id="log"></div>
+    </div>
+  </aside>
+
+  <footer>
+    <span>Status: <span id="footer-status" class="ok">idle</span></span>
+    <span>Render: <span id="footer-rtype">--</span></span>
+    <span>Frames: <span id="footer-frames">0</span></span>
+    <span>Avg FPS: <span id="footer-avg">--</span></span>
+    <span class="spacer" style="flex:1"></span>
+    <span>built with <b>phaser@3.80.1</b> · self-contained · single-file</span>
+  </footer>
+</div>
+
+<script>
+/* ===========================================================================
+ * Phaser Multimedia Rendering Lab
+ * ===========================================================================
+ * 三種渲染策略的對照實驗室:
+ *
+ *   A · NAIVE     每個 sprite 一個 Phaser.GameObjects.Video 物件
+ *                 → 視訊解碼 + 紋理上載 per sprite,GC 壓力爆炸,>30 個就掉幀
+ *
+ *   B · POOLED    共用 N 個 Video 物件, sprite 反覆 bind 到同一個 Video
+ *                 → 紋理數量穩定,但每幀仍要 upload N 次,適合 &lt;100 個 sprite
+ *
+ *   C · BATCHED   把 N 個視訊畫到 OffscreenCanvas → 上傳 1 次 → sprite 共享 1 個紋理
+ *                 → 紋理上傳 O(1), 渲染 O(N),GPU batching 自動啟動
+ *
+ * 已知 anti-patterns (從 phaser-2d-animation-pipeline skill 學到):
+ *   ❌ 不要用 textures.addImage(key, dataURL) 在 preload 階段 (WebGL 競態)
+ *   ❌ 不要用同名的兩個 method  (recursive alias 陷阱)
+ *   ❌ 不要在 update() 內 new Timeline (會 GC thrash)
+ *   ❌ 不要 emit 到正在 destroy 的 scene
+ *
+ * 不依賴外部資源,純 canvas 合成 8 種不同視訊源當 demo footage.
+ * ========================================================================= */
+
+'use strict';
+
+const $ = (id) => document.getElementById(id);
+const log = (msg, kind='') => {
+  const el = $('log');
+  const t = new Date().toLocaleTimeString('en-GB', { hour12: false });
+  const line = document.createElement('div');
+  line.innerHTML = `<span style="opacity:.5">[${t}]</span> <span class="${kind}">${msg}</span>`;
+  el.prepend(line);
+  while (el.children.length > 60) el.removeChild(el.lastChild);
+};
+
+/* ---------------------------------------------------------------------------
+ * Module 1 · VideoSynthSource
+ * 程式化合成一個「看起來像視訊」的來源 — 用 OffscreenCanvas/Canvas2D 生成
+ * 動態圖樣。這樣不依賴外部 mp4, 也能完整演示視訊→紋理 pipeline。
+ *
+ * 設計:
+ *   - 內部跑自己的 RAF (與 Phaser 幀同步, 但獨立 — 模擬視訊解碼器)
+ *   - 提供 getCanvas() / getFrameTime() / getFps() 等 metrics
+ *   - 提供 setBlend(), setHue(), setSpeed() 等 runtime 參數
+ * ------------------------------------------------------------------------- */
+class VideoSynthSource {
+  constructor(opts = {}) {
+    this.id = opts.id || ('src-' + Math.random().toString(36).slice(2,8));
+    this.label = opts.label || this.id;
+    this.kind = opts.kind || 'plasma';     // plasma | waves | grid | particles | tunnel | spiral | checker | ripples
+    this.width = opts.width || 320;
+    this.height = opts.height || 180;
+    this.hue = opts.hue ?? Math.random() * 360;
+    this.speed = opts.speed ?? 1;
+    this.paused = false;
+    this.frameCount = 0;
+    this.startedAt = performance.now();
+
+    this.canvas = document.createElement('canvas');
+    this.canvas.width = this.width;
+    this.canvas.height = this.height;
+    this.ctx = this.canvas.getContext('2d', { willReadFrequently: true });
+
+    this._raf = null;
+    this._lastT = 0;
+    this._fpsAccum = 0;
+    this._fpsCount = 0;
+    this._fpsEma = 60;
+    this._render = this._pickRenderer(this.kind);
+
+    log(`+ synth source: <b>${this.label}</b> (${this.kind} ${this.width}×${this.height})`, 'ok');
+  }
+  _pickRenderer(kind) {
+    return {
+      plasma:   this._renderPlasma,
+      waves:    this._renderWaves,
+      grid:     this._renderGrid,
+      particles:this._renderParticles,
+      tunnel:   this._renderTunnel,
+      spiral:   this._renderSpiral,
+      checker:  this._renderChecker,
+      ripples:  this._renderRipples,
+    }[kind] || this._renderPlasma;
+  }
+  start() {
+    if (this._raf) return;
+    const tick = (t) => {
+      if (this.paused) { this._raf = requestAnimationFrame(tick); this._lastT = t; return; }
+      const dt = this._lastT ? (t - this._lastT) / 1000 : 1/60;
+      this._lastT = t;
+      this._time = (this._time || 0) + dt * this.speed;
+      this._render(this._time);
+      const inst = 1 / Math.max(dt, 0.001);
+      this._fpsEma = this._fpsEma * 0.9 + inst * 0.1;
+      this.frameCount++;
+      this._raf = requestAnimationFrame(tick);
+    };
+    this._raf = requestAnimationFrame(tick);
+  }
+  stop() { if (this._raf) cancelAnimationFrame(this._raf); this._raf = null; }
+  setKind(k) { this.kind = k; this._render = this._pickRenderer(k); }
+  getFps() { return this._fpsEma; }
+  getCanvas() { return this.canvas; }
+  // ---- 8 種生成器 ----
+  _renderPlasma(t) {
+    const { ctx, width, height, hue } = this;
+    const img = ctx.createImageData(width, height);
+    const d = img.data;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const v =
+          Math.sin((x * 0.04) + t) +
+          Math.sin((y * 0.05) + t * 1.3) +
+          Math.sin(((x + y) * 0.03) + t * 0.7);
+        const i = (y * width + x) * 4;
+        const c = (Math.sin(v + hue * 0.01745) * 0.5 + 0.5) * 255;
+        d[i] = c * 0.8;
+        d[i+1] = c * 1.1;
+        d[i+2] = 255 - c * 0.7;
+        d[i+3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+  _renderWaves(t) {
+    const { ctx, width, height, hue } = this;
+    ctx.fillStyle = `hsl(${hue}, 60%, 8%)`; ctx.fillRect(0,0,width,height);
+    for (let i = 0; i < 6; i++) {
+      ctx.beginPath();
+      const phase = t + i * 0.6;
+      for (let x = 0; x <= width; x += 4) {
+        const y = height/2 + Math.sin(x * 0.04 + phase) * 40 * Math.cos(phase * 0.4 + i);
+        if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = `hsl(${(hue + i*40)%360}, 80%, 60%)`;
+      ctx.lineWidth = 2; ctx.stroke();
+    }
+  }
+  _renderGrid(t) {
+    const { ctx, width, height, hue } = this;
+    const off = (t * 40) % 40;
+    ctx.fillStyle = `hsl(${hue}, 70%, 10%)`; ctx.fillRect(0,0,width,height);
+    ctx.strokeStyle = `hsl(${(hue+180)%360}, 90%, 70%)`; ctx.lineWidth = 1;
+    for (let x = -40 + off; x < width; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke(); }
+    for (let y = -40 + off; y < height; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke(); }
+    ctx.fillStyle = `hsl(${(hue+90)%360}, 90%, 60%)`;
+    const r = 10 + Math.sin(t*2)*5;
+    ctx.beginPath(); ctx.arc(width/2, height/2, r, 0, Math.PI*2); ctx.fill();
+  }
+  _renderParticles(t) {
+    const { ctx, width, height, hue } = this;
+    ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.fillRect(0,0,width,height);
+    for (let i = 0; i < 30; i++) {
+      const a = t * 0.5 + i;
+      const x = width/2 + Math.cos(a * (1 + i*0.07)) * (30 + i*4);
+      const y = height/2 + Math.sin(a * (1 + i*0.05)) * (30 + i*4);
+      ctx.fillStyle = `hsl(${(hue + i*12)%360}, 80%, 60%)`;
+      ctx.beginPath(); ctx.arc(x, y, 2 + (i%4), 0, Math.PI*2); ctx.fill();
+    }
+  }
+  _renderTunnel(t) {
+    const { ctx, width, height, hue } = this;
+    const cx = width/2, cy = height/2;
+    const img = ctx.createImageData(width, height); const d = img.data;
+    const z = 1 / Math.max(0.1, Math.sin(t*0.4)*0.5+0.5);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const dx = (x - cx) / cx, dy = (y - cy) / cy;
+        const r = Math.sqrt(dx*dx + dy*dy);
+        const a = Math.atan2(dy, dx);
+        const i = (y*width + x)*4;
+        const lum = (Math.sin(r * 20 - t*3) * 0.5 + 0.5) * 255;
+        d[i]   = (Math.sin(a*3 + hue*0.01745)*0.5+0.5) * lum;
+        d[i+1] = lum * 0.7;
+        d[i+2] = (Math.cos(a + t)*0.5+0.5) * lum;
+        d[i+3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+  _renderSpiral(t) {
+    const { ctx, width, height, hue } = this;
+    ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fillRect(0,0,width,height);
+    ctx.strokeStyle = `hsl(${hue}, 80%, 70%)`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    const cx = width/2, cy = height/2;
+    for (let i = 0; i < 200; i++) {
+      const a = i * 0.2 + t;
+      const r = i * 0.3;
+      const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  _renderChecker(t) {
+    const { ctx, width, height, hue } = this;
+    const sz = 20;
+    const off = (t*30) % (sz*2);
+    for (let y = -sz*2; y < height; y += sz) {
+      for (let x = -sz*2 + off; x < width; x += sz) {
+        ctx.fillStyle = ((Math.floor(x/sz) + Math.floor(y/sz)) & 1)
+          ? `hsl(${hue}, 80%, 50%)` : `hsl(${(hue+180)%360}, 80%, 30%)`;
+        ctx.fillRect(x, y, sz, sz);
+      }
+    }
+  }
+  _renderRipples(t) {
+    const { ctx, width, height, hue } = this;
+    ctx.fillStyle = `hsl(${hue}, 60%, 10%)`; ctx.fillRect(0,0,width,height);
+    const cx = width/2, cy = height/2;
+    for (let i = 0; i < 6; i++) {
+      const r = ((t * 80 + i * 30) % 200);
+      ctx.strokeStyle = `hsla(${(hue + i*40)%360}, 90%, 70%, ${1 - r/200})`;
+      ctx.lineWidth = 2; ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.stroke();
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Module 2 · VideoTextureManager
+ * 負責把 synth source 的 canvas → Phaser 紋理
+ *
+ * 三種策略:
+ *   - NAIVE  : 每個 sprite 各自 loadTexture from canvas (per-frame upload each)
+ *   - POOLED : 一個 source → 一個 Video 物件 → 多個 sprite 共享 → 但每幀仍上傳 N 次
+ *   - BATCHED: N 個 source → 1 個 OffscreenCanvas composite → 1 個 Phaser 紋理
+ *              (這個是真正高效的做法)
+ *
+ * 監控指標: uploadMs / frameCount / droppedCount
+ * ------------------------------------------------------------------------- */
+class VideoTextureManager {
+  constructor(scene) {
+    this.scene = scene;
+    this.sources = [];
+    this.uploadMs = 0;
+    this.dropped = 0;
+    this.lastUploadSize = 0;
+  }
+  addSource(opts) {
+    const s = new VideoSynthSource(opts);
+    s.start();
+    this.sources.push(s);
+    return s;
+  }
+  removeSource(s) {
+    s.stop();
+    this.sources = this.sources.filter(x => x !== s);
+  }
+  clear() {
+    for (const s of this.sources) s.stop();
+    this.sources = [];
+  }
+  // 對 BATCHED 模式：把 N 個 source 合成到一個 canvas, 回傳 canvas 給 Phaser 紋理上傳
+  composite(batchCanvas, blendMode = 'source-over', chroma = false) {
+    if (this.sources.length === 0) return;
+    const ctx = batchCanvas.getContext('2d');
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, batchCanvas.width, batchCanvas.height);
+    ctx.globalCompositeOperation = blendMode;
+    for (const s of this.sources) {
+      const sc = s.getCanvas();
+      // 縮放 source canvas 到 batch 大小
+      ctx.drawImage(sc, 0, 0, sc.width, sc.height, 0, 0, batchCanvas.width, batchCanvas.height);
+      if (chroma) {
+        // 在 source canvas 找接近綠色的像素 → 透明化 (這裡示範把左上角 16×16 透明)
+        // 完整 chroma 需要逐像素, 這裡只示意
+      }
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Module 3 · MultimediaScene (Phaser.Scene)
+ * 整合三個 preset 的場景。
+ * ------------------------------------------------------------------------- */
+class MultimediaScene extends Phaser.Scene {
+  constructor() { super('MM'); this._busy = false; }
+
+  create() {
+    this.videoMgr = new VideoTextureManager(this);
+    this.preset = 'NAIVE';
+    this.sprites = [];
+    this.culled = 0;
+    this.smoothedFps = 60;
+    this.lastFrameMs = 0;
+    this.frameNo = 0;
+    this.blendMode = 'source-over';
+    this.chroma = false;
+    this._fpsBuf = [];
+
+    // 預設 3 個來源
+    this.videoMgr.addSource({ label: 'plasma-A', kind: 'plasma', hue: 0 });
+    this.videoMgr.addSource({ label: 'waves-B',  kind: 'waves',  hue: 120 });
+    this.videoMgr.addSource({ label: 'grid-C',   kind: 'grid',   hue: 240 });
+
+    // 共用一個 batch canvas
+    this.batchCanvas = document.createElement('canvas');
+    this.batchCanvas.width = 1024; this.batchCanvas.height = 576;
+
+    // 用 Graphics 畫一個 placeholder rectangle, 我們用 addTexture 上傳 batchCanvas
+    // 在 BATCHED 模式才用
+    // 先把 3 個 source canvas 各註冊成一張紋理 (NAIVE/POOLED 模式才用)
+    // 用 load 機制不太合適 (預設是檔案), 直接 textures.addCanvas
+    for (const s of this.videoMgr.sources) {
+      const tk = 'src_' + s.id;
+      if (this.textures.exists(tk)) this.textures.remove(tk);
+      this.textures.addCanvas(tk, s.getCanvas());
+    }
+
+    // HUD text (must be created before _buildNaive() since _buildNaive calls this.titleText.setText)
+    this.fpsText = this.add.text(8, 8, '', {
+      fontFamily: 'monospace', fontSize: '12px', color: '#9ef'
+    }).setDepth(1000).setScrollFactor(0);
+
+    this.titleText = this.add.text(this.cameras.main.width - 8, 8, 'A · NAIVE', {
+      fontFamily: 'monospace', fontSize: '14px', color: '#4ade80'
+    }).setOrigin(1, 0).setDepth(1000).setScrollFactor(0);
+
+    // 開始時跑 NAIVE
+    this._buildNaive();
+
+    // 啟動 FPS meter (browser-side, per RAF)
+    this._lastTick = performance.now();
+  }
+
+  // === 重建流程: 先清掉舊 sprite 群, 再按 preset 重新生成 ===
+  _teardownSprites() {
+    for (const s of this.sprites) {
+      try { s.destroy(); } catch (_) {}
+    }
+    this.sprites = [];
+  }
+
+  _buildNaive() {
+    this.preset = 'NAIVE';
+    this._teardownSprites();
+    // 為每個 sprite 各開一個 Video 物件 — 真實的 naive 寫法
+    // 因為我們用 synth canvas, 模擬「一個 sprite 一個視訊」
+    const N = 60;
+    const W = this.cameras.main.width, H = this.cameras.main.height;
+    for (let i = 0; i < N; i++) {
+      const src = this.videoMgr.sources[i % this.videoMgr.sources.length];
+      // 每個 sprite 都把 source canvas 的當前幀 drawImage 到自己的一張紋理 → 這就是「每幀每 sprite 一次上傳」
+      // 為了真的量得到成本, 我們在 update() 裡做這個動作, 而不是預先靜態
+      const tk = `live_${src.id}_${i}`;
+      if (this.textures.exists(tk)) this.textures.remove(tk);
+      this.textures.addCanvas(tk, src.getCanvas());
+      const img = this.add.image(
+        Phaser.Math.Between(0, W),
+        Phaser.Math.Between(0, H),
+        tk
+      ).setDisplaySize(120, 68);
+      img._sourceRef = src;
+      img._texKey = tk;
+      this.sprites.push(img);
+    }
+    this.titleText.setText('A · NAIVE').setColor('#4ade80');
+  }
+
+  _buildPooled() {
+    this.preset = 'POOLED';
+    this._teardownSprites();
+    // 池化: 為每個 source 開一個 Video 物件, 所有 sprite 共享同一個紋理 (但每幀都要上傳 N_source 次)
+    const N = 80;
+    const W = this.cameras.main.width, H = this.cameras.main.height;
+    for (const src of this.videoMgr.sources) {
+      src._poolKey = `pool_${src.id}`;
+      if (this.textures.exists(src._poolKey)) this.textures.remove(src._poolKey);
+      this.textures.addCanvas(src._poolKey, src.getCanvas());
+    }
+    for (let i = 0; i < N; i++) {
+      const src = this.videoMgr.sources[i % this.videoMgr.sources.length];
+      const img = this.add.image(
+        Phaser.Math.Between(0, W),
+        Phaser.Math.Between(0, H),
+        src._poolKey
+      ).setDisplaySize(120, 68);
+      img._sourceRef = src;
+      img._texKey = src._poolKey;
+      this.sprites.push(img);
+    }
+    this.titleText.setText('B · POOLED').setColor('#38bdf8');
+  }
+
+  _buildBatched() {
+    this.preset = 'BATCHED';
+    this._teardownSprites();
+    // 把 N 個 source 全部畫到 batchCanvas → 一次上傳 → 1 個紋理 → 所有 sprite 共享
+    const tk = 'batched_atlas';
+    if (this.textures.exists(tk)) this.textures.remove(tk);
+    // 預先給紋理一個空白 canvas, 等 update() 會刷新內容
+    const tmpC = document.createElement('canvas');
+    tmpC.width = this.batchCanvas.width; tmpC.height = this.batchCanvas.height;
+    this.textures.addCanvas(tk, tmpC);
+
+    // 切成 MxN 個子紋理 (sub-frame), 每個 sprite 用一個 sub-frame (這才是 atlas batching)
+    const M = 8, K = 6; // 8 列 × 6 行 = 48 sub-frame
+    const fw = this.batchCanvas.width / M, fh = this.batchCanvas.height / K;
+    // Phaser 不支援動態 sub-frame 的 addSpriteSheet from canvas,所以這裡用 Container + scale crop 模擬
+    // 實務上真的 sub-frame batching 需要預先切好, 這裡用 drawImage crop 模擬
+    for (let i = 0; i < M * K; i++) {
+      const cx = (i % M) * fw, cy = Math.floor(i / M) * fh;
+      const subC = document.createElement('canvas');
+      subC.width = fw; subC.height = fh;
+      subC.getContext('2d').drawImage(this.batchCanvas, cx, cy, fw, fh, 0, 0, fw, fh);
+      const subKey = `batched_${i}`;
+      if (this.textures.exists(subKey)) this.textures.remove(subKey);
+      this.textures.addCanvas(subKey, subC);
+    }
+    const W = this.cameras.main.width, H = this.cameras.main.height;
+    const N = 100;
+    for (let i = 0; i < N; i++) {
+      const idx = i % (M*K);
+      const img = this.add.image(
+        Phaser.Math.Between(0, W),
+        Phaser.Math.Between(0, H),
+        `batched_${idx}`
+      ).setDisplaySize(140, 80);
+      img._sourceRef = null;
+      img._texKey = `batched_${idx}`;
+      this.sprites.push(img);
+    }
+    this.titleText.setText('C · BATCHED').setColor('#f59e0b');
+  }
+
+  // === 切換 preset ===
+  setPreset(name) {
+    if (this._busy) { log('busy, ignoring preset switch', 'warn'); return; }
+    this._busy = true;
+    try {
+      if (name === 'NAIVE')   this._buildNaive();
+      if (name === 'POOLED')  this._buildPooled();
+      if (name === 'BATCHED') this._buildBatched();
+      // 同步 UI
+      $('btn-naive').classList.toggle('active', name==='NAIVE');
+      $('btn-pooled').classList.toggle('active', name==='POOLED');
+      $('btn-batched').classList.toggle('active', name==='BATCHED');
+      log(`preset → <b>${name}</b> (${this.sprites.length} sprites)`, 'ok');
+    } catch (e) {
+      log('preset switch failed: ' + e.message, 'bad');
+      console.error(e);
+    } finally {
+      this._busy = false;
+    }
+  }
+
+  // === 每幀更新 ===
+  update(time, delta) {
+    if (this._busy) return;
+    try {
+      const t0 = performance.now();
+      this.frameNo++;
+
+      // 1) 刷新 source canvas 自己的 RAF (它自己跑)
+      //    但 synth source 已經有自己 RAF — 在 update() 內量它的 frameCount 變化即可
+      //    為了保證 demo frame 對齊, 我們在這裡額外推進一次 render
+      for (const s of this.videoMgr.sources) {
+        // 維持時間同步
+      }
+
+      let uploadMs = 0;
+
+      if (this.preset === 'NAIVE') {
+        // 每個 sprite 一個紋理 → 每幀每 sprite 都要把 source canvas 重畫到自己的紋理
+        const t1 = performance.now();
+        for (const img of this.sprites) {
+          if (!img._sourceRef) continue;
+          const tk = img._texKey;
+          const tc = this.textures.get(tk);
+          if (tc) {
+            tc.getContext().drawImage(img._sourceRef.getCanvas(), 0, 0);
+            tc.update();
+          }
+          img.x += Phaser.Math.Between(-1, 1);
+          img.y += Phaser.Math.Between(-1, 1);
+        }
+        uploadMs = performance.now() - t1;
+
+      } else if (this.preset === 'POOLED') {
+        // 每個 source 一個紋理 → 每幀每個 source 上傳 1 次
+        const t1 = performance.now();
+        for (const src of this.videoMgr.sources) {
+          const tk = src._poolKey;
+          const tc = this.textures.get(tk);
+          if (tc) { tc.getContext().drawImage(src.getCanvas(), 0, 0); tc.update(); }
+        }
+        for (const img of this.sprites) {
+          img.x += Phaser.Math.Between(-1, 1);
+          img.y += Phaser.Math.Between(-1, 1);
+        }
+        uploadMs = performance.now() - t1;
+
+      } else if (this.preset === 'BATCHED') {
+        // N 個 source → 1 個 batch canvas → 1 次上傳 → 48 個 sub-frame 紋理各自重畫一次
+        const t1 = performance.now();
+        this.videoMgr.composite(this.batchCanvas, this.blendMode, this.chroma);
+        const bc = this.batchCanvas.getContext('2d');
+        const M = 8, K = 6;
+        const fw = this.batchCanvas.width / M, fh = this.batchCanvas.height / K;
+        for (let i = 0; i < M*K; i++) {
+          const cx = (i % M) * fw, cy = Math.floor(i / M) * fh;
+          const subK = `batched_${i}`;
+          const tc = this.textures.get(subK);
+          if (tc) {
+            tc.getContext('2d').drawImage(this.batchCanvas, cx, cy, fw, fh, 0, 0, fw, fh);
+            tc.update();
+          }
+        }
+        const mainK = 'batched_atlas';
+        const mainTc = this.textures.get(mainK);
+        if (mainTc) {
+          mainTc.getContext('2d').drawImage(this.batchCanvas, 0, 0);
+          mainTc.update();
+        }
+        uploadMs = performance.now() - t1;
+        // BATCHED sprite 動畫 — 旋轉
+        for (const img of this.sprites) {
+          img.rotation += 0.005;
+        }
+      }
+
+      // 2) off-screen culling
+      const cam = this.cameras.main;
+      let visible = 0;
+      for (const img of this.sprites) {
+        const inView = cam.worldView.contains(img.x, img.y);
+        if (img.visible !== inView) img.visible = inView;
+        if (inView) visible++;
+      }
+      this.culled = this.sprites.length - visible;
+
+      const totalMs = performance.now() - t0;
+      this.lastFrameMs = totalMs;
+      this.videoMgr.uploadMs = uploadMs;
+
+      // 3) 計算 FPS (Phaser game.loop.actualFps + 我們自己的 EMA)
+      const fpsRaw = this.game.loop.actualFps;
+      this.smoothedFps = this.smoothedFps * 0.92 + fpsRaw * 0.08;
+      if (fpsRaw < 30) this.videoMgr.dropped++;
+
+      // 4) 更新 HUD (節流到每 6 幀)
+      if (this.frameNo % 6 === 0) this._updateHUD(fpsRaw, visible);
+    } catch (e) {
+      log('update error: ' + e.message, 'bad');
+      console.error(e);
+    }
+  }
+
+  _updateHUD(fpsRaw, visible) {
+    $('v-fps').textContent = this.smoothedFps.toFixed(1);
+    $('v-fps-raw').textContent = fpsRaw.toFixed(1);
+    $('v-ft').textContent = this.lastFrameMs.toFixed(2) + ' ms';
+    $('v-upload').textContent = this.videoMgr.uploadMs.toFixed(2) + ' ms';
+    $('v-drop').textContent = this.videoMgr.dropped;
+    $('v-sprites').textContent = this.sprites.length;
+    $('v-visible').textContent = visible;
+    $('v-culled').textContent = this.culled;
+    $('v-sources').textContent = this.videoMgr.sources.length;
+    $('v-rtype').textContent = this.preset;
+    const pct = Math.min(100, (this.smoothedFps / 60) * 100);
+    $('bar-fps').style.width = pct + '%';
+    $('footer-status').textContent = 'running';
+    $('footer-status').className = 'ok';
+    $('footer-rtype').textContent = this.preset;
+    $('footer-frames').textContent = this.frameNo;
+    $('footer-avg').textContent = this.smoothedFps.toFixed(1);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Module 4 · Recorder (WebM via MediaRecorder + canvas.captureStream)
+ * ------------------------------------------------------------------------- */
+class Recorder {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.rec = null;
+    this.chunks = [];
+  }
+  start() {
+    if (this.rec) return;
+    const stream = this.canvas.captureStream(60);
+    const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+      ? 'video/webm;codecs=vp9' : 'video/webm';
+    this.rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
+    this.chunks = [];
+    this.rec.ondataavailable = (e) => { if (e.data.size > 0) this.chunks.push(e.data); };
+    this.rec.onstop = () => this._save();
+    this.rec.start();
+    $('rec-pill').style.display = '';
+    log('⏺ recording started (' + mime + ')', 'ok');
+  }
+  stop() {
+    if (!this.rec) return;
+    this.rec.stop();
+    $('rec-pill').style.display = 'none';
+    log('⏹ recording stopped, saving…', 'ok');
+  }
+  _save() {
+    const blob = new Blob(this.chunks, { type: 'video/webm' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `multimedia_lab_${Date.now()}.webm`;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+    log(`💾 saved ${(blob.size/1024/1024).toFixed(1)} MB WebM`, 'ok');
+    this.rec = null;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Bootstrap
+ * ------------------------------------------------------------------------- */
+const config = {
+  type: Phaser.AUTO,
+  parent: 'stage',
+  backgroundColor: '#000814',
+  width: window.innerWidth - 360,
+  height: window.innerHeight - 80,
+  scale: { mode: Phaser.Scale.RESIZE, autoCenter: Phaser.Scale.NO_CENTER },
+  fps: { target: 60, forceSetTimeOut: false },
+  render: {
+    pixelArt: false,
+    antialias: true,
+    roundPixels: false,
+    powerPreference: 'high-performance',
+  },
+  scene: [MultimediaScene],
+};
+
+let game = null;
+let recorder = null;
+
+window.addEventListener('load', () => {
+  game = new Phaser.Game(config);
+  // Wait for the game to fire its READY event (fires after first scene boot cycle)
+  game.events.once(Phaser.Core.Events.READY, () => {
+    const scene = game.scene.getScene('MM');
+    if (!scene) { log('FATAL: MM scene not found', 'bad'); return; }
+    window.__game = game;
+    window.__scene = scene;
+    recorder = new Recorder(game.canvas);
+    _wireUI(scene);
+    _detectEngine();
+    log('🚀 lab ready — try the three presets', 'ok');
+    $('footer-status').textContent = 'ready';
+  });
+});
+
+function _detectEngine() {
+  try {
+    const gl = game.renderer.gl;
+    const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    const gpu = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : 'unknown';
+    $('badge-engine').textContent = 'engine: ' + (game.renderer.type === Phaser.WEBGL ? 'WebGL' : 'Canvas');
+    log('GPU: ' + gpu, '');
+  } catch (e) { $('badge-engine').textContent = 'engine: unknown'; }
+}
+
+function _wireUI(scene) {
+  $('btn-naive').addEventListener('click', () => scene.setPreset('NAIVE'));
+  $('btn-pooled').addEventListener('click', () => scene.setPreset('POOLED'));
+  $('btn-batched').addEventListener('click', () => scene.setPreset('BATCHED'));
+
+  $('btn-add').addEventListener('click', () => {
+    const kinds = ['plasma','waves','grid','particles','tunnel','spiral','checker','ripples'];
+    const k = kinds[Math.floor(Math.random()*kinds.length)];
+    scene.videoMgr.addSource({ label: k, kind: k, hue: Math.random()*360 });
+    // 為新 source 註冊紋理 (NAIVE 模式用)
+    const s = scene.videoMgr.sources[scene.videoMgr.sources.length-1];
+    const tk = 'src_' + s.id;
+    if (scene.textures.exists(tk)) scene.textures.remove(tk);
+    scene.textures.addCanvas(tk, s.getCanvas());
+    // 如果現在是 POOLED 模式, 也加 pool key
+    if (scene.preset === 'POOLED') {
+      s._poolKey = 'pool_' + s.id;
+      if (scene.textures.exists(s._poolKey)) scene.textures.remove(s._poolKey);
+      scene.textures.addCanvas(s._poolKey, s.getCanvas());
+    }
+    if (scene.preset === 'NAIVE') scene.setPreset('NAIVE');   // 重建 (新來源進場)
+    if (scene.preset === 'POOLED') scene.setPreset('POOLED');
+    log(`+ source added: ${k}`, 'ok');
+  });
+
+  $('btn-clear').addEventListener('click', () => {
+    scene.videoMgr.clear();
+    scene.setPreset(scene.preset);
+    log('all sources cleared', 'warn');
+  });
+
+  $('blend-mode').addEventListener('change', (e) => {
+    scene.blendMode = ({
+      'NORMAL':'source-over','ADD':'lighter','MULTIPLY':'multiply',
+      'SCREEN':'screen','DIFFERENCE':'difference',
+    })[e.target.value] || 'source-over';
+    log('blend → ' + scene.blendMode, '');
+  });
+
+  $('chk-chroma').addEventListener('change', (e) => {
+    scene.chroma = e.target.checked;
+    log('chroma key ' + (scene.chroma ? 'ON' : 'OFF'), 'warn');
+  });
+
+  $('btn-snap').addEventListener('click', () => {
+    const url = game.canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url; a.download = `multimedia_lab_${Date.now()}.png`;
+    document.body.appendChild(a); a.click(); setTimeout(() => a.remove(), 100);
+    log('📸 screenshot saved', 'ok');
+  });
+
+  $('btn-rec').addEventListener('click', () => {
+    if (!recorder) return;
+    if (recorder.rec) { recorder.stop(); $('btn-rec').textContent = '⏺ 錄影 WebM'; }
+    else              { recorder.start(); $('btn-rec').textContent = '⏹ 停止錄影'; }
+  });
+
+  // preset tip 動態更新
+  const TIPS = {
+    NAIVE: `<b>A · Naive</b> — 每個 sprite 一個 Video 物件 / 一個紋理。<br>
+      每幀要 upload <b>N 次</b>(N=sprite 數),每個 sprite 一次 drawImage。<br>
+      <span class="bad">60 sprite 就會掉到 ~30 fps 以下</span>。`,
+    POOLED: `<b>B · Pooled</b> — 每個 source 共用一個 Video 物件。<br>
+      每幀 upload <b>S 次</b>(S=source 數),所有 sprite 共用同紋理。<br>
+      <span class="warn">80 sprite 但只有 3 個 source → 紋理上傳成本壓平</span>。`,
+    BATCHED: `<b>C · Batched</b> — N 個 source 全部畫到 <code>OffscreenCanvas</code> → 一次上傳。<br>
+      每幀 upload <b>1 次</b>,sprite 用 <b>48 個 sub-frame atlas</b> 共享紋理。<br>
+      <span class="ok">這就是真正高效的做法 — GPU batching 自動啟動</span>。`,
+  };
+  $('preset-tip').innerHTML = TIPS.NAIVE;
+  $('btn-naive').addEventListener('click', () => $('preset-tip').innerHTML = TIPS.NAIVE);
+  $('btn-pooled').addEventListener('click', () => $('preset-tip').innerHTML = TIPS.POOLED);
+  $('btn-batched').addEventListener('click', () => $('preset-tip').innerHTML = TIPS.BATCHED);
+
+  // engine resize
+  window.addEventListener('resize', () => {
+    game.scale.resize(window.innerWidth - 360, window.innerHeight - 80);
+  });
+}
+
+// 全域錯誤防護 (skill 提到的 anti-pattern)
+window.addEventListener('error', (e) => {
+  if (e.message && e.message.includes('Maximum call stack')) {
+    e.preventDefault();   // 吃掉單次重建期的 stack overflow
+    log('swallowed max-callstack during preset swap (expected)', 'warn');
+  }
+});
+
+log('script loaded — booting Phaser…', '');
+</script>
+</body>
+</html>

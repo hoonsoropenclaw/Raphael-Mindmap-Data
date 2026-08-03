@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>動態工作流程管理介面 | Dynamic Workflow Manager</title>
+
+<!-- React 18 -->
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+<!-- Babel for JSX in browser -->
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<!-- React Flow 11.x (CDN UMD build) -->
+<script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css" />
+
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft JhengHei", sans-serif; background: #0f172a; color: #e2e8f0; overflow: hidden; }
+
+  /* ===== Layout ===== */
+  .app { display: grid; grid-template-rows: 56px 1fr; height: 100vh; }
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px;
+    background: linear-gradient(90deg, #1e293b 0%, #0f172a 100%);
+    border-bottom: 1px solid #334155;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  }
+  .topbar h1 { font-size: 16px; margin: 0; font-weight: 600; color: #f1f5f9; letter-spacing: 0.5px; }
+  .topbar h1 .accent { color: #60a5fa; }
+
+  .toolbar { display: flex; gap: 8px; align-items: center; }
+  .btn {
+    padding: 7px 14px; border-radius: 6px; border: 1px solid #475569;
+    background: #1e293b; color: #e2e8f0; cursor: pointer; font-size: 13px;
+    transition: all 0.15s ease;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn:hover { background: #334155; border-color: #64748b; }
+  .btn.primary { background: #2563eb; border-color: #3b82f6; color: white; }
+  .btn.primary:hover { background: #1d4ed8; }
+  .btn.success { background: #16a34a; border-color: #22c55e; color: white; }
+  .btn.success:hover { background: #15803d; }
+  .btn.danger { background: #dc2626; border-color: #ef4444; color: white; }
+  .btn.danger:hover { background: #b91c1c; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .main { display: grid; grid-template-columns: 240px 1fr 320px; height: 100%; min-height: 0; }
+
+  /* ===== Sidebar (node palette) ===== */
+  .sidebar {
+    background: #1e293b; border-right: 1px solid #334155;
+    padding: 16px; overflow-y: auto;
+  }
+  .sidebar h3 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; }
+  .node-card {
+    background: #0f172a; border: 1px solid #334155; border-radius: 8px;
+    padding: 10px 12px; margin-bottom: 8px; cursor: grab;
+    transition: all 0.15s ease;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .node-card:hover { border-color: #60a5fa; transform: translateX(2px); }
+  .node-card:active { cursor: grabbing; }
+  .node-card .icon {
+    width: 32px; height: 32px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; flex-shrink: 0;
+  }
+  .node-card .meta { flex: 1; min-width: 0; }
+  .node-card .meta .name { font-size: 13px; font-weight: 600; color: #f1f5f9; }
+  .node-card .meta .desc { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+
+  /* ===== Canvas ===== */
+  .canvas-wrap { position: relative; background: #0f172a; min-height: 0; }
+  .react-flow__node { font-family: inherit; }
+
+  .custom-node {
+    background: #1e293b; border: 2px solid #475569; border-radius: 10px;
+    padding: 0; min-width: 180px; color: #e2e8f0;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    transition: all 0.2s ease;
+  }
+  .custom-node.status-pending { border-color: #475569; }
+  .custom-node.status-running {
+    border-color: #facc15;
+    box-shadow: 0 0 0 4px rgba(250, 204, 21, 0.2), 0 4px 12px rgba(0,0,0,0.3);
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  .custom-node.status-success { border-color: #22c55e; }
+  .custom-node.status-failed { border-color: #ef4444; }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 4px rgba(250, 204, 21, 0.2), 0 4px 12px rgba(0,0,0,0.3); }
+    50% { box-shadow: 0 0 0 8px rgba(250, 204, 21, 0.35), 0 4px 12px rgba(0,0,0,0.3); }
+  }
+  .node-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; border-bottom: 1px solid #334155;
+  }
+  .node-icon { font-size: 16px; flex-shrink: 0; }
+  .node-title { font-size: 12px; font-weight: 600; color: #f1f5f9; flex: 1; }
+  .node-status-badge {
+    font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600;
+    background: #334155; color: #94a3b8;
+  }
+  .status-running .node-status-badge { background: #facc15; color: #422006; }
+  .status-success .node-status-badge { background: #22c55e; color: #052e16; }
+  .status-failed .node-status-badge { background: #ef4444; color: #450a0a; }
+  .node-body { padding: 8px 10px; font-size: 11px; color: #cbd5e1; }
+  .node-body .duration { color: #94a3b8; font-family: ui-monospace, monospace; margin-top: 4px; }
+
+  .react-flow__handle {
+    width: 10px; height: 10px; background: #60a5fa; border: 2px solid #0f172a;
+  }
+
+  /* ===== Right Panel (logs / inspector) ===== */
+  .right-panel {
+    background: #1e293b; border-left: 1px solid #334155;
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  .panel-tabs {
+    display: flex; border-bottom: 1px solid #334155;
+  }
+  .panel-tab {
+    flex: 1; padding: 12px 8px; text-align: center; cursor: pointer;
+    background: transparent; color: #94a3b8; font-size: 12px; font-weight: 600;
+    border: none; border-bottom: 2px solid transparent;
+    transition: all 0.15s ease;
+  }
+  .panel-tab.active { color: #60a5fa; border-bottom-color: #60a5fa; background: #0f172a; }
+  .panel-tab:hover:not(.active) { color: #cbd5e1; }
+
+  .panel-body { flex: 1; overflow-y: auto; padding: 12px; min-height: 0; }
+
+  /* Logs */
+  .log-entry {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px;
+    padding: 6px 8px; margin-bottom: 4px; border-radius: 4px;
+    background: #0f172a; border-left: 3px solid #475569;
+    word-break: break-word;
+  }
+  .log-entry.level-info { border-left-color: #60a5fa; }
+  .log-entry.level-ok { border-left-color: #22c55e; }
+  .log-entry.level-err { border-left-color: #ef4444; }
+  .log-entry.level-warn { border-left-color: #facc15; }
+  .log-entry .ts { color: #64748b; margin-right: 6px; }
+  .log-entry .lvl { display: inline-block; min-width: 36px; font-weight: 700; margin-right: 6px; }
+  .log-entry.level-info .lvl { color: #60a5fa; }
+  .log-entry.level-ok .lvl { color: #22c55e; }
+  .log-entry.level-err .lvl { color: #ef4444; }
+  .log-entry.level-warn .lvl { color: #facc15; }
+  .log-entry .msg { color: #e2e8f0; }
+  .log-entry .node-id { color: #94a3b8; }
+
+  .empty-state {
+    text-align: center; padding: 40px 20px; color: #64748b; font-size: 12px;
+  }
+
+  /* Inspector */
+  .insp-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 0; border-bottom: 1px solid #334155; font-size: 12px;
+  }
+  .insp-row .lbl { color: #94a3b8; }
+  .insp-row .val { color: #f1f5f9; font-family: ui-monospace, monospace; }
+
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+  }
+  .badge.pending { background: #334155; color: #94a3b8; }
+  .badge.running { background: #facc15; color: #422006; }
+  .badge.success { background: #22c55e; color: #052e16; }
+  .badge.failed { background: #ef4444; color: #450a0a; }
+
+  /* ===== Stats bar ===== */
+  .stats-bar {
+    display: flex; gap: 14px; padding: 10px 16px;
+    background: #1e293b; border-top: 1px solid #334155; font-size: 11px;
+  }
+  .stat { display: flex; align-items: center; gap: 6px; }
+  .stat .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .stat.pending .dot { background: #94a3b8; }
+  .stat.running .dot { background: #facc15; animation: pulse-dot 1.2s infinite; }
+  .stat.success .dot { background: #22c55e; }
+  .stat.failed .dot { background: #ef4444; }
+  .stat .count { font-weight: 700; color: #f1f5f9; }
+  .stat .lbl { color: #94a3b8; }
+  @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+    background: #1e293b; border: 1px solid #60a5fa; padding: 10px 18px;
+    border-radius: 8px; font-size: 13px; color: #f1f5f9;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 9999;
+    animation: slideUp 0.3s ease;
+  }
+  @keyframes slideUp {
+    from { transform: translate(-50%, 20px); opacity: 0; }
+    to { transform: translate(-50%, 0); opacity: 1; }
+  }
+
+  /* React Flow theme overrides */
+  .react-flow__controls {
+    background: #1e293b; border: 1px solid #334155; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  .react-flow__controls-button {
+    background: #1e293b; border-bottom: 1px solid #334155; color: #e2e8f0;
+    fill: #e2e8f0;
+  }
+  .react-flow__controls-button:hover { background: #334155; }
+  .react-flow__minimap {
+    background: #1e293b !important; border: 1px solid #334155;
+  }
+  .react-flow__attribution { background: rgba(30, 41, 59, 0.7) !important; color: #94a3b8 !important; }
+  .react-flow__edge-path { stroke: #60a5fa; stroke-width: 2; }
+  .react-flow__edge.selected .react-flow__edge-path { stroke: #facc15; stroke-width: 3; }
+  .react-flow__connection-path { stroke: #facc15; stroke-width: 2; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="env,react">
+const { useState, useEffect, useCallback, useMemo, useRef } = React;
+const RF = ReactFlow; // alias
+
+/* ============================================================
+   Node type definitions (palette)
+   ============================================================ */
+const NODE_TYPES = [
+  { type: 'start',       label: '開始',     icon: '▶️', color: '#22c55e', desc: '工作流程起點', duration: 100, failRate: 0 },
+  { type: 'http',        label: 'HTTP 請求', icon: '🌐', color: '#3b82f6', desc: '呼叫 API 端點', duration: 800, failRate: 0.15 },
+  { type: 'database',    label: '資料庫查詢', icon: '🗄️', color: '#8b5cf6', desc: 'SQL / NoSQL 查詢', duration: 600, failRate: 0.10 },
+  { type: 'transform',   label: '資料轉換', icon: '🔄', color: '#06b6d4', desc: '清洗 / 映射 / 過濾', duration: 400, failRate: 0.05 },
+  { type: 'condition',   label: '條件判斷', icon: '🔀', color: '#f59e0b', desc: 'if / else 分支', duration: 200, failRate: 0.05 },
+  { type: 'notification',label: '通知',     icon: '📨', color: '#ec4899', desc: 'Email / Slack / Webhook', duration: 500, failRate: 0.10 },
+  { type: 'ai',          label: 'AI 推理',  icon: '🤖', color: '#a855f7', desc: 'LLM 呼叫', duration: 2000, failRate: 0.20 },
+  { type: 'end',         label: '結束',     icon: '⏹️', color: '#ef4444', desc: '工作流程終點', duration: 100, failRate: 0 },
+];
+
+const nodeTypeMap = Object.fromEntries(NODE_TYPES.map(n => [n.type, n]));
+
+/* ============================================================
+   Utility: deep clone helper
+   ============================================================ */
+const clone = (x) => JSON.parse(JSON.stringify(x));
+
+/* ============================================================
+   Custom Node Component
+   ============================================================ */
+function CustomNode({ data, selected }) {
+  const t = nodeTypeMap[data.nodeType] || { icon: '❓', color: '#64748b', label: data.nodeType };
+  const status = data.status || 'pending';
+  const dur = data.durationMs != null ? `${data.durationMs}ms` : (t.duration != null ? `~${t.duration}ms` : '—');
+
+  return (
+    <div className={`custom-node status-${status}`} style={selected ? { boxShadow: '0 0 0 2px #60a5fa' } : {}}>
+      <div className="node-header" style={{ background: t.color + '22' }}>
+        <span className="node-icon">{t.icon}</span>
+        <span className="node-title">{data.label || t.label}</span>
+        <span className="node-status-badge">
+          {status === 'pending' && '待執行'}
+          {status === 'running' && '執行中'}
+          {status === 'success' && '完成'}
+          {status === 'failed' && '失敗'}
+        </span>
+      </div>
+      <div className="node-body">
+        <div style={{ fontSize: 10, color: '#94a3b8' }}>{t.desc}</div>
+        <div className="duration">預估 {dur}</div>
+      </div>
+    </div>
+  );
+}
+
+const nodeTypes = { custom: CustomNode };
+
+/* ============================================================
+   Simulation engine (DAG-aware execution)
+   ============================================================ */
+async function runWorkflowSimulation(nodes, edges, logFn, updateNodeStatus, abortRef) {
+  // Build adjacency list
+  const outEdges = {}; // id -> [targetId]
+  const inEdges = {};  // id -> [sourceId]
+  const nodeMap = {};
+  nodes.forEach(n => {
+    outEdges[n.id] = [];
+    inEdges[n.id] = [];
+    nodeMap[n.id] = n;
+  });
+  edges.forEach(e => {
+    if (outEdges[e.source]) outEdges[e.source].push(e.target);
+    if (inEdges[e.target]) inEdges[e.target].push(e.source);
+  });
+
+  // Find start nodes (no incoming edges) — only nodes with no deps can launch
+  const startNodes = nodes.filter(n => inEdges[n.id].length === 0);
+  if (startNodes.length === 0 && nodes.length > 0) {
+    logFn({ level: 'err', msg: '❌ 無起點節點 — 偵測到循環或無入邊的節點' });
+    return;
+  }
+
+  logFn({ level: 'info', msg: `▶ 開始執行工作流程 (共 ${nodes.length} 個節點)` });
+
+  const completed = new Set();
+  const running = new Map(); // id -> Promise
+  const failedNodes = new Set();
+
+  const tryStartReady = async () => {
+    // Find nodes whose deps are all completed and not yet running/done
+    const ready = nodes.filter(n => {
+      if (completed.has(n.id)) return false;
+      if (running.has(n.id)) return false;
+      const deps = inEdges[n.id];
+      return deps.every(d => completed.has(d)) && (deps.length === 0 || deps.some(d => true));
+    });
+
+    for (const node of ready) {
+      if (abortRef.current.aborted) return;
+      const t = nodeTypeMap[node.data.nodeType] || { duration: 400, failRate: 0.1 };
+      const promise = executeNode(node, t, logFn, updateNodeStatus);
+      running.set(node.id, promise);
+    }
+  };
+
+  const executeNode = async (node, t, logFn, updateNodeStatus) => {
+    if (abortRef.current.aborted) return;
+    updateNodeStatus(node.id, 'running');
+    logFn({ level: 'info', nodeId: node.id, msg: `▶ 開始 ${node.data.label || node.type}` });
+
+    const dur = (t.duration ?? 400) + Math.floor(Math.random() * 300);
+    const start = Date.now();
+
+    await new Promise(r => setTimeout(r, dur));
+
+    if (abortRef.current.aborted) {
+      updateNodeStatus(node.id, 'pending');
+      return;
+    }
+
+    const ms = Date.now() - start;
+    const failed = Math.random() < (t.failRate ?? 0.1);
+
+    if (failed) {
+      updateNodeStatus(node.id, 'failed', { durationMs: ms });
+      logFn({ level: 'err', nodeId: node.id, msg: `✕ 失敗 ${node.data.label || node.type} (${ms}ms)` });
+      failedNodes.add(node.id);
+    } else {
+      updateNodeStatus(node.id, 'success', { durationMs: ms });
+      logFn({ level: 'ok', nodeId: node.id, msg: `✓ 完成 ${node.data.label || node.type} (${ms}ms)` });
+    }
+
+    completed.add(node.id);
+    running.delete(node.id);
+
+    // Recursively try next batch
+    if (!abortRef.current.aborted) {
+      await tryStartReady();
+    }
+  };
+
+  await tryStartReady();
+
+  // Wait for all running to finish
+  while (running.size > 0) {
+    if (abortRef.current.aborted) break;
+    await Promise.race([...running.values(), new Promise(r => setTimeout(r, 100))]);
+  }
+
+  if (abortRef.current.aborted) {
+    logFn({ level: 'warn', msg: '⏸ 執行被中止' });
+  } else {
+    logFn({ level: 'info', msg: `■ 工作流程結束 — 成功 ${nodes.length - failedNodes.size}/${nodes.length}` });
+  }
+}
+
+/* ============================================================
+   Main App
+   ============================================================ */
+function App() {
+  const [nodes, setNodes] = useState([]);
+  const [edges, setEdges] = useState([]);
+  const [logs, setLogs] = useState([]);
+  const [running, setRunning] = useState(false);
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [activeTab, setActiveTab] = useState('logs');
+  const [rfInstance, setRfInstance] = useState(null);
+  const reactFlowWrapper = useRef(null);
+
+  const abortRef = useRef({ aborted: false });
+  const logIdRef = useRef(0);
+  const nodeIdCounterRef = useRef(0);
+
+  // ----- Logging -----
+  const log = useCallback((entry) => {
+    setLogs(prev => [...prev, { ...entry, id: ++logIdRef.current, ts: entry.ts || Date.now() }]);
+  }, []);
+
+  // ----- Node status update (preserves position/data via id) -----
+  const updateNodeStatus = useCallback((id, status, meta = {}) => {
+    setNodes(prev => prev.map(n =>
+      n.id === id ? { ...n, data: { ...n.data, status, ...meta } } : n
+    ));
+  }, []);
+
+  // ----- React Flow callbacks -----
+  const onNodesChange = useCallback((changes) => {
+    setNodes((nds) => RF.applyNodeChanges(changes, nds));
+  }, []);
+  const onEdgesChange = useCallback((changes) => {
+    setEdges((eds) => RF.applyEdgeChanges(changes, eds));
+  }, []);
+  const onConnect = useCallback((params) => {
+    setEdges((eds) => RF.addEdge({ ...params, animated: true, type: 'smoothstep' }, eds));
+  }, []);
+  const onNodeClick = useCallback((_, node) => {
+    setSelectedNode(node);
+    setActiveTab('inspector');
+  }, []);
+  const onPaneClick = useCallback(() => setSelectedNode(null), []);
+
+  // ----- Drag & Drop from palette -----
+  const onDragStart = (event, nodeType) => {
+    event.dataTransfer.setData('application/reactflow', nodeType);
+    event.dataTransfer.effectAllowed = 'move';
+  };
+
+  const onDragOver = useCallback((event) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const onDrop = useCallback((event) => {
+    event.preventDefault();
+    const nodeType = event.dataTransfer.getData('application/reactflow');
+    if (!nodeType || !rfInstance || !reactFlowWrapper.current) return;
+
+    const position = rfInstance.screenToFlowPosition({
+      x: event.clientX,
+      y: event.clientY,
+    });
+
+    const t = nodeTypeMap[nodeType];
+    const newNode = {
+      id: `n_${++nodeIdCounterRef.current}_${Date.now()}`,
+      type: 'custom',
+      position,
+      data: { label: t.label, nodeType, status: 'pending' },
+    };
+    setNodes(nds => [...nds, newNode]);
+  }, [rfInstance]);
+
+  // ----- Toolbar actions -----
+  const handleRun = async () => {
+    if (nodes.length === 0) {
+      log({ level: 'warn', msg: '⚠ 無節點可執行 — 請從左側面板拖曳節點到畫布' });
+      return;
+    }
+    // Reset all statuses
+    setNodes(nds => nds.map(n => ({ ...n, data: { ...n.data, status: 'pending', durationMs: undefined, error: undefined } })));
+    setRunning(true);
+    abortRef.current = { aborted: false };
+    log({ level: 'info', msg: '── 模擬執行開始 ──' });
+    await runWorkflowSimulation(nodes, edges, log, updateNodeStatus, abortRef.current);
+    setRunning(false);
+  };
+
+  const handleStop = () => {
+    abortRef.current.aborted = true;
+    log({ level: 'warn', msg: '⏹ 收到中止訊號' });
+  };
+
+  const handleClear = () => {
+    if (running) return;
+    setNodes([]);
+    setEdges([]);
+    setLogs([]);
+    setSelectedNode(null);
+    nodeIdCounterRef.current = 0;
+    log({ level: 'info', msg: '🧹 已清空畫布' });
+  };
+
+  const handleLoadDemo = () => {
+    if (running) return;
+    setNodes([
+      { id: 'demo_1', type: 'custom', position: { x: 80, y: 120 }, data: { label: '開始', nodeType: 'start', status: 'pending' } },
+      { id: 'demo_2', type: 'custom', position: { x: 320, y: 60 }, data: { label: '抓取用戶資料', nodeType: 'http', status: 'pending' } },
+      { id: 'demo_3', type: 'custom', position: { x: 320, y: 200 }, data: { label: '查詢訂單', nodeType: 'database', status: 'pending' } },
+      { id: 'demo_4', type: 'custom', position: { x: 600, y: 130 }, data: { label: '合併資料', nodeType: 'transform', status: 'pending' } },
+      { id: 'demo_5', type: 'custom', position: { x: 880, y: 80 }, data: { label: 'AI 摘要', nodeType: 'ai', status: 'pending' } },
+      { id: 'demo_6', type: 'custom', position: { x: 880, y: 220 }, data: { label: '發送通知', nodeType: 'notification', status: 'pending' } },
+    ]);
+    setEdges([
+      { id: 'e1-2', source: 'demo_1', target: 'demo_2', animated: true, type: 'smoothstep' },
+      { id: 'e1-3', source: 'demo_1', target: 'demo_3', animated: true, type: 'smoothstep' },
+      { id: 'e2-4', source: 'demo_2', target: 'demo_4', animated: true, type: 'smoothstep' },
+      { id: 'e3-4', source: 'demo_3', target: 'demo_4', animated: true, type: 'smoothstep' },
+      { id: 'e4-5', source: 'demo_4', target: 'demo_5', animated: true, type: 'smoothstep' },
+      { id: 'e4-6', source: 'demo_4', target: 'demo_6', animated: true, type: 'smoothstep' },
+    ]);
+    setLogs([]);
+    setSelectedNode(null);
+    log({ level: 'info', msg: '📦 已載入示範工作流程 (6 節點 / 6 連線)' });
+  };
+
+  const handleExport = () => {
+    const data = { nodes, edges, exportedAt: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'workflow.json'; a.click();
+    URL.revokeObjectURL(url);
+    log({ level: 'ok', msg: '💾 已匯出 workflow.json' });
+  };
+
+  // ----- Stats -----
+  const stats = useMemo(() => {
+    const s = { pending: 0, running: 0, success: 0, failed: 0 };
+    nodes.forEach(n => {
+      const st = n.data.status || 'pending';
+      if (s[st] != null) s[st]++;
+    });
+    return s;
+  }, [nodes]);
+
+  // ----- Render -----
+  return (
+    <div className="app">
+      <div className="topbar">
+        <h1>⚡ <span className="accent">Dynamic Workflow Manager</span> — 動態工作流程管理介面</h1>
+        <div className="toolbar">
+          <button className="btn" onClick={handleLoadDemo} disabled={running}>📦 載入示範</button>
+          <button className="btn" onClick={handleExport} disabled={nodes.length === 0}>💾 匯出 JSON</button>
+          {!running ? (
+            <>
+              <button className="btn danger" onClick={handleClear} disabled={nodes.length === 0}>🧹 清空</button>
+              <button className="btn success" onClick={handleRun} disabled={nodes.length === 0}>▶ 執行</button>
+            </>
+          ) : (
+            <button className="btn danger" onClick={handleStop}>⏹ 停止</button>
+          )}
+        </div>
+      </div>
+
+      <div className="main">
+        {/* ===== Left: Palette ===== */}
+        <div className="sidebar">
+          <h3>節點類型</h3>
+          {NODE_TYPES.map(t => (
+            <div
+              key={t.type}
+              className="node-card"
+              draggable
+              onDragStart={(e) => onDragStart(e, t.type)}
+            >
+              <div className="icon" style={{ background: t.color + '33', color: t.color }}>{t.icon}</div>
+              <div className="meta">
+                <div className="name">{t.label}</div>
+                <div className="desc">{t.desc}</div>
+              </div>
+            </div>
+          ))}
+          <h3 style={{ marginTop: 20 }}>說明</h3>
+          <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.6 }}>
+            • 拖曳節點到畫布建立流程<br/>
+            • 從節點右側藍點拖到下一節點左側藍點建立連線<br/>
+            • 點擊節點查看細節<br/>
+            • 「執行」會依賴 DAG 拓樸順序模擬執行<br/>
+            • 預估時間僅供參考,實際執行含 ±300ms 隨機
+          </div>
+        </div>
+
+        {/* ===== Center: Canvas ===== */}
+        <div className="canvas-wrap" ref={reactFlowWrapper}>
+          <RF
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onInit={setRfInstance}
+            onDrop={onDrop}
+            onDragOver={onDragOver}
+            onNodeClick={onNodeClick}
+            onPaneClick={onPaneClick}
+            nodeTypes={nodeTypes}
+            fitView
+            deleteKeyCode={['Backspace', 'Delete']}
+          >
+            <RF.Background variant="dots" gap={14} size={1} color="#334155" />
+            <RF.Controls />
+            <RF.MiniMap nodeColor={(n) => nodeTypeMap[n.data?.nodeType]?.color || '#64748b'} maskColor="rgba(15,23,42,0.6)" />
+          </RF>
+
+          {/* Stats bar at bottom of canvas */}
+          <div className="stats-bar">
+            <div className="stat pending"><span className="dot"></span><span className="count">{stats.pending}</span><span className="lbl">待執行</span></div>
+            <div className="stat running"><span className="dot"></span><span className="count">{stats.running}</span><span className="lbl">執行中</span></div>
+            <div className="stat success"><span className="dot"></span><span className="count">{stats.success}</span><span className="lbl">成功</span></div>
+            <div className="stat failed"><span className="dot"></span><span className="count">{stats.failed}</span><span className="lbl">失敗</span></div>
+            <div style={{ marginLeft: 'auto', color: '#64748b', fontSize: 11 }}>
+              節點 {nodes.length} / 連線 {edges.length}
+            </div>
+          </div>
+        </div>
+
+        {/* ===== Right: Logs / Inspector ===== */}
+        <div className="right-panel">
+          <div className="panel-tabs">
+            <button className={`panel-tab ${activeTab === 'logs' ? 'active' : ''}`} onClick={() => setActiveTab('logs')}>
+              📋 執行日誌 {logs.length > 0 && <span style={{ color: '#64748b' }}>({logs.length})</span>}
+            </button>
+            <button className={`panel-tab ${activeTab === 'inspector' ? 'active' : ''}`} onClick={() => setActiveTab('inspector')}>
+              🔍 節點詳情
+            </button>
+          </div>
+
+          <div className="panel-body">
+            {activeTab === 'logs' && (
+              <>
+                {logs.length === 0 ? (
+                  <div className="empty-state">尚無日誌<br/><br/>點擊「▶ 執行」開始模擬</div>
+                ) : (
+                  logs.map(l => (
+                    <div key={l.id} className={`log-entry level-${l.level}`}>
+                      <span className="ts">{new Date(l.ts).toLocaleTimeString('zh-TW', { hour12: false })}</span>
+                      <span className="lvl">{l.level.toUpperCase()}</span>
+                      <span className="msg">{l.msg}</span>
+                    </div>
+                  ))
+                )}
+              </>
+            )}
+
+            {activeTab === 'inspector' && (
+              <>
+                {!selectedNode ? (
+                  <div className="empty-state">未選擇節點<br/><br/>點擊畫布上的節點查看詳情</div>
+                ) : (() => {
+                  const t = nodeTypeMap[selectedNode.data.nodeType] || {};
+                  const incoming = edges.filter(e => e.target === selectedNode.id).length;
+                  const outgoing = edges.filter(e => e.source === selectedNode.id).length;
+                  return (
+                    <div>
+                      <div style={{ marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid #334155' }}>
+                        <div style={{ fontSize: 24, marginBottom: 4 }}>{t.icon}</div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: '#f1f5f9' }}>{selectedNode.data.label}</div>
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{t.desc}</div>
+                      </div>
+                      <div className="insp-row"><span className="lbl">類型</span><span className="val">{selectedNode.data.nodeType}</span></div>
+                      <div className="insp-row"><span className="lbl">節點 ID</span><span className="val" style={{ fontSize: 10 }}>{selectedNode.id}</span></div>
+                      <div className="insp-row"><span className="lbl">狀態</span><span className={`badge ${selectedNode.data.status || 'pending'}`}>{selectedNode.data.status || 'pending'}</span></div>
+                      <div className="insp-row"><span className="lbl">預估時間</span><span className="val">~{t.duration || 0}ms</span></div>
+                      <div className="insp-row"><span className="lbl">實際耗時</span><span className="val">{selectedNode.data.durationMs != null ? `${selectedNode.data.durationMs}ms` : '—'}</span></div>
+                      <div className="insp-row"><span className="lbl">位置 X</span><span className="val">{Math.round(selectedNode.position.x)}</span></div>
+                      <div className="insp-row"><span className="lbl">位置 Y</span><span className="val">{Math.round(selectedNode.position.y)}</span></div>
+                      <div className="insp-row"><span className="lbl">上游節點</span><span className="val">{incoming}</span></div>
+                      <div className="insp-row"><span className="lbl">下游節點</span><span className="val">{outgoing}</span></div>
+                    </div>
+                  );
+                })()}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   Mount
+   ============================================================ */
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+
+// Auto-load demo workflow on first mount for instant demo experience
+setTimeout(() => {
+  const evt = new Event('demo-ready');
+  window.dispatchEvent(evt);
+}, 50);
+</script>
+</body>
+</html>

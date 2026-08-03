@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>File System Watchdog · 即時分類儀表板</title>
+<style>
+  :root {
+    --bg: #0b0f17;
+    --panel: #121826;
+    --panel-2: #1a2236;
+    --line: #243049;
+    --text: #e6ecf5;
+    --muted: #8aa0c2;
+    --accent: #6cf;
+    --archive: #6cf;
+    --reports: #6f6;
+    --quarantine: #f66;
+    --inbox: #fa3;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--bg); color: var(--text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px; line-height: 1.5;
+  }
+  header {
+    padding: 18px 24px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: baseline; gap: 16px;
+    background: linear-gradient(180deg, #11182a 0%, #0b0f17 100%);
+  }
+  header h1 { margin: 0; font-size: 16px; letter-spacing: 0.5px; }
+  header .pill { color: var(--muted); font-size: 11px; }
+  main { display: grid; grid-template-columns: 1fr 320px; gap: 16px; padding: 16px 24px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px; box-shadow: 0 1px 0 rgba(255,255,255,0.02) inset;
+  }
+  .card h2 {
+    margin: 0 0 12px 0; font-size: 12px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+
+  /* stats */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .stat {
+    background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 8px; padding: 12px;
+  }
+  .stat .label { color: var(--muted); font-size: 10px; text-transform: uppercase; }
+  .stat .value { font-size: 22px; margin-top: 4px; font-weight: 600; }
+  .stat.archive .value   { color: var(--archive); }
+  .stat.reports .value   { color: var(--reports); }
+  .stat.quarantine .value{ color: var(--quarantine); }
+  .stat.inbox .value     { color: var(--inbox); }
+
+  /* connection */
+  .conn { display: flex; align-items: center; gap: 8px; }
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%; background: #f44;
+    box-shadow: 0 0 8px currentColor;
+  }
+  .dot.ok { background: #6f6; color: #6f6; }
+
+  /* event log */
+  .log {
+    max-height: 560px; overflow-y: auto; padding: 4px;
+    background: #070b13; border: 1px solid var(--line); border-radius: 6px;
+  }
+  .ev {
+    display: grid; grid-template-columns: 70px 80px 1fr 120px 1.4fr;
+    gap: 8px; padding: 6px 8px; border-bottom: 1px solid #0d1424;
+    font-size: 12px;
+  }
+  .ev:hover { background: #0f1830; }
+  .ev .ts    { color: var(--muted); }
+  .ev .type  { font-weight: 600; }
+  .ev .type.CREATED  { color: #6cf; }
+  .ev .type.MODIFIED { color: #fa3; }
+  .ev .type.DELETED  { color: #f55; }
+  .ev .type.MOVED    { color: #aaa; }
+  .ev .cat { font-weight: 600; }
+  .ev .cat.archive    { color: var(--archive); }
+  .ev .cat.reports    { color: var(--reports); }
+  .ev .cat.quarantine { color: var(--quarantine); }
+  .ev .cat.inbox      { color: var(--inbox); }
+  .ev .reason { color: var(--muted); font-style: italic; }
+  .ev .dest   { color: #88f; font-size: 11px; }
+  .ev.is-new { animation: flash 1.2s ease-out; }
+  @keyframes flash {
+    0%   { background: #1a3a5e; }
+    100% { background: transparent; }
+  }
+
+  /* sidebar */
+  aside .card + .card { margin-top: 16px; }
+  .rules { font-size: 11px; color: var(--muted); }
+  .rules ul { padding-left: 18px; margin: 6px 0; }
+  .rules li { margin: 4px 0; }
+  .rules code { color: var(--text); background: var(--panel-2); padding: 1px 4px; border-radius: 3px; }
+  .test-btn {
+    width: 100%; padding: 10px; margin-bottom: 6px; background: var(--panel-2);
+    color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+    cursor: pointer; font-family: inherit; font-size: 12px;
+  }
+  .test-btn:hover { background: #2a3553; }
+  .test-btn:active { transform: scale(0.98); }
+
+  footer { padding: 12px 24px; color: var(--muted); font-size: 11px; border-top: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚡ File System Watchdog · 即時分類儀表板</h1>
+  <span class="pill" id="watchPath">watching demo_workspace/demo_inbox/</span>
+  <span class="pill">|</span>
+  <span class="conn">
+    <span class="dot" id="connDot"></span>
+    <span id="connText">connecting…</span>
+  </span>
+</header>
+
+<main>
+  <section class="card">
+    <h2>分類統計</h2>
+    <div class="stats" id="stats">
+      <div class="stat archive">   <div class="label">archive</div>    <div class="value" id="s-archive">0</div></div>
+      <div class="stat reports">   <div class="label">reports</div>    <div class="value" id="s-reports">0</div></div>
+      <div class="stat quarantine"><div class="label">quarantine</div> <div class="value" id="s-quarantine">0</div></div>
+      <div class="stat inbox">     <div class="label">inbox</div>      <div class="value" id="s-inbox">0</div></div>
+    </div>
+
+    <h2 style="margin-top:20px">事件流 (live SSE)</h2>
+    <div class="log" id="log">
+      <div style="color:#567; padding:8px;">等待事件中…把檔案丟進 demo_inbox 看分類結果</div>
+    </div>
+  </section>
+
+  <aside>
+    <div class="card">
+      <h2>產生測試檔</h2>
+      <p style="color:var(--muted); margin:0 0 12px 0; font-size:11px;">
+        按下按鈕會把對應類型的檔案丟進 inbox，看分類引擎如何處理。
+      </p>
+      <button class="test-btn" onclick="triggerTest('pdf')">📄 丟 PDF（→ archive）</button>
+      <button class="test-btn" onclick="triggerTest('png')">🖼 丟 PNG（→ archive）</button>
+      <button class="test-btn" onclick="triggerTest('csv')">📊 丟 CSV（→ reports）</button>
+      <button class="test-btn" onclick="triggerTest('json')">🧾 丟 JSON（→ reports）</button>
+      <button class="test-btn" onclick="triggerTest('exe')">⚠ 丟 .exe（→ quarantine）</button>
+      <button class="test-btn" onclick="triggerTest('sh')">⚠ 丟 .sh 腳本（→ quarantine）</button>
+      <button class="test-btn" onclick="triggerTest('unknown')">❓ 丟無副檔名（看 magic bytes）</button>
+    </div>
+
+    <div class="card rules">
+      <h2>分類規則</h2>
+      <ul>
+        <li><b>archive</b>: 白名單副檔名（文件/圖片/影片/壓縮/設定）</li>
+        <li><b>reports</b>: <code>csv/tsv/json/jsonl/log/xml</code> 或檔名含 report/stats/metric</li>
+        <li><b>quarantine</b>: <code>exe/sh/py/js/bat/dll/so/iso</code> 或檔名含 hack/crack/malware，或 ELF/MZ magic</li>
+        <li><b>inbox</b>: fallback，留在原地</li>
+        <li>無副檔名 → 嗅 magic bytes 判斷</li>
+      </ul>
+    </div>
+  </aside>
+</main>
+
+<footer>
+  Watchdog observer + 智能分類引擎 + SSE 即時推播 ·
+  詳細邏輯見 monitor.py
+</footer>
+
+<script>
+const logEl = document.getElementById('log');
+const connDot = document.getElementById('connDot');
+const connText = document.getElementById('connText');
+
+function setConn(ok) {
+  connDot.classList.toggle('ok', ok);
+  connText.textContent = ok ? 'live' : 'disconnected';
+}
+
+function renderEvent(ev, isNew) {
+  // 第一個 placeholder 移除
+  const ph = logEl.querySelector('div[style*="等待事件"]');
+  if (ph) ph.remove();
+
+  const row = document.createElement('div');
+  row.className = 'ev' + (isNew ? ' is-new' : '');
+  row.innerHTML = `
+    <span class="ts">${ev.ts.split('T')[1] || ev.ts}</span>
+    <span class="type ${ev.type}">${ev.type}</span>
+    <span title="${ev.filename}">${ev.filename}</span>
+    <span class="cat ${ev.category}">${ev.category}</span>
+    <span class="reason">${ev.reason}${ev.moved_to ? ' → ' + ev.moved_to : ''}</span>
+  `;
+  logEl.prepend(row);
+  // 最多保留 200 列
+  while (logEl.children.length > 200) logEl.removeChild(logEl.lastChild);
+}
+
+function refreshStats() {
+  fetch('/stats').then(r => r.json()).then(s => {
+    document.getElementById('s-archive').textContent = s.archive ?? 0;
+    document.getElementById('s-reports').textContent = s.reports ?? 0;
+    document.getElementById('s-quarantine').textContent = s.quarantine ?? 0;
+    document.getElementById('s-inbox').textContent = s.inbox ?? 0;
+  }).catch(() => {});
+}
+
+// SSE connect
+function connectSSE() {
+  const es = new EventSource('/events/stream');
+  es.onopen = () => setConn(true);
+  es.onerror = () => { setConn(false); /* 自動重連由 EventSource 處理 */ };
+  es.onmessage = (msg) => {
+    try {
+      const ev = JSON.parse(msg.data);
+      renderEvent(ev, true);
+      refreshStats();
+    } catch (e) {}
+  };
+}
+connectSSE();
+setInterval(refreshStats, 5000);
+refreshStats();
+
+// 測試按鈕：透過 /trigger?type=xxx 觸發 monitor 端產生測試檔
+// 沒這個 endpoint 也行，按鈕會 fallback 到「請手動把檔案丟進 inbox」
+async function triggerTest(type) {
+  try {
+    const r = await fetch('/trigger?type=' + encodeURIComponent(type), { method: 'POST' });
+    if (!r.ok) throw new Error(r.status);
+  } catch (e) {
+    // fallback：請使用者手動
+    alert('monitor 端沒開 /trigger endpoint；請手動把 ' + type + ' 檔丟進 demo_inbox');
+  }
+}
+</script>
+</body>
+</html>

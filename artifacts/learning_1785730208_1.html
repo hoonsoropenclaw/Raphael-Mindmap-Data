@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Dynamic Form Builder · RBAC + Google Calendar (Mock)</title>
+  <style>
+    :root{
+      --bg:#0f1115; --panel:#161a22; --panel2:#1c212c; --line:#252b38;
+      --fg:#e6e9ef; --muted:#9aa3b2; --accent:#5b9dff; --good:#46c28a; --bad:#e26b6b; --warn:#e6b259;
+      --code:#0b0d12;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang TC","Microsoft JhengHei",sans-serif}
+    a{color:var(--accent);text-decoration:none}
+    .wrap{max-width:1200px;margin:0 auto;padding:24px}
+    header{display:flex;flex-wrap:wrap;align-items:center;gap:12px;justify-content:space-between;margin-bottom:16px}
+    header h1{font-size:18px;margin:0;font-weight:600;letter-spacing:.2px}
+    .badge{display:inline-block;padding:2px 8px;border-radius:999px;background:#2a3142;color:#cfd6e4;font-size:12px;border:1px solid var(--line)}
+    .badge.warn{background:#3a2f15;border-color:#5a4621;color:#f1d289}
+    .badge.good{background:#1d3a2c;border-color:#295a44;color:#9be0bc}
+    .badge.bad{background:#3a1f1f;border-color:#5a2a2a;color:#f1b0b0}
+    .grid{display:grid;gap:16px}
+    @media(min-width:900px){ .grid{grid-template-columns: 360px 1fr} }
+    .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+    .panel h2{font-size:13px;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);margin:0;padding:12px 14px;border-bottom:1px solid var(--line);background:var(--panel2)}
+    .panel .body{padding:14px}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .row + .row{margin-top:8px}
+    label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+    select,input[type=text],input[type=number],input[type=date],input[type=datetime-local],textarea{
+      width:100%;background:#0e1219;border:1px solid var(--line);color:var(--fg);
+      padding:8px 10px;border-radius:6px;outline:none;font:inherit
+    }
+    select:focus,input:focus,textarea:focus{border-color:var(--accent)}
+    button{background:#222a3a;color:var(--fg);border:1px solid var(--line);padding:7px 12px;border-radius:6px;cursor:pointer;font:inherit}
+    button:hover{background:#283246}
+    button.primary{background:var(--accent);border-color:#3d7adf;color:#fff}
+    button.primary:hover{background:#4f8cf0}
+    button.danger{background:#3a1f1f;border-color:#5a2a2a;color:#f1b0b0}
+    button.danger:hover{background:#4a2929}
+    button[disabled]{opacity:.45;cursor:not-allowed}
+    .field-card{background:#11151d;border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:8px}
+    .field-card .row1{display:flex;justify-content:space-between;align-items:center;gap:8px}
+    .field-card .meta{font-size:12px;color:var(--muted);margin-top:4px}
+    .pillset{display:flex;flex-wrap:wrap;gap:6px}
+    .pill{padding:3px 8px;border-radius:999px;background:#1d2230;border:1px solid var(--line);font-size:12px;color:var(--muted)}
+    .pill.on{background:#1d3a2c;border-color:#295a44;color:#9be0bc}
+    table{width:100%;border-collapse:collapse}
+    th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:top}
+    th{color:var(--muted);font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.6px}
+    .empty{padding:18px;text-align:center;color:var(--muted)}
+    .log{background:var(--code);border:1px solid var(--line);border-radius:6px;padding:10px;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#b8c2d4;max-height:180px;overflow:auto;white-space:pre-wrap}
+    .err{color:var(--bad)}
+    .ok{color:var(--good)}
+    .note{font-size:12px;color:var(--muted);margin-top:6px}
+    .kbd{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#0b0d12;border:1px solid var(--line);border-radius:4px;padding:1px 6px;font-size:12px}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Dynamic Form Builder <span class="badge warn">MOCK · 不接 OAuth</span></h1>
+    <div class="row">
+      <span class="badge" id="roleBadge">角色：—</span>
+      <span class="badge" id="userBadge">使用者：—</span>
+    </div>
+  </header>
+
+  <!-- ====== Role-based view switcher ====== -->
+  <section class="panel" style="margin-bottom:16px">
+    <h2>身分切換（模擬 RBAC，不接 SSO）</h2>
+    <div class="body row" style="gap:14px">
+      <div>
+        <label>使用者</label>
+        <select id="userSel">
+          <option value="alice">alice（admin）</option>
+          <option value="bob">bob（editor）</option>
+          <option value="carol">carol（viewer）</option>
+        </select>
+      </div>
+      <div style="flex:1;min-width:240px">
+        <label>可用動作（依角色動態變化）</label>
+        <div class="pillset" id="permPills"></div>
+        <div class="note">admin = 全權 / editor = 設計 + 送出 / viewer = 唯讀</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="grid">
+    <!-- ====== Left: Schema editor (admin/editor only) ====== -->
+    <section class="panel" id="schemaPanel">
+      <h2>表單 Schema（可新增 / 修改 / 刪除欄位）</h2>
+      <div class="body">
+        <div id="schemaList"></div>
+        <div class="row" style="margin-top:10px">
+          <button id="addFieldBtn" class="primary">+ 新增欄位</button>
+          <button id="resetSchemaBtn" class="danger">重置 schema</button>
+        </div>
+        <div class="note">支援型別：text / number / date / datetime-local / textarea / select / checkbox</div>
+      </div>
+    </section>
+
+    <!-- ====== Right: Form preview + submissions + calendar ====== -->
+    <section>
+      <div class="panel">
+        <h2 id="formTitle">報名表（預覽）</h2>
+        <div class="body">
+          <form id="dynForm" autocomplete="off">
+            <div id="formArea"></div>
+            <div class="row" style="margin-top:10px">
+              <button type="submit" class="primary" id="submitBtn">送出</button>
+              <button type="button" id="saveDraftBtn">存草稿</button>
+              <span class="note" id="formHint"></span>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:16px">
+        <h2>送出紀錄（所有角色可看，editor/admin 可刪）</h2>
+        <div class="body">
+          <div id="submissionsArea">
+            <div class="empty">尚無資料</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:16px">
+        <h2>Google Calendar 整合</h2>
+        <div class="body">
+          <div class="row" style="gap:12px;flex-wrap:wrap">
+            <button id="syncCalBtn" class="primary">把這次送出同步到 Google Calendar</button>
+            <span class="badge" id="calAuthBadge">未連線</span>
+          </div>
+          <div class="note" id="calHint">
+            本頁面 <b>未串接真實 Google OAuth</b>。按鈕只會列出「如果要接真版需要做的事」，避免在 headless / 測試環境誤觸 token 流程。
+          </div>
+          <div class="log" id="calLog" style="margin-top:10px"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+/* =========================================================================
+ * State + RBAC
+ * ========================================================================= */
+const PERMISSIONS = {
+  admin:  ['schema.read','schema.write','form.fill','submission.read','submission.delete','calendar.mock'],
+  editor: ['schema.read','schema.write','form.fill','submission.read','calendar.mock'],
+  viewer: ['schema.read','form.fill','submission.read']
+};
+const USERS = { alice:'admin', bob:'editor', carol:'viewer' };
+
+const state = {
+  user: 'alice',
+  schema: defaultSchema(),
+  submissions: [],
+  draft: null,
+};
+
+/* Default schema — pre-built so the form is useful out of the box */
+function defaultSchema(){
+  return [
+    { id:'title',   label:'活動標題', type:'text',     required:true,  placeholder:'例：2026 開學日' },
+    { id:'date',    label:'活動日期', type:'date',     required:true },
+    { id:'start',   label:'開始時間', type:'datetime-local', required:false },
+    { id:'people',  label:'預計人數', type:'number',   required:true,  min:1, max:500 },
+    { id:'type',    label:'類型',     type:'select',   required:true, options:['說明會','工作坊','會議','其他'] },
+    { id:'note',    label:'備註',     type:'textarea', required:false, rows:3 },
+    { id:'agree',   label:'我已閱讀注意事項', type:'checkbox', required:true },
+  ];
+}
+
+/* Permission helpers */
+function can(perm){
+  return PERMISSIONS[USERS[state.user]].includes(perm);
+}
+function refreshRoleUI(){
+  document.getElementById('roleBadge').textContent = '角色：'+USERS[state.user];
+  document.getElementById('userBadge').textContent = '使用者：'+state.user;
+  const pills = document.getElementById('permPills');
+  pills.innerHTML='';
+  const all = ['schema.write','form.fill','submission.delete','calendar.mock'];
+  all.forEach(p=>{
+    const span=document.createElement('span');
+    span.className='pill'+(can(p)?' on':'');
+    span.textContent=p+(can(p)?' ✓':'');
+    pills.appendChild(span);
+  });
+  /* Disable controls based on RBAC */
+  document.getElementById('addFieldBtn').disabled    = !can('schema.write');
+  document.getElementById('resetSchemaBtn').disabled = !can('schema.write');
+  document.getElementById('submitBtn').disabled      = !can('form.fill');
+  document.getElementById('saveDraftBtn').disabled   = !can('form.fill');
+  document.getElementById('syncCalBtn').disabled     = !can('calendar.mock');
+  document.getElementById('formHint').textContent    = can('form.fill') ? '' : '目前角色為唯讀，無法送出。';
+}
+
+/* =========================================================================
+ * Schema editor
+ * ========================================================================= */
+function renderSchema(){
+  const root = document.getElementById('schemaList');
+  root.innerHTML='';
+  state.schema.forEach((f, idx)=>{
+    const card = document.createElement('div');
+    card.className='field-card';
+    card.innerHTML = `
+      <div class="row1">
+        <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div><label>欄位名</label><input data-k="label" value="${escapeAttr(f.label)}" ${can('schema.write')?'':'disabled'}></div>
+          <div><label>型別</label>
+            <select data-k="type" ${can('schema.write')?'':'disabled'}>
+              ${['text','number','date','datetime-local','textarea','select','checkbox']
+                .map(t=>`<option value="${t}" ${t===f.type?'selected':''}>${t}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <button class="danger" data-act="del" ${can('schema.write')?'':'disabled'}>刪除</button>
+      </div>
+      <div class="row">
+        <div style="flex:1"><label>key（資料欄位名）</label><input data-k="id" value="${escapeAttr(f.id)}" ${can('schema.write')?'':'disabled'}></div>
+        <div style="width:120px"><label>必填</label>
+          <select data-k="required" ${can('schema.write')?'':'disabled'}>
+            <option value="1" ${f.required?'selected':''}>是</option>
+            <option value="0" ${!f.required?'selected':''}>否</option>
+          </select>
+        </div>
+      </div>
+      ${f.type==='select' ? `<div class="row"><div style="flex:1"><label>選項（逗號分隔）</label><input data-k="options" value="${escapeAttr((f.options||[]).join(','))}" ${can('schema.write')?'':'disabled'}></div></div>` : ''}
+    `;
+    card.querySelectorAll('[data-k]').forEach(el=>{
+      el.addEventListener('change', e=>{
+        const k = e.target.dataset.k;
+        let v = e.target.value;
+        if(k==='required') v = v==='1';
+        if(k==='options') v = v.split(',').map(s=>s.trim()).filter(Boolean);
+        state.schema[idx][k] = v;
+        renderSchema(); renderForm();
+      });
+    });
+    card.querySelector('[data-act="del"]').addEventListener('click', ()=>{
+      state.schema.splice(idx,1); renderSchema(); renderForm();
+    });
+    root.appendChild(card);
+  });
+}
+document.getElementById('addFieldBtn').addEventListener('click', ()=>{
+  if(!can('schema.write')) return;
+  state.schema.push({ id:'f'+Date.now(), label:'新欄位', type:'text', required:false });
+  renderSchema(); renderForm();
+});
+document.getElementById('resetSchemaBtn').addEventListener('click', ()=>{
+  if(!can('schema.write')) return;
+  if(!confirm('重置成預設 schema？這不會清掉送出紀錄。')) return;
+  state.schema = defaultSchema(); renderSchema(); renderForm();
+});
+
+/* =========================================================================
+ * Form rendering + submission
+ * ========================================================================= */
+function renderForm(){
+  const area = document.getElementById('formArea');
+  area.innerHTML='';
+  const draftValues = state.draft || {};
+  state.schema.forEach(f=>{
+    const wrap = document.createElement('div');
+    wrap.style.marginBottom='10px';
+    const lab = document.createElement('label');
+    lab.textContent = f.label + (f.required?' *':'');
+    wrap.appendChild(lab);
+
+    let el;
+    if(f.type==='textarea'){
+      el = document.createElement('textarea'); el.rows = f.rows||2;
+    } else if(f.type==='select'){
+      el = document.createElement('select');
+      (f.options||[]).forEach(o=>{ const op=document.createElement('option'); op.value=o; op.textContent=o; el.appendChild(op); });
+    } else if(f.type==='checkbox'){
+      el = document.createElement('input'); el.type='checkbox';
+      wrap.appendChild(el);
+      const t = document.createElement('span'); t.style.marginLeft='8px'; t.textContent='勾選表示同意';
+      wrap.appendChild(t);
+    } else {
+      el = document.createElement('input'); el.type = f.type;
+      if(f.placeholder) el.placeholder = f.placeholder;
+      if(f.min!=null) el.min=f.min;
+      if(f.max!=null) el.max=f.max;
+    }
+    el.id = 'inp_'+f.id; el.name = f.id;
+    if(f.type!==='checkbox' && draftValues[f.id]!=null) el.value = draftValues[f.id];
+    if(f.type==='checkbox' && draftValues[f.id]) el.checked = true;
+    if(f.type!=='checkbox') wrap.appendChild(el);
+    area.appendChild(wrap);
+  });
+}
+document.getElementById('dynForm').addEventListener('submit', e=>{
+  e.preventDefault();
+  if(!can('form.fill')) return;
+  const values = {};
+  const errors = [];
+  state.schema.forEach(f=>{
+    const el = document.getElementById('inp_'+f.id);
+    if(!el) return;
+    let v = f.type==='checkbox' ? el.checked : el.value;
+    if(f.required && (!v || v==='')) errors.push(`「${f.label}」必填`);
+    if(f.type==='number' && v!=='' && isNaN(Number(v))) errors.push(`「${f.label}」須為數字`);
+    values[f.id] = v;
+  });
+  if(errors.length){ alert(errors.join('\n')); return; }
+  const sub = { id:'sub_'+Date.now(), by:state.user, at:new Date().toISOString(), values };
+  state.submissions.unshift(sub);
+  state.draft = null;
+  renderForm(); renderSubmissions();
+});
+document.getElementById('saveDraftBtn').addEventListener('click', ()=>{
+  if(!can('form.fill')) return;
+  const values = {};
+  state.schema.forEach(f=>{
+    const el = document.getElementById('inp_'+f.id);
+    if(!el) return;
+    values[f.id] = f.type==='checkbox' ? el.checked : el.value;
+  });
+  state.draft = values;
+  alert('草稿已存（在記憶體，重新整理頁面會消失）');
+});
+document.getElementById('userSel').addEventListener('change', e=>{
+  state.user = e.target.value; refreshRoleUI(); renderForm(); renderSubmissions();
+});
+
+function renderSubmissions(){
+  const root = document.getElementById('submissionsArea');
+  if(!state.submissions.length){ root.innerHTML='<div class="empty">尚無資料</div>'; return; }
+  const rows = state.submissions.map(s=>{
+    const summary = state.schema.map(f=>`<b>${escapeHtml(f.label)}</b>: ${escapeHtml(String(s.values[f.id] ?? ''))}`).join('<br>');
+    return `<tr>
+      <td><code>${s.id}</code><div class="note">by ${escapeHtml(s.by)} · ${new Date(s.at).toLocaleString()}</div></td>
+      <td>${summary}</td>
+      <td style="white-space:nowrap">
+        <button data-act="del" data-id="${s.id}" class="danger" ${can('submission.delete')?'':'disabled'}>刪除</button>
+      </td>
+    </tr>`;
+  }).join('');
+  root.innerHTML = `<table><thead><tr><th>ID</th><th>內容</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+  root.querySelectorAll('[data-act="del"]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      if(!can('submission.delete')) return;
+      const id = b.dataset.id;
+      state.submissions = state.submissions.filter(x=>x.id!==id);
+      renderSubmissions();
+    });
+  });
+}
+
+/* =========================================================================
+ * Google Calendar — explicit MOCK, never touches OAuth
+ * ========================================================================= */
+const calLog = document.getElementById('calLog');
+const calAuthBadge = document.getElementById('calAuthBadge');
+function logCal(kind, msg){
+  const line = document.createElement('div');
+  line.className = kind;
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  calLog.appendChild(line);
+  calLog.scrollTop = calLog.scrollHeight;
+}
+document.getElementById('syncCalBtn').addEventListener('click', ()=>{
+  if(!can('calendar.mock')) return;
+  if(!state.submissions.length){ logCal('err','沒有可同步的送出紀錄。'); return; }
+  const top = state.submissions[0];
+  const t = top.values;
+  calAuthBadge.textContent='已授權（MOCK）';
+  calAuthBadge.classList.add('good');
+  logCal('ok',`準備建立 calendar event（模擬）：`);
+  logCal('ok', `  summary    = ${t.title || '(未填)'}`);
+  logCal('ok', `  start.date = ${t.date || '(未填)'}`);
+  logCal('ok', `  start.dateTime = ${t.start || '(未填)'}`);
+  logCal('ok', `  attendees expected = ${t.people || 0}`);
+  logCal('note', '↑↑ 這是 MOCK。要真的寫進 Google Calendar，請走下列流程（不要在本機瀏覽器跑 OAuth）：');
+  logCal('note', '  1) Google Cloud Console 建 OAuth client（TV / limited-input 類型）');
+  logCal('note', '  2) Device Code Flow：client 端拿 device_code → 使用者在別台電腦開連結輸入 user_code');
+  logCal('note', '  3) access_token + refresh_token 存到 ~/.local/share/hermes/secrets/（mode 0600），不要寫進 ~/.bashrc');
+  logCal('note', '  4) 呼叫 https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=all');
+  logCal('note', '  5) 把 4 條鐵律寫進 README：client type / scope 白名單 / polling 三種 error code / 重拿 device_code 會作廢舊的');
+});
+
+/* =========================================================================
+ * Utilities
+ * ========================================================================= */
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escapeAttr(s){ return escapeHtml(s); }
+
+/* =========================================================================
+ * Boot
+ * ========================================================================= */
+refreshRoleUI();
+renderSchema();
+renderForm();
+renderSubmissions();
+logCal('note','Google Calendar 整合目前是 MOCK。按上方按鈕可看到「真要接時需要做哪些事」。');
+</script>
+</body>
+</html>

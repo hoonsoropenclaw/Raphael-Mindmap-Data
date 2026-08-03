@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>動態表單驗證示範 - Playwright E2E</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --accent: #38bdf8;
+    --ok: #22c55e;
+    --err: #ef4444;
+    --warn: #f59e0b;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --border: #334155;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", "Noto Sans TC", sans-serif;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 24px;
+  }
+  .container {
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  header {
+    text-align: center;
+    margin-bottom: 32px;
+  }
+  header h1 {
+    margin: 0 0 8px;
+    font-size: 28px;
+    background: linear-gradient(90deg, #38bdf8, #a78bfa);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  header p {
+    color: var(--muted);
+    margin: 0;
+  }
+  .form-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  }
+  .field {
+    margin-bottom: 20px;
+    position: relative;
+  }
+  label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 500;
+    font-size: 14px;
+  }
+  label .required { color: var(--err); }
+  input, select, textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #0f172a;
+    color: var(--text);
+    font-size: 14px;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    font-family: inherit;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15);
+  }
+  .hint {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 4px;
+    min-height: 16px;
+  }
+  .hint.error { color: var(--err); }
+  .hint.success { color: var(--ok); }
+  /* 即時驗證狀態 */
+  input.valid { border-color: var(--ok); }
+  input.invalid { border-color: var(--err); }
+  /* 密碼強度條 */
+  .strength-bar {
+    display: flex;
+    gap: 4px;
+    margin-top: 6px;
+    height: 4px;
+  }
+  .strength-bar > div {
+    flex: 1;
+    background: var(--border);
+    border-radius: 2px;
+    transition: background 0.2s;
+  }
+  .strength-bar > div.active.weak { background: var(--err); }
+  .strength-bar > div.active.medium { background: var(--warn); }
+  .strength-bar > div.active.strong { background: var(--ok); }
+  /* 條款 */
+  .checkbox-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .checkbox-row input { width: auto; margin-top: 3px; }
+  /* 動態區塊 */
+  .conditional-block {
+    margin-top: 12px;
+    padding: 14px;
+    background: rgba(56, 189, 248, 0.06);
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+  }
+  /* 按鈕 */
+  button {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.1s, opacity 0.15s;
+    font-family: inherit;
+  }
+  button:active { transform: scale(0.98); }
+  .btn-primary {
+    background: var(--accent);
+    color: #0f172a;
+    width: 100%;
+  }
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  /* 結果區 */
+  #result {
+    margin-top: 20px;
+    padding: 16px;
+    border-radius: 8px;
+    display: none;
+  }
+  #result.success {
+    display: block;
+    background: rgba(34, 197, 94, 0.1);
+    border: 1px solid var(--ok);
+    color: var(--ok);
+  }
+  #result.error {
+    display: block;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid var(--err);
+    color: var(--err);
+  }
+  /* 載入動畫 */
+  .spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  /* meta info for tests */
+  #meta {
+    margin-top: 32px;
+    padding: 16px;
+    background: rgba(167, 139, 250, 0.08);
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+  #meta strong { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>🧪 動態表單驗證示範</h1>
+    <p>此頁面為 Playwright 跨瀏覽器自動化測試目標，包含 7 種互動驗證場景</p>
+  </header>
+
+  <form class="form-card" id="signupForm" novalidate>
+    <div class="field">
+      <label for="username">使用者名稱 <span class="required">*</span></label>
+      <input id="username" name="username" type="text"
+             placeholder="3-16 字元，英數字底線"
+             data-testid="username-input"
+             autocomplete="off" />
+      <div class="hint" id="username-hint" data-testid="username-hint"></div>
+    </div>
+
+    <div class="field">
+      <label for="email">Email <span class="required">*</span></label>
+      <input id="email" name="email" type="email"
+             placeholder="you@example.com"
+             data-testid="email-input"
+             autocomplete="email" />
+      <div class="hint" id="email-hint" data-testid="email-hint"></div>
+    </div>
+
+    <div class="field">
+      <label for="password">密碼 <span class="required">*</span></label>
+      <input id="password" name="password" type="password"
+             placeholder="至少 8 字元，含大小寫與數字"
+             data-testid="password-input"
+             autocomplete="new-password" />
+      <div class="strength-bar" id="strengthBar" data-testid="strength-bar">
+        <div></div><div></div><div></div><div></div>
+      </div>
+      <div class="hint" id="password-hint" data-testid="password-hint"></div>
+    </div>
+
+    <div class="field">
+      <label for="confirmPassword">確認密碼 <span class="required">*</span></label>
+      <input id="confirmPassword" name="confirmPassword" type="password"
+             placeholder="再輸入一次"
+             data-testid="confirm-password-input"
+             autocomplete="new-password" />
+      <div class="hint" id="confirmPassword-hint" data-testid="confirm-password-hint"></div>
+    </div>
+
+    <div class="field">
+      <label for="age">年齡 <span class="required">*</span></label>
+      <input id="age" name="age" type="number" min="18" max="120"
+             placeholder="18-120"
+             data-testid="age-input" />
+      <div class="hint" id="age-hint" data-testid="age-hint"></div>
+    </div>
+
+    <div class="field">
+      <label for="country">國家 / 地區</label>
+      <select id="country" name="country" data-testid="country-select">
+        <option value="">請選擇</option>
+        <option value="TW">台灣</option>
+        <option value="JP">日本</option>
+        <option value="US">美國</option>
+        <option value="DE">德國</option>
+      </select>
+    </div>
+
+    <!-- 動態條件區塊：選 TW 才顯示身分證字號 -->
+    <div class="conditional-block" id="twBlock" style="display:none;">
+      <div class="field" style="margin-bottom:0;">
+        <label for="twId">台灣身分證字號 <span class="required">*</span></label>
+        <input id="twId" name="twId" type="text"
+               placeholder="大寫英字母 + 1 男 / 2 女 + 8 碼數字"
+               data-testid="tw-id-input"
+               maxlength="10" />
+        <div class="hint" id="twId-hint" data-testid="tw-id-hint"></div>
+      </div>
+    </div>
+
+    <div class="field checkbox-row">
+      <input id="agree" name="agree" type="checkbox" data-testid="agree-checkbox" />
+      <label for="agree" style="margin:0;">我同意 <a href="#" style="color:var(--accent);">服務條款</a></label>
+    </div>
+
+    <button type="submit" class="btn-primary" id="submitBtn" data-testid="submit-btn" disabled>
+      註冊
+    </button>
+
+    <div id="result" data-testid="result"></div>
+  </form>
+
+  <div id="meta">
+    <strong>測試覆蓋範圍：</strong><br />
+    • 即時驗證：使用者名稱、Email、密碼強度、確認密碼、年齡範圍<br />
+    • 動態揭露：選 TW 顯示身分證字號（含 checksum）<br />
+    • 條款勾選：未勾選 → 提交按鈕 disabled<br />
+    • 提交流程：fetch simulation + spinner + 結果回饋<br />
+    • 跨瀏覽器：Chromium / Firefox / WebKit
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  const $ = (id) => document.getElementById(id);
+
+  // ===== 工具 =====
+  function debounce(fn, ms) {
+    let t;
+    return (...args) => {
+      clearTimeout(t);
+      t = setTimeout(() => fn(...args), ms);
+    };
+  }
+
+  function setHint(inputId, text, state) {
+    const hint = $(inputId + '-hint');
+    if (!hint) return;
+    hint.textContent = text || '';
+    hint.className = 'hint' + (state ? ' ' + state : '');
+    const input = $(inputId);
+    if (input) {
+      input.classList.remove('valid', 'invalid');
+      if (state === 'success') input.classList.add('valid');
+      else if (state === 'error') input.classList.add('invalid');
+    }
+  }
+
+  function passwordStrength(pw) {
+    let score = 0;
+    if (pw.length >= 8) score++;
+    if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) score++;
+    if (/\d/.test(pw)) score++;
+    if (/[^A-Za-z0-9]/.test(pw)) score++;
+    return score; // 0-4
+  }
+
+  // ===== 驗證器 =====
+  const validators = {
+    username: (v) => {
+      if (!v) return { ok: false, msg: '' };
+      if (v.length < 3) return { ok: false, msg: '至少 3 個字元' };
+      if (v.length > 16) return { ok: false, msg: '最多 16 個字元' };
+      if (!/^[a-zA-Z0-9_]+$/.test(v)) return { ok: false, msg: '只能包含英數字與底線' };
+      return { ok: true, msg: '使用者名稱可用 ✓' };
+    },
+    email: (v) => {
+      if (!v) return { ok: false, msg: '' };
+      // 簡易但嚴謹的 email regex
+      const re = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+      return re.test(v)
+        ? { ok: true, msg: 'Email 格式正確 ✓' }
+        : { ok: false, msg: 'Email 格式不正確' };
+    },
+    password: (v) => {
+      if (!v) return { ok: false, msg: '' };
+      if (v.length < 8) return { ok: false, msg: '至少 8 個字元' };
+      if (!/[A-Z]/.test(v)) return { ok: false, msg: '需要至少一個大寫字母' };
+      if (!/[a-z]/.test(v)) return { ok: false, msg: '需要至少一個小寫字母' };
+      if (!/\d/.test(v)) return { ok: false, msg: '需要至少一個數字' };
+      return { ok: true, msg: '密碼強度足夠 ✓' };
+    },
+    confirmPassword: (v) => {
+      const pw = $('password').value;
+      if (!v) return { ok: false, msg: '' };
+      if (v !== pw) return { ok: false, msg: '兩次密碼不一致' };
+      return { ok: true, msg: '密碼確認一致 ✓' };
+    },
+    age: (v) => {
+      if (!v) return { ok: false, msg: '' };
+      const n = Number(v);
+      if (!Number.isInteger(n)) return { ok: false, msg: '請輸入整數' };
+      if (n < 18) return { ok: false, msg: '必須年滿 18 歲' };
+      if (n > 120) return { ok: false, msg: '年齡不合理' };
+      return { ok: true, msg: '年齡符合資格 ✓' };
+    },
+    twId: (v) => {
+      if (!v) return { ok: false, msg: '' };
+      if (!/^[A-Z][12]\d{8}$/.test(v)) return { ok: false, msg: '格式應為大寫英字母 + 1/2 + 8 碼數字' };
+      // 簡易 checksum 驗證
+      const map = { A:10, B:11, C:12, D:13, E:14, F:15, G:16, H:17, I:34, J:18,
+                    K:19, L:20, M:21, N:22, O:35, P:23, Q:24, R:25, S:26, T:27,
+                    U:28, V:29, W:32, X:30, Y:31, Z:33 };
+      const n1 = Math.floor(map[v[0]] / 10);
+      const n2 = map[v[0]] % 10;
+      const digits = v.slice(1).split('').map(Number);  // [d1..d9], d9 是檢查碼
+      // 加權和（不含檢查碼）：n1 + n2*9 + d1*8 + d2*7 + d3*6 + d4*5 + d5*4 + d6*3 + d7*2 + d8*1
+      const sum = n1 + n2 * 9 + digits[0] * 8 + digits[1] * 7 + digits[2] * 6 +
+                  digits[3] * 5 + digits[4] * 4 + digits[5] * 3 + digits[6] * 2 +
+                  digits[7] * 1;
+      const expectedCheck = (10 - (sum % 10)) % 10;
+      if (expectedCheck !== digits[8]) return { ok: false, msg: '檢查碼錯誤' };
+      return { ok: true, msg: '身分證字號正確 ✓' };
+    }
+  };
+
+  // ===== 註冊事件 =====
+  Object.keys(validators).forEach((key) => {
+    const input = $(key);
+    if (!input) return;
+    const debounced = debounce(() => {
+      const result = validators[key](input.value.trim());
+      setHint(key, result.msg, result.ok ? 'success' : 'error');
+      updateSubmitState();
+    }, 150);
+    input.addEventListener('input', debounced);
+    input.addEventListener('blur', () => {
+      const result = validators[key](input.value.trim());
+      setHint(key, result.msg, result.ok ? 'success' : 'error');
+      updateSubmitState();
+    });
+  });
+
+  // ===== 動態揭露 =====
+  $('country').addEventListener('change', (e) => {
+    const twBlock = $('twBlock');
+    if (e.target.value === 'TW') {
+      twBlock.style.display = 'block';
+    } else {
+      twBlock.style.display = 'none';
+      $('twId').value = '';
+      setHint('twId', '', null);
+      updateSubmitState();
+    }
+  });
+
+  // ===== 條款勾選 =====
+  $('agree').addEventListener('change', updateSubmitState);
+
+  // ===== 提交按鈕狀態 =====
+  function updateSubmitState() {
+    const allFields = ['username', 'email', 'password', 'confirmPassword', 'age'];
+    let allValid = allFields.every((k) => {
+      const r = validators[k]($(k).value.trim());
+      return r.ok;
+    });
+    // 若國家是 TW 則 twId 也要驗證
+    if ($('country').value === 'TW') {
+      allValid = allValid && validators.twId($('twId').value.trim()).ok;
+    }
+    const agreed = $('agree').checked;
+    $('submitBtn').disabled = !(allValid && agreed);
+  }
+
+  // ===== 密碼強度條 =====
+  const pwInput = $('password');
+  pwInput.addEventListener('input', () => {
+    const v = pwInput.value;
+    const score = passwordStrength(v);
+    const segs = $('strengthBar').children;
+    Array.from(segs).forEach((seg, i) => {
+      seg.className = '';
+      if (i < score) {
+        seg.classList.add('active');
+        if (score <= 1) seg.classList.add('weak');
+        else if (score <= 3) seg.classList.add('medium');
+        else seg.classList.add('strong');
+      }
+    });
+  });
+
+  // ===== 表單提交 =====
+  $('signupForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('submitBtn');
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>送出中...';
+
+    // 模擬 API
+    await new Promise((r) => setTimeout(r, 800));
+
+    // 90% 成功率（測試不同情境）
+    const success = Math.random() > 0.1;
+    const result = $('result');
+    result.className = success ? 'success' : 'error';
+    result.textContent = success
+      ? '✓ 註冊成功！歡迎加入。'
+      : '✗ 伺服器忙碌，請稍後再試。';
+    result.dataset.state = success ? 'success' : 'error';
+
+    btn.innerHTML = original;
+    btn.disabled = false;
+  });
+
+  // 對外暴露：方便 Playwright 測試 hook
+  window.__form__ = {
+    validators,
+    updateSubmitState,
+    passwordStrength,
+  };
+})();
+</script>
+</body>
+</html>

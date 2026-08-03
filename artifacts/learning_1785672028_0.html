@@ -1,0 +1,1512 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="基於 React Flow 的動態工作流引擎：拖拽式節點編輯、拓樸驗證、視覺化執行模擬、RBAC、JSON 匯入匯出。">
+<title>FlowForge · React Flow 動態工作流引擎</title>
+<link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css">
+<style>
+:root {
+  --bg: #0b1015;
+  --surface: #111821;
+  --surface-2: #172130;
+  --surface-3: #1f2b3c;
+  --line: #25324a;
+  --line-strong: #3a4a66;
+  --text: #e6edf6;
+  --text-2: #b4c1d4;
+  --muted: #6b7c93;
+  --accent: #5cb0ff;
+  --accent-2: #93cbff;
+  --accent-soft: rgba(92,176,255,.16);
+  --ok: #5fcf90;
+  --ok-soft: rgba(95,207,144,.16);
+  --warn: #e0b364;
+  --warn-soft: rgba(224,179,100,.16);
+  --err: #e36b6b;
+  --err-soft: rgba(227,107,107,.16);
+  --info: #b08fff;
+  --info-soft: rgba(176,143,255,.16);
+  --radius: 7px;
+  --shadow: 0 18px 40px rgba(0,0,0,.35);
+  --font: ui-sans-serif, system-ui, -apple-system, "PingFang TC", "Noto Sans TC", sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body, #root { width: 100%; height: 100%; margin: 0; }
+body { overflow: hidden; color: var(--text); background: var(--bg); font-family: var(--font); -webkit-font-smoothing: antialiased; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+button:active:not(:disabled) { transform: scale(.985); }
+button:disabled, input:disabled, select:disabled, textarea:disabled { opacity: .42; cursor: not-allowed; }
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: var(--line-strong); }
+::-webkit-scrollbar-track { background: transparent; }
+
+.app { height: 100dvh; display: grid; grid-template-rows: 60px minmax(0,1fr) 210px; background: var(--bg); }
+
+/* ========== Top bar ========== */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 0 16px; border-bottom: 1px solid var(--line); background: rgba(11,16,21,.92);
+  backdrop-filter: blur(12px); z-index: 20;
+}
+.brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.brand-mark {
+  width: 34px; height: 34px; display: grid; place-items: center;
+  border: 1px solid var(--accent); border-radius: var(--radius);
+  color: var(--accent); background: var(--accent-soft);
+  font: 700 12px var(--mono); letter-spacing: .04em;
+}
+.brand-name { font-size: 14px; font-weight: 700; letter-spacing: .01em; }
+.brand-sub { margin-top: 2px; color: var(--muted); font: 10px var(--mono); }
+.top-actions { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.btn {
+  min-height: 32px; padding: 6px 11px; border: 1px solid var(--line); border-radius: var(--radius);
+  color: var(--text-2); background: var(--surface); font-size: 11px; font-weight: 650;
+  transition: color .14s, background .14s, border-color .14s, transform .08s;
+}
+.btn:hover:not(:disabled) { color: var(--text); border-color: var(--line-strong); background: var(--surface-2); }
+.btn.primary { color: #06121f; border-color: var(--accent); background: var(--accent); }
+.btn.primary:hover:not(:disabled) { background: var(--accent-2); border-color: var(--accent-2); }
+.btn.danger { color: #ffd6d6; border-color: rgba(227,107,107,.4); background: var(--err-soft); }
+.btn.danger:hover:not(:disabled) { background: rgba(227,107,107,.26); }
+.btn.ghost { background: transparent; }
+.btn.small { min-height: 28px; padding: 4px 9px; font-size: 10px; }
+
+.chip { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 4px 9px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--text-2); font: 10px var(--mono); letter-spacing: .04em; }
+.chip .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.chip.ok { color: var(--ok); background: var(--ok-soft); border-color: rgba(95,207,144,.35); }
+.chip.warn { color: var(--warn); background: var(--warn-soft); border-color: rgba(224,179,100,.35); }
+.chip.err { color: var(--err); background: var(--err-soft); border-color: rgba(227,107,107,.4); }
+.chip.info { color: var(--info); background: var(--info-soft); border-color: rgba(176,143,255,.35); }
+.chip .pulse { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: pulse 1.4s infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .4; transform: scale(.6); } }
+
+.role-select { min-height: 30px; padding: 4px 26px 4px 9px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); font-size: 11px; cursor: pointer; }
+
+/* ========== Workspace ========== */
+.workspace { min-height: 0; display: grid; grid-template-columns: 252px minmax(440px,1fr) 330px; }
+.sidebar, .inspector { min-height: 0; overflow-y: auto; background: var(--surface); }
+.sidebar { border-right: 1px solid var(--line); }
+.inspector { border-left: 1px solid var(--line); }
+.panel-section { padding: 14px; border-bottom: 1px solid var(--line); }
+.panel-section:last-child { border-bottom: 0; }
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.section-title { margin: 0; color: var(--text-2); font: 700 10px var(--mono); letter-spacing: .11em; text-transform: uppercase; }
+.section-meta { color: var(--muted); font: 9px var(--mono); }
+.help { color: var(--muted); font-size: 10px; line-height: 1.55; }
+.help code { background: var(--surface-3); padding: 1px 5px; border-radius: 3px; font: 10px var(--mono); }
+
+/* ========== Node palette ========== */
+.palette { display: grid; gap: 6px; }
+.palette-item {
+  display: flex; align-items: center; gap: 10px; padding: 9px 11px; cursor: grab;
+  border: 1px dashed var(--line); border-radius: var(--radius);
+  background: var(--surface-2); transition: border-color .14s, background .14s, transform .08s;
+  user-select: none;
+}
+.palette-item:hover { border-color: var(--accent); background: var(--accent-soft); }
+.palette-item:active { cursor: grabbing; transform: scale(.97); }
+.palette-item .ic { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 5px; background: var(--surface-3); color: var(--accent); font: 700 12px var(--mono); flex-shrink: 0; }
+.palette-item .nm { font-size: 12px; font-weight: 650; }
+.palette-item .desc { color: var(--muted); font: 10px var(--mono); margin-top: 2px; }
+
+/* ========== React Flow custom ========== */
+.flow-wrap { position: relative; min-width: 0; background: #0a0f15; }
+.flow-legend { position: absolute; top: 12px; left: 14px; z-index: 5; display: flex; gap: 6px; flex-wrap: wrap; max-width: calc(100% - 28px); }
+.legend { background: rgba(17,24,33,.92); border: 1px solid var(--line); padding: 4px 8px; color: var(--muted); font: 10px var(--mono); display: inline-flex; align-items: center; gap: 6px; }
+.legend .swatch { width: 9px; height: 9px; border-radius: 2px; background: var(--c); display: inline-block; }
+
+.react-flow { background: #0a0f15; }
+.react-flow__background pattern circle { fill: #1c2638; }
+.react-flow__edge-path { stroke: #3a4a66; stroke-width: 1.8; }
+.react-flow__edge.selected .react-flow__edge-path { stroke: var(--accent); stroke-width: 2.4; }
+.react-flow__edge.running .react-flow__edge-path { stroke: var(--ok); stroke-width: 2.6; stroke-dasharray: 8 4; animation: dashFlow .8s linear infinite; }
+.react-flow__edge.failed .react-flow__edge-path { stroke: var(--err); stroke-width: 2.4; stroke-dasharray: 4 4; }
+.react-flow__edge.completed .react-flow__edge-path { stroke: var(--ok); stroke-width: 2; opacity: .8; }
+.react-flow__edge .react-flow__edge-text { fill: var(--text-2); font: 10px var(--mono); }
+.react-flow__edge .react-flow__edge-textbg { fill: var(--surface); }
+@keyframes dashFlow { to { stroke-dashoffset: -24; } }
+
+.react-flow__handle { width: 10px !important; height: 10px !important; background: var(--accent); border: 2px solid var(--bg); }
+
+/* Custom node card */
+.fn-node {
+  min-width: 180px; border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius);
+  padding: 10px 12px; box-shadow: var(--shadow); position: relative; transition: border-color .14s, box-shadow .14s;
+}
+.fn-node.kind-trigger { border-left: 3px solid var(--accent); }
+.fn-node.kind-http { border-left: 3px solid var(--info); }
+.fn-node.kind-transform { border-left: 3px solid var(--ok); }
+.fn-node.kind-decision { border-left: 3px solid var(--warn); }
+.fn-node.kind-delay { border-left: 3px solid var(--text-2); }
+.fn-node.kind-action { border-left: 3px solid #e36b6b; }
+.fn-node.kind-output { border-left: 3px solid #5fcf90; }
+.fn-node.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow); }
+.fn-node.running { border-color: var(--ok); box-shadow: 0 0 0 1px var(--ok), 0 0 24px rgba(95,207,144,.32); animation: runPulse 1.4s infinite; }
+.fn-node.success { border-color: var(--ok); box-shadow: 0 0 0 1px var(--ok); }
+.fn-node.failed { border-color: var(--err); box-shadow: 0 0 0 1px var(--err); }
+.fn-node.skipped { opacity: .55; }
+@keyframes runPulse { 50% { box-shadow: 0 0 0 1px var(--ok), 0 0 30px rgba(95,207,144,.55); } }
+
+.fn-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+.fn-title { font: 700 12px var(--font); display: flex; align-items: center; gap: 7px; }
+.fn-title .ic { width: 18px; height: 18px; display: grid; place-items: center; border-radius: 4px; background: var(--surface-3); font: 700 10px var(--mono); color: var(--accent); }
+.fn-tag { color: var(--muted); font: 9px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.fn-meta { margin-top: 6px; color: var(--muted); font: 10px var(--mono); }
+.fn-status { margin-top: 7px; font: 10px var(--mono); display: flex; align-items: center; gap: 6px; }
+.fn-status .dot { width: 7px; height: 7px; border-radius: 50%; }
+.fn-status.idle .dot { background: var(--muted); }
+.fn-status.running .dot { background: var(--ok); animation: pulse 1.2s infinite; }
+.fn-status.success .dot { background: var(--ok); }
+.fn-status.failed .dot { background: var(--err); }
+.fn-status.skipped .dot { background: var(--muted); }
+.fn-status.idle { color: var(--muted); }
+.fn-status.running { color: var(--ok); }
+.fn-status.success { color: var(--ok); }
+.fn-status.failed { color: var(--err); }
+
+/* ========== Inspector ========== */
+.field { display: grid; gap: 5px; margin-bottom: 10px; }
+.field-label { color: var(--muted); font: 9px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.field-input, .field-textarea, .field-select {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 5px;
+  background: var(--bg); color: var(--text); font-size: 12px;
+}
+.field-textarea { resize: vertical; min-height: 70px; font: 11px var(--mono); line-height: 1.55; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.empty-inspector { padding: 40px 20px; color: var(--muted); font-size: 12px; text-align: center; }
+.empty-inspector .ic { font-size: 28px; opacity: .5; margin-bottom: 12px; }
+
+/* ========== Validation panel ========== */
+.validation-list { display: grid; gap: 6px; }
+.validation-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border-radius: 5px; background: var(--surface-2); border: 1px solid var(--line); }
+.validation-row.err { border-color: rgba(227,107,107,.4); background: var(--err-soft); }
+.validation-row.warn { border-color: rgba(224,179,100,.4); background: var(--warn-soft); }
+.validation-row.ok { border-color: rgba(95,207,144,.35); background: var(--ok-soft); }
+.validation-row .ic { font: 11px var(--mono); margin-top: 1px; }
+.validation-row .body { font-size: 11px; line-height: 1.45; }
+.validation-row .body strong { color: var(--text); font-weight: 700; }
+.validation-row.err .ic, .validation-row.err .body { color: var(--err); }
+.validation-row.warn .ic, .validation-row.warn .body { color: var(--warn); }
+.validation-row.ok .ic, .validation-row.ok .body { color: var(--ok); }
+
+/* ========== Bottom drawer ========== */
+.drawer {
+  border-top: 1px solid var(--line); background: var(--surface);
+  display: grid; grid-template-rows: 38px minmax(0,1fr); min-height: 0;
+}
+.drawer-tabs { display: flex; align-items: center; gap: 4px; padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.drawer-tab { padding: 8px 12px; font: 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; }
+.drawer-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.drawer-tab:hover { color: var(--text-2); }
+.drawer-tab .badge { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 8px; background: var(--surface-3); color: var(--muted); font-size: 9px; }
+.drawer-tab.active .badge { background: var(--accent-soft); color: var(--accent); }
+.drawer-body { min-height: 0; overflow-y: auto; padding: 12px 14px; }
+.drawer-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+
+.trace-list { display: grid; gap: 4px; font: 11px var(--mono); }
+.trace-row { display: grid; grid-template-columns: 78px 76px 1fr; gap: 10px; padding: 6px 8px; border-radius: 4px; background: var(--surface-2); align-items: center; }
+.trace-row time { color: var(--muted); font-size: 10px; }
+.trace-row .ev { font-size: 10px; padding: 2px 7px; border-radius: 3px; text-align: center; letter-spacing: .04em; }
+.trace-row .ev.start { color: var(--info); background: var(--info-soft); }
+.trace-row .ev.node-start { color: var(--accent); background: var(--accent-soft); }
+.trace-row .ev.node-end { color: var(--ok); background: var(--ok-soft); }
+.trace-row .ev.node-fail { color: var(--err); background: var(--err-soft); }
+.trace-row .ev.retry { color: var(--warn); background: var(--warn-soft); }
+.trace-row .ev.branch { color: var(--info); background: var(--info-soft); }
+.trace-row .ev.run-end { color: var(--ok); background: var(--ok-soft); }
+.trace-row .ev.run-fail { color: var(--err); background: var(--err-soft); }
+.trace-row .ev.skip { color: var(--muted); background: var(--surface-3); }
+.trace-row .msg { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trace-row .msg b { color: var(--text); }
+
+.json-preview { background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 10px; font: 11px var(--mono); color: var(--text-2); max-height: 240px; overflow: auto; white-space: pre; line-height: 1.55; }
+
+.kv-list { display: grid; gap: 4px; font: 11px var(--mono); }
+.kv-row { display: grid; grid-template-columns: 120px 1fr; gap: 10px; padding: 5px 0; border-bottom: 1px dashed var(--line); }
+.kv-row:last-child { border: 0; }
+.kv-row .k { color: var(--muted); }
+.kv-row .v { color: var(--text); }
+
+.legend-key { display: inline-flex; align-items: center; gap: 5px; margin-right: 12px; font: 10px var(--mono); color: var(--muted); }
+.legend-key .sw { width: 10px; height: 10px; border-radius: 2px; }
+
+@media (max-width: 1180px) {
+  .workspace { grid-template-columns: 220px minmax(380px,1fr) 280px; }
+}
+@media (max-width: 920px) {
+  body { overflow: auto; }
+  .app { height: auto; min-height: 100dvh; display: block; }
+  .topbar { position: sticky; top: 0; }
+  .workspace { display: block; }
+  .sidebar, .inspector { max-height: 360px; }
+  .flow-wrap { height: 540px; }
+  .drawer { min-height: 280px; }
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+
+<script>
+(function(){
+  'use strict';
+
+  // ========== Utilities ==========
+  const h = React.createElement;
+  const { useState, useEffect, useRef, useMemo, useCallback, Fragment } = React;
+  const RF = window.ReactFlow;
+  const FlowComponent = RF.ReactFlow;
+  const { Background, Controls, MiniMap, Handle, Position, MarkerType, useNodesState, useEdgesState, addEdge, applyNodeChanges, applyEdgeChanges } = RF;
+
+  const uid = (p='n_') => p + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-3);
+  const now = () => Date.now();
+  const fmtTime = (ts) => {
+    const d = new Date(ts);
+    return d.toTimeString().slice(0,8) + '.' + String(d.getMilliseconds()).padStart(3,'0');
+  };
+  const fmtDur = (ms) => ms < 1000 ? ms + 'ms' : (ms/1000).toFixed(2) + 's';
+  const cls = (...xs) => xs.filter(Boolean).join(' ');
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const clone = (x) => JSON.parse(JSON.stringify(x));
+
+  // ========== Node type catalog ==========
+  const NODE_CATALOG = [
+    { type: 'trigger',  label: 'Trigger',   icon: '⚡', color: 'var(--accent)', desc: '起點 / 排程 / Webhook',  kind: 'trigger'  },
+    { type: 'http',     label: 'HTTP',      icon: '⇄', color: 'var(--info)',   desc: '呼叫外部 API',           kind: 'http'     },
+    { type: 'transform',label: 'Transform', icon: 'ƒ', color: 'var(--ok)',     desc: '資料轉換 / 過濾',         kind: 'transform'},
+    { type: 'decision', label: 'Decision',  icon: '?', color: 'var(--warn)',   desc: '條件分支 (branching)',     kind: 'decision' },
+    { type: 'delay',    label: 'Delay',     icon: '⏱', color: 'var(--text-2)', desc: '等待 / 排程',              kind: 'delay'    },
+    { type: 'action',   label: 'Action',    icon: '!', color: '#e36b6b',      desc: '副作用 / 通知',            kind: 'action'   },
+    { type: 'output',   label: 'Output',    icon: '✓', color: 'var(--ok)',    desc: '終點 / 完成',              kind: 'output'   }
+  ];
+  const NODE_BY_TYPE = Object.fromEntries(NODE_CATALOG.map(n => [n.type, n]));
+
+  // ========== Workflow templates ==========
+  const TEMPLATES = {
+    blank: { name: '空白工作流', nodes: [], edges: [] },
+    http_pipeline: {
+      name: 'HTTP 串接 pipeline',
+      nodes: [
+        { id: 't1', type: 'trigger',   position: { x: 40,   y: 160 }, data: { label: 'Webhook 進入',  meta: 'POST /webhook'  } },
+        { id: 'h1', type: 'http',      position: { x: 280,  y: 60  }, data: { label: '查詢使用者',     meta: 'GET /users/:id', url: '/api/users/{{id}}' } },
+        { id: 'v1', type: 'decision',  position: { x: 280,  y: 260 }, data: { label: '驗證 payload',  meta: 'schema 必填欄位' } },
+        { id: 't2', type: 'transform', position: { x: 540,  y: 60  }, data: { label: '資料清洗',      meta: '映射欄位' } },
+        { id: 'a1', type: 'action',    position: { x: 540,  y: 260 }, data: { label: '寄通知',        meta: 'slack #ops' } },
+        { id: 'd1', type: 'delay',     position: { x: 800,  y: 60  }, data: { label: '排程延遲',      meta: 'PT5M' } },
+        { id: 'o1', type: 'output',    position: { x: 1060, y: 160 }, data: { label: '完成',          meta: 'OK' } }
+      ],
+      edges: [
+        { id: 'e1', source: 't1', target: 'h1' },
+        { id: 'e2', source: 't1', target: 'v1' },
+        { id: 'e3', source: 'v1', target: 'a1', label: '失敗' },
+        { id: 'e4', source: 'h1', target: 't2' },
+        { id: 'e5', source: 't2', target: 'd1' },
+        { id: 'e6', source: 'd1', target: 'o1' },
+        { id: 'e7', source: 'a1', target: 'o1' }
+      ]
+    },
+    etl: {
+      name: 'ETL 批次',
+      nodes: [
+        { id: 's1', type: 'trigger',   position: { x: 40,   y: 200 }, data: { label: '排程觸發',  meta: 'cron 0 2 * * *' } },
+        { id: 'x1', type: 'http',      position: { x: 280,  y: 80  }, data: { label: '抽取來源 A', meta: 'GET /ext/a' } },
+        { id: 'x2', type: 'http',      position: { x: 280,  y: 320 }, data: { label: '抽取來源 B', meta: 'GET /ext/b' } },
+        { id: 'm1', type: 'transform', position: { x: 560,  y: 200 }, data: { label: '合併清洗',  meta: 'union + dedupe' } },
+        { id: 'p1', type: 'decision',  position: { x: 820,  y: 200 }, data: { label: '品質檢查',  meta: 'row-count > 0' } },
+        { id: 'l1', type: 'action',    position: { x: 1080, y: 80  }, data: { label: '寫入倉儲',  meta: 'INSERT INTO' } },
+        { id: 'n1', type: 'action',    position: { x: 1080, y: 320 }, data: { label: '發警示信',  meta: 'email ops' } },
+        { id: 'o1', type: 'output',    position: { x: 1340, y: 200 }, data: { label: '完成',      meta: 'OK' } }
+      ],
+      edges: [
+        { id: 'e1', source: 's1', target: 'x1' },
+        { id: 'e2', source: 's1', target: 'x2' },
+        { id: 'e3', source: 'x1', target: 'm1' },
+        { id: 'e4', source: 'x2', target: 'm1' },
+        { id: 'e5', source: 'm1', target: 'p1' },
+        { id: 'e6', source: 'p1', target: 'l1', label: '通過' },
+        { id: 'e7', source: 'p1', target: 'n1', label: '失敗' },
+        { id: 'e8', source: 'l1', target: 'o1' }
+      ]
+    },
+    cicd: {
+      name: 'CI/CD 流程',
+      nodes: [
+        { id: 't1', type: 'trigger',   position: { x: 40,   y: 200 }, data: { label: 'Git push',  meta: 'main branch' } },
+        { id: 'c1', type: 'action',    position: { x: 280,  y: 200 }, data: { label: 'Checkout',  meta: 'git clone' } },
+        { id: 'b1', type: 'action',    position: { x: 540,  y: 100 }, data: { label: 'Build',     meta: 'npm ci' } },
+        { id: 'tt', type: 'action',    position: { x: 540,  y: 300 }, data: { label: 'Unit test', meta: 'jest --ci' } },
+        { id: 'd1', type: 'decision',  position: { x: 800,  y: 200 }, data: { label: '測試通過',  meta: 'all green' } },
+        { id: 'dp', type: 'action',    position: { x: 1060, y: 100 }, data: { label: 'Deploy',    meta: 'vercel --prod' } },
+        { id: 'fn', type: 'action',    position: { x: 1060, y: 300 }, data: { label: '標記失敗',  meta: 'commit status' } },
+        { id: 'o1', type: 'output',    position: { x: 1320, y: 200 }, data: { label: '上線',      meta: 'OK' } }
+      ],
+      edges: [
+        { id: 'e1', source: 't1', target: 'c1' },
+        { id: 'e2', source: 'c1', target: 'b1' },
+        { id: 'e3', source: 'c1', target: 'tt' },
+        { id: 'e4', source: 'b1', target: 'd1' },
+        { id: 'e5', source: 'tt', target: 'd1' },
+        { id: 'e6', source: 'd1', target: 'dp', label: '通過' },
+        { id: 'e7', source: 'd1', target: 'fn', label: '失敗' },
+        { id: 'e8', source: 'dp', target: 'o1' }
+      ]
+    }
+  };
+
+  // ========== Default config per node type ==========
+  function defaultNodeData(type) {
+    const cat = NODE_BY_TYPE[type] || NODE_BY_TYPE.action;
+    return {
+      label: cat.label,
+      meta: cat.desc,
+      duration: 400,
+      failureRate: 0,
+      retryMax: 0,
+      retryBackoff: 200,
+      url: '',
+      condition: '',
+      note: ''
+    };
+  }
+
+  // ========== Graph utilities ==========
+  function buildAdj(nodes, edges) {
+    const adj = new Map();
+    nodes.forEach(n => adj.set(n.id, []));
+    edges.forEach(e => {
+      if (!adj.has(e.source)) adj.set(e.source, []);
+      if (!adj.has(e.target)) adj.set(e.target, []);
+      adj.get(e.source).push(e.target);
+    });
+    return adj;
+  }
+  function reverseAdj(adj) {
+    const r = new Map();
+    adj.forEach((_, k) => r.set(k, []));
+    adj.forEach((vs, k) => vs.forEach(v => r.get(v).push(k)));
+    return r;
+  }
+  function detectCycles(nodes, edges) {
+    // Tarjan-style DFS — return list of cycle paths
+    const adj = buildAdj(nodes, edges);
+    const WHITE = 0, GRAY = 1, BLACK = 2;
+    const color = new Map();
+    nodes.forEach(n => color.set(n.id, WHITE));
+    const stack = [];
+    const cycles = [];
+    function dfs(u) {
+      color.set(u, GRAY);
+      stack.push(u);
+      for (const v of (adj.get(u) || [])) {
+        if (color.get(v) === GRAY) {
+          // found cycle
+          const idx = stack.indexOf(v);
+          if (idx >= 0) cycles.push(stack.slice(idx).concat(v));
+        } else if (color.get(v) === WHITE) {
+          dfs(v);
+        }
+      }
+      color.set(u, BLACK);
+      stack.pop();
+    }
+    nodes.forEach(n => { if (color.get(n.id) === WHITE) dfs(n.id); });
+    return cycles;
+  }
+  function topoLevels(nodes, edges) {
+    // Compute level per node (longest path from any root)
+    const adj = buildAdj(nodes, edges);
+    const indeg = new Map();
+    nodes.forEach(n => indeg.set(n.id, 0));
+    edges.forEach(e => indeg.set(e.target, (indeg.get(e.target) || 0) + 1));
+    // Kahn
+    const q = [];
+    indeg.forEach((d, k) => { if (d === 0) q.push(k); });
+    const lvl = new Map();
+    q.forEach(k => lvl.set(k, 0));
+    while (q.length) {
+      const u = q.shift();
+      for (const v of (adj.get(u) || [])) {
+        const nl = (lvl.get(u) || 0) + 1;
+        if (nl > (lvl.get(v) || 0)) lvl.set(v, nl);
+        indeg.set(v, indeg.get(v) - 1);
+        if (indeg.get(v) === 0) q.push(v);
+      }
+    }
+    return lvl;
+  }
+  function reachableFrom(start, adj) {
+    const seen = new Set([start]);
+    const q = [start];
+    while (q.length) {
+      const u = q.shift();
+      for (const v of (adj.get(u) || [])) {
+        if (!seen.has(v)) { seen.add(v); q.push(v); }
+      }
+    }
+    return seen;
+  }
+  function unreached(nodes, edges) {
+    // nodes with no incoming edge that are not triggers, or nodes isolated
+    const incoming = new Map();
+    nodes.forEach(n => incoming.set(n.id, 0));
+    edges.forEach(e => incoming.set(e.target, (incoming.get(e.target) || 0) + 1));
+    const adj = buildAdj(nodes, edges);
+    const outgoing = new Map();
+    nodes.forEach(n => outgoing.set(n.id, 0));
+    edges.forEach(e => outgoing.set(e.source, (outgoing.get(e.source) || 0) + 1));
+    const issues = [];
+    nodes.forEach(n => {
+      const cat = NODE_BY_TYPE[n.type];
+      if (cat && cat.kind === 'trigger') return;
+      if ((incoming.get(n.id) || 0) === 0) {
+        issues.push({ kind: 'orphan', nodeId: n.id, msg: '節點「' + n.data.label + '」沒有上游入口，將永遠不會被執行' });
+      }
+      if ((outgoing.get(n.id) || 0) === 0 && cat && cat.kind !== 'output') {
+        // 不是致命，只是 warning
+      }
+    });
+    // 找 isolated
+    const triggers = nodes.filter(n => NODE_BY_TYPE[n.type] && NODE_BY_TYPE[n.type].kind === 'trigger');
+    if (triggers.length === 0 && nodes.length > 0) {
+      issues.push({ kind: 'no-trigger', msg: '工作流缺少 trigger 類型起點' });
+    }
+    return issues;
+  }
+
+  // ========== Validation ==========
+  function validateWorkflow(nodes, edges) {
+    const issues = [];
+    // 1. cycles
+    const cycles = detectCycles(nodes, edges);
+    cycles.forEach(c => {
+      issues.push({ severity: 'err', msg: '偵測到循環: ' + c.join(' → ') + '，會造成無窮執行' });
+    });
+    // 2. multiple triggers
+    const triggers = nodes.filter(n => n.type === 'trigger');
+    if (triggers.length > 1) {
+      issues.push({ severity: 'warn', msg: '工作流含 ' + triggers.length + ' 個 trigger，通常一個工作流只該有一個入口' });
+    }
+    // 3. no output
+    const outputs = nodes.filter(n => n.type === 'output');
+    if (nodes.length > 0 && outputs.length === 0) {
+      issues.push({ severity: 'warn', msg: '找不到 output 節點，工作流沒有明確終點' });
+    }
+    // 4. orphan nodes
+    const orphans = unreached(nodes, edges);
+    orphans.forEach(o => issues.push({ severity: 'warn', msg: o.msg }));
+    // 5. no trigger
+    if (nodes.length > 0 && triggers.length === 0) {
+      issues.push({ severity: 'err', msg: '缺少 trigger 節點，無法啟動工作流' });
+    }
+    // 6. dangling edges
+    const nodeIds = new Set(nodes.map(n => n.id));
+    edges.forEach(e => {
+      if (!nodeIds.has(e.source) || !nodeIds.has(e.target)) {
+        issues.push({ severity: 'err', msg: '連線 ' + e.id + ' 指向不存在的節點' });
+      }
+    });
+    // 7. self-loop
+    edges.forEach(e => {
+      if (e.source === e.target) {
+        issues.push({ severity: 'err', msg: '節點不能連到自己 (' + e.source + ')' });
+      }
+    });
+    // 8. unreachable nodes (no incoming, not trigger)
+    const incoming = new Map();
+    nodes.forEach(n => incoming.set(n.id, 0));
+    edges.forEach(e => incoming.set(e.target, (incoming.get(e.target) || 0) + 1));
+    nodes.forEach(n => {
+      const cat = NODE_BY_TYPE[n.type];
+      if (cat && cat.kind === 'trigger') return;
+      if ((incoming.get(n.id) || 0) === 0 && nodes.length > 0 && triggers.length > 0) {
+        // already covered above (warn)
+      }
+    });
+    if (issues.length === 0 && nodes.length > 0) {
+      issues.push({ severity: 'ok', msg: '工作流通過所有驗證：' + nodes.length + ' 個節點、' + edges.length + ' 條連線' });
+    }
+    return issues;
+  }
+
+  // ========== RBAC ==========
+  const ROLES = {
+    admin:   { name: '管理員', can: { edit: true, delete: true, run: true, publish: true, export: true, import: true } },
+    editor:  { name: '編輯者', can: { edit: true, delete: false, run: true, publish: false, export: true, import: true } },
+    viewer:  { name: '檢視者', can: { edit: false, delete: false, run: false, publish: false, export: true, import: false } }
+  };
+  function can(action, role) {
+    return ROLES[role].can[action] === true;
+  }
+
+  // ========== Execution engine ==========
+  // Adjacency / scheduling for execution:
+  //  - each node has 0+ incoming edges (triggers have none)
+  //  - a node runs when all its incoming edges are satisfied
+  //  - "satisfied" edge for trigger = always true at start
+  //  - decision nodes: outgoing edges labeled "通過/失敗" map to true/false based on node.data.failureRate
+  //  - parallel execution: at each tick, all "ready" nodes fire concurrently
+  //  - retry: each node has retryMax / retryBackoff
+  class RunState {
+    constructor(nodes, edges) {
+      this.nodes = nodes;
+      this.edges = edges;
+      this.adj = buildAdj(nodes, edges);
+      this.rev = reverseAdj(this.adj);
+      this.nodeState = new Map();   // id -> { status, durationMs, attempts, output, error, startedAt, endedAt }
+      this.edgeState = new Map();   // id -> { status: 'idle'|'completed'|'failed' }
+      nodes.forEach(n => this.nodeState.set(n.id, { status: 'idle', attempts: 0, output: null, error: null }));
+      edges.forEach(e => this.edgeState.set(e.id, { status: 'idle' }));
+      this.trace = [];
+      this.status = 'idle'; // idle | active | success | failed | stopped
+      this.startedAt = null;
+      this.endedAt = null;
+      this.incomingCount = new Map();
+      nodes.forEach(n => this.incomingCount.set(n.id, 0));
+      edges.forEach(e => this.incomingCount.set(e.target, (this.incomingCount.get(e.target) || 0) + 1));
+      this.completedIncoming = new Map();
+      nodes.forEach(n => this.completedIncoming.set(n.id, 0));
+      this.activeSet = new Set();
+    }
+    addTrace(type, message, nodeId) {
+      this.trace.push({ id: uid('tr_'), at: Date.now(), type, message, nodeId });
+    }
+    setNodeStatus(id, status, extra) {
+      const cur = this.nodeState.get(id) || {};
+      this.nodeState.set(id, Object.assign({}, cur, { status }, extra || {}));
+    }
+    setEdgeStatus(id, status) {
+      this.edgeState.set(id, Object.assign({}, this.edgeState.get(id) || {}, { status }));
+    }
+  }
+
+  // Simulated execution
+  async function executeRun(runState, opts) {
+    const { speed = 4, shouldStop } = opts || {};
+    runState.status = 'active';
+    runState.startedAt = Date.now();
+    runState.addTrace('start', '流程啟動，共 ' + runState.nodes.length + ' 個節點');
+
+    const triggers = runState.nodes.filter(n => n.type === 'trigger');
+    if (triggers.length === 0) {
+      runState.status = 'failed';
+      runState.addTrace('run-fail', '找不到 trigger，工作流無法啟動');
+      return runState;
+    }
+
+    // Active queue: trigger at start
+    const queue = [];
+    triggers.forEach(t => queue.push(t));
+
+    let processedNodes = 0;
+    const totalNodes = runState.nodes.length;
+
+    while (queue.length > 0 || runState.activeSet.size > 0) {
+      if (shouldStop && shouldStop()) break;
+      // Fire all currently-ready nodes (parallel)
+      const ready = queue.splice(0);
+      const tasks = ready.map(node => runSingleNode(runState, node, { shouldStop }));
+      await Promise.all(tasks);
+      processedNodes += ready.length;
+      runState.progress = totalNodes ? processedNodes / totalNodes : 1;
+      // tiny pause between waves
+      await sleep(80 / speed);
+    }
+
+    if (runState.status === 'active') {
+      const anyFailed = Array.from(runState.nodeState.values()).some(s => s.status === 'failed');
+      runState.status = anyFailed ? 'failed' : 'success';
+      runState.endedAt = Date.now();
+      runState.addTrace(anyFailed ? 'run-fail' : 'run-end',
+        anyFailed ? '流程結束（部分節點失敗）' : '流程完成',
+        null, runState.endedAt - runState.startedAt);
+    }
+    return runState;
+  }
+
+  async function runSingleNode(runState, node, opts) {
+    const { shouldStop } = opts || {};
+    if (shouldStop && shouldStop()) return;
+    runState.activeSet.add(node.id);
+    const cfg = node.data || {};
+    runState.setNodeStatus(node.id, 'running', { startedAt: Date.now(), attempts: (runState.nodeState.get(node.id).attempts || 0) + 1 });
+    runState.addTrace('node-start', '▶ ' + (cfg.label || node.type) + ' 開始執行', node.id);
+
+    // Simulated work
+    const baseDuration = Math.max(50, Number(cfg.duration) || 400);
+    const failureRate = Math.min(1, Math.max(0, Number(cfg.failureRate) || 0));
+    const retryMax = Math.max(0, Number(cfg.retryMax) || 0);
+    const retryBackoff = Math.max(50, Number(cfg.retryBackoff) || 200);
+
+    let attempt = 0;
+    let success = false;
+    let lastError = null;
+    while (attempt <= retryMax && !success) {
+      if (attempt > 0) {
+        runState.addTrace('retry', '↻ ' + (cfg.label || node.type) + ' 第 ' + (attempt+1) + ' 次重試', node.id);
+        await sleep(retryBackoff);
+      }
+      const dur = baseDuration * (0.7 + Math.random() * 0.6);
+      await sleep(dur);
+      const fail = Math.random() < failureRate;
+      if (fail) {
+        lastError = '模擬失敗 (隨機)';
+        attempt++;
+      } else {
+        success = true;
+      }
+    }
+    runState.activeSet.delete(node.id);
+
+    if (!success) {
+      runState.setNodeStatus(node.id, 'failed', { endedAt: Date.now(), error: lastError });
+      runState.addTrace('node-fail', '✕ ' + (cfg.label || node.type) + ' 失敗: ' + lastError, node.id);
+      // Decide branch for failure
+      const outs = runState.adj.get(node.id) || [];
+      outs.forEach(target => {
+        // mark edge as failed but don't activate downstream
+        const edge = runState.edges.find(e => e.source === node.id && e.target === target);
+        if (edge) runState.setEdgeStatus(edge.id, 'failed');
+      });
+      return;
+    }
+
+    const dur = Date.now() - runState.nodeState.get(node.id).startedAt;
+    runState.setNodeStatus(node.id, 'success', { endedAt: Date.now(), durationMs: dur, output: { ts: Date.now(), label: cfg.label } });
+    runState.addTrace('node-end', '✓ ' + (cfg.label || node.type) + ' 完成 (' + fmtDur(dur) + ')', node.id);
+
+    // Mark incoming edges as completed
+    const incomingEdges = runState.edges.filter(e => e.target === node.id);
+    incomingEdges.forEach(e => runState.setEdgeStatus(e.id, 'completed'));
+
+    // Activate downstream nodes
+    const outs = runState.adj.get(node.id) || [];
+    outs.forEach(target => {
+      const edge = runState.edges.find(e => e.source === node.id && e.target === target);
+      if (edge) {
+        // for decision nodes, "通過" edge = success
+        const isDecisionBranch = node.type === 'decision';
+        const lbl = (edge.label || '').trim();
+        let shouldActivate = true;
+        if (isDecisionBranch) {
+          // "失敗" branch only when node failed (we already returned), "通過" when success
+          if (lbl === '通過') shouldActivate = true;
+          else if (lbl === '失敗') shouldActivate = false;
+        }
+        if (shouldActivate) {
+          runState.setEdgeStatus(edge.id, 'completed');
+          // push target to runState.nextQueue (we use addTrace and then queue externally)
+          if (!runState._pendingQueue) runState._pendingQueue = [];
+          runState._pendingQueue.push(target);
+        }
+      }
+    });
+
+    // After this node is done, push downstream targets into the active runState via parent loop
+    // We expose them via a temp list and the parent loop reads it
+    if (runState._pendingQueue && runState._pendingQueue.length) {
+      const pending = runState._pendingQueue.splice(0);
+      // We need to push them onto the parent queue. Since we don't have direct access,
+      // we mutate runState to expose. The parent will check after each wave.
+      runState._wave = pending;
+    }
+  }
+
+  // Better implementation: separate scheduler
+  async function executeRunV2(nodes, edges, opts) {
+    const { speed = 4, onUpdate, onTrace, shouldStop } = opts || {};
+    const runState = new RunState(nodes, edges);
+    runState.status = 'active';
+    runState.startedAt = Date.now();
+    const triggerTrace = { id: uid('tr_'), at: Date.now(), type: 'start', message: '流程啟動 · ' + nodes.length + ' 節點 / ' + edges.length + ' 連線', nodeId: null };
+    runState.trace.push(triggerTrace);
+    onTrace && onTrace(triggerTrace);
+
+    if (nodes.length === 0) {
+      runState.status = 'failed';
+      const t = { id: uid('tr_'), at: Date.now(), type: 'run-fail', message: '工作流為空', nodeId: null };
+      runState.trace.push(t); onTrace && onTrace(t);
+      onUpdate && onUpdate(runState); return runState;
+    }
+
+    const validation = validateWorkflow(nodes, edges);
+    if (validation.some(v => v.severity === 'err')) {
+      runState.status = 'failed';
+      const t = { id: uid('tr_'), at: Date.now(), type: 'run-fail', message: '工作流未通過驗證，拒絕執行', nodeId: null };
+      runState.trace.push(t); onTrace && onTrace(t);
+      onUpdate && onUpdate(runState); return runState;
+    }
+
+    // Build adjacency
+    const adj = buildAdj(nodes, edges);
+    const incomingCount = new Map();
+    nodes.forEach(n => incomingCount.set(n.id, 0));
+    edges.forEach(e => incomingCount.set(e.target, (incomingCount.get(e.target) || 0) + 1));
+    const completedIncoming = new Map();
+    nodes.forEach(n => completedIncoming.set(n.id, 0));
+    const triggers = nodes.filter(n => n.type === 'trigger');
+    const ready = new Set(triggers.map(t => t.id));
+    const inFlight = new Set();
+    const done = new Set();
+    const failed = new Set();
+    const skipped = new Set();
+
+    function markEdgesFrom(id, status) {
+      edges.filter(e => e.source === id).forEach(e => runState.edgeState.set(e.id, Object.assign({}, runState.edgeState.get(e.id) || {}, { status })));
+    }
+    function pushTrace(type, message, nodeId) {
+      const tr = { id: uid('tr_'), at: Date.now(), type, message, nodeId: nodeId || null };
+      runState.trace.push(tr);
+      onTrace && onTrace(tr);
+    }
+
+    async function runNode(node) {
+      if (shouldStop && shouldStop()) { runState.status = 'stopped'; return; }
+      inFlight.add(node.id);
+      const cfg = node.data || {};
+      runState.nodeState.set(node.id, { status: 'running', attempts: (runState.nodeState.get(node.id)?.attempts || 0) + 1, startedAt: Date.now(), output: null, error: null });
+      onUpdate && onUpdate(runState);
+      pushTrace('node-start', '▶ ' + (cfg.label || node.type) + ' 開始', node.id);
+
+      const baseDuration = Math.max(50, Number(cfg.duration) || 400);
+      const failureRate = Math.min(1, Math.max(0, Number(cfg.failureRate) || 0));
+      const retryMax = Math.max(0, Number(cfg.retryMax) || 0);
+      const retryBackoff = Math.max(50, Number(cfg.retryBackoff) || 200);
+
+      let attempt = 0;
+      let success = false;
+      let lastError = null;
+      let dur = 0;
+      while (attempt <= retryMax && !success) {
+        if (attempt > 0) {
+          pushTrace('retry', '↻ 第 ' + (attempt+1) + ' 次重試', node.id);
+          await sleep(retryBackoff / speed);
+        }
+        dur = baseDuration * (0.7 + Math.random() * 0.6);
+        await sleep(dur / speed);
+        const fail = Math.random() < failureRate;
+        if (fail) { lastError = '模擬失敗'; attempt++; }
+        else { success = true; }
+      }
+
+      inFlight.delete(node.id);
+      if (!success) {
+        runState.nodeState.set(node.id, { status: 'failed', endedAt: Date.now(), error: lastError, attempts: attempt });
+        failed.add(node.id);
+        pushTrace('node-fail', '✕ ' + (cfg.label || node.type) + ' 失敗', node.id);
+        markEdgesFrom(node.id, 'failed');
+        // out edges with "失敗" label will be activated, others skipped
+        const outs = edges.filter(e => e.source === node.id);
+        outs.forEach(e => {
+          const lbl = (e.label || '').trim();
+          let activate = false;
+          if (node.type === 'decision') {
+            if (lbl === '失敗') activate = true;
+            else if (lbl === '通過') activate = false;
+          } else {
+            // non-decision failed: do not activate downstream
+            activate = false;
+          }
+          if (activate) {
+            ready.add(e.target);
+            runState.edgeState.set(e.id, Object.assign({}, runState.edgeState.get(e.id) || {}, { status: 'completed' }));
+          } else {
+            runState.edgeState.set(e.id, Object.assign({}, runState.edgeState.get(e.id) || {}, { status: 'failed' }));
+            // downstream nodes will be marked skipped when their incoming count never completes
+          }
+        });
+        onUpdate && onUpdate(runState);
+        return;
+      }
+
+      runState.nodeState.set(node.id, { status: 'success', endedAt: Date.now(), durationMs: dur, output: { ts: Date.now() }, attempts: attempt });
+      done.add(node.id);
+      pushTrace('node-end', '✓ ' + (cfg.label || node.type) + ' 完成 (' + fmtDur(dur) + ')', node.id);
+      // activate outgoing
+      const outs = edges.filter(e => e.source === node.id);
+      outs.forEach(e => {
+        const lbl = (e.label || '').trim();
+        let activate = true;
+        if (node.type === 'decision') {
+          if (lbl === '通過') activate = true;
+          else if (lbl === '失敗') activate = false;
+        }
+        if (activate) {
+          ready.add(e.target);
+          runState.edgeState.set(e.id, Object.assign({}, runState.edgeState.get(e.id) || {}, { status: 'completed' }));
+        } else {
+          runState.edgeState.set(e.id, Object.assign({}, runState.edgeState.get(e.id) || {}, { status: 'idle' }));
+        }
+      });
+      onUpdate && onUpdate(runState);
+    }
+
+    // Main loop
+    while (ready.size > 0 || inFlight.size > 0) {
+      if (shouldStop && shouldStop()) {
+        runState.status = 'stopped';
+        pushTrace('stop', '使用者中止流程', null);
+        onUpdate && onUpdate(runState);
+        return runState;
+      }
+      const wave = Array.from(ready);
+      ready.clear();
+      const tasks = wave.map(id => {
+        const node = nodes.find(n => n.id === id);
+        if (!node) return Promise.resolve();
+        return runNode(node);
+      });
+      await Promise.all(tasks);
+      // mark skipped: nodes that are not done and not in flight and not ready (no path forward)
+      nodes.forEach(n => {
+        if (!done.has(n.id) && !inFlight.has(n.id) && !ready.has(n.id) && !failed.has(n.id) && !skipped.has(n.id)) {
+          // If all upstream paths failed for this node, mark skipped
+          const incs = edges.filter(e => e.target === n.id);
+          const allFailed = incs.length > 0 && incs.every(e => {
+            const es = runState.edgeState.get(e.id);
+            return es && es.status === 'failed';
+          });
+          if (allFailed) {
+            runState.nodeState.set(n.id, { status: 'skipped', endedAt: Date.now() });
+            skipped.add(n.id);
+            pushTrace('skip', '⊘ ' + (n.data?.label || n.type) + ' 因上游失敗被跳過', n.id);
+            onUpdate && onUpdate(runState);
+          }
+        }
+      });
+      await sleep(40 / speed);
+    }
+
+    // Determine final status
+    if (runState.status !== 'stopped') {
+      const anyFailed = failed.size > 0;
+      runState.status = anyFailed ? 'failed' : 'success';
+    }
+    runState.endedAt = Date.now();
+    const summaryType = runState.status === 'stopped' ? 'stop' : (runState.status === 'failed' ? 'run-fail' : 'run-end');
+    const summaryMsg = runState.status === 'stopped' ? '已停止' : (runState.status === 'failed' ? '流程完成但有失敗節點' : '流程成功完成') + ' · ' + fmtDur(runState.endedAt - runState.startedAt);
+    pushTrace(summaryType, summaryMsg, null);
+    onUpdate && onUpdate(runState);
+    return runState;
+  }
+
+  // ========== Persistence ==========
+  const STORAGE_KEY = 'flowforge_workflow_v1';
+  function loadWorkflow() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch (e) { return null; }
+  }
+  function saveWorkflow(wf) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(wf)); } catch (e) {}
+  }
+
+  // ========== Custom node renderer ==========
+  function FlowNode({ data, selected }) {
+    const cat = NODE_BY_TYPE[data.type] || NODE_BY_TYPE.action;
+    const status = data.runStatus || 'idle';
+    const kindCls = 'kind-' + cat.kind;
+    return h('div', { className: cls('fn-node', kindCls, selected && 'selected', status) },
+      h(Handle, { type: 'target', position: Position.Left, isConnectable: true }),
+      h('div', { className: 'fn-head' },
+        h('div', { className: 'fn-title' },
+          h('span', { className: 'ic' }, cat.icon),
+          data.label || cat.label
+        ),
+        h('span', { className: 'fn-tag' }, cat.kind)
+      ),
+      h('div', { className: 'fn-meta' }, data.meta || cat.desc),
+      status !== 'idle' && h('div', { className: cls('fn-status', status) },
+        h('span', { className: 'dot' }),
+        status === 'running' && '執行中…' +
+          (data.runStatus === 'running' && data.runAttempt ? ' (第 ' + data.runAttempt + ' 次)' : ''),
+        status === 'success' && '完成 · ' + fmtDur(data.runDuration || 0),
+        status === 'failed' && '失敗 · ' + (data.runError || '錯誤'),
+        status === 'skipped' && '已跳過'
+      ),
+      h(Handle, { type: 'source', position: Position.Right, isConnectable: true })
+    );
+  }
+  const nodeTypes = { trigger: FlowNode, http: FlowNode, transform: FlowNode, decision: FlowNode, delay: FlowNode, action: FlowNode, output: FlowNode };
+
+  // ========== Main App ==========
+  function App() {
+    const initialWf = loadWorkflow() || { nodes: clone(TEMPLATES.http_pipeline.nodes), edges: clone(TEMPLATES.http_pipeline.edges) };
+    const [nodes, setNodes, onNodesChange] = useNodesState(initialWf.nodes);
+    const [edges, setEdges, onEdgesChange] = useEdgesState(initialWf.edges);
+    const [role, setRole] = useState('admin');
+    const [selectedNode, setSelectedNode] = useState(null);
+    const [selectedEdge, setSelectedEdge] = useState(null);
+    const [runState, setRunState] = useState(null);
+    const [drawerTab, setDrawerTab] = useState('trace');
+    const [running, setRunning] = useState(false);
+    const [stopRequested, setStopRequested] = useState(false);
+    const [speed, setSpeed] = useState(4);
+    const [showJson, setShowJson] = useState(false);
+    const stopFlag = useRef(false);
+
+    // Auto-save
+    useEffect(() => {
+      saveWorkflow({ nodes, edges });
+    }, [nodes, edges]);
+
+    // Update nodes visually based on run state
+    const decoratedNodes = useMemo(() => {
+      if (!runState) return nodes;
+      return nodes.map(n => {
+        const st = runState.nodeState.get(n.id);
+        if (!st) return n;
+        return Object.assign({}, n, { data: Object.assign({}, n.data, {
+          runStatus: st.status,
+          runDuration: st.durationMs,
+          runError: st.error,
+          runAttempt: st.attempts
+        })});
+      });
+    }, [nodes, runState]);
+
+    const decoratedEdges = useMemo(() => {
+      if (!runState) return edges;
+      return edges.map(e => {
+        const st = runState.edgeState.get(e.id);
+        if (!st || st.status === 'idle') return e;
+        return Object.assign({}, e, { className: st.status, animated: st.status === 'completed' || st.status === 'running' });
+      });
+    }, [edges, runState]);
+
+    const validation = useMemo(() => validateWorkflow(nodes, edges), [nodes, edges]);
+
+    // ========== Handlers ==========
+    const onConnect = useCallback((params) => {
+      if (!can('edit', role)) return;
+      setEdges(eds => addEdge(Object.assign({}, params, { id: uid('e_'), markerEnd: { type: MarkerType.ArrowClosed } }), eds));
+    }, [setEdges, role]);
+
+    const onSelectionChange = useCallback((sel) => {
+      const n = (sel?.nodes || [])[0];
+      const e = (sel?.edges || [])[0];
+      setSelectedNode(n || null);
+      setSelectedEdge(e || null);
+    }, []);
+
+    const updateNodeData = useCallback((id, patch) => {
+      if (!can('edit', role)) return;
+      setNodes(ns => ns.map(n => n.id === id ? Object.assign({}, n, { data: Object.assign({}, n.data, patch) }) : n));
+      if (selectedNode && selectedNode.id === id) {
+        setSelectedNode(sn => Object.assign({}, sn, { data: Object.assign({}, sn.data, patch) }));
+      }
+    }, [setNodes, selectedNode, role]);
+
+    const deleteSelected = useCallback(() => {
+      if (!can('delete', role)) return;
+      if (selectedNode) {
+        setNodes(ns => ns.filter(n => n.id !== selectedNode.id));
+        setEdges(es => es.filter(e => e.source !== selectedNode.id && e.target !== selectedNode.id));
+        setSelectedNode(null);
+      } else if (selectedEdge) {
+        setEdges(es => es.filter(e => e.id !== selectedEdge.id));
+        setSelectedEdge(null);
+      }
+    }, [selectedNode, selectedEdge, setNodes, setEdges, role]);
+
+    const loadTemplate = useCallback((key) => {
+      if (!can('edit', role)) return;
+      const t = TEMPLATES[key];
+      if (!t) return;
+      setNodes(clone(t.nodes));
+      setEdges(clone(t.edges));
+      setSelectedNode(null);
+      setRunState(null);
+    }, [setNodes, setEdges, role]);
+
+    const onDragOver = useCallback((event) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+    }, []);
+
+    const onDrop = useCallback((event) => {
+      event.preventDefault();
+      if (!can('edit', role)) return;
+      const data = JSON.parse(event.dataTransfer.getData('application/flowforge'));
+      const bounds = event.target.getBoundingClientRect();
+      const position = { x: event.clientX - bounds.left - 90, y: event.clientY - bounds.top - 30 };
+      const newNode = {
+        id: uid('n_'),
+        type: data.type,
+        position,
+        data: Object.assign(defaultNodeData(data.type), { label: data.label + ' ' + (Math.floor(Math.random() * 90 + 10)) })
+      };
+      setNodes(ns => ns.concat(newNode));
+    }, [setNodes, role]);
+
+    const onPaneClick = useCallback(() => { setSelectedNode(null); setSelectedEdge(null); }, []);
+
+    // Run
+    const startRun = useCallback(async () => {
+      if (!can('run', role)) return;
+      if (running) return;
+      setRunning(true);
+      setStopRequested(false);
+      stopFlag.current = false;
+      // Reset run state on nodes
+      setNodes(ns => ns.map(n => Object.assign({}, n, { data: Object.assign({}, n.data, { runStatus: 'idle', runDuration: null, runError: null, runAttempt: 0 }) })));
+      const localShouldStop = () => stopFlag.current;
+      const state = await executeRunV2(nodes, edges, {
+        speed,
+        shouldStop: localShouldStop,
+        onUpdate: (s) => setRunState(clone(s)),
+        onTrace: (t) => setRunState(s => s ? Object.assign({}, s, { trace: s.trace.concat([t]) }) : s)
+      });
+      setRunState(state);
+      setRunning(false);
+      setDrawerTab('trace');
+    }, [running, nodes, edges, speed, role]);
+
+    const stopRun = useCallback(() => {
+      stopFlag.current = true;
+      setStopRequested(true);
+    }, []);
+
+    // JSON import/export
+    const exportJson = useCallback(() => {
+      if (!can('export', role)) return;
+      const payload = { nodes, edges, exportedAt: new Date().toISOString(), version: '1.0' };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'flowforge-' + Date.now() + '.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    }, [nodes, edges, role]);
+
+    const importJson = useCallback(() => {
+      if (!can('import', role)) return;
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'application/json';
+      input.onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          try {
+            const payload = JSON.parse(ev.target.result);
+            if (Array.isArray(payload.nodes) && Array.isArray(payload.edges)) {
+              setNodes(payload.nodes);
+              setEdges(payload.edges);
+              setSelectedNode(null);
+              setRunState(null);
+            } else {
+              alert('JSON 結構錯誤：需要 nodes 與 edges 兩個陣列');
+            }
+          } catch (err) {
+            alert('JSON 解析失敗: ' + err.message);
+          }
+        };
+        reader.readAsText(file);
+      };
+      input.click();
+    }, [setNodes, setEdges, role]);
+
+    const clearAll = useCallback(() => {
+      if (!can('edit', role)) return;
+      if (!confirm('確定清空整個工作流？')) return;
+      setNodes([]);
+      setEdges([]);
+      setSelectedNode(null);
+      setRunState(null);
+    }, [setNodes, setEdges, role]);
+
+    // ========== Render: header ==========
+    const triggerCount = nodes.filter(n => n.type === 'trigger').length;
+    const outputCount = nodes.filter(n => n.type === 'output').length;
+    const decisionCount = nodes.filter(n => n.type === 'decision').length;
+    const errCount = validation.filter(v => v.severity === 'err').length;
+    const warnCount = validation.filter(v => v.severity === 'warn').length;
+    const ready = !running && !errCount && triggerCount >= 1 && nodes.length > 0;
+    const statusChipCls = running ? 'warn' : (errCount > 0 ? 'err' : (warnCount > 0 ? 'warn' : 'ok'));
+    const statusChipText = running ? '執行中' : (errCount > 0 ? '需修正' : (warnCount > 0 ? '可優化' : (nodes.length > 0 ? '可執行' : '空白')));
+
+    return h(Fragment, null,
+      // ========== Top bar ==========
+      h('header', { className: 'topbar' },
+        h('div', { className: 'brand' },
+          h('div', { className: 'brand-mark' }, 'FF'),
+          h('div', null,
+            h('div', { className: 'brand-name' }, 'FlowForge 工作流引擎'),
+            h('div', { className: 'brand-sub' }, 'REACT FLOW · ' + nodes.length + ' NODES / ' + edges.length + ' EDGES')
+          )
+        ),
+        h('div', { className: 'top-actions' },
+          h('div', { className: 'chip ' + statusChipCls },
+            h('span', { className: running ? 'pulse' : 'dot' }),
+            statusChipText
+          ),
+          h('select', { className: 'role-select', value: role, onChange: (e) => setRole(e.target.value), 'aria-label': '角色切換' },
+            Object.entries(ROLES).map(([k, v]) => h('option', { key: k, value: k }, v.name + ' · ' + k))
+          ),
+          h('button', { className: 'btn small', onClick: importJson, disabled: !can('import', role), title: '從 JSON 匯入' }, '↥ 匯入'),
+          h('button', { className: 'btn small', onClick: exportJson, disabled: !can('export', role) || nodes.length === 0, title: '匯出 JSON' }, '↧ 匯出'),
+          h('button', { className: 'btn small danger', onClick: clearAll, disabled: !can('edit', role) || nodes.length === 0 }, '✕ 清空'),
+          running
+            ? h('button', { className: 'btn small danger', onClick: stopRun, disabled: !can('run', role) }, '■ 停止')
+            : h('button', { className: 'btn primary small', onClick: startRun, disabled: !can('run', role) || !ready, title: ready ? '執行流程模擬' : '請先修正錯誤或加入 trigger' }, '▶ 執行')
+        )
+      ),
+
+      // ========== Workspace ==========
+      h('div', { className: 'workspace' },
+        // --- Left palette ---
+        h('aside', { className: 'sidebar' },
+          h('section', { className: 'panel-section' },
+            h('div', { className: 'section-head' },
+              h('h2', { className: 'section-title' }, '節點模板'),
+              h('span', { className: 'section-meta' }, NODE_CATALOG.length + ' 種類')
+            ),
+            h('div', { className: 'palette' },
+              NODE_CATALOG.map(cat =>
+                h('div', {
+                  key: cat.type,
+                  className: 'palette-item',
+                  draggable: can('edit', role),
+                  onDragStart: (e) => {
+                    if (!can('edit', role)) return;
+                    e.dataTransfer.setData('application/flowforge', JSON.stringify({ type: cat.type, label: cat.label }));
+                    e.dataTransfer.effectAllowed = 'move';
+                  },
+                  title: cat.desc
+                },
+                  h('div', { className: 'ic', style: { color: cat.color } }, cat.icon),
+                  h('div', null,
+                    h('div', { className: 'nm' }, cat.label),
+                    h('div', { className: 'desc' }, cat.desc)
+                  )
+                )
+              )
+            ),
+            !can('edit', role) && h('div', { className: 'help', style: { marginTop: 10 } }, '目前角色為 ' + ROLES[role].name + '，無法拖拽新增節點')
+          ),
+          h('section', { className: 'panel-section' },
+            h('div', { className: 'section-head' },
+              h('h2', { className: 'section-title' }, '範本'),
+              h('span', { className: 'section-meta' }, '一鍵載入')
+            ),
+            h('div', { className: 'palette' },
+              Object.entries(TEMPLATES).map(([k, t]) =>
+                h('button', {
+                  key: k, className: 'palette-item',
+                  style: { background: 'var(--surface-2)', border: '1px solid var(--line)' },
+                  onClick: () => loadTemplate(k),
+                  disabled: !can('edit', role)
+                },
+                  h('div', { className: 'ic' }, '◇'),
+                  h('div', null,
+                    h('div', { className: 'nm' }, t.name),
+                    h('div', { className: 'desc' }, t.nodes.length + ' 節點 / ' + t.edges.length + ' 連線')
+                  )
+                )
+              )
+            )
+          ),
+          h('section', { className: 'panel-section' },
+            h('div', { className: 'section-head' },
+              h('h2', { className: 'section-title' }, '圖譜統計')
+            ),
+            h('div', { className: 'kv-list' },
+              h('div', { className: 'kv-row' }, h('span', { className: 'k' }, '節點總數'), h('span', { className: 'v' }, nodes.length)),
+              h('div', { className: 'kv-row' }, h('span', { className: 'k' }, '連線總數'), h('span', { className: 'v' }, edges.length)),
+              h('div', { className: 'kv-row' }, h('span', { className: 'k' }, 'Trigger'), h('span', { className: 'v' }, triggerCount + ' 個')),
+              h('div', { className: 'kv-row' }, h('span', { className: 'k' }, 'Output'), h('span', { className: 'v' }, outputCount + ' 個')),
+              h('div', { className: 'kv-row' }, h('span', { className: 'k' }, 'Decision'), h('span', { className: 'v' }, decisionCount + ' 個'))
+            )
+          ),
+          h('section', { className: 'panel-section' },
+            h('div', { className: 'section-head' },
+              h('h2', { className: 'section-title' }, '執行設定')
+            ),
+            h('div', { className: 'field' },
+              h('label', { className: 'field-label' }, '模擬速度'),
+              h('select', { className: 'field-select', value: speed, onChange: (e) => setSpeed(Number(e.target.value)) },
+                h('option', { value: 1 }, '1× (慢, 教學用)'),
+                h('option', { value: 4 }, '4× (預設)'),
+                h('option', { value: 10 }, '10× (快速預覽)'),
+                h('option', { value: 50 }, '50× (秒跑完)')
+              )
+            ),
+            h('div', { className: 'help' }, '每個節點的 duration 屬性會被 speed 縮放')
+          )
+        ),
+
+        // --- Center canvas ---
+        h('main', { className: 'flow-wrap', onDragOver, onDrop },
+          h('div', { className: 'flow-legend' },
+            h('span', { className: 'legend' }, h('span', { className: 'swatch', style: { '--c': 'var(--ok)' } }), '執行成功'),
+            h('span', { className: 'legend' }, h('span', { className: 'swatch', style: { '--c': 'var(--err)' } }), '執行失敗'),
+            h('span', { className: 'legend' }, h('span', { className: 'swatch', style: { '--c': 'var(--muted)' } }), '待執行')
+          ),
+          h(FlowComponent, {
+            nodes: decoratedNodes,
+            edges: decoratedEdges,
+            onNodesChange,
+            onEdgesChange,
+            onConnect,
+            onSelectionChange,
+            onPaneClick,
+            nodeTypes,
+            fitView: true,
+            fitViewOptions: { padding: 0.25 },
+            proOptions: { hideAttribution: true },
+            'data-testid': 'flow-canvas',
+            defaultEdgeOptions: { markerEnd: { type: MarkerType.ArrowClosed } }
+          },
+            h(Background, { gap: 22, size: 1.1, color: '#1c2638' }),
+            h(Controls, { position: 'bottom-right' }),
+            h(MiniMap, {
+              position: 'bottom-left',
+              nodeColor: (n) => {
+                const cat = NODE_BY_TYPE[n.type];
+                if (!cat) return '#5cb0ff';
+                if (cat.kind === 'trigger') return '#5cb0ff';
+                if (cat.kind === 'http') return '#b08fff';
+                if (cat.kind === 'transform') return '#5fcf90';
+                if (cat.kind === 'decision') return '#e0b364';
+                if (cat.kind === 'delay') return '#b4c1d4';
+                if (cat.kind === 'action') return '#e36b6b';
+                if (cat.kind === 'output') return '#5fcf90';
+                return '#5cb0ff';
+              },
+              maskColor: 'rgba(11,16,21,.7)'
+            })
+          )
+        ),
+
+        // --- Right inspector ---
+        h('aside', { className: 'inspector' },
+          h('section', { className: 'panel-section' },
+            h('div', { className: 'section-head' },
+              h('h2', { className: 'section-title' }, '節點屬性'),
+              h('span', { className: 'section-meta' }, selectedNode ? selectedNode.type : selectedEdge ? 'edge' : '—')
+            ),
+            selectedNode && h(Fragment, null,
+              h('div', { className: 'field' },
+                h('label', { className: 'field-label' }, '標籤'),
+                h('input', { className: 'field-input', value: selectedNode.data.label || '', onChange: (e) => updateNodeData(selectedNode.id, { label: e.target.value }), disabled: !can('edit', role) })
+              ),
+              h('div', { className: 'field' },
+                h('label', { className: 'field-label' }, '說明'),
+                h('input', { className: 'field-input', value: selectedNode.data.meta || '', onChange: (e) => updateNodeData(selectedNode.id, { meta: e.target.value }), disabled: !can('edit', role) })
+              ),
+              h('div', { className: 'field-row' },
+                h('div', { className: 'field' },
+                  h('label', { className: 'field-label' }, '耗時 (ms)'),
+                  h('input', { className: 'field-input', type: 'number', min: 50, step: 50, value: selectedNode.data.duration ?? 400, onChange: (e) => updateNodeData(selectedNode.id, { duration: Number(e.target.value) }), disabled: !can('edit', role) })
+                ),
+                h('div', { className: 'field' },
+                  h('label', { className: 'field-label' }, '失敗率 (0~1)'),
+                  h('input', { className: 'field-input', type: 'number', min: 0, max: 1, step: 0.05, value: selectedNode.data.failureRate ?? 0, onChange: (e) => updateNodeData(selectedNode.id, { failureRate: Number(e.target.value) }), disabled: !can('edit', role) })
+                )
+              ),
+              h('div', { className: 'field-row' },
+                h('div', { className: 'field' },
+                  h('label', { className: 'field-label' }, '重試次數'),
+                  h('input', { className: 'field-input', type: 'number', min: 0, max: 10, value: selectedNode.data.retryMax ?? 0, onChange: (e) => updateNodeData(selectedNode.id, { retryMax: Number(e.target.value) }), disabled: !can('edit', role) })
+                ),
+                h('div', { className: 'field' },
+                  h('label', { className: 'field-label' }, '重試間隔 (ms)'),
+                  h('input', { className: 'field-input', type: 'number', min: 50, step: 50, value: selectedNode.data.retryBackoff ?? 200, onChange: (e) => updateNodeData(selectedNode.id, { retryBackoff: Number(e.target.value) }), disabled: !can('edit', role) })
+                )
+              ),
+              (selectedNode.type === 'http') && h('div', { className: 'field' },
+                h('label', { className: 'field-label' }, 'URL / Endpoint'),
+                h('input', { className: 'field-input', value: selectedNode.data.url || '', onChange: (e) => updateNodeData(selectedNode.id, { url: e.target.value }), placeholder: '/api/users/{{id}}', disabled: !can('edit', role) })
+              ),
+              (selectedNode.type === 'decision') && h('div', { className: 'field' },
+                h('label', { className: 'field-label' }, '判斷條件 (mock)'),
+                h('textarea', { className: 'field-textarea', value: selectedNode.data.condition || '', onChange: (e) => updateNodeData(selectedNode.id, { condition: e.target.value }), placeholder: 'payload.valid === true', disabled: !can('edit', role) })
+              ),
+              h('div', { className: 'field' },
+                h('label', { className: 'field-label' }, '備註'),
+                h('textarea', { className: 'field-textarea', value: selectedNode.data.note || '', onChange: (e) => updateNodeData(selectedNode.id, { note: e.target.value }), disabled: !can('edit', role) })
+              ),
+              h('button', { className: 'btn danger small', onClick: deleteSelected, disabled: !can('delete', role), style: { marginTop: 8 } }, '刪除節點')
+            ),
+            selectedEdge && h(Fragment, null,
+              h('div', { className: 'field' },
+                h('label', { className: 'field-label' }, '連線 ID'),
+                h('input', { className: 'field-input', value: selectedEdge.id, disabled: true })
+              ),
+              h('div', { className: 'field' },
+                h('label', { className: 'field-label' }, '分支標籤'),
+                h('input', { className: 'field-input', value: selectedEdge.label || '', onChange: (e) => {
+                  setEdges(es => es.map(x => x.id === selectedEdge.id ? Object.assign({}, x, { label: e.target.value }) : x));
+                  setSelectedEdge(se => Object.assign({}, se, { label: e.target.value }));
+                }, placeholder: '通過 / 失敗 / 留空' })
+              ),
+              h('div', { className: 'kv-list' },
+                h('div', { className: 'kv-row' }, h('span', { className: 'k' }, 'from'), h('span', { className: 'v' }, selectedEdge.source)),
+                h('div', { className: 'kv-row' }, h('span', { className: 'k' }, 'to'), h('span', { className: 'v' }, selectedEdge.target))
+              ),
+              h('button', { className: 'btn danger small', onClick: deleteSelected, disabled: !can('delete', role), style: { marginTop: 10 } }, '刪除連線')
+            ),
+            !selectedNode && !selectedEdge && h('div', { className: 'empty-inspector' },
+              h('div', { className: 'ic' }, '☰'),
+              h('div', null, '選一個節點或連線來編輯屬性'),
+              h('div', { className: 'help', style: { marginTop: 10 } }, '從左邊拖節點到畫布、然後從節點右側圓點拖到下一個節點左側圓點即可建立連線')
+            )
+          ),
+
+          h('section', { className: 'panel-section' },
+            h('div', { className: 'section-head' },
+              h('h2', { className: 'section-title' }, '圖譜驗證'),
+              h('span', { className: 'section-meta' }, errCount + ' 錯誤 / ' + warnCount + ' 警告')
+            ),
+            h('div', { className: 'validation-list' },
+              validation.length === 0
+                ? h('div', { className: 'help' }, '尚無節點，畫布是空的')
+                : validation.map((v, i) =>
+                    h('div', { key: i, className: 'validation-row ' + v.severity },
+                      h('span', { className: 'ic' }, v.severity === 'err' ? '✕' : (v.severity === 'warn' ? '!' : '✓')),
+                      h('div', { className: 'body' }, v.msg)
+                    )
+                  )
+            )
+          ),
+
+          h('section', { className: 'panel-section' },
+            h('div', { className: 'section-head' },
+              h('h2', { className: 'section-title' }, '權限 (RBAC)'),
+              h('span', { className: 'section-meta' }, ROLES[role].name)
+            ),
+            h('div', { className: 'kv-list' },
+              ['edit','delete','run','publish','export','import'].map(k =>
+                h('div', { key: k, className: 'kv-row' },
+                  h('span', { className: 'k' }, k),
+                  h('span', { className: 'v', style: { color: can(k, role) ? 'var(--ok)' : 'var(--err)' } }, can(k, role) ? '✓ 允許' : '✕ 拒絕')
+                )
+              )
+            )
+          )
+        )
+      ),
+
+      // ========== Bottom drawer ==========
+      h('div', { className: 'drawer' },
+        h('div', { className: 'drawer-tabs' },
+          h('div', { className: cls('drawer-tab', drawerTab === 'trace' && 'active'), onClick: () => setDrawerTab('trace') }, '執行軌跡',
+            runState && h('span', { className: 'badge' }, runState.trace.length)
+          ),
+          h('div', { className: cls('drawer-tab', drawerTab === 'status' && 'active'), onClick: () => setDrawerTab('status') }, '節點狀態',
+            runState && h('span', { className: 'badge' }, nodes.filter(n => runState.nodeState.get(n.id)?.status && runState.nodeState.get(n.id)?.status !== 'idle').length)
+          ),
+          h('div', { className: cls('drawer-tab', drawerTab === 'json' && 'active'), onClick: () => setDrawerTab('json') }, 'JSON'),
+          h('div', { className: cls('drawer-tab', drawerTab === 'topo' && 'active'), onClick: () => setDrawerTab('topo') }, '拓樸'),
+          h('div', { style: { flex: 1 } }),
+          runState && runState.status === 'active' && h('span', { className: 'chip warn' }, h('span', { className: 'pulse' }), '執行中 · ' + Math.round((runState.progress || 0) * 100) + '%'),
+          runState && runState.status === 'success' && h('span', { className: 'chip ok' }, h('span', { className: 'dot' }), '完成 · ' + fmtDur(runState.endedAt - runState.startedAt)),
+          runState && runState.status === 'failed' && h('span', { className: 'chip err' }, h('span', { className: 'dot' }), '有失敗 · ' + fmtDur((runState.endedAt || Date.now()) - runState.startedAt)),
+          runState && runState.status === 'stopped' && h('span', { className: 'chip' }, h('span', { className: 'dot' }), '已停止')
+        ),
+        h('div', { className: 'drawer-body' },
+          // Trace tab
+          drawerTab === 'trace' && h('div', null,
+            !runState && h('div', { className: 'help' }, '尚未執行流程，按下「▶ 執行」按鈕開始模擬'),
+            runState && runState.trace.length === 0 && h('div', { className: 'help' }, '尚無事件'),
+            runState && runState.trace.length > 0 && h('div', { className: 'trace-list' },
+              runState.trace.slice().reverse().map(t =>
+                h('div', { key: t.id, className: 'trace-row' },
+                  h('time', null, fmtTime(t.at)),
+                  h('span', { className: 'ev ' + t.type }, t.type.replace('node-', '').replace('run-', '')),
+                  h('span', { className: 'msg' }, t.nodeId ? h(Fragment, null, h('b', null, t.message), h('span', { style: { color: 'var(--muted)' } }, ' · ' + t.nodeId)) : t.message)
+                )
+              )
+            )
+          ),
+
+          // Status tab
+          drawerTab === 'status' && h('div', { className: 'drawer-grid' },
+            nodes.map(n => {
+              const st = runState?.nodeState.get(n.id);
+              const status = st?.status || 'idle';
+              const cat = NODE_BY_TYPE[n.type] || {};
+              return h('div', { key: n.id, className: 'kv-list', style: { padding: 10, border: '1px solid var(--line)', borderRadius: 5, background: 'var(--surface-2)' } },
+                h('div', { className: 'kv-row' }, h('span', { className: 'k' }, 'id'), h('span', { className: 'v' }, n.id)),
+                h('div', { className: 'kv-row' }, h('span', { className: 'k' }, '類型'), h('span', { className: 'v' }, cat.label || n.type)),
+                h('div', { className: 'kv-row' }, h('span', { className: 'k' }, '狀態'), h('span', { className: 'v', style: { color: status === 'success' ? 'var(--ok)' : (status === 'failed' ? 'var(--err)' : (status === 'running' ? 'var(--accent)' : 'var(--muted)')) } }, status)),
+                h('div', { className: 'kv-row' }, h('span', { className: 'k' }, '耗時'), h('span', { className: 'v' }, st?.durationMs != null ? fmtDur(st.durationMs) : '—')),
+                h('div', { className: 'kv-row' }, h('span', { className: 'k' }, '嘗試次數'), h('span', { className: 'v' }, st?.attempts ?? 0)),
+                st?.error && h('div', { className: 'kv-row' }, h('span', { className: 'k' }, '錯誤'), h('span', { className: 'v', style: { color: 'var(--err)' } }, st.error))
+              );
+            }),
+            nodes.length === 0 && h('div', { className: 'help' }, '尚無節點')
+          ),
+
+          // JSON tab
+          drawerTab === 'json' && h('div', null,
+            h('div', { className: 'help', style: { marginBottom: 8 } }, '完整工作流定義 (節點 + 連線)，可匯入 / 匯出'),
+            h('pre', { className: 'json-preview' }, JSON.stringify({ nodes, edges }, null, 2))
+          ),
+
+          // Topo tab
+          drawerTab === 'topo' && h('div', null,
+            h('div', { className: 'help', style: { marginBottom: 8 } }, '節點分層 (拓樸排序)：同層可平行執行'),
+            (() => {
+              const levels = topoLevels(nodes, edges);
+              const max = Math.max(0, ...Array.from(levels.values()));
+              const groups = [];
+              for (let i = 0; i <= max; i++) groups.push([]);
+              nodes.forEach(n => {
+                const lvl = levels.get(n.id) ?? 0;
+                groups[lvl].push(n);
+              });
+              return h('div', { style: { display: 'grid', gap: 10 } },
+                groups.map((g, i) => h('div', { key: i },
+                  h('div', { style: { color: 'var(--muted)', fontSize: 10, marginBottom: 4, fontFamily: 'var(--mono)' } }, 'LEVEL ' + i + ' · ' + g.length + ' 節點 (可平行)'),
+                  h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },
+                    g.map(n => {
+                      const cat = NODE_BY_TYPE[n.type] || {};
+                      return h('span', { key: n.id, className: 'chip', title: n.id },
+                        cat.icon + ' ' + (n.data.label || cat.label || n.type)
+                      );
+                    })
+                  )
+                ))
+              );
+            })(),
+            nodes.length === 0 && h('div', { className: 'help' }, '尚無節點')
+          )
+        )
+      )
+    );
+  }
+
+  // ========== Boot ==========
+  // Boot screen
+  const rootEl = document.getElementById('root');
+  rootEl.innerHTML = '<div class="boot-state"><div class="boot-card"><div class="boot-kicker">FLOWFORGE · v1.0</div><div class="boot-title">動態工作流引擎</div><p class="boot-copy">正在初始化 React 18 + React Flow 11 + 拓樸引擎…</p><div class="boot-bar"></div></div></div>';
+  setTimeout(() => {
+    try {
+      ReactDOM.createRoot(rootEl).render(h(App));
+    } catch (err) {
+      rootEl.innerHTML = '<div class="boot-state"><div class="boot-card" style="border-color:var(--err);"><div class="boot-kicker" style="color:var(--err)">BOOT ERROR</div><div class="boot-title">無法啟動</div><p class="boot-copy">' + (err.message || err) + '</p></div></div>';
+      console.error(err);
+    }
+  }, 50);
+
+})();
+</script>
+</body>
+</html>

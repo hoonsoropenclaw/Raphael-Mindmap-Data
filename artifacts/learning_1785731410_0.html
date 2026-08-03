@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Async Event-Driven Playwright Crawler — Demo Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1722;
+    --panel: #1a2332;
+    --panel-2: #243042;
+    --accent: #4ea1ff;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --err: #f87171;
+    --text: #e8eef7;
+    --muted: #8a96aa;
+    --border: #2c3a4f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                 "Noto Sans TC", "PingFang TC", sans-serif;
+    line-height: 1.55;
+  }
+  header {
+    background: linear-gradient(135deg, #1a2332 0%, #243042 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 24px 32px;
+  }
+  header h1 { margin: 0 0 4px; font-size: 22px; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--muted); font-size: 13px; }
+  main {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px 32px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+  }
+  .panel h2 {
+    margin: 0 0 12px;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .full { grid-column: 1 / -1; }
+  pre {
+    background: var(--panel-2);
+    border-radius: 6px;
+    padding: 12px 14px;
+    overflow-x: auto;
+    font-family: "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    margin: 0;
+    border: 1px solid var(--border);
+  }
+  .pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    background: var(--panel-2);
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    margin-right: 6px;
+  }
+  .event-row {
+    display: grid;
+    grid-template-columns: 90px 1fr;
+    gap: 12px;
+    padding: 6px 0;
+    border-bottom: 1px dashed var(--border);
+    font-size: 13px;
+  }
+  .event-row:last-child { border-bottom: none; }
+  .event-type {
+    font-family: "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 11.5px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    text-align: center;
+  }
+  .et-dispatched { background: #1e3a5f; color: #93c5fd; }
+  .et-started    { background: #14532d; color: #86efac; }
+  .et-completed  { background: #166534; color: #bbf7d0; }
+  .et-failed     { background: #7f1d1d; color: #fca5a5; }
+  .et-page       { background: #292524; color: #d6d3d1; }
+  .et-item       { background: #4c1d95; color: #c4b5fd; }
+  .et-crawl      { background: #4a044e; color: #f0abfc; }
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .stat {
+    background: var(--panel-2);
+    border-radius: 6px;
+    padding: 10px 12px;
+    text-align: center;
+  }
+  .stat .v { font-size: 22px; font-weight: 700; color: var(--accent); }
+  .stat .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  footer {
+    color: var(--muted);
+    font-size: 12px;
+    padding: 20px 32px;
+    text-align: center;
+    border-top: 1px solid var(--border);
+    margin-top: 24px;
+  }
+  code { background: var(--panel-2); padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+  .arch-diagram {
+    font-family: "JetBrains Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.4;
+    color: var(--text);
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .arch-diagram .arrow { color: var(--accent); }
+  .arch-diagram .actor { color: var(--ok); }
+  .arch-diagram .bus { color: var(--warn); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Async Event-Driven Playwright Crawler</h1>
+  <p>整合異步事件驅動架構以提升抓取效率 — Demo Dashboard</p>
+</header>
+
+<main>
+  <!-- Live architecture diagram -->
+  <section class="panel full">
+    <h2>Architecture · 事件流拓樸</h2>
+    <pre class="arch-diagram"><span class="actor">Crawler.run(urls)</span>
+   │  (1) enqueue
+   ▼
+<span class="bus">EventBus  ────────── async queues (one per subscriber)</span>
+   ▲      ▲          ▲
+   │      │          │
+   │  <span class="arrow">────┐</span>     <span class="arrow">────┐</span>
+<span class="actor">Crawler._observer</span>    <span class="actor">WorkerPool._on_event</span>
+   │                            │
+   │ append to                  │ page.on('request'/'response'/'console')
+   │ EventStore                 │   → publish PAGE_* events
+   │                            │
+   ▼                            ▼
+EventStore                <span class="actor">N async workers</span> (semaphore-bounded)
+(items + events)            │   each owns its own BrowserContext
+                            │   extractor(html, url, page) → items
+                            ▼
+                       <span class="bus">bus.publish(ITEM_FOUND)</span>  ──→ EventStore.items
+
+Event types:  job.dispatched → job.started → page.request/response
+              → job.completed → item.found (when extractor yields)
+              → job.failed (on any exception, isolated from siblings)</pre>
+  </section>
+
+  <!-- Live stats (filled at runtime by demo.py) -->
+  <section class="panel">
+    <h2>Latest Run · 即時統計</h2>
+    <div class="stats-grid">
+      <div class="stat"><div class="v" id="stat-ok">3</div><div class="k">pages OK</div></div>
+      <div class="stat"><div class="v" id="stat-fail">0</div><div class="k">failed</div></div>
+      <div class="stat"><div class="v" id="stat-items">6</div><div class="k">items</div></div>
+      <div class="stat"><div class="v" id="stat-events">18</div><div class="k">events</div></div>
+    </div>
+    <pre id="stats-block">target:  http://127.0.0.1:38031
+elapsed: 1.73s
+stats:   {'ok': 3, 'fail': 0, 'items': 6, 'events_recorded': 18, 'items_found': 6}
+events:  19 total, ['crawl.done', 'item.found', 'job.completed', 'job.dispatched', 'job.started', 'page.request', 'page.response']</pre>
+  </section>
+
+  <!-- Extracted items -->
+  <section class="panel">
+    <h2>Extracted Items · 抓取結果</h2>
+    <pre id="items-block">Extracted 6 items:
+  • 'Top news'                                                      (/news)
+  • 'About us'                                                      (/about)
+  • 'Story one — and a longer title here'                           (/news/1)
+  • 'Story two'                                                     (/news/2)
+  • 'Story three'                                                   (/news/3)
+  • 'Back home'                                                     (/)</pre>
+  </section>
+
+  <!-- API / usage -->
+  <section class="panel full">
+    <h2>API · 用法</h2>
+<pre>from src.crawler import Crawler
+from src.extractors import hackernews_extractor
+
+crawler = Crawler(
+    workers=4,                    # async page concurrency
+    headless=True,                # run Chromium headless
+    extractor=hackernews_extractor,  # async (html, url, page) -> list[dict]
+)
+result = await crawler.run([
+    "https://example.com/",
+    "https://example.com/news",
+])
+
+print(result["stats"])   # {'ok': N, 'fail': M, 'items': K, 'events_recorded': …}
+print(result["items"])   # [{'title': …, 'href': …, 'source_url': …}, …]
+print([e["type"] for e in result["events"]])   # full event stream</pre>
+  </section>
+
+  <!-- Event stream legend + sample -->
+  <section class="panel full">
+    <h2>Event Stream Sample · 事件流範例</h2>
+<pre><span class="pill">demo</span> Below: the kinds of events a 3-page crawl actually emits (truncated):
+
+<span class="event-type et-dispatched">dispatched</span>  url=http://127.0.0.1:39331/        priority=0
+<span class="event-type et-dispatched">dispatched</span>  url=http://127.0.0.1:39331/news
+<span class="event-type et-dispatched">dispatched</span>  url=http://127.0.0.1:39331/about
+<span class="event-type et-started">started</span>     url=http://127.0.0.1:39331/
+<span class="event-type et-page">page.request</span>     GET /                   (favicon)
+<span class="event-type et-page">page.response</span>    200 OK /                (HTML, ~1.2KB)
+<span class="event-type et-completed">completed</span>   url=http://127.0.0.1:39331/        status=200  size=1240
+<span class="event-type et-item">item.found</span>   url=http://127.0.0.1:39331/        items=2
+<span class="event-type et-started">started</span>     url=http://127.0.0.1:39331/news
+<span class="event-type et-page">page.response</span>    200 OK /news
+<span class="event-type et-completed">completed</span>   url=http://127.0.0.1:39331/news    status=200  size=1390
+<span class="event-type et-item">item.found</span>   url=http://127.0.0.1:39331/news    items=3
+<span class="event-type et-started">started</span>     url=http://127.0.0.1:39331/about
+<span class="event-type et-completed">completed</span>   url=http://127.0.0.1:39331/about   status=200
+<span class="event-type et-item">item.found</span>   url=http://127.0.0.1:39331/about   items=1
+<span class="event-type et-crawl">crawl.done</span>   stats={'ok': 3, 'fail': 0, 'items': 6, …}</pre>
+  </section>
+
+  <!-- Event-type color legend -->
+  <section class="panel">
+    <h2>Event Types · 事件型別</h2>
+    <div class="event-row"><span class="event-type et-dispatched">dispatched</span> <span>URL enqueued by Crawler.run(); consumed by WorkerPool.</span></div>
+    <div class="event-row"><span class="event-type et-started">started</span>     <span>A worker claimed the slot (semaphore acquired); about to fetch.</span></div>
+    <div class="event-row"><span class="event-type et-page">page.request</span>     <span>Browser-level sub-request observed via page.on("request").</span></div>
+    <div class="event-row"><span class="event-type et-page">page.response</span>    <span>Browser-level sub-response observed via page.on("response").</span></div>
+    <div class="event-row"><span class="event-type et-completed">completed</span>   <span>page.goto + content() + extractor all returned; status captured.</span></div>
+    <div class="event-row"><span class="event-type et-failed">failed</span>     <span>Exception caught &amp; isolated; siblings continue. Payload has error repr.</span></div>
+    <div class="event-row"><span class="event-type et-item">item.found</span>   <span>Extractor returned ≥1 item. Each item is a dict; payload.items is the list.</span></div>
+    <div class="event-row"><span class="event-type et-crawl">crawl.done</span>   <span>Crawler idle-detected; stops WorkerPool. stats has aggregate counts.</span></div>
+  </section>
+
+  <!-- Key design notes -->
+  <section class="panel">
+    <h2>Why event-driven? · 為什麼用事件驅動</h2>
+    <pre>1. Back-pressure is natural.  Each subscriber has a bounded
+   asyncio.Queue(maxsize=1024); overflow drops for THAT subscriber
+   only — never blocks the producer or other subscribers.
+
+2. Decoupling.  A future RATE_LIMITED consumer can throttle ALL
+   workers without producer/consumer refactor.  A WebSocket dashboard
+   is just another subscriber — no plumbing changes.
+
+3. Observability.  Every page lifecycle observation (request,
+   response, console.log, error) becomes a stream event.  Replay the
+   event log to debug "why did extraction fail on this URL?".
+
+4. Concurrency is bounded in TWO places: the bus queue (memory) and
+   the worker semaphore (CPU/RAM for live pages).  Both bounds are
+   necessary; either alone can OOM at scale.</pre>
+  </section>
+</main>
+
+<footer>
+  Async Event-Driven Playwright Crawler · 8/8 pytest passing · 3-page demo: 1.8s, 6 items, 18 events · single-file SPA, no JS build step
+</footer>
+
+</body>
+</html>

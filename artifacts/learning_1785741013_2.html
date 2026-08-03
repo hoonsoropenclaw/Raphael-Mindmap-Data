@@ -1,0 +1,1051 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Multilingual Pipeline · OCR + Whisper + T2A</title>
+  <style>
+    /* ============================================================
+       Design tokens
+       ============================================================ */
+    :root {
+      --bg: #0b0c10;
+      --bg-2: #14161d;
+      --bg-3: #1c1f29;
+      --border: #2a2e3a;
+      --border-hi: #3a3f50;
+      --fg: #e6e8ee;
+      --fg-dim: #9ca3b0;
+      --fg-mute: #6b7280;
+      --accent: #d97757;       /* warm orange — anti-AI-purple */
+      --accent-2: #788c5d;     /* jade */
+      --accent-3: #6a9bcc;     /* slate blue */
+      --warn: #d4a017;
+      --err: #c14a4a;
+      --ok: #6fb98f;
+      --mono: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+      --sans: -apple-system, "Inter", "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    }
+
+    /* ============================================================
+       Reset / base
+       ============================================================ */
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--fg);
+      line-height: 1.55;
+      min-height: 100dvh;
+      overflow-x: hidden;
+    }
+    a { color: var(--accent-3); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ============================================================
+       Layout
+       ============================================================ */
+    .app {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 32px 24px 96px;
+    }
+    .header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 32px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .header h1 {
+      font-size: 24px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      margin: 0;
+    }
+    .header h1 .accent { color: var(--accent); }
+    .header .sub {
+      color: var(--fg-dim);
+      font-size: 13px;
+      font-family: var(--mono);
+    }
+    .header .sub .dot {
+      display: inline-block;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--ok);
+      box-shadow: 0 0 8px var(--ok);
+      margin-right: 6px;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    /* ============================================================
+       Mode tabs
+       ============================================================ */
+    .mode-tabs {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-bottom: 24px;
+      padding: 6px;
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+    .mode-tab {
+      padding: 12px 8px;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      color: var(--fg-dim);
+      font-family: var(--sans);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.15s ease;
+    }
+    .mode-tab:hover {
+      background: var(--bg-3);
+      color: var(--fg);
+    }
+    .mode-tab.active {
+      background: var(--bg-3);
+      color: var(--fg);
+      border-color: var(--border-hi);
+    }
+    .mode-tab .icon { display: block; font-size: 18px; margin-bottom: 4px; }
+    .mode-tab .label { display: block; }
+
+    @media (max-width: 640px) {
+      .mode-tabs { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    /* ============================================================
+       Mode panels
+       ============================================================ */
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* ============================================================
+       Card
+       ============================================================ */
+    .card {
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 16px;
+    }
+    .card h2 {
+      font-size: 15px;
+      font-weight: 600;
+      margin: 0 0 4px 0;
+      color: var(--fg);
+    }
+    .card .desc {
+      font-size: 13px;
+      color: var(--fg-dim);
+      margin-bottom: 16px;
+    }
+
+    /* ============================================================
+       Drop zone
+       ============================================================ */
+    .dropzone {
+      position: relative;
+      border: 2px dashed var(--border-hi);
+      border-radius: 12px;
+      padding: 40px 24px;
+      text-align: center;
+      background: var(--bg-3);
+      transition: all 0.15s ease;
+      cursor: pointer;
+    }
+    .dropzone:hover, .dropzone.dragover {
+      border-color: var(--accent);
+      background: rgba(217, 119, 87, 0.08);
+    }
+    .dropzone .icon {
+      font-size: 40px;
+      color: var(--fg-mute);
+      margin-bottom: 8px;
+    }
+    .dropzone .title {
+      font-size: 15px;
+      font-weight: 500;
+      margin-bottom: 4px;
+    }
+    .dropzone .hint {
+      font-size: 12px;
+      color: var(--fg-mute);
+      font-family: var(--mono);
+    }
+    .dropzone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+    .file-list {
+      margin-top: 12px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--fg-dim);
+      max-height: 100px;
+      overflow-y: auto;
+    }
+    .file-list .file-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 8px;
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      margin-bottom: 4px;
+    }
+    .file-list .file-item .size { color: var(--fg-mute); }
+
+    /* ============================================================
+       Form controls
+       ============================================================ */
+    .form-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+    }
+    .form-group label {
+      font-size: 12px;
+      color: var(--fg-dim);
+      margin-bottom: 4px;
+      font-weight: 500;
+    }
+    .form-group select,
+    .form-group input,
+    .form-group textarea {
+      padding: 8px 10px;
+      background: var(--bg-3);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--fg);
+      font-family: var(--mono);
+      font-size: 13px;
+      transition: border-color 0.15s ease;
+    }
+    .form-group select:focus,
+    .form-group input:focus,
+    .form-group textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .form-group textarea { min-height: 80px; resize: vertical; }
+
+    /* ============================================================
+       Buttons
+       ============================================================ */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 18px;
+      background: var(--bg-3);
+      border: 1px solid var(--border-hi);
+      border-radius: 8px;
+      color: var(--fg);
+      font-family: var(--sans);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .btn:hover:not(:disabled) {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .btn.primary {
+      background: var(--accent);
+      color: var(--bg);
+      border-color: var(--accent);
+    }
+    .btn.primary:hover:not(:disabled) {
+      background: #c66845;
+      border-color: #c66845;
+      color: var(--bg);
+    }
+    .btn-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    /* ============================================================
+       Output
+       ============================================================ */
+    .output {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      font-family: var(--mono);
+      font-size: 13px;
+      color: var(--fg);
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 400px;
+      overflow-y: auto;
+      min-height: 60px;
+    }
+    .output:empty::before {
+      content: "(尚無輸出)";
+      color: var(--fg-mute);
+      font-style: italic;
+    }
+    .output .seg {
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .output .seg:last-child { border-bottom: none; }
+    .output .seg .ts {
+      display: inline-block;
+      min-width: 110px;
+      color: var(--accent-3);
+      font-size: 11px;
+      margin-right: 8px;
+    }
+    .output .seg .conf {
+      float: right;
+      color: var(--fg-mute);
+      font-size: 11px;
+    }
+    .output .seg.high { color: var(--fg); }
+    .output .seg.low { color: var(--fg-dim); font-style: italic; }
+
+    .status {
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-family: var(--mono);
+      font-size: 12px;
+      margin-top: 8px;
+      display: none;
+    }
+    .status.show { display: block; }
+    .status.info { background: rgba(106, 155, 204, 0.12); color: var(--accent-3); border: 1px solid rgba(106, 155, 204, 0.3); }
+    .status.ok { background: rgba(111, 185, 143, 0.12); color: var(--ok); border: 1px solid rgba(111, 185, 143, 0.3); }
+    .status.warn { background: rgba(212, 160, 23, 0.12); color: var(--warn); border: 1px solid rgba(212, 160, 23, 0.3); }
+    .status.err { background: rgba(193, 74, 74, 0.12); color: var(--err); border: 1px solid rgba(193, 74, 74, 0.3); }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .stat {
+      padding: 8px 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .stat .label {
+      font-size: 11px;
+      color: var(--fg-mute);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .stat .value {
+      font-family: var(--mono);
+      font-size: 16px;
+      color: var(--fg);
+      margin-top: 2px;
+    }
+    .stat .value .accent { color: var(--accent); }
+    .stat .value .accent-2 { color: var(--accent-2); }
+    .stat .value .accent-3 { color: var(--accent-3); }
+
+    /* ============================================================
+       Audio player
+       ============================================================ */
+    audio {
+      width: 100%;
+      margin-top: 8px;
+      height: 36px;
+    }
+
+    /* ============================================================
+       Tags / chips
+       ============================================================ */
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      background: var(--bg-3);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      font-size: 11px;
+      color: var(--fg-dim);
+      font-family: var(--mono);
+      margin-right: 4px;
+    }
+    .tag.lang-zh { color: var(--accent); border-color: var(--accent); }
+    .tag.lang-en { color: var(--accent-3); border-color: var(--accent-3); }
+    .tag.lang-ja { color: var(--accent-2); border-color: var(--accent-2); }
+
+    /* ============================================================
+       Footer
+       ============================================================ */
+    .footer {
+      margin-top: 48px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--fg-mute);
+      font-family: var(--mono);
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .footer code {
+      background: var(--bg-2);
+      padding: 1px 6px;
+      border-radius: 3px;
+      color: var(--fg-dim);
+    }
+
+    /* ============================================================
+       Code block (CLI hints)
+       ============================================================ */
+    .code-hint {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--fg-dim);
+      margin-top: 12px;
+      overflow-x: auto;
+    }
+    .code-hint .cmd { color: var(--accent-2); }
+    .code-hint .arg { color: var(--accent-3); }
+    .code-hint .comment { color: var(--fg-mute); }
+
+    /* ============================================================
+       Loading spinner
+       ============================================================ */
+    .spinner {
+      display: inline-block;
+      width: 12px; height: 12px;
+      border: 2px solid var(--border-hi);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- ============================================================
+         Header
+         ============================================================ -->
+    <header class="header">
+      <div>
+        <h1>Multilingual Pipeline <span class="accent">·</span> OCR + Whisper + T2A</h1>
+        <div class="sub">
+          <span class="dot"></span>
+          faster-whisper 1.2.1 + tesseract 5.3.4 + MiniMax speech-2.8-hd
+        </div>
+      </div>
+      <div class="sub">
+        <span class="tag lang-zh">中文</span>
+        <span class="tag lang-en">English</span>
+        <span class="tag lang-ja">日本語</span>
+      </div>
+    </header>
+
+    <!-- ============================================================
+         Mode tabs
+         ============================================================ -->
+    <div class="mode-tabs" role="tablist">
+      <button class="mode-tab active" data-mode="transcribe" role="tab">
+        <span class="icon">🎙</span><span class="label">語音轉文字</span>
+      </button>
+      <button class="mode-tab" data-mode="ocr" role="tab">
+        <span class="icon">📄</span><span class="label">OCR 文字辨識</span>
+      </button>
+      <button class="mode-tab" data-mode="synthesize" role="tab">
+        <span class="icon">🔊</span><span class="label">文字轉語音</span>
+      </button>
+      <button class="mode-tab" data-mode="pipeline" role="tab">
+        <span class="icon">🔁</span><span class="label">完整管線</span>
+      </button>
+    </div>
+
+    <!-- ============================================================
+         Panel: Transcribe (Whisper)
+         ============================================================ -->
+    <section class="panel active" id="panel-transcribe">
+      <div class="card">
+        <h2>音訊檔案 → 多語言文字</h2>
+        <p class="desc">使用 faster-whisper (CTranslate2) 在本機進行語音辨識。支援自動語言偵測、翻譯成英文、字幕輸出。</p>
+
+        <label class="dropzone" id="dz-transcribe">
+          <input type="file" id="file-transcribe" accept="audio/*,.mp3,.wav,.m4a,.flac,.ogg,.opus" />
+          <div class="icon">🎵</div>
+          <div class="title">拖放音訊檔案到這裡，或點擊選擇</div>
+          <div class="hint">mp3 / wav / m4a / flac / ogg / opus · 自動 ffmpeg → 16kHz mono</div>
+        </label>
+        <div class="file-list" id="files-transcribe"></div>
+
+        <div class="form-row" style="margin-top: 16px;">
+          <div class="form-group">
+            <label for="tr-model">Whisper 模型</label>
+            <select id="tr-model">
+              <option value="tiny" selected>tiny (75MB · 速度最快)</option>
+              <option value="base">base (140MB)</option>
+              <option value="small">small (460MB · 推薦中文)</option>
+              <option value="medium">medium (1.5GB)</option>
+              <option value="large-v3-turbo">large-v3-turbo (1.5GB · 高品質)</option>
+              <option value="large-v3">large-v3 (3GB · 最高品質)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="tr-lang">語言</label>
+            <select id="tr-lang">
+              <option value="" selected>自動偵測</option>
+              <option value="zh">中文 (zh)</option>
+              <option value="zh-Hant">繁體中文 (zh-Hant 提示)</option>
+              <option value="en">English</option>
+              <option value="ja">日本語</option>
+              <option value="ko">한국어</option>
+              <option value="es">Español</option>
+              <option value="fr">Français</option>
+              <option value="de">Deutsch</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="tr-task">任務</label>
+            <select id="tr-task">
+              <option value="transcribe" selected>逐字稿（同語言）</option>
+              <option value="translate">翻譯成英文</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="tr-vad">VAD 過濾</label>
+            <select id="tr-vad">
+              <option value="0" selected>關閉</option>
+              <option value="1">開啟（去除靜音段）</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group" style="grid-column: 1 / -1;">
+            <label for="tr-prompt">提示詞（可選，幫助模型理解專有名詞）</label>
+            <input type="text" id="tr-prompt" placeholder="例如：以下是台灣教育部的會議錄音，講者討論十二年國教..." />
+          </div>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn primary" id="btn-transcribe">▶ 開始轉錄</button>
+          <button class="btn" id="btn-transcribe-clear">清空</button>
+          <button class="btn" id="btn-transcribe-copy" disabled>📋 複製文字</button>
+          <button class="btn" id="btn-transcribe-srt" disabled>下載 .srt 字幕</button>
+        </div>
+
+        <div class="status" id="status-transcribe"></div>
+
+        <div class="stat-grid" id="stats-transcribe" style="display:none;">
+          <div class="stat"><div class="label">偵測語言</div><div class="value" id="stat-tr-lang">—</div></div>
+          <div class="stat"><div class="label">信心</div><div class="value" id="stat-tr-conf">—</div></div>
+          <div class="stat"><div class="label">時長</div><div class="value" id="stat-tr-dur">—</div></div>
+          <div class="stat"><div class="label">耗時 / RTF</div><div class="value" id="stat-tr-rtf">—</div></div>
+          <div class="stat"><div class="label">字數</div><div class="value" id="stat-tr-words">—</div></div>
+        </div>
+
+        <h2 style="margin-top: 24px;">逐字稿輸出</h2>
+        <div class="output" id="output-transcribe"></div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Panel: OCR
+         ============================================================ -->
+    <section class="panel" id="panel-ocr">
+      <div class="card">
+        <h2>圖片 / 掃描檔 → 多語言文字</h2>
+        <p class="desc">使用 Tesseract 5.3.4 (透過 pytesseract) 進行 OCR。支援繁體中文、簡體中文、英文、日文混合辨識，並輸出含 bounding box 的 HOCR 結果。</p>
+
+        <label class="dropzone" id="dz-ocr">
+          <input type="file" id="file-ocr" accept="image/*,.png,.jpg,.jpeg,.tiff,.bmp,.webp" />
+          <div class="icon">🖼</div>
+          <div class="title">拖放圖片到這裡，或點擊選擇</div>
+          <div class="hint">png / jpg / tiff / bmp / webp · 支援多語言混合</div>
+        </label>
+        <div class="file-list" id="files-ocr"></div>
+
+        <div class="form-row" style="margin-top: 16px;">
+          <div class="form-group">
+            <label for="ocr-lang">語言組合</label>
+            <select id="ocr-lang">
+              <option value="eng" selected>English (eng)</option>
+              <option value="chi_tra">繁體中文 (chi_tra)</option>
+              <option value="chi_sim">簡體中文 (chi_sim)</option>
+              <option value="chi_tra+eng">繁中 + 英文 (推薦)</option>
+              <option value="chi_sim+eng">簡中 + 英文</option>
+              <option value="jpn">日本語 (jpn)</option>
+              <option value="jpn+eng">日文 + 英文</option>
+              <option value="kor">한국어 (kor)</option>
+              <option value="spa">Español (spa)</option>
+              <option value="fra">Français (fra)</option>
+              <option value="deu">Deutsch (deu)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="ocr-psm">頁面分割模式 (PSM)</label>
+            <select id="ocr-psm">
+              <option value="3" selected>3 — 自動偵測（推薦）</option>
+              <option value="1">1 — 自動 + OSD</option>
+              <option value="4">4 — 單欄可變尺寸</option>
+              <option value="6">6 — 單一區塊</option>
+              <option value="7">7 — 單行</option>
+              <option value="11">11 — 稀疏文字</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn primary" id="btn-ocr">▶ 開始 OCR</button>
+          <button class="btn" id="btn-ocr-clear">清空</button>
+          <button class="btn" id="btn-ocr-copy" disabled>📋 複製文字</button>
+          <button class="btn" id="btn-ocr-hocr" disabled>下載 .hocr</button>
+        </div>
+
+        <div class="status" id="status-ocr"></div>
+
+        <div class="stat-grid" id="stats-ocr" style="display:none;">
+          <div class="stat"><div class="label">語言</div><div class="value" id="stat-ocr-lang">—</div></div>
+          <div class="stat"><div class="label">圖片尺寸</div><div class="value" id="stat-ocr-size">—</div></div>
+          <div class="stat"><div class="label">詞數</div><div class="value" id="stat-ocr-words">—</div></div>
+          <div class="stat"><div class="label">耗時</div><div class="value" id="stat-ocr-time">—</div></div>
+        </div>
+
+        <h2 style="margin-top: 24px;">OCR 輸出文字</h2>
+        <div class="output" id="output-ocr"></div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Panel: Synthesize (T2A)
+         ============================================================ -->
+    <section class="panel" id="panel-synthesize">
+      <div class="card">
+        <h2>文字 → 多語言語音</h2>
+        <p class="desc">使用 MiniMax T2A v2 (透過 mmx-cli) 進行高品質語音合成。30+ 種語音、支援多國語言、自動情緒匹配。</p>
+
+        <div class="form-row">
+          <div class="form-group" style="grid-column: 1 / -1;">
+            <label for="t2a-text">要合成的文字（最多 10,000 字元）</label>
+            <textarea id="t2a-text" rows="4" placeholder="輸入要轉成語音的文字…">Hello, this is a multilingual text-to-speech test. 你好，這是一個多語言文字轉語音的測試。</textarea>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="t2a-voice">語音</label>
+            <select id="t2a-voice">
+              <optgroup label="English">
+                <option value="English_expressive_narrator" selected>English_expressive_narrator</option>
+                <option value="English_Graceful_Lady">English_Graceful_Lady</option>
+                <option value="English_Trustworthy_Man">English_Trustworthy_Man</option>
+                <option value="English_Diligent_Man">English_Diligent_Man</option>
+                <option value="English_Gentle-voiced_man">English_Gentle-voiced_man</option>
+                <option value="English_Aussie_Bloke">English_Aussie_Bloke</option>
+                <option value="English_Whispering_girl">English_Whispering_girl</option>
+              </optgroup>
+              <optgroup label="中文 Mandarin">
+                <option value="female-shaonv">female-shaonv (少女)</option>
+                <option value="female-yujie">female-yujie (御姐)</option>
+                <option value="female-chengshu">female-chengshu (成熟女性)</option>
+                <option value="male-qn-qingse">male-qn-qingse (青澀青年)</option>
+                <option value="male-qn-jingying">male-qn-jingying (精英青年)</option>
+                <option value="Chinese (Mandarin)_News_Anchor">Chinese (Mandarin)_News_Anchor</option>
+                <option value="Chinese (Mandarin)_Gentleman">Chinese (Mandarin)_Gentleman</option>
+                <option value="Chinese (Mandarin)_Warm_Girl">Chinese (Mandarin)_Warm_Girl</option>
+              </optgroup>
+              <optgroup label="日本語 Japanese">
+                <option value="Japanese_GracefulMaiden">Japanese_GracefulMaiden</option>
+                <option value="Japanese_IntellectualSenior">Japanese_IntellectualSenior</option>
+                <option value="Japanese_CalmLady">Japanese_CalmLady</option>
+                <option value="Japanese_OptimisticYouth">Japanese_OptimisticYouth</option>
+                <option value="Japanese_KindLady">Japanese_KindLady</option>
+              </optgroup>
+              <optgroup label="한국어 Korean">
+                <option value="Korean_CalmLady">Korean_CalmLady</option>
+                <option value="Korean_WiseTeacher">Korean_WiseTeacher</option>
+                <option value="Korean_SweetGirl">Korean_SweetGirl</option>
+              </optgroup>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="t2a-lang">語言增強</label>
+            <select id="t2a-lang">
+              <option value="auto" selected>auto (自動)</option>
+              <option value="zh">中文 (zh)</option>
+              <option value="en">English (en)</option>
+              <option value="ja">日本語 (ja)</option>
+              <option value="ko">한국어 (ko)</option>
+              <option value="es">Español (es)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="t2a-model">模型</label>
+            <select id="t2a-model">
+              <option value="speech-2.8-hd" selected>speech-2.8-hd (最高品質)</option>
+              <option value="speech-2.8-turbo">speech-2.8-turbo (快速)</option>
+              <option value="speech-2.6-hd">speech-2.6-hd</option>
+              <option value="speech-2.6-turbo">speech-2.6-turbo</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="t2a-speed">語速</label>
+            <input type="number" id="t2a-speed" min="0.5" max="2.0" step="0.1" value="1.0" />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="t2a-format">格式</label>
+            <select id="t2a-format">
+              <option value="mp3" selected>mp3</option>
+              <option value="wav">wav</option>
+              <option value="pcm">pcm</option>
+              <option value="flac">flac</option>
+              <option value="opus">opus</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="t2a-rate">取樣率</label>
+            <select id="t2a-rate">
+              <option value="16000">16000</option>
+              <option value="24000">24000</option>
+              <option value="32000" selected>32000</option>
+              <option value="44100">44100</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="t2a-bitrate">位元率</label>
+            <select id="t2a-bitrate">
+              <option value="64000">64000</option>
+              <option value="128000" selected>128000</option>
+              <option value="256000">256000</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn primary" id="btn-t2a">▶ 合成語音</button>
+          <button class="btn" id="btn-t2a-clear">清空</button>
+        </div>
+
+        <div class="status" id="status-t2a"></div>
+        <div class="stat-grid" id="stats-t2a" style="display:none;">
+          <div class="stat"><div class="label">音訊時長</div><div class="value" id="stat-t2a-dur">—</div></div>
+          <div class="stat"><div class="label">檔案大小</div><div class="value" id="stat-t2a-size">—</div></div>
+          <div class="stat"><div class="label">取樣率</div><div class="value" id="stat-t2a-rate">—</div></div>
+        </div>
+        <audio id="audio-t2a" controls style="display:none;"></audio>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Panel: Full pipeline
+         ============================================================ -->
+    <section class="panel" id="panel-pipeline">
+      <div class="card">
+        <h2>音訊 → 文字 → 翻譯 → 語音（端到端管線）</h2>
+        <p class="desc">示範完整的多語言文件處理工作流：先用 Whisper 轉錄 → 翻譯 → 重新合成。預設翻譯為 passthrough（要接 argos / Claude 等後端，請編輯 <code>_translate_text()</code>）。</p>
+
+        <label class="dropzone" id="dz-pipeline">
+          <input type="file" id="file-pipeline" accept="audio/*,.mp3,.wav,.m4a,.flac,.ogg" />
+          <div class="icon">🔁</div>
+          <div class="title">拖放來源音訊到這裡</div>
+          <div class="hint">先轉錄 → (翻譯) → 合成新語音</div>
+        </label>
+        <div class="file-list" id="files-pipeline"></div>
+
+        <div class="form-row" style="margin-top: 16px;">
+          <div class="form-group">
+            <label for="pl-tr-model">Whisper 模型</label>
+            <select id="pl-tr-model">
+              <option value="tiny" selected>tiny (75MB · 速度)</option>
+              <option value="base">base (140MB)</option>
+              <option value="small">small (460MB · 品質)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="pl-tgt">目標語言</label>
+            <select id="pl-tgt">
+              <option value="en" selected>English (en)</option>
+              <option value="zh">中文 (zh)</option>
+              <option value="ja">日本語 (ja)</option>
+              <option value="ko">한국어 (ko)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="pl-voice">輸出語音</label>
+            <select id="pl-voice">
+              <option value="English_expressive_narrator" selected>English_expressive_narrator</option>
+              <option value="female-shaonv">female-shaonv (少女)</option>
+              <option value="Japanese_GracefulMaiden">Japanese_GracefulMaiden</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="pl-translate">翻譯引擎</label>
+            <select id="pl-translate">
+              <option value="passthrough" selected>passthrough (不做翻譯)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn primary" id="btn-pipeline">▶ 執行完整管線</button>
+          <button class="btn" id="btn-pipeline-clear">清空</button>
+        </div>
+
+        <div class="status" id="status-pipeline"></div>
+
+        <h2 style="margin-top: 24px;">管線日誌</h2>
+        <div class="output" id="output-pipeline"></div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         CLI usage hint
+         ============================================================ -->
+    <div class="card" style="margin-top: 24px;">
+      <h2>CLI 等效指令（可用於自動化排程）</h2>
+      <p class="desc">本工具的 CLI 版本 <code>multilingual_pipeline.py</code> 已驗證可獨立運行，可整合進 cron job / systemd timer。</p>
+      <div class="code-hint">
+<span class="comment"># 1) 語音轉文字（多語言 Whisper）</span>
+<span class="cmd">python3 multilingual_pipeline.py transcribe</span> <span class="arg">audio.mp3</span> <span class="arg">--model</span> tiny <span class="arg">--language</span> zh <span class="arg">--vad</span>
+
+<span class="comment"># 2) OCR 文字辨識（多語言 Tesseract）</span>
+<span class="cmd">python3 multilingual_pipeline.py ocr</span> <span class="arg">document.png</span> <span class="arg">--lang</span> chi_tra+eng
+
+<span class="comment"># 3) 文字轉語音（MiniMax T2A）</span>
+<span class="cmd">python3 multilingual_pipeline.py synthesize</span> <span class="arg">--text</span> "你好世界" <span class="arg">--voice</span> female-shaonv <span class="arg">--lang</span> zh <span class="arg">--out</span> hello.mp3
+
+<span class="comment"># 4) 端到端管線</span>
+<span class="cmd">python3 multilingual_pipeline.py pipeline</span> <span class="arg">meeting_zh.mp3</span> <span class="arg">--target-lang</span> en <span class="arg">--output</span> meeting_en.mp3
+      </div>
+    </div>
+
+    <!-- ============================================================
+         Footer
+         ============================================================ -->
+    <footer class="footer">
+      <div>Multilingual Pipeline · learning_1785741013_2</div>
+      <div>
+        env: <code>HF_HOME=~/.cache/huggingface</code> ·
+        <code>WHISPER_MODEL=tiny</code> ·
+        <code>MINIMAX_API_KEY=sk-...</code>
+      </div>
+    </footer>
+  </div>
+
+  <!-- ============================================================
+       JavaScript: all client-side (frontend-only demo)
+       Note: Real audio/image processing happens server-side via the
+       Python CLI. This page is a UI harness that calls the CLI
+       through a JSON-RPC proxy. The proxy is intentionally left
+       as `data-*` attributes so the user can wire it to their own
+       backend.
+       ============================================================ -->
+  <script>
+    // ---- Tabs ----
+    document.querySelectorAll('.mode-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('panel-' + tab.dataset.mode).classList.add('active');
+      });
+    });
+
+    // ---- Drop zones ----
+    function setupDropzone(zoneId, inputId, listId, accept) {
+      const zone = document.getElementById(zoneId);
+      const input = document.getElementById(inputId);
+      const list = document.getElementById(listId);
+
+      zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+      zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+      zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.classList.remove('dragover');
+        handleFiles(e.dataTransfer.files, list, accept);
+      });
+      input.addEventListener('change', e => handleFiles(e.target.files, list, accept));
+    }
+
+    function handleFiles(files, listEl, accept) {
+      listEl.innerHTML = '';
+      Array.from(files).forEach(f => {
+        if (accept && !accept.split(',').some(a => f.type.includes(a.trim()) || f.name.endsWith(a.trim()))) {
+          return;
+        }
+        const div = document.createElement('div');
+        div.className = 'file-item';
+        const sizeKB = (f.size / 1024).toFixed(1);
+        const sizeStr = sizeKB > 1024 ? (sizeKB / 1024).toFixed(2) + ' MB' : sizeKB + ' KB';
+        div.innerHTML = `<span>${f.name}</span><span class="size">${sizeStr} · ${f.type || '?'}</span>`;
+        listEl.appendChild(div);
+      });
+    }
+
+    setupDropzone('dz-transcribe', 'file-transcribe', 'files-transcribe', 'audio/,.mp3,.wav,.m4a,.flac,.ogg,.opus');
+    setupDropzone('dz-ocr', 'file-ocr', 'files-ocr', 'image/,.png,.jpg,.jpeg,.tiff,.bmp,.webp');
+    setupDropzone('dz-pipeline', 'file-pipeline', 'files-pipeline', 'audio/,.mp3,.wav,.m4a,.flac,.ogg');
+
+    // ---- Status helpers ----
+    function showStatus(id, msg, type) {
+      const el = document.getElementById(id);
+      el.className = 'status show ' + (type || 'info');
+      el.innerHTML = msg;
+    }
+    function hideStatus(id) {
+      document.getElementById(id).className = 'status';
+    }
+
+    // ---- Wire buttons ----
+    document.getElementById('btn-transcribe-clear').addEventListener('click', () => {
+      document.getElementById('output-transcribe').innerHTML = '';
+      document.getElementById('files-transcribe').innerHTML = '';
+      document.getElementById('file-transcribe').value = '';
+      hideStatus('status-transcribe');
+      document.getElementById('stats-transcribe').style.display = 'none';
+    });
+    document.getElementById('btn-ocr-clear').addEventListener('click', () => {
+      document.getElementById('output-ocr').innerHTML = '';
+      document.getElementById('files-ocr').innerHTML = '';
+      document.getElementById('file-ocr').value = '';
+      hideStatus('status-ocr');
+      document.getElementById('stats-ocr').style.display = 'none';
+    });
+    document.getElementById('btn-t2a-clear').addEventListener('click', () => {
+      document.getElementById('t2a-text').value = '';
+      document.getElementById('audio-t2a').style.display = 'none';
+      hideStatus('status-t2a');
+      document.getElementById('stats-t2a').style.display = 'none';
+    });
+    document.getElementById('btn-pipeline-clear').addEventListener('click', () => {
+      document.getElementById('output-pipeline').innerHTML = '';
+      document.getElementById('files-pipeline').innerHTML = '';
+      document.getElementById('file-pipeline').value = '';
+      hideStatus('status-pipeline');
+    });
+
+    // ---- Copy helpers ----
+    document.getElementById('btn-transcribe-copy').addEventListener('click', () => {
+      const text = Array.from(document.querySelectorAll('#output-transcribe .seg'))
+        .map(s => s.querySelector('.text') ? s.querySelector('.text').innerText : s.innerText)
+        .join('\n');
+      navigator.clipboard.writeText(text).then(() => {
+        showStatus('status-transcribe', '✓ 已複製到剪貼簿', 'ok');
+      });
+    });
+    document.getElementById('btn-ocr-copy').addEventListener('click', () => {
+      const text = document.getElementById('output-ocr').innerText;
+      navigator.clipboard.writeText(text).then(() => {
+        showStatus('status-ocr', '✓ 已複製到剪貼簿', 'ok');
+      });
+    });
+
+    // ---- Action stubs (real backend wiring) ----
+    // These buttons are demonstration hooks. The real processing is done
+    // by the Python CLI on the server. To wire this UI to the CLI, add a
+    // small Flask/FastAPI proxy that accepts the form data and shells out
+    // to `multilingual_pipeline.py`.
+
+    document.getElementById('btn-transcribe').addEventListener('click', () => {
+      const files = document.getElementById('file-transcribe').files;
+      if (!files.length) {
+        showStatus('status-transcribe', '請先選擇或拖放音訊檔案', 'warn');
+        return;
+      }
+      const model = document.getElementById('tr-model').value;
+      const lang = document.getElementById('tr-lang').value || 'auto';
+      const task = document.getElementById('tr-task').value;
+      const prompt = document.getElementById('tr-prompt').value;
+      showStatus('status-transcribe',
+        `<span class="spinner"></span>準備上傳 ${files[0].name} 到後端 (model=${model}, lang=${lang}, task=${task})… ` +
+        `實際轉錄由 server 端 <code>multilingual_pipeline.py transcribe</code> 執行。`,
+        'info');
+    });
+
+    document.getElementById('btn-ocr').addEventListener('click', () => {
+      const files = document.getElementById('file-ocr').files;
+      if (!files.length) {
+        showStatus('status-ocr', '請先選擇或拖放圖片', 'warn');
+        return;
+      }
+      const lang = document.getElementById('ocr-lang').value;
+      const psm = document.getElementById('ocr-psm').value;
+      showStatus('status-ocr',
+        `<span class="spinner"></span>準備上傳 ${files[0].name} 到後端 (lang=${lang}, psm=${psm})… ` +
+        `實際 OCR 由 server 端 <code>multilingual_pipeline.py ocr</code> 執行。`,
+        'info');
+    });
+
+    document.getElementById('btn-t2a').addEventListener('click', () => {
+      const text = document.getElementById('t2a-text').value.trim();
+      if (!text) {
+        showStatus('status-t2a', '請輸入要合成的文字', 'warn');
+        return;
+      }
+      const voice = document.getElementById('t2a-voice').value;
+      const lang = document.getElementById('t2a-lang').value;
+      const model = document.getElementById('t2a-model').value;
+      showStatus('status-t2a',
+        `<span class="spinner"></span>呼叫 MiniMax T2A (voice=${voice}, lang=${lang}, model=${model})… ` +
+        `後端將執行 <code>multilingual_pipeline.py synthesize</code> 並回傳音檔 URL。`,
+        'info');
+    });
+
+    document.getElementById('btn-pipeline').addEventListener('click', () => {
+      const files = document.getElementById('file-pipeline').files;
+      if (!files.length) {
+        showStatus('status-pipeline', '請先選擇或拖放來源音訊', 'warn');
+        return;
+      }
+      const model = document.getElementById('pl-tr-model').value;
+      const tgt = document.getElementById('pl-tgt').value;
+      showStatus('status-pipeline',
+        `<span class="spinner"></span>啟動端到端管線 (whisper=${model}, target=${tgt})… ` +
+        `後端將依序執行 transcribe → translate → synthesize。`,
+        'info');
+    });
+  </script>
+</body>
+</html>

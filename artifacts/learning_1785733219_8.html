@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flight Monitor — 即時航班價格預測儀表板</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg-0: #0a0e1a;
+    --bg-1: #111827;
+    --bg-2: #1f2937;
+    --bg-3: #374151;
+    --text-0: #f9fafb;
+    --text-1: #d1d5db;
+    --text-2: #9ca3af;
+    --accent: #38bdf8;
+    --accent-2: #818cf8;
+    --green: #34d399;
+    --red: #f87171;
+    --yellow: #fbbf24;
+    --border: #1f2937;
+    --shadow: 0 10px 40px rgba(0,0,0,.4);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft JhengHei",
+                 Roboto, sans-serif;
+    background: linear-gradient(135deg, var(--bg-0) 0%, var(--bg-1) 100%);
+    color: var(--text-0);
+    min-height: 100vh;
+    line-height: 1.5;
+  }
+  header {
+    padding: 24px 32px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(17,24,39,.8);
+    backdrop-filter: blur(10px);
+    position: sticky; top: 0; z-index: 100;
+  }
+  header h1 {
+    font-size: 24px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  header .sub { color: var(--text-2); font-size: 13px; margin-top: 4px; }
+  .container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 24px;
+  }
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .stat-card {
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+    transition: transform .2s, border-color .2s;
+  }
+  .stat-card:hover { transform: translateY(-2px); border-color: var(--accent); }
+  .stat-card .label { color: var(--text-2); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+  .stat-card .value { font-size: 28px; font-weight: 700; margin-top: 6px; }
+  .stat-card .value.accent { color: var(--accent); }
+  .stat-card .value.green { color: var(--green); }
+  .stat-card .value.yellow { color: var(--yellow); }
+
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  @media (max-width: 980px) {
+    .grid-2 { grid-template-columns: 1fr; }
+  }
+  .panel {
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: var(--shadow);
+  }
+  .panel h2 {
+    font-size: 16px;
+    margin-bottom: 16px;
+    color: var(--text-1);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .panel h2 .badge {
+    font-size: 11px; padding: 2px 8px; border-radius: 999px;
+    background: var(--bg-3); color: var(--text-2); font-weight: 400;
+  }
+  .toolbar {
+    display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
+    margin-bottom: 16px;
+  }
+  select, input, button {
+    background: var(--bg-2);
+    color: var(--text-0);
+    border: 1px solid var(--bg-3);
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    transition: border-color .15s;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  button {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: var(--bg-0); font-weight: 600; cursor: pointer;
+    border: none;
+  }
+  button:hover { opacity: .9; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.secondary {
+    background: var(--bg-3); color: var(--text-0);
+  }
+
+  table {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+  }
+  th, td {
+    text-align: left; padding: 10px 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  th { color: var(--text-2); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  tr:hover td { background: rgba(56,189,248,.05); }
+  .trend-up { color: var(--red); }
+  .trend-down { color: var(--green); }
+  .trend-flat { color: var(--text-2); }
+  .pill {
+    display: inline-block; padding: 2px 8px; border-radius: 999px;
+    font-size: 11px; font-weight: 600;
+  }
+  .pill.high { background: rgba(52,211,153,.15); color: var(--green); }
+  .pill.medium { background: rgba(251,191,36,.15); color: var(--yellow); }
+  .pill.low { background: rgba(248,113,113,.15); color: var(--red); }
+  .chart-wrap {
+    position: relative; height: 300px;
+  }
+  .chart-wrap.tall { height: 380px; }
+
+  .log {
+    background: var(--bg-0);
+    color: var(--text-1);
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 12px;
+    padding: 12px;
+    border-radius: 8px;
+    max-height: 220px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+  }
+  .log .line { padding: 2px 0; }
+  .log .ts { color: var(--text-2); margin-right: 8px; }
+  .log .ev-ok { color: var(--green); }
+  .log .ev-warn { color: var(--yellow); }
+  .log .ev-err { color: var(--red); }
+  .log .ev-info { color: var(--accent); }
+
+  .alert-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto auto;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  @media (max-width: 720px) {
+    .alert-form { grid-template-columns: 1fr 1fr; }
+  }
+  .recommendation {
+    background: var(--bg-2);
+    border-left: 3px solid var(--accent);
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--text-1);
+  }
+  .empty {
+    color: var(--text-2);
+    padding: 20px;
+    text-align: center;
+    font-size: 13px;
+  }
+  .indicator {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    margin-right: 6px;
+  }
+  .indicator.live { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s infinite; }
+  .indicator.off { background: var(--text-2); }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .4; }
+  }
+  footer {
+    padding: 24px;
+    text-align: center;
+    color: var(--text-2);
+    font-size: 12px;
+    border-top: 1px solid var(--border);
+    margin-top: 32px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>✈️ Flight Monitor — 即時航班價格預測儀表板</h1>
+  <div class="sub">
+    <span class="indicator live" id="liveIndicator"></span>
+    <span id="liveStatus">連線中…</span>
+    · 最後更新 <span id="lastUpdate">—</span>
+    · <span id="dataMode">—</span>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- ===== Stats ===== -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="label">航班總數</div>
+      <div class="value accent" id="statFlights">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">價格資料點</div>
+      <div class="value accent" id="statPrices">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">抓取次數</div>
+      <div class="value yellow" id="statScrapes">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">活躍警報</div>
+      <div class="value green" id="statAlerts">—</div>
+    </div>
+  </div>
+
+  <!-- ===== Toolbar: scrape a new route ===== -->
+  <div class="panel" style="margin-bottom:24px;">
+    <h2>🌐 抓取新航線 <span class="badge" id="scrapeStatus">就緒</span></h2>
+    <div class="toolbar">
+      <label>出發
+        <select id="originSelect">
+          <option value="TPE">TPE 台北桃園</option>
+          <option value="TSA">TSA 台北松山</option>
+          <option value="HKG">HKG 香港</option>
+          <option value="ICN">ICN 首爾仁川</option>
+          <option value="SIN">SIN 新加坡</option>
+        </select>
+      </label>
+      <label>抵達
+        <select id="destSelect">
+          <option value="NRT">NRT 東京成田</option>
+          <option value="HND">HND 東京羽田</option>
+          <option value="KIX">KIX 大阪關西</option>
+          <option value="HKG">HKG 香港</option>
+          <option value="ICN">ICN 首爾仁川</option>
+          <option value="SIN">SIN 新加坡</option>
+          <option value="BKK">BKK 曼谷</option>
+          <option value="DXB">DXB 杜拜</option>
+          <option value="LAX">LAX 洛杉磯</option>
+        </select>
+      </label>
+      <label>天數
+        <input type="number" id="daysInput" min="1" max="30" value="7" style="width:80px;">
+      </label>
+      <button id="scrapeBtn" onclick="triggerScrape()">🚀 開始抓取</button>
+      <button class="secondary" onclick="refreshAll()">🔄 重新整理</button>
+    </div>
+    <div class="log" id="scrapeLog"></div>
+  </div>
+
+  <!-- ===== Charts ===== -->
+  <div class="grid-2">
+    <div class="panel">
+      <h2>📊 即時價格趨勢 <span class="badge" id="chartBadge">—</span></h2>
+      <div class="chart-wrap tall">
+        <canvas id="priceChart"></canvas>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>🔮 預測分析 <span class="badge">未來 30 天</span></h2>
+      <div class="chart-wrap tall">
+        <canvas id="predictChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Predictions Table ===== -->
+  <div class="panel" style="margin-top:24px;">
+    <h2>💡 預測建議 <span class="badge" id="predictCount">—</span></h2>
+    <table id="predictTable">
+      <thead>
+        <tr>
+          <th>航班</th><th>航線</th><th>出發日</th>
+          <th style="text-align:right;">現價</th>
+          <th style="text-align:right;">7天後</th>
+          <th style="text-align:right;">14天後</th>
+          <th style="text-align:right;">30天後</th>
+          <th>趨勢</th><th>信心</th><th>建議</th>
+        </tr>
+      </thead>
+      <tbody id="predictBody"></tbody>
+    </table>
+  </div>
+
+  <!-- ===== Alerts ===== -->
+  <div class="panel" style="margin-top:24px;">
+    <h2>🔔 價格警報 <span class="badge" id="alertBadge">—</span></h2>
+    <div class="alert-form">
+      <select id="alertFlight"></select>
+      <input type="number" id="alertThreshold" placeholder="價格門檻 (TWD)" min="100">
+      <select id="alertDirection">
+        <option value="below">低於</option>
+        <option value="above">高於</option>
+      </select>
+      <button onclick="createAlert()">+ 新增警報</button>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>航班</th><th>航線</th><th>出發日</th>
+          <th>方向</th><th style="text-align:right;">門檻</th>
+          <th>狀態</th>
+        </tr>
+      </thead>
+      <tbody id="alertBody"></tbody>
+    </table>
+  </div>
+
+  <!-- ===== Activity Log ===== -->
+  <div class="panel" style="margin-top:24px;">
+    <h2>📜 監控活動 <span class="badge" id="eventBadge">即時</span></h2>
+    <div class="log" id="eventLog"></div>
+  </div>
+
+</div>
+
+<footer>
+  Flight Monitor v1.0 · FastAPI + SQLite + asyncio · 自動每 30 秒抓取最新價格樣本
+</footer>
+
+<script>
+// =================== State ===================
+let priceChart = null;
+let predictChart = null;
+let selectedFlightId = null;
+
+// =================== Helpers ===================
+async function api(path, opts = {}) {
+  const r = await fetch(path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  });
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(`HTTP ${r.status}: ${text}`);
+  }
+  return r.json();
+}
+
+function fmt$(n) {
+  return 'NT$ ' + Math.round(n).toLocaleString('zh-TW');
+}
+
+function fmtTs(ts) {
+  if (!ts) return '—';
+  return new Date(ts).toLocaleString('zh-TW', { hour12: false });
+}
+
+function trendIcon(t) {
+  if (t === 'rising') return '<span class="trend-up">▲ 上漲</span>';
+  if (t === 'falling') return '<span class="trend-down">▼ 下跌</span>';
+  return '<span class="trend-flat">▬ 持平</span>';
+}
+
+function log(el, msg, cls = 'info') {
+  const ts = new Date().toLocaleTimeString('zh-TW', { hour12: false });
+  const line = document.createElement('div');
+  line.className = 'line';
+  line.innerHTML = `<span class="ts">${ts}</span><span class="ev-${cls}">${msg}</span>`;
+  el.insertBefore(line, el.firstChild);
+  // Cap to 50 lines
+  while (el.children.length > 50) el.removeChild(el.lastChild);
+}
+
+// =================== Loaders ===================
+
+async function loadStats() {
+  try {
+    const r = await api('/api/stats');
+    const s = r.data;
+    document.getElementById('statFlights').textContent = s.flights;
+    document.getElementById('statPrices').textContent = s.price_points;
+    document.getElementById('statScrapes').textContent = s.scrapes;
+    document.getElementById('statAlerts').textContent = s.alerts;
+    document.getElementById('lastUpdate').textContent = fmtTs(new Date().toISOString());
+
+    const mode = s.monitor && s.monitor.last_event ? s.monitor.last_event.type : '—';
+    document.getElementById('dataMode').textContent =
+      `Monitor: ${mode} · Scrape log: ${s.recent_scrapes.length} recent`;
+
+    document.getElementById('liveStatus').textContent = s.monitor.running
+      ? '即時監控中' : '離線';
+    document.getElementById('liveIndicator').className =
+      'indicator ' + (s.monitor.running ? 'live' : 'off');
+
+    if (s.recent_scrapes && s.recent_scrapes.length) {
+      const last = s.recent_scrapes[0];
+      let cls = last.status === 'ok' ? 'ok' : 'err';
+      log(document.getElementById('scrapeLog'),
+          `[${last.source}] ${last.status} — ${last.flights_fetched} flights, ${last.error_msg || ''}`,
+          cls);
+    }
+  } catch (e) {
+    document.getElementById('liveStatus').textContent = '連線失敗';
+    document.getElementById('liveIndicator').className = 'indicator off';
+    console.error(e);
+  }
+}
+
+async function loadFlights() {
+  const r = await api('/api/flights');
+  const flights = r.data;
+  const sel = document.getElementById('alertFlight');
+  sel.innerHTML = '<option value="">— 選擇航班 —</option>';
+  flights.forEach(f => {
+    const opt = document.createElement('option');
+    opt.value = f.id;
+    const lp = f.latest_price ? fmt$(f.latest_price.price) : '—';
+    opt.textContent = `${f.flight_no} ${f.airline} ${f.origin}→${f.destination} ${f.departure_date} (${lp})`;
+    sel.appendChild(opt);
+  });
+
+  // Pick first flight for default chart if none selected
+  if (!selectedFlightId && flights.length > 0) {
+    selectedFlightId = flights[0].id;
+  }
+  return flights;
+}
+
+async function loadPriceChart(flightId) {
+  if (!flightId) return;
+  const r = await api(`/api/flights/${flightId}/history`);
+  const data = r.data;
+  const labels = data.map(d => fmtTs(d.recorded_at));
+  const prices = data.map(d => d.price);
+  const seats = data.map(d => d.seats_left || 0);
+
+  document.getElementById('chartBadge').textContent = `${data.length} 點`;
+
+  const ctx = document.getElementById('priceChart').getContext('2d');
+  if (priceChart) priceChart.destroy();
+  priceChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: '價格 (TWD)',
+          data: prices,
+          borderColor: '#38bdf8',
+          backgroundColor: 'rgba(56,189,248,.1)',
+          tension: 0.3,
+          fill: true,
+          yAxisID: 'y',
+        },
+        {
+          label: '剩餘座位',
+          data: seats,
+          borderColor: '#fbbf24',
+          backgroundColor: 'transparent',
+          tension: 0.3,
+          yAxisID: 'y1',
+          borderDash: [4, 4],
+        },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#d1d5db' } },
+        tooltip: { mode: 'index', intersect: false },
+      },
+      scales: {
+        x: { ticks: { color: '#9ca3af', maxRotation: 45, minRotation: 45,
+                      font: { size: 10 } }, grid: { color: '#1f2937' } },
+        y: { position: 'left', ticks: { color: '#38bdf8',
+              callback: v => 'NT$ ' + v.toLocaleString() },
+              grid: { color: '#1f2937' } },
+        y1: { position: 'right', ticks: { color: '#fbbf24' },
+              grid: { drawOnChartArea: false } },
+      },
+    },
+  });
+}
+
+async function loadPredictAll() {
+  const r = await api('/api/predict/all?limit=30');
+  const items = r.data;
+  document.getElementById('predictCount').textContent = `${items.length} 筆`;
+
+  // Predict chart: scatter of current vs predicted_30d, color by trend
+  const ctx = document.getElementById('predictChart').getContext('2d');
+  if (predictChart) predictChart.destroy();
+
+  const colors = items.map(i =>
+    i.trend === 'rising' ? '#f87171' :
+    i.trend === 'falling' ? '#34d399' : '#9ca3af'
+  );
+  predictChart = new Chart(ctx, {
+    type: 'scatter',
+    data: {
+      datasets: [{
+        label: '航班預測',
+        data: items.map(i => ({
+          x: i.current_price, y: i.predicted_30d,
+          flight_no: i.flight_no, trend: i.trend,
+        })),
+        backgroundColor: colors,
+        pointRadius: 6,
+        pointHoverRadius: 9,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const d = ctx.raw;
+              return `${d.flight_no}: ${fmt$(d.x)} → 30d: ${fmt$(d.y)} (${d.trend})`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: { title: { display: true, text: '目前價格', color: '#9ca3af' },
+              ticks: { color: '#9ca3af',
+                       callback: v => 'NT$ ' + (v/1000).toFixed(0) + 'k' },
+              grid: { color: '#1f2937' } },
+        y: { title: { display: true, text: '30 天後預測', color: '#9ca3af' },
+             ticks: { color: '#9ca3af',
+                      callback: v => 'NT$ ' + (v/1000).toFixed(0) + 'k' },
+             grid: { color: '#1f2937' } },
+      },
+    },
+  });
+
+  // Table
+  const tbody = document.getElementById('predictBody');
+  tbody.innerHTML = '';
+  items.sort((a, b) => {
+    // Sort by trend: falling first (good deals), then stable, then rising
+    const order = { falling: 0, stable: 1, rising: 2 };
+    return order[a.trend] - order[b.trend] || a.current_price - b.current_price;
+  });
+  items.forEach(i => {
+    const tr = document.createElement('tr');
+    tr.style.cursor = 'pointer';
+    tr.onclick = () => {
+      selectedFlightId = i.flight_id;
+      loadPriceChart(i.flight_id);
+    };
+    tr.innerHTML = `
+      <td><strong>${i.flight_no}</strong> ${i.airline}</td>
+      <td>${i.origin} → ${i.destination}</td>
+      <td>${i.departure_date}</td>
+      <td style="text-align:right;">${fmt$(i.current_price)}</td>
+      <td style="text-align:right;">${fmt$(i.predicted_7d)}</td>
+      <td style="text-align:right;">${fmt$(i.predicted_14d)}</td>
+      <td style="text-align:right;">${fmt$(i.predicted_30d)}</td>
+      <td>${trendIcon(i.trend)}</td>
+      <td><span class="pill ${i.confidence}">${i.confidence}</span></td>
+      <td><div class="recommendation">${i.recommendation}</div></td>
+    `;
+    tbody.appendChild(tr);
+  });
+  if (items.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="10" class="empty">尚無預測資料,請先抓取航線。</td></tr>';
+  }
+}
+
+async function loadAlerts() {
+  const r = await api('/api/alerts');
+  const items = r.data;
+  document.getElementById('alertBadge').textContent = `${items.length} 活躍`;
+  document.getElementById('statAlerts').textContent = items.length;
+
+  const tbody = document.getElementById('alertBody');
+  tbody.innerHTML = '';
+  items.forEach(a => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><strong>${a.flight_no}</strong></td>
+      <td>${a.origin} → ${a.destination}</td>
+      <td>${a.departure_date}</td>
+      <td>${a.direction === 'below' ? '📉 低於' : '📈 高於'}</td>
+      <td style="text-align:right;">${fmt$(a.threshold_price)}</td>
+      <td><span class="pill medium">等待中</span></td>
+    `;
+    tbody.appendChild(tr);
+  });
+  if (items.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">尚無警報。在上方表單新增一個吧!</td></tr>';
+  }
+}
+
+// =================== Actions ===================
+
+async function triggerScrape() {
+  const o = document.getElementById('originSelect').value;
+  const d = document.getElementById('destSelect').value;
+  const days = parseInt(document.getElementById('daysInput').value, 10);
+  if (o === d) {
+    alert('出發和抵達不能相同!');
+    return;
+  }
+  const btn = document.getElementById('scrapeBtn');
+  btn.disabled = true;
+  document.getElementById('scrapeStatus').textContent = '抓取中…';
+  log(document.getElementById('scrapeLog'), `開始抓取 ${o} → ${d} (${days} 天)`, 'info');
+  try {
+    const r = await api('/api/scrape', {
+      method: 'POST',
+      body: JSON.stringify({ origin: o, destination: d, days }),
+    });
+    if (r.ok) {
+      log(document.getElementById('scrapeLog'),
+          `✓ ${r.source}: 寫入 ${r.flights_inserted} 航班 / ${r.prices_inserted} 價格點`,
+          'ok');
+      document.getElementById('scrapeStatus').textContent = '完成 ✓';
+    } else {
+      log(document.getElementById('scrapeLog'), `✗ ${r.error || 'unknown error'}`, 'err');
+      document.getElementById('scrapeStatus').textContent = '失敗';
+    }
+    await refreshAll();
+  } catch (e) {
+    log(document.getElementById('scrapeLog'), `✗ ${e.message}`, 'err');
+    document.getElementById('scrapeStatus').textContent = '失敗';
+  } finally {
+    btn.disabled = false;
+    setTimeout(() => {
+      document.getElementById('scrapeStatus').textContent = '就緒';
+    }, 3000);
+  }
+}
+
+async function createAlert() {
+  const fid = document.getElementById('alertFlight').value;
+  const thr = parseFloat(document.getElementById('alertThreshold').value);
+  const dir = document.getElementById('alertDirection').value;
+  if (!fid || !thr) {
+    alert('請選擇航班並填寫門檻價格');
+    return;
+  }
+  try {
+    await api('/api/alerts', {
+      method: 'POST',
+      body: JSON.stringify({ flight_id: parseInt(fid), threshold_price: thr, direction: dir }),
+    });
+    log(document.getElementById('eventLog'),
+        `🔔 新增警報: 航班 #${fid} ${dir === 'below' ? '低於' : '高於'} ${fmt$(thr)}`,
+        'info');
+    document.getElementById('alertThreshold').value = '';
+    await loadAlerts();
+  } catch (e) {
+    log(document.getElementById('eventLog'), `✗ ${e.message}`, 'err');
+  }
+}
+
+async function refreshAll() {
+  await loadStats();
+  await loadFlights();
+  await loadPriceChart(selectedFlightId);
+  await loadPredictAll();
+  await loadAlerts();
+}
+
+// =================== SSE-style polling for live updates ===================
+
+async function pollMonitorEvents() {
+  try {
+    const r = await api('/api/monitor/status');
+    const ev = r.data.last_event;
+    if (ev && ev.type && ev.type !== 'idle') {
+      const cls = ev.type.includes('error') ? 'err'
+                : ev.type === 'alert_triggered' ? 'warn' : 'ok';
+      const msg = ev.type === 'price_update'
+        ? `📡 價格更新: +${ev.points_added} 個資料點`
+        : ev.type === 'alert_triggered'
+          ? `🚨 警報觸發: ${ev.flight_no} ${ev.direction} ${fmt$(ev.threshold)} (現價 ${fmt$(ev.current_price)})`
+          : ev.type;
+      log(document.getElementById('eventLog'), msg, cls);
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+
+// =================== Boot ===================
+
+document.getElementById('alertFlight').addEventListener('change', e => {
+  if (e.target.value) {
+    selectedFlightId = parseInt(e.target.value);
+    loadPriceChart(selectedFlightId);
+  }
+});
+
+refreshAll();
+setInterval(refreshAll, 15000);
+setInterval(pollMonitorEvents, 5000);
+</script>
+
+</body>
+</html>

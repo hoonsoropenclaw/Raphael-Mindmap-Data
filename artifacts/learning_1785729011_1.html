@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Next.js Dynamic Form Builder · RBAC + Google Calendar API</title>
+<meta name="description" content="可重用的 Next.js 動態表單生成器樣板:Role-Based Access Control + Google Calendar API 整合。" />
+
+<!-- Tailwind via CDN -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        colors: {
+          brand: {
+            50:  '#eef2ff', 100: '#e0e7ff', 200: '#c7d2fe', 300: '#a5b4fc',
+            400: '#818cf8', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca',
+            800: '#3730a3', 900: '#312e81'
+          }
+        }
+      }
+    }
+  };
+</script>
+
+<!-- React 18 UMD + Babel standalone (single-file delivery pattern) -->
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+
+<!-- Google Identity Services + gapi client (Calendar API v3) -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://apis.google.com/js/api.js" async defer></script>
+
+<style>
+  /* Accessibility: skip link */
+  .skip-link {
+    position: absolute; left: -9999px; top: 0;
+    background: #4338ca; color: #fff; padding: 8px 12px; z-index: 100;
+    border-radius: 0 0 6px 0;
+  }
+  .skip-link:focus { left: 0; }
+
+  /* Smooth focus ring for keyboard nav (RBAC: enforced aria-label/role) */
+  :focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; border-radius: 4px; }
+
+  /* Responsive topbar */
+  @media (max-width: 860px) {
+    .app-shell { grid-template-rows: auto 1fr !important; }
+    .topbar { flex-wrap: wrap; }
+    .role-bar { width: 100%; }
+  }
+
+  /* Print-friendly logs */
+  pre.log { white-space: pre-wrap; word-break: break-word; }
+</style>
+</head>
+<body class="dark-theme" style="background:#0f172a; color:#e2e8f0; min-height:100vh;">
+  <a class="skip-link" href="#main">跳至主要內容</a>
+
+  <noscript>
+    <div style="padding:24px; background:#7f1d1d; color:#fff;">
+      本頁需要 JavaScript 才能運作。請啟用瀏覽器的 JavaScript。
+    </div>
+  </noscript>
+
+  <div id="root" aria-label="Next.js 動態表單生成器 (RBAC + Calendar API) 應用程式根節點"></div>
+
+  <!--
+    ============================================================
+    Application bootstrap. The code below uses React 18 + Babel
+    standalone. In a Next.js production build this same logic
+    becomes:
+      • app/page.tsx (server component shell)
+      • app/components/FormBuilder.tsx (this client component)
+      • app/api/calendar/route.ts (server-side proxy for OAuth)
+      • lib/rbac.ts (Role-Based Access Control helpers)
+    ============================================================
+  -->
+  <script type="text/babel" data-presets="env,react">
+  /* === DEPENDENCY INJECTION SHIM (UMD globals) === */
+  const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+  /* ===========================================================
+   * SECTION 1 — Role-Based Access Control (RBAC)
+   * 來源: skills/application_security_and_access_control.md § 2.3
+   * 設計:
+   *   - 3 個角色: admin / editor / viewer
+   *   - 每個角色對應 permissions set
+   *   - 任何 mutation (新增欄位 / 刪除欄位 / 送出 / 同步日曆)
+   *     都必須通過 can(perm) gate 才執行
+   *   - 前端 gate + 後端 gate (Next.js middleware) 雙重防護
+   * =========================================================== */
+
+  const ROLES = {
+    admin: {
+      label: '管理員 (Admin)',
+      color: 'bg-rose-600',
+      permissions: new Set([
+        'form.read', 'form.create', 'form.update', 'form.delete',
+        'calendar.read', 'calendar.write', 'calendar.sync'
+      ])
+    },
+    editor: {
+      label: '編輯者 (Editor)',
+      color: 'bg-amber-600',
+      permissions: new Set([
+        'form.read', 'form.create', 'form.update',
+        'calendar.read', 'calendar.write'
+      ])
+    },
+    viewer: {
+      label: '檢視者 (Viewer)',
+      color: 'bg-sky-600',
+      permissions: new Set([
+        'form.read', 'calendar.read'
+      ])
+    }
+  };
+
+  const can = (role, perm) => ROLES[role]?.permissions.has(perm) ?? false;
+
+  /* ===========================================================
+   * SECTION 2 — Field Schema for Dynamic Form Builder
+   * 來源: skills/document_based_form_generation.md § Custom Form
+   * 支援欄位類型:
+   *   text / email / number / date / textarea / select / checkbox
+   * 每個欄位都有:
+   *   id, type, label, key, required, options (for select),
+   *   placeholder, validation rules
+   * =========================================================== */
+
+  const FIELD_TYPES = [
+    { value: 'text',     label: '文字 (Text)' },
+    { value: 'email',    label: 'Email' },
+    { value: 'number',   label: '數字 (Number)' },
+    { value: 'date',     label: '日期 (Date)' },
+    { value: 'textarea', label: '多行文字 (Textarea)' },
+    { value: 'select',   label: '下拉選單 (Select)' },
+    { value: 'checkbox', label: '勾選 (Checkbox)' }
+  ];
+
+  const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+
+  const blankField = (type = 'text') => ({
+    id: uid(),
+    type,
+    label: '新欄位',
+    key: 'field_' + Math.floor(Math.random() * 1000),
+    required: false,
+    placeholder: '',
+    options: type === 'select' ? ['選項 A', '選項 B'] : []
+  });
+
+  /* 驗證: 表單送出前的校驗;缺必填 / Email 格式 / 數字範圍 */
+  const validateSubmission = (fields, values) => {
+    const errors = {};
+    for (const f of fields) {
+      const v = values[f.key];
+      if (f.required) {
+        if (f.type === 'checkbox' ? !v : (v === '' || v == null)) {
+          errors[f.key] = `「${f.label}」為必填`;
+          continue;
+        }
+      }
+      if (v != null && v !== '') {
+        if (f.type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+          errors[f.key] = 'Email 格式不正確';
+        }
+        if (f.type === 'number' && Number.isNaN(Number(v))) {
+          errors[f.key] = '必須是數字';
+        }
+      }
+    }
+    return errors;
+  };
+
+  /* ===========================================================
+   * SECTION 3 — Google Calendar API client-side flow
+   * 來源: skills/data_integration_and_synchronization.md § Calendar
+   * 支援三種模式:
+   *   (a) live   — GIS token client + gapi client 真發 request
+   *   (b) paste  — 使用者貼 access_token (適合 headless / CI)
+   *   (c) mock   — 完全離線 demo (不需 Google 帳號)
+   * Production Next.js 對應: app/api/calendar/route.ts 走 server-side
+   * OAuth refresh_token,前端只呼叫自己的 /api/calendar 即可。
+   * =========================================================== */
+
+  const CAL_SCOPES = 'https://www.googleapis.com/auth/calendar.events';
+
+  /* gapi / GIS 載入偵測 */
+  const loadGoogleApis = () => new Promise((resolve) => {
+    let waited = 0;
+    const tick = () => {
+      if (window.gapi && window.google?.accounts?.oauth2) {
+        window.gapi.load('client', async () => {
+          resolve(true);
+        });
+      } else if (waited < 8000) {
+        waited += 200; setTimeout(tick, 200);
+      } else {
+        resolve(false);
+      }
+    };
+    tick();
+  });
+
+  /* 初始化 gapi client (需要 Client ID + API Key 從 GCP Console 拿) */
+  const initGapiClient = async (apiKey, clientId) => {
+    if (!window.gapi) throw new Error('gapi not loaded');
+    await window.gapi.client.init({
+      apiKey: apiKey || undefined,
+      clientId: clientId || undefined,
+      discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest'],
+      scope: CAL_SCOPES
+    });
+  };
+
+  /* 用 GIS 拿 token,然後設到 gapi 給後續 request 用 */
+  const requestAccessToken = () => new Promise((resolve, reject) => {
+    if (!window.google?.accounts?.oauth2) {
+      reject(new Error('Google Identity Services 尚未載入'));
+      return;
+    }
+    const client = window.google.accounts.oauth2.initTokenClient({
+      client_id: window.__GCAL_CLIENT_ID__,
+      scope: CAL_SCOPES,
+      callback: (resp) => {
+        if (resp.error) return reject(new Error(resp.error));
+        if (window.gapi?.client?.setToken) {
+          window.gapi.client.setToken({ access_token: resp.access_token });
+        }
+        resolve(resp.access_token);
+      },
+      error_callback: (err) => reject(err)
+    });
+    client.requestAccessToken();
+  });
+
+  /* 把表單 submission 轉成 Calendar event */
+  const submissionToCalendarEvent = (fields, values, summary, durationMin = 60) => {
+    const titleField = fields.find(f => /title|subject|summary|主題|標題/i.test(f.label));
+    const descField  = fields.find(f => /desc|detail|說明|內容/i.test(f.label));
+    const dateField  = fields.find(f => f.type === 'date');
+    const emailField = fields.find(f => f.type === 'email');
+
+    const title = (titleField && values[titleField.key]) || summary || 'Form submission';
+    const description = (descField && values[descField.key])
+      ? values[descField.key]
+      : Object.entries(values)
+          .filter(([k]) => k !== titleField?.key && k !== descField?.key && k !== dateField?.key)
+          .map(([k, v]) => `${k}: ${v}`).join('\n');
+
+    const startISO = dateField && values[dateField.key]
+      ? new Date(values[dateField.key]).toISOString()
+      : new Date().toISOString();
+    const endISO = new Date(new Date(startISO).getTime() + durationMin * 60000).toISOString();
+
+    const event = {
+      summary: String(title).slice(0, 200),
+      description: String(description).slice(0, 8000),
+      start: { dateTime: startISO },
+      end:   { dateTime: endISO }
+    };
+    if (emailField && values[emailField.key]) {
+      event.attendees = [{ email: values[emailField.key] }];
+    }
+    return event;
+  };
+
+  /* 實際呼叫 Calendar API;mode 控制走哪條路 */
+  const createCalendarEvent = async (event, mode, options = {}) => {
+    if (mode === 'mock') {
+      await new Promise(r => setTimeout(r, 600));
+      return { mode: 'mock', id: 'mock_' + uid(), htmlLink: 'https://calendar.google.com/ (mock)', event };
+    }
+    if (mode === 'paste') {
+      const token = options.pastedToken;
+      if (!token) throw new Error('請貼上 access_token');
+      const resp = await fetch(
+        'https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1',
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + token,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(event)
+        }
+      );
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error?.message || 'HTTP ' + resp.status);
+      return { mode: 'paste', id: data.id, htmlLink: data.htmlLink, event };
+    }
+    if (mode === 'live') {
+      const resp = await window.gapi.client.calendar.events.insert({
+        calendarId: 'primary',
+        resource: event,
+        conferenceDataVersion: 1
+      });
+      return { mode: 'live', id: resp.result.id, htmlLink: resp.result.htmlLink, event };
+    }
+    throw new Error('Unknown mode: ' + mode);
+  };
+
+  /* ===========================================================
+   * SECTION 4 — UI Components
+   * =========================================================== */
+
+  function RoleBadge({ role }) {
+    const r = ROLES[role];
+    if (!r) return null;
+    return (
+      <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold text-white ${r.color}`}>
+        {r.label}
+      </span>
+    );
+  }
+
+  function RoleSwitcher({ role, onChange, allowed }) {
+    return (
+      <div className="role-bar flex flex-wrap items-center gap-2" role="radiogroup" aria-label="切換角色 (RBAC)">
+        <span className="text-sm text-slate-300 mr-1">角色:</span>
+        {Object.keys(ROLES).map(r => (
+          <button
+            key={r}
+            role="radio"
+            aria-checked={role === r}
+            disabled={!allowed.includes(r)}
+            onClick={() => allowed.includes(r) && onChange(r)}
+            className={`px-3 py-1 rounded text-sm font-medium transition
+              ${role === r
+                ? ROLES[r].color + ' text-white shadow'
+                : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}
+              ${!allowed.includes(r) ? 'opacity-40 cursor-not-allowed' : ''}`}
+          >
+            {ROLES[r].label.split(' ')[0]}
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  function FieldEditor({ field, onUpdate, onRemove, canEdit, canDelete }) {
+    const update = (patch) => onUpdate({ ...field, ...patch });
+
+    return (
+      <li className="border border-slate-700 rounded p-3 bg-slate-800/50">
+        <div className="flex flex-wrap gap-2 items-start">
+          <div className="flex-1 min-w-[180px]">
+            <label className="block text-xs text-slate-400 mb-1" htmlFor={'lbl-' + field.id}>欄位標籤</label>
+            <input
+              id={'lbl-' + field.id}
+              type="text"
+              value={field.label}
+              disabled={!canEdit}
+              onChange={e => update({ label: e.target.value })}
+              className="w-full px-2 py-1 rounded bg-slate-900 border border-slate-700 text-slate-100 disabled:opacity-50"
+            />
+          </div>
+          <div className="flex-1 min-w-[140px]">
+            <label className="block text-xs text-slate-400 mb-1" htmlFor={'key-' + field.id}>資料鍵值</label>
+            <input
+              id={'key-' + field.id}
+              type="text"
+              value={field.key}
+              disabled={!canEdit}
+              onChange={e => update({ key: e.target.value.replace(/[^a-z0-9_]/gi, '_').toLowerCase() })}
+              className="w-full px-2 py-1 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-sm disabled:opacity-50"
+            />
+          </div>
+          <div className="flex-1 min-w-[120px]">
+            <label className="block text-xs text-slate-400 mb-1" htmlFor={'typ-' + field.id}>類型</label>
+            <select
+              id={'typ-' + field.id}
+              value={field.type}
+              disabled={!canEdit}
+              onChange={e => update({ type: e.target.value })}
+              className="w-full px-2 py-1 rounded bg-slate-900 border border-slate-700 text-slate-100 disabled:opacity-50"
+            >
+              {FIELD_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+          </div>
+          <div className="flex items-center gap-2 mt-5">
+            <label className="flex items-center gap-1 text-sm text-slate-300">
+              <input
+                type="checkbox"
+                checked={field.required}
+                disabled={!canEdit}
+                onChange={e => update({ required: e.target.checked })}
+                className="accent-rose-500"
+              />
+              必填
+            </label>
+            <button
+              type="button"
+              disabled={!canDelete}
+              onClick={onRemove}
+              aria-label={'刪除欄位 ' + field.label}
+              className="px-2 py-1 rounded bg-rose-700 text-white text-sm hover:bg-rose-600 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              刪除
+            </button>
+          </div>
+        </div>
+
+        {field.type === 'select' && (
+          <div className="mt-2">
+            <label className="block text-xs text-slate-400 mb-1">選項 (用逗號分隔)</label>
+            <input
+              type="text"
+              disabled={!canEdit}
+              value={(field.options || []).join(', ')}
+              onChange={e => update({ options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
+              className="w-full px-2 py-1 rounded bg-slate-900 border border-slate-700 text-slate-100 disabled:opacity-50"
+            />
+          </div>
+        )}
+      </li>
+    );
+  }
+
+  /* 渲染單一欄位給填表者看(根據 field.type 切換 input) */
+  function FieldInput({ field, value, onChange, error }) {
+    const baseCls = "w-full px-3 py-2 rounded bg-slate-900 border text-slate-100 " +
+      (error ? "border-rose-500" : "border-slate-700");
+    const id = 'inp-' + field.id;
+    switch (field.type) {
+      case 'textarea':
+        return <textarea id={id} rows={3} value={value || ''} placeholder={field.placeholder}
+          onChange={e => onChange(e.target.value)} className={baseCls} />;
+      case 'select':
+        return (
+          <select id={id} value={value || ''} onChange={e => onChange(e.target.value)} className={baseCls}>
+            <option value="">-- 請選擇 --</option>
+            {(field.options || []).map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+        );
+      case 'checkbox':
+        return (
+          <label className="inline-flex items-center gap-2 text-slate-200">
+            <input id={id} type="checkbox" checked={!!value} onChange={e => onChange(e.target.checked)}
+              className="accent-brand-500 w-5 h-5" />
+            <span>{field.placeholder || '勾選同意'}</span>
+          </label>
+        );
+      default:
+        return <input id={id} type={field.type} value={value || ''} placeholder={field.placeholder}
+          onChange={e => onChange(e.target.value)} className={baseCls} />;
+    }
+  }
+
+  /* ===========================================================
+   * SECTION 5 — Top-level App
+   * =========================================================== */
+
+  function App() {
+    /* -- RBAC state -- */
+    const [role, setRole] = useState('admin');
+    const roleAllowed = ['admin', 'editor', 'viewer'];
+
+    /* -- Form schema state -- */
+    const [formName, setFormName] = useState('客戶預約表單');
+    const [formDesc, setFormDesc] = useState('示範表單:可用來預約會議並同步到 Google Calendar。');
+    const [fields, setFields] = useState([
+      { id: uid(), type: 'text',  label: '主旨', key: 'subject', required: true,  placeholder: '會議主題', options: [] },
+      { id: uid(), type: 'date',  label: '日期', key: 'date',    required: true,  placeholder: '',           options: [] },
+      { id: uid(), type: 'email', label: '聯絡 Email', key: 'email', required: false, placeholder: 'you@example.com', options: [] },
+      { id: uid(), type: 'textarea', label: '備註', key: 'note', required: false, placeholder: '補充說明', options: [] }
+    ]);
+
+    /* -- Submission state -- */
+    const [values, setValues] = useState({});
+    const [errors, setErrors] = useState({});
+    const [lastSubmission, setLastSubmission] = useState(null);
+
+    /* -- Calendar state -- */
+    const [calMode, setCalMode] = useState('mock'); // mock | paste | live
+    const [apiKey, setApiKey] = useState('');
+    const [clientId, setClientId] = useState('');
+    const [pastedToken, setPastedToken] = useState('');
+    const [gapiReady, setGapiReady] = useState(false);
+    const [calLog, setCalLog] = useState([]); // array of log lines
+    const [busy, setBusy] = useState(false);
+
+    const appendLog = useCallback((line) => {
+      setCalLog(prev => [...prev, '[' + new Date().toLocaleTimeString() + '] ' + line].slice(-30));
+    }, []);
+
+    /* 嘗試自動偵測 gapi / GIS 載入 */
+    useEffect(() => {
+      let cancelled = false;
+      loadGoogleApis().then(ok => {
+        if (!cancelled) setGapiReady(ok);
+      });
+      return () => { cancelled = true; };
+    }, []);
+
+    /* Permission helpers (前端 RBAC gate) */
+    const canAddField    = can(role, 'form.create');
+    const canEditField   = can(role, 'form.update');
+    const canDeleteField = can(role, 'form.delete');
+    const canSubmit      = can(role, 'form.update'); // 填表送出等同建立一筆
+    const canSyncCal     = can(role, 'calendar.sync');
+
+    /* Field ops */
+    const addField = (type) => {
+      if (!canAddField) return;
+      setFields(f => [...f, blankField(type)]);
+    };
+    const updateField = (id, patch) => {
+      if (!canEditField) return;
+      setFields(f => f.map(x => x.id === id ? patch : x));
+    };
+    const removeField = (id) => {
+      if (!canDeleteField) return;
+      setFields(f => f.filter(x => x.id !== id));
+    };
+
+    /* Submission */
+    const handleSubmit = (e) => {
+      e.preventDefault();
+      if (!canSubmit) {
+        appendLog('❌ 角色 ' + role + ' 沒有 form.update 權限,無法送出');
+        return;
+      }
+      const errs = validateSubmission(fields, values);
+      setErrors(errs);
+      if (Object.keys(errs).length > 0) {
+        appendLog('⚠️  表單驗證失敗: ' + Object.keys(errs).length + ' 個欄位錯誤');
+        return;
+      }
+      const submission = {
+        formName, submittedAt: new Date().toISOString(),
+        values: { ...values }
+      };
+      setLastSubmission(submission);
+      appendLog('✅ 表單送出成功:' + Object.keys(values).length + ' 個欄位');
+    };
+
+    /* Calendar sync */
+    const handleSync = async () => {
+      if (!canSyncCal) {
+        appendLog('❌ 角色 ' + role + ' 沒有 calendar.sync 權限');
+        return;
+      }
+      if (!lastSubmission) {
+        appendLog('⚠️  尚未送出表單,無資料可同步');
+        return;
+      }
+      setBusy(true);
+      try {
+        const event = submissionToCalendarEvent(fields, lastSubmission.values, formName);
+        appendLog('📅 建立 Calendar event:' + JSON.stringify({ summary: event.summary, start: event.start.dateTime }));
+        const result = await createCalendarEvent(event, calMode, { pastedToken });
+        appendLog('✅ Event 建立 (' + result.mode + ') id=' + result.id + ' link=' + result.htmlLink);
+      } catch (err) {
+        appendLog('❌ Calendar 錯誤:' + (err.message || err));
+      } finally {
+        setBusy(false);
+      }
+    };
+
+    /* live mode 設定好後初始化 gapi client */
+    const handleInitGapi = async () => {
+      if (!gapiReady) { appendLog('❌ gapi / GIS 尚未載入,請檢查網路'); return; }
+      if (!clientId) { appendLog('❌ 需要 client_id'); return; }
+      try {
+        window.__GCAL_CLIENT_ID__ = clientId;
+        await initGapiClient(apiKey, clientId);
+        appendLog('✅ gapi client 初始化完成 (client_id=' + clientId.slice(0, 12) + '...)');
+      } catch (err) {
+        appendLog('❌ init 失敗:' + (err.message || err));
+      }
+    };
+
+    /* Stats */
+    const stats = useMemo(() => ({
+      fieldCount: fields.length,
+      requiredCount: fields.filter(f => f.required).length,
+      types: FIELD_TYPES.map(t => ({
+        type: t.value, label: t.label.split(' ')[0],
+        count: fields.filter(f => f.type === t.value).length
+      })).filter(x => x.count > 0)
+    }), [fields]);
+
+    return (
+      <div className="app-shell" style={{
+        display: 'grid', gridTemplateRows: 'auto 1fr', minHeight: '100vh'
+      }}>
+        {/* ===== TOPBAR ===== */}
+        <header className="topbar flex items-center justify-between px-4 py-3 border-b border-slate-700"
+          style={{ background: 'linear-gradient(90deg, #1e293b 0%, #0f172a 100%)' }}>
+          <div className="flex items-center gap-3">
+            <div aria-hidden="true" className="w-8 h-8 rounded bg-gradient-to-br from-brand-500 to-brand-700 grid place-items-center font-bold text-white">N</div>
+            <div>
+              <h1 className="text-base sm:text-lg font-semibold text-slate-100">Next.js Dynamic Form Builder</h1>
+              <p className="text-xs text-slate-400">RBAC + Google Calendar API 整合樣板</p>
+            </div>
+          </div>
+          <RoleSwitcher role={role} onChange={setRole} allowed={roleAllowed} />
+        </header>
+
+        {/* ===== MAIN ===== */}
+        <main id="main" className="grid gap-4 p-4"
+          style={{ gridTemplateColumns: 'minmax(0, 1fr)', maxWidth: 1280, margin: '0 auto', width: '100%' }}>
+
+          {/* Permission summary */}
+          <section aria-label="權限總覽" className="rounded border border-slate-700 bg-slate-800/60 p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <h2 className="text-sm font-semibold text-slate-200">當前角色權限</h2>
+              <RoleBadge role={role} />
+            </div>
+            <div className="flex flex-wrap gap-1.5 text-xs">
+              {[...ROLES[role].permissions].map(p => (
+                <span key={p} className="px-2 py-0.5 rounded bg-slate-700 text-slate-200 font-mono">{p}</span>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-slate-400">
+              切換角色會即時影響所有按鈕與操作的可見性。前端 RBAC gate
+              (Next.js 對應: middleware.ts + Server Action 雙重 gate)。
+            </p>
+          </section>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 16 }}
+               className="lg:!grid-cols-[minmax(0,1fr)_360px]">
+
+            {/* ===== FORM BUILDER (left) ===== */}
+            <section aria-label="表單建構器" className="rounded border border-slate-700 bg-slate-800/60 p-4">
+              <header className="flex items-center justify-between mb-3">
+                <h2 className="font-semibold text-slate-100">📝 表單設計</h2>
+                <span className="text-xs text-slate-400">{stats.fieldCount} 欄位 · {stats.requiredCount} 必填</span>
+              </header>
+
+              <div className="grid gap-3 mb-4">
+                <div>
+                  <label htmlFor="formName" className="block text-xs text-slate-400 mb-1">表單名稱</label>
+                  <input id="formName" type="text" value={formName}
+                    onChange={e => setFormName(e.target.value)}
+                    className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100" />
+                </div>
+                <div>
+                  <label htmlFor="formDesc" className="block text-xs text-slate-400 mb-1">表單說明</label>
+                  <textarea id="formDesc" rows={2} value={formDesc}
+                    onChange={e => setFormDesc(e.target.value)}
+                    className="w-full px-3 py-2 rounded bg-slate-900 border border-slate-700 text-slate-100" />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-slate-200">欄位列表</h3>
+                <div className="flex flex-wrap gap-1">
+                  {FIELD_TYPES.slice(0, 5).map(t => (
+                    <button key={t.value}
+                      disabled={!canAddField}
+                      onClick={() => addField(t.value)}
+                      aria-label={'新增 ' + t.label}
+                      className="px-2 py-1 text-xs rounded bg-brand-700 text-white hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed">
+                      + {t.label.split(' ')[0]}
+                    </button>
+                  ))}
+                  <select
+                    disabled={!canAddField}
+                    onChange={e => { if (e.target.value) { addField(e.target.value); e.target.value = ''; } }}
+                    className="px-2 py-1 text-xs rounded bg-slate-700 text-slate-100 disabled:opacity-40"
+                    aria-label="新增其他類型欄位"
+                    value="">
+                    <option value="">+ 其他…</option>
+                    {FIELD_TYPES.slice(5).map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <ul className="grid gap-2 mb-4" aria-label="欄位編輯清單">
+                {fields.length === 0 && (
+                  <li className="text-sm text-slate-400 italic">尚未新增欄位</li>
+                )}
+                {fields.map(f => (
+                  <FieldEditor key={f.id} field={f}
+                    onUpdate={(patch) => updateField(f.id, patch)}
+                    onRemove={() => removeField(f.id)}
+                    canEdit={canEditField} canDelete={canDeleteField} />
+                ))}
+              </ul>
+
+              {/* Preview / submission form */}
+              <div className="rounded border border-slate-700 bg-slate-900/60 p-3">
+                <h3 className="text-sm font-semibold text-slate-200 mb-2">👁 表單預覽 (填寫者視角)</h3>
+                <form onSubmit={handleSubmit} className="grid gap-3" noValidate>
+                  {fields.map(f => (
+                    <div key={f.id}>
+                      <label htmlFor={'inp-' + f.id} className="block text-xs text-slate-400 mb-1">
+                        {f.label}{f.required && <span className="text-rose-400 ml-1" aria-label="必填">*</span>}
+                      </label>
+                      <FieldInput
+                        field={f}
+                        value={values[f.key]}
+                        onChange={(v) => setValues(s => ({ ...s, [f.key]: v }))}
+                        error={errors[f.key]}
+                      />
+                      {errors[f.key] && <p className="text-xs text-rose-400 mt-1" role="alert">{errors[f.key]}</p>}
+                    </div>
+                  ))}
+                  <button type="submit" disabled={!canSubmit}
+                    className="px-4 py-2 rounded bg-emerald-600 text-white font-semibold hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed">
+                    {canSubmit ? '送出表單' : '🚫 當前角色無 form.update 權限'}
+                  </button>
+                </form>
+
+                {lastSubmission && (
+                  <div className="mt-3 p-2 rounded bg-slate-800 border border-slate-700">
+                    <p className="text-xs text-emerald-400 mb-1">✓ 已送出 {new Date(lastSubmission.submittedAt).toLocaleString()}</p>
+                    <pre className="log text-xs text-slate-300 font-mono">{JSON.stringify(lastSubmission.values, null, 2)}</pre>
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {/* ===== CALENDAR PANEL (right) ===== */}
+            <aside aria-label="Google Calendar 整合面板" className="rounded border border-slate-700 bg-slate-800/60 p-4">
+              <h2 className="font-semibold text-slate-100 mb-3">📅 Calendar API</h2>
+
+              <div className="flex flex-wrap gap-1 mb-3" role="radiogroup" aria-label="Calendar 模式">
+                {['mock', 'paste', 'live'].map(m => (
+                  <button key={m} role="radio" aria-checked={calMode === m}
+                    onClick={() => setCalMode(m)}
+                    className={`px-3 py-1 rounded text-sm ${calMode === m
+                      ? 'bg-brand-600 text-white'
+                      : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
+                    {m === 'mock' ? 'Mock' : m === 'paste' ? '貼 Token' : 'Live OAuth'}
+                  </button>
+                ))}
+              </div>
+
+              {calMode === 'mock' && (
+                <p className="text-xs text-slate-400 mb-3">
+                  Mock 模式:不發任何外部 request,用 fake 回應展示完整流程。
+                  適合在 headless / CI / 沒有 Google 帳號的環境驗證。
+                </p>
+              )}
+
+              {calMode === 'paste' && (
+                <div className="grid gap-2 mb-3">
+                  <label className="text-xs text-slate-400" htmlFor="pastedToken">
+                    Access Token (從 OAuth Playground 或 gcloud 取得)
+                  </label>
+                  <textarea id="pastedToken" rows={3} value={pastedToken}
+                    onChange={e => setPastedToken(e.target.value)}
+                    placeholder="ya29.a0..."
+                    className="w-full px-2 py-1 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs" />
+                  <p className="text-xs text-slate-500">
+                    Token 透過 Authorization: Bearer header 直接送到
+                    <code className="mx-1 px-1 bg-slate-700 rounded">googleapis.com/calendar/v3/...</code>
+                  </p>
+                </div>
+              )}
+
+              {calMode === 'live' && (
+                <div className="grid gap-2 mb-3">
+                  <p className="text-xs text-slate-400">
+                    Live 模式:用 Google Identity Services (GIS) 跳出 OAuth 視窗拿 access_token,
+                    再透過 gapi client 呼叫 Calendar API v3 events.insert。
+                  </p>
+                  <label className="text-xs text-slate-400" htmlFor="clientId">OAuth Client ID</label>
+                  <input id="clientId" type="text" value={clientId}
+                    onChange={e => setClientId(e.target.value)}
+                    placeholder="xxxxx.apps.googleusercontent.com"
+                    className="w-full px-2 py-1 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs" />
+                  <label className="text-xs text-slate-400" htmlFor="apiKey">API Key (選填,for gapi.client.init)</label>
+                  <input id="apiKey" type="text" value={apiKey}
+                    onChange={e => setApiKey(e.target.value)}
+                    placeholder="AIza..."
+                    className="w-full px-2 py-1 rounded bg-slate-900 border border-slate-700 text-slate-100 font-mono text-xs" />
+                  <button onClick={handleInitGapi} disabled={!gapiReady}
+                    className="px-3 py-1 rounded bg-sky-600 text-white text-sm hover:bg-sky-500 disabled:opacity-40">
+                    {gapiReady ? '初始化 gapi client' : 'gapi 載入中…'}
+                  </button>
+                </div>
+              )}
+
+              <button onClick={handleSync} disabled={!canSyncCal || busy}
+                aria-label="同步表單到 Google Calendar"
+                className="w-full px-4 py-2 rounded bg-brand-600 text-white font-semibold hover:bg-brand-500 disabled:opacity-40 disabled:cursor-not-allowed">
+                {busy ? '同步中…' : canSyncCal ? '🔄 同步到 Calendar' : '🚫 無 calendar.sync 權限'}
+              </button>
+
+              <h3 className="text-sm font-semibold text-slate-200 mt-4 mb-2">Log</h3>
+              <div className="rounded bg-slate-900 border border-slate-700 p-2 max-h-64 overflow-auto"
+                   role="log" aria-live="polite" aria-label="Calendar 操作紀錄">
+                {calLog.length === 0 && <p className="text-xs text-slate-500 italic">尚無紀錄</p>}
+                {calLog.map((line, i) => (
+                  <div key={i} className="text-xs font-mono text-slate-300 leading-snug">{line}</div>
+                ))}
+              </div>
+
+              <details className="mt-3">
+                <summary className="text-xs text-slate-400 cursor-pointer">📋 Next.js 對應骨架</summary>
+                <pre className="log text-xs text-slate-300 mt-2 p-2 rounded bg-slate-900 border border-slate-700 overflow-auto">{`my-form-app/
+├─ app/
+│  ├─ layout.tsx
+│  ├─ page.tsx                 ← 此檔案的 React 邏輯搬過來
+│  └─ api/
+│     └─ calendar/
+│        └─ route.ts           ← Server-side OAuth (refresh_token)
+├─ lib/
+│  ├─ rbac.ts                  ← can(role, perm) + 角色 enum
+│  └─ calendar.ts              ← gapi / googleapis server client
+├─ middleware.ts               ← Route-level RBAC gate
+├─ components/
+│  ├─ FormBuilder.tsx          ← 動態欄位 (RHF / 自寫)
+│  └─ CalendarPanel.tsx        ← GIS client component
+├─ types/
+│  └─ form.ts                  ← Field / Submission type
+├─ package.json
+├─ next.config.js
+└─ tsconfig.json`}</pre>
+              </details>
+            </aside>
+          </div>
+
+          {/* ===== Stats footer ===== */}
+          <section aria-label="表單統計" className="rounded border border-slate-700 bg-slate-800/60 p-4">
+            <h2 className="text-sm font-semibold text-slate-200 mb-2">欄位類型分佈</h2>
+            <div className="flex flex-wrap gap-2">
+              {stats.types.length === 0 && <span className="text-xs text-slate-500 italic">無</span>}
+              {stats.types.map(t => (
+                <span key={t.type} className="px-2 py-1 text-xs rounded bg-slate-700 text-slate-200">
+                  {t.label} <strong className="text-brand-300">{t.count}</strong>
+                </span>
+              ))}
+            </div>
+          </section>
+
+          <footer className="text-center text-xs text-slate-500 py-2">
+            Next.js Dynamic Form Builder 樣板 · RBAC + Google Calendar API ·
+            <a className="underline ml-1" href="https://developers.google.com/identity/oauth2/web/guides/use-token-model"
+               target="_blank" rel="noopener noreferrer">Google Identity Services</a>
+            ·
+            <a className="underline ml-1" href="https://developers.google.com/calendar/api/v3/reference"
+               target="_blank" rel="noopener noreferrer">Calendar API v3</a>
+          </footer>
+        </main>
+      </div>
+    );
+  }
+
+  /* === Mount === */
+  const root = ReactDOM.createRoot(document.getElementById('root'));
+  root.render(<App />);
+  </script>
+</body>
+</html>

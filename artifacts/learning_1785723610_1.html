@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Next.js 13 RSC × 即時同步 Demo</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: #0d1117; color: #e6edf3; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", Helvetica, Arial, sans-serif; }
+    .container { max-width: 880px; margin: 0 auto; padding: 32px 20px; }
+    .hero h1 { margin: 0 0 8px; font-size: 28px; letter-spacing: 0.2px; }
+    .subtitle { margin: 0 0 24px; color: #8b949e; line-height: 1.55; }
+    .subtitle code { background: #161b22; padding: 1px 6px; border-radius: 4px; font-size: 13px; color: #79c0ff; }
+    .foot { margin-top: 40px; color: #6e7681; border-top: 1px solid #21262d; padding-top: 16px; text-align: center; font-size: 13px; }
+    .card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 18px; margin: 16px 0; }
+    .row { display: flex; gap: 8px; align-items: center; }
+    .row > input { flex: 1; background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 9px 12px; border-radius: 6px; font-size: 14px; min-width: 0; }
+    .row > button { background: #238636; border: 1px solid rgba(240,246,252,0.1); color: #fff; padding: 9px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; white-space: nowrap; }
+    .row > button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .row > button:hover:not(:disabled) { background: #2ea043; }
+    .status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; margin-left: 8px; padding: 3px 8px; border-radius: 999px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .status.online { background: rgba(46, 160, 67, 0.15); color: #3fb950; }
+    .status.online .dot { background: #3fb950; box-shadow: 0 0 6px #3fb950; }
+    .status.offline { background: rgba(248, 81, 73, 0.15); color: #f85149; }
+    .status.offline .dot { background: #f85149; }
+    .status.connecting { background: rgba(187, 128, 9, 0.15); color: #d29922; }
+    .status.connecting .dot { background: #d29922; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+    .list { list-style: none; margin: 0; padding: 0; max-height: 480px; overflow-y: auto; }
+    .list li { padding: 10px 12px; border-bottom: 1px solid #21262d; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .list li:last-child { border-bottom: none; }
+    .list .who { font-weight: 600; color: #79c0ff; min-width: 60px; }
+    .list .text { flex: 1; min-width: 120px; word-break: break-word; }
+    .list .when { color: #6e7681; font-size: 12px; }
+    .source { font-size: 11px; padding: 2px 6px; border-radius: 4px; margin-left: 6px; font-weight: 600; }
+    .source.ssr { background: #1f6feb33; color: #58a6ff; }
+    .source.sse { background: #23863633; color: #3fb950; }
+    .source.opt { background: #d2992233; color: #d29922; }
+    .concepts { background: #0d1117; border: 1px solid #21262d; border-radius: 8px; padding: 14px 16px; margin-top: 18px; font-size: 13px; line-height: 1.6; }
+    .concepts h3 { margin: 0 0 8px; font-size: 14px; color: #d29922; }
+    .concepts code { background: #161b22; padding: 1px 6px; border-radius: 4px; color: #79c0ff; }
+    .concepts ul { margin: 6px 0 0 18px; padding: 0; color: #c9d1d9; }
+    .concepts li { margin: 4px 0; }
+    .badge-mode { background: linear-gradient(135deg, #1f6feb55, #23863655); border: 1px solid #30363d; padding: 6px 12px; border-radius: 6px; font-size: 12px; color: #c9d1d9; }
+    .fallback { background: #d2992211; color: #d29922; padding: 8px 12px; border-radius: 6px; font-size: 12px; margin: 8px 0; border: 1px solid #d2992244; }
+    .fallback.hidden { display: none; }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <header class="hero">
+      <h1>Next.js 13 — Server / Client 元件探索</h1>
+      <p class="subtitle">
+        這個 <code>web_output.html</code> 是 <code>/app/page.tsx</code> (Server Component) +
+        <code>/app/live-board.tsx</code> (Client Component) + <code>/api/sync</code> + <code>/api/messages</code>
+        完整邏輯的<strong>單檔可執行版</strong>。SSR 流程已被預先執行 (見下方種子訊息),
+        點開這頁時 Client Component 立刻 hydrate,訂閱 SSE。
+      </p>
+      <div class="row" style="margin-bottom: 16px; flex-wrap: wrap; gap: 8px;">
+        <span class="badge-mode">⚙️ 模式: <strong id="modeLabel">瀏覽器直連 (mock event bus)</strong></span>
+        <span class="status online" id="connStatus"><span class="dot"></span>已連線</span>
+      </div>
+      <div id="noBackendHint" class="fallback hidden">
+        ℹ️ 偵測到目前不是開在本機 3030 port,沒辦法接真實 SSE 後端;此頁已改用 LocalStorage 內的 broadcast,
+        <strong>同一瀏覽器多開分頁</strong>就能看到即時同步。實作的 Next.js 13 程式碼在專案根目錄,跑 <code>npm run dev</code> 就會有真實 SSE。
+      </div>
+    </header>
+
+    <!-- 以下區塊對應 /app/page.tsx 渲染出的 <LiveBoard /> -->
+    <section class="card">
+      <div class="row" style="margin-bottom: 12px; flex-wrap: wrap;">
+        <h2 style="margin: 0; font-size: 18px;">訊息面板</h2>
+        <span class="status online" id="connStatus2"><span class="dot"></span>已連線</span>
+        <span style="margin-left: auto; font-size: 12px; color: #6e7681;" id="ssrNow">SSR 時間: —</span>
+      </div>
+
+      <form class="row" id="sendForm" style="flex-wrap: wrap;">
+        <input id="authorInput" placeholder="暱稱" maxlength="20" style="max-width: 140px;" />
+        <input id="textInput" placeholder="輸入訊息後按 Enter 或點送出" maxlength="200" />
+        <button type="submit" id="sendBtn">送出</button>
+      </form>
+
+      <ul class="list" id="msgList"></ul>
+    </section>
+
+    <section class="concepts">
+      <h3>本示範展示的關鍵概念 (Next.js 13 App Router)</h3>
+      <ul>
+        <li><code>Server Component</code> (本檔 server 端 mirror,page.tsx) — 在伺服器端 fetch 資料,直接內嵌進 RSC payload,首屏不必等 JS 載完就能看到內容</li>
+        <li><code>'use client'</code> 邊界 — LiveBoard 內所有 useState / useEffect / EventSource 都不會污染 server bundle</li>
+        <li><code>Route Handler</code> — <code>/api/sync</code> 建立 SSE 串流, <code>/api/messages</code> 接受 POST 寫入</li>
+        <li><code>props.serialization</code> — Server→Client 傳遞的物件必須可序列化 (這裡是純 JSON 友好結構)</li>
+        <li><code>streaming</code> — 客戶端用 EventSource 持續接收新訊息,server-side store 經由 subscribers 廣播</li>
+        <li><code>optimistic UI</code> — 送出訊息時先在 client 顯示標記 <span class="source opt">optimistic</span>,server 回應後再以正式訊息取代</li>
+      </ul>
+      <h3 style="margin-top: 14px;">對應的專案檔</h3>
+      <ul>
+        <li><code>app/layout.tsx</code> — Root layout (Server Component)</li>
+        <li><code>app/page.tsx</code> — 首頁 (Server Component),呼叫 <code>listMessages()</code> 取得 SSR 資料</li>
+        <li><code>app/live-board.tsx</code> — Client Component (對應本檔下方腳本)</li>
+        <li><code>app/api/sync/route.ts</code> — SSE GET Route Handler</li>
+        <li><code>app/api/messages/route.ts</code> — POST / GET Route Handler</li>
+        <li><code>app/lib/store.ts</code> — 跨 route 共用的 in-memory store</li>
+      </ul>
+    </section>
+
+    <footer class="foot">
+      SSR payload 來自 <code>/api/messages</code> · 即時推送來自 <code>/api/sync</code> (SSE)
+    </footer>
+  </main>
+
+  <script>
+  // =========================================================================
+  // 這段 JS 等價於 /app/live-board.tsx (Client Component) 的行為
+  // 若用本檔 build 出 Next.js 13 專案,LiveBoard 會在這裡用 React 渲染;
+  // 為了讓此單檔能在任何瀏覽器直接執行,改成 imperative DOM 操作
+  // =========================================================================
+
+  const $ = (id) => document.getElementById(id);
+  const msgList = $("msgList");
+  const sendForm = $("sendForm");
+  const authorInput = $("authorInput");
+  const textInput = $("textInput");
+  const sendBtn = $("sendBtn");
+  const ssrNow = $("ssrNow");
+  const connStatus = $("connStatus");
+  const connStatus2 = $("connStatus2");
+  const noBackendHint = $("noBackendHint");
+  const modeLabel = $("modeLabel");
+
+  // ---------- 1. 後端偵測:優先用 fetch /api/messages,失敗則降級為 localStorage 廣播 ----------
+  const API_BASE = `${location.protocol}//${location.hostname}:3030`;
+  let backendReady = false;
+  let sse = null;
+
+  async function probeBackend() {
+    try {
+      const res = await fetch(`${API_BASE}/api/messages`, { method: "GET", cache: "no-store" });
+      if (res.ok) { backendReady = true; return true; }
+    } catch (e) { /* 沒開後端 */ }
+    return false;
+  }
+
+  // ---------- 2. 訊息狀態 ----------
+  const messages = []; // 陣列 = React state
+  const SEED = [
+    { id: "seed-1", author: "system", text: "歡迎來到 Next.js 13 即時訊息示範", createdAt: Date.now() - 60000, source: "ssr" },
+    { id: "seed-2", author: "system", text: "在下方的輸入框送出訊息,其他視窗會即時收到推送", createdAt: Date.now() - 30000, source: "ssr" },
+  ];
+
+  function fmt(ts) {
+    const d = new Date(ts);
+    return d.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+
+  function renderMsg(m) {
+    const li = document.createElement("li");
+    li.dataset.id = m.id;
+    li.innerHTML = `
+      <span class="who">${escapeHtml(m.author)}</span>
+      <span class="text">${escapeHtml(m.text)}</span>
+      <span class="when">${fmt(m.createdAt)}</span>
+      <span class="source ${m.source === 'ssr' ? 'ssr' : m.source === 'opt' ? 'opt' : 'sse'}">${m.source === 'ssr' ? 'SSR' : m.source === 'opt' ? '樂觀' : 'SSE'}</span>
+    `;
+    return li;
+  }
+
+  function escapeHtml(s) {
+    return (s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[c]);
+  }
+
+  function appendMsg(m) {
+    if (messages.some(p => p.id === m.id)) return;
+    messages.push(m);
+    msgList.appendChild(renderMsg(m));
+    msgList.scrollTop = msgList.scrollHeight;
+  }
+
+  function replaceOptId(clientId, serverMsg) {
+    const idx = messages.findIndex(p => p.id === clientId);
+    if (idx >= 0) messages[idx] = serverMsg;
+    const li = msgList.querySelector(`li[data-id="${clientId}"]`);
+    if (li) {
+      li.dataset.id = serverMsg.id;
+      li.querySelector(".source").className = "source sse";
+      li.querySelector(".source").textContent = "SSE";
+    }
+  }
+
+  function setStatus(s) {
+    const label = s === "online" ? "已連線" : s === "connecting" ? "連線中" : "離線";
+    [connStatus, connStatus2].forEach(el => {
+      el.className = `status ${s}`;
+      el.innerHTML = `<span class="dot"></span>${label}`;
+    });
+  }
+
+  // ---------- 3. SSE 訂閱 (對應 LiveBoard 的 useEffect EventSource) ----------
+  function connectSSE() {
+    if (!backendReady) return;
+    setStatus("connecting");
+    sse = new EventSource(`${API_BASE}/api/sync`);
+    sse.onopen = () => setStatus("online");
+    sse.onerror = () => {
+      setStatus("offline");
+      sse.close();
+      setTimeout(connectSSE, 2000);
+    };
+    sse.onmessage = (ev) => {
+      try {
+        const m = JSON.parse(ev.data);
+        appendMsg(m);
+      } catch (_) { /* heartbeat */ }
+    };
+  }
+
+  // ---------- 4. LocalStorage 廣播 (後端 fallback) ----------
+  function lsKey() { return "next13_demo_msgs"; }
+  function lsRead() { try { return JSON.parse(localStorage.getItem(lsKey()) || "[]"); } catch { return []; } }
+  function lsWrite(list) { localStorage.setItem(lsKey(), JSON.stringify(list)); }
+  const knownIds = new Set();
+
+  function lsBroadcast(msg) {
+    const list = lsRead();
+    if (!list.some(m => m.id === msg.id)) {
+      list.push(msg);
+      lsWrite(list);
+    }
+    window.dispatchEvent(new CustomEvent("demo:msg", { detail: msg }));
+  }
+
+  function setupLsFallback() {
+    window.addEventListener("storage", (e) => {
+      if (e.key === lsKey()) {
+        const list = lsRead();
+        for (const m of list) {
+          if (!knownIds.has(m.id)) { knownIds.add(m.id); appendMsg(m); }
+        }
+      }
+    });
+    window.addEventListener("demo:msg", (e) => {
+      const m = e.detail;
+      if (!knownIds.has(m.id)) { knownIds.add(m.id); appendMsg(m); }
+    });
+    // 初始載入 localStorage history
+    for (const m of lsRead()) { knownIds.add(m.id); appendMsg(m); }
+  }
+
+  // ---------- 5. 送出訊息 (對應 LiveBoard 的 send) ----------
+  async function send(text, author) {
+    const clientId = `opt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`;
+    const optimistic = { id: clientId, author, text, createdAt: Date.now(), source: "opt" };
+    appendMsg(optimistic);
+
+    if (backendReady) {
+      try {
+        const res = await fetch(`${API_BASE}/api/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ author, text }),
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const json = await res.json();
+        // server 會獨立推播給 onmessage,這裡樂觀可以不動 (id 不同會重複)
+        // 為了乾淨,移除 optimistic,讓 SSE 推播為準
+        const li = msgList.querySelector(`li[data-id="${clientId}"]`);
+        if (li) li.remove();
+        const idx = messages.findIndex(m => m.id === clientId);
+        if (idx >= 0) messages.splice(idx, 1);
+      } catch (err) {
+        const li = msgList.querySelector(`li[data-id="${clientId}"]`);
+        if (li) li.querySelector(".source").textContent = "失敗";
+        console.error(err);
+      }
+    } else {
+      // fallback: 用 localStorage 廣播
+      const serverMsg = { id: `srv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`, author, text, createdAt: Date.now(), source: "sse" };
+      // 移除 optimistic,推廣播
+      const li = msgList.querySelector(`li[data-id="${clientId}"]`);
+      if (li) li.remove();
+      const idx = messages.findIndex(m => m.id === clientId);
+      if (idx >= 0) messages.splice(idx, 1);
+      lsBroadcast(serverMsg);
+    }
+  }
+
+  // ---------- 6. 啟動 ----------
+  (async function init() {
+    ssrNow.textContent = `SSR 時間: ${fmt(Date.now() - 2000)}`; // 模擬 SSR 渲染時間略早
+
+    // 載入 localStorage 回復暱稱
+    const savedAuthor = localStorage.getItem("author");
+    if (savedAuthor) authorInput.value = savedAuthor;
+
+    // 1) 先渲染 SSR 已抓到的「種子訊息」(對應 Server Component 注入的 initialMessages)
+    for (const m of SEED) appendMsg(m);
+
+    // 2) 嘗試後端,失敗則降級
+    const ok = await probeBackend();
+    if (ok) {
+      modeLabel.textContent = "Next.js 13 SSE (3030)";
+      connectSSE();
+    } else {
+      modeLabel.textContent = "LocalStorage 廣播 (fallback)";
+      noBackendHint.classList.remove("hidden");
+      setupLsFallback();
+      setStatus("online");
+    }
+
+    // 3) 綁定送出
+    sendForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const author = (authorInput.value || "匿名").trim();
+      const text = textInput.value.trim();
+      if (!text) return;
+      localStorage.setItem("author", author);
+      send(text, author);
+      textInput.value = "";
+    });
+  })();
+  </script>
+</body>
+</html>

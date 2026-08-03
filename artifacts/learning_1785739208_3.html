@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能日程管理 — Calendar Engine</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --surface-hover: #334155;
+    --border: #334155;
+    --text: #f1f5f9;
+    --text-muted: #94a3b8;
+    --accent: #3b82f6;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --critical: #dc2626;
+    --info: #6366f1;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "微軟正黑體", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 24px;
+    line-height: 1.5;
+  }
+  .container { max-width: 1400px; margin: 0 auto; }
+
+  header {
+    background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px 32px;
+    margin-bottom: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  header h1 { font-size: 24px; font-weight: 700; }
+  header .subtitle { color: var(--text-muted); font-size: 14px; margin-top: 4px; }
+  header .meta { display: flex; gap: 12px; flex-wrap: wrap; }
+  header .meta .badge {
+    background: var(--surface-hover);
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  header .badge.events { color: var(--accent); }
+  header .badge.conflicts { color: var(--warning); }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 24px;
+  }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+  }
+
+  aside { display: flex; flex-direction: column; gap: 16px; }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .panel h2 {
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+  }
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+  }
+  .stat-row:last-child { border-bottom: none; }
+  .stat-row .count { font-weight: 700; color: var(--accent); }
+  .tag-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    background: var(--surface-hover);
+    margin: 2px;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.15s;
+  }
+  .tag-pill:hover { background: var(--accent); }
+  .tag-pill.active { background: var(--accent); color: white; }
+
+  .controls {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  button, input, select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  button:hover { background: var(--surface-hover); border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); }
+  button.primary:hover { background: #2563eb; }
+  input[type="search"] { flex: 1; min-width: 200px; }
+
+  .events-grid {
+    display: grid;
+    gap: 12px;
+  }
+  .event-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: 10px;
+    padding: 16px 20px;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 16px;
+    align-items: center;
+    transition: all 0.2s;
+    cursor: pointer;
+  }
+  .event-card:hover {
+    background: var(--surface-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  }
+  .event-card.conflict {
+    border-color: var(--warning);
+    background: linear-gradient(90deg, rgba(245,158,11,0.1) 0%, var(--surface) 100%);
+  }
+  .event-card.critical-priority { border-color: var(--critical); }
+  .event-card .icon {
+    font-size: 32px;
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-hover);
+    border-radius: 10px;
+  }
+  .event-card .body { min-width: 0; }
+  .event-card .title {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .event-card .meta {
+    font-size: 13px;
+    color: var(--text-muted);
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .event-card .meta .source { color: var(--info); }
+  .event-card .meta .conflict-badge {
+    color: var(--warning);
+    font-weight: 600;
+  }
+  .event-card .right { text-align: right; }
+  .priority-bar {
+    width: 80px;
+    height: 8px;
+    background: var(--bg);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 6px;
+  }
+  .priority-bar .fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--info), var(--accent));
+    transition: width 0.3s;
+  }
+  .priority-bar .fill.high { background: linear-gradient(90deg, var(--warning), var(--critical)); }
+  .priority-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+
+  .empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-muted);
+  }
+  .empty .big-icon { font-size: 48px; margin-bottom: 16px; }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 20px;
+  }
+  .modal-backdrop.active { display: flex; }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    max-width: 500px;
+    width: 100%;
+  }
+  .modal h3 { font-size: 18px; margin-bottom: 12px; }
+  .modal .desc { color: var(--text-muted); margin-bottom: 16px; font-size: 14px; }
+  .modal .row { padding: 6px 0; font-size: 14px; }
+  .modal .row .label { color: var(--text-muted); margin-right: 8px; }
+  .modal button { margin-top: 16px; }
+
+  .notification-toast {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: 10px;
+    padding: 14px 20px;
+    min-width: 280px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    z-index: 2000;
+    animation: slideIn 0.3s ease-out;
+  }
+  .notification-toast.critical { border-color: var(--critical); }
+  .notification-toast.warning { border-color: var(--warning); }
+  .notification-toast .urgency {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+  .notification-toast .title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+  .notification-toast .body { font-size: 13px; color: var(--text-muted); }
+
+  @keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+
+  footer {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 12px;
+    padding: 20px;
+    margin-top: 24px;
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <div>
+      <h1>📅 智能日程管理 <span style="font-size:14px;color:var(--text-muted);font-weight:400;">Calendar Engine v1.0</span></h1>
+      <div class="subtitle">整合 Google Calendar 公開 ICS feed · 智能分類 · 衝突偵測 · 桌面通知</div>
+    </div>
+    <div class="meta">
+      <span class="badge events" id="badgeEvents">— 個事件</span>
+      <span class="badge conflicts" id="badgeConflicts">— 衝突</span>
+      <span class="badge" id="badgeGenerated">—</span>
+    </div>
+  </header>
+
+  <div class="layout">
+
+    <aside>
+      <div class="panel">
+        <h2>📊 統計</h2>
+        <div id="statsByTag"></div>
+      </div>
+
+      <div class="panel">
+        <h2>🏷️ 分類篩選</h2>
+        <div id="tagFilters"></div>
+        <button id="clearFilter" style="width:100%;margin-top:12px;font-size:12px;">清除篩選</button>
+      </div>
+
+      <div class="panel">
+        <h2>🔔 通知 Outbox</h2>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">
+          N100 headless 環境替代桌面通知:<br>
+          <code style="font-size:11px;">/tmp/calendar_notifications.jsonl</code>
+        </div>
+        <div id="notifStats" style="font-size:13px;"></div>
+        <button id="openNotifOutbox" style="width:100%;margin-top:8px;font-size:12px;">查看通知</button>
+      </div>
+
+      <div class="panel">
+        <h2>🔄 重整資料</h2>
+        <button id="reloadBtn" class="primary" style="width:100%;">重新抓取 ICS</button>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">
+          預設抓取未來 90 天 · 4 個 ICS feed
+        </div>
+      </div>
+    </aside>
+
+    <main>
+      <div class="controls">
+        <input type="search" id="searchBox" placeholder="搜尋事件名稱...">
+        <select id="sortBy">
+          <option value="start">依開始時間</option>
+          <option value="priority">依優先級</option>
+          <option value="days_until">依剩餘天數</option>
+          <option value="tag">依分類</option>
+        </select>
+        <select id="filterAllDay">
+          <option value="all">全部事件</option>
+          <option value="all_day">僅全天事件</option>
+          <option value="timed">僅有時間事件</option>
+        </select>
+      </div>
+
+      <div id="eventsContainer"></div>
+    </main>
+
+  </div>
+
+  <footer>
+    Calendar Engine v1.0 · 整合 Google Calendar 公開 ICS feed (免 OAuth)
+    · <a href="https://calendar.google.com/calendar/ical/en.taiwan%23holiday%40group.v.calendar.google.com/public/basic.ics" target="_blank">ICS 來源</a>
+  </footer>
+
+</div>
+
+<!-- Event Detail Modal -->
+<div class="modal-backdrop" id="modal">
+  <div class="modal">
+    <h3 id="modalTitle"></h3>
+    <div class="desc" id="modalDesc"></div>
+    <div class="row"><span class="label">📅 開始:</span><span id="modalStart"></span></div>
+    <div class="row"><span class="label">📅 結束:</span><span id="modalEnd"></span></div>
+    <div class="row"><span class="label">⏱️ 剩餘:</span><span id="modalDays"></span></div>
+    <div class="row"><span class="label">🏷️ 分類:</span><span id="modalTag"></span></div>
+    <div class="row"><span class="label">📡 來源:</span><span id="modalSource"></span></div>
+    <div class="row"><span class="label">⭐ 優先級:</span><span id="modalPriority"></span></div>
+    <button onclick="closeModal()" style="width:100%;">關閉</button>
+  </div>
+</div>
+
+<!-- Notification Outbox Modal -->
+<div class="modal-backdrop" id="notifModal">
+  <div class="modal" style="max-width:600px;">
+    <h3>🔔 通知 Outbox (N100 headless 替代方案)</h3>
+    <div class="desc">
+      由於 N100 是 headless 環境,沒有 GUI 桌面,<br>
+      <code style="font-size:12px;">xdotool</code> / <code style="font-size:12px;">notify-send</code> 都無法觸發實體桌面通知。<br>
+      本系統將通知寫入 <code style="font-size:12px;">/tmp/calendar_notifications.jsonl</code>,<br>
+      真實桌面可用以下命令監聽並觸發桌面通知:
+      <pre style="background:var(--bg);padding:8px;border-radius:6px;font-size:11px;margin-top:8px;">tail -f /tmp/calendar_notifications.jsonl | while read line; do
+  echo "$line" | jq -r '.title + " — " + .body' | xargs -I{} notify-send "{}"
+done</pre>
+      瀏覽器端則使用 <strong>Web Notification API</strong> 觸發彈窗。
+    </div>
+    <div id="notifList" style="max-height:300px;overflow-y:auto;background:var(--bg);padding:12px;border-radius:8px;font-family:monospace;font-size:12px;"></div>
+    <button onclick="closeNotifModal()" style="width:100%;">關閉</button>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// STATE & DATA LOADING
+// ============================================================
+let allEvents = [];
+let activeTagFilter = null;
+let notifications = [];
+
+async function loadData() {
+  try {
+    const resp = await fetch('events.json');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    allEvents = data.events || [];
+    notifications = data.notifications || [];
+    updateStats(data);
+    renderTagFilters(data.stats.by_tag);
+    renderEvents();
+    // 觸發 Web Notification API (替代桌面通知)
+    fireWebNotifications(notifications);
+  } catch (err) {
+    console.error('載入失敗:', err);
+    document.getElementById('eventsContainer').innerHTML = `
+      <div class="empty">
+        <div class="big-icon">⚠️</div>
+        <div>無法載入 events.json</div>
+        <div style="font-size:13px;margin-top:8px;">請先執行: <code>python3 calendar_engine.py</code></div>
+      </div>`;
+  }
+}
+
+// ============================================================
+// STATS
+// ============================================================
+function updateStats(data) {
+  document.getElementById('badgeEvents').textContent = `${data.total_events} 個事件`;
+  document.getElementById('badgeConflicts').textContent = `${data.conflict_count} 衝突`;
+  const genTime = new Date(data.generated_at).toLocaleString('zh-TW');
+  document.getElementById('badgeGenerated').textContent = `產生於 ${genTime}`;
+
+  // Stats by tag
+  const statsByTag = document.getElementById('statsByTag');
+  statsByTag.innerHTML = Object.entries(data.stats.by_tag)
+    .sort((a, b) => b[1] - a[1])
+    .map(([tag, count]) => `
+      <div class="stat-row">
+        <span>${tag}</span>
+        <span class="count">${count}</span>
+      </div>`).join('');
+
+  // Notif stats
+  document.getElementById('notifStats').innerHTML = `
+    <div class="stat-row"><span>已產生通知</span><span class="count">${notifications.length}</span></div>
+    <div class="stat-row"><span>Outbox 檔案</span><span class="count" style="font-size:11px;">/tmp/...</span></div>`;
+}
+
+// ============================================================
+// TAG FILTERS
+// ============================================================
+function renderTagFilters(byTag) {
+  const container = document.getElementById('tagFilters');
+  container.innerHTML = Object.entries(byTag)
+    .sort((a, b) => b[1] - a[1])
+    .map(([tag, count]) => {
+      const event = allEvents.find(e => e.tag === tag);
+      const icon = event ? event.icon : '📅';
+      const color = event ? event.color : '#94a3b8';
+      return `<span class="tag-pill ${activeTagFilter === tag ? 'active' : ''}"
+                   data-tag="${tag}"
+                   style="border-left:3px solid ${color};">
+                ${icon} ${tag} (${count})
+              </span>`;
+    }).join('');
+  container.querySelectorAll('.tag-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      const tag = pill.dataset.tag;
+      activeTagFilter = activeTagFilter === tag ? null : tag;
+      renderTagFilters(byTag);
+      renderEvents();
+    });
+  });
+}
+
+document.getElementById('clearFilter').addEventListener('click', () => {
+  activeTagFilter = null;
+  renderTagFilters(getCurrentTagCounts());
+  renderEvents();
+});
+
+function getCurrentTagCounts() {
+  const counts = {};
+  for (const e of allEvents) counts[e.tag] = (counts[e.tag] || 0) + 1;
+  return counts;
+}
+
+// ============================================================
+// RENDER EVENTS
+// ============================================================
+function renderEvents() {
+  const search = document.getElementById('searchBox').value.toLowerCase();
+  const sortBy = document.getElementById('sortBy').value;
+  const filterAllDay = document.getElementById('filterAllDay').value;
+
+  let filtered = allEvents.filter(e => {
+    if (activeTagFilter && e.tag !== activeTagFilter) return false;
+    if (search && !e.summary.toLowerCase().includes(search)) return false;
+    if (filterAllDay === 'all_day' && !e.all_day) return false;
+    if (filterAllDay === 'timed' && e.all_day) return false;
+    return true;
+  });
+
+  filtered.sort((a, b) => {
+    if (sortBy === 'priority') return b.priority - a.priority;
+    if (sortBy === 'days_until') return a.days_until - b.days_until;
+    if (sortBy === 'tag') return a.tag.localeCompare(b.tag);
+    return new Date(a.start) - new Date(b.start);
+  });
+
+  const container = document.getElementById('eventsContainer');
+  if (filtered.length === 0) {
+    container.innerHTML = `
+      <div class="empty">
+        <div class="big-icon">📭</div>
+        <div>沒有符合條件的事件</div>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = `<div class="events-grid">${filtered.map(renderEventCard).join('')}</div>`;
+  container.querySelectorAll('.event-card').forEach(card => {
+    card.addEventListener('click', () => openModal(JSON.parse(card.dataset.event)));
+  });
+}
+
+function renderEventCard(e) {
+  const daysLabel = e.days_until === 0 ? '今天!' :
+                    e.days_until > 0 ? `剩 ${e.days_until} 天` :
+                    `${-e.days_until} 天前`;
+  const priorityClass = e.priority >= 70 ? 'high' : '';
+  const cardClass = [
+    'event-card',
+    e.has_conflict ? 'conflict' : '',
+    e.priority >= 80 ? 'critical-priority' : ''
+  ].filter(Boolean).join(' ');
+
+  return `
+    <div class="${cardClass}"
+         style="border-left-color:${e.color};"
+         data-event='${JSON.stringify(e).replace(/'/g, "&#39;")}'>
+      <div class="icon">${e.icon}</div>
+      <div class="body">
+        <div class="title">${escapeHtml(e.summary)}</div>
+        <div class="meta">
+          <span>📅 ${escapeHtml(e.start_display)}</span>
+          <span class="source">📡 ${escapeHtml(e.source)}</span>
+          <span class="${e.days_until <= 7 ? 'conflict-badge' : ''}">⏱️ ${daysLabel}</span>
+          ${e.has_conflict ? '<span class="conflict-badge">⚠️ 時間衝突</span>' : ''}
+        </div>
+      </div>
+      <div class="right">
+        <div class="priority-bar"><div class="fill ${priorityClass}" style="width:${e.priority}%"></div></div>
+        <div class="priority-label">P${e.priority}</div>
+      </div>
+    </div>`;
+}
+
+// ============================================================
+// MODAL
+// ============================================================
+function openModal(e) {
+  document.getElementById('modalTitle').textContent = `${e.icon} ${e.summary}`;
+  document.getElementById('modalDesc').textContent = e.description || '(無描述)';
+  document.getElementById('modalStart').textContent = e.start_display;
+  document.getElementById('modalEnd').textContent = e.end_display;
+  document.getElementById('modalDays').textContent =
+    e.days_until === 0 ? '今天!' :
+    e.days_until > 0 ? `剩 ${e.days_until} 天` : `${-e.days_until} 天前`;
+  document.getElementById('modalTag').textContent = `${e.tag} ${e.has_conflict ? '(時間衝突)' : ''}`;
+  document.getElementById('modalSource').textContent = e.source;
+  document.getElementById('modalPriority').textContent = `${e.priority}/100`;
+  document.getElementById('modal').classList.add('active');
+}
+function closeModal() { document.getElementById('modal').classList.remove('active'); }
+document.getElementById('modal').addEventListener('click', (e) => {
+  if (e.target.id === 'modal') closeModal();
+});
+
+// Notif modal
+function openNotifModal() {
+  const list = document.getElementById('notifList');
+  if (notifications.length === 0) {
+    list.innerHTML = '(outbox 是空的)';
+  } else {
+    list.innerHTML = notifications.map(n =>
+      `<div style="margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid var(--border);">
+        <strong>[${n.urgency}]</strong> ${escapeHtml(n.title)}<br>
+        <span style="color:var(--text-muted);">${escapeHtml(n.body)}</span>
+      </div>`).join('');
+  }
+  document.getElementById('notifModal').classList.add('active');
+}
+function closeNotifModal() { document.getElementById('notifModal').classList.remove('active'); }
+document.getElementById('notifModal').addEventListener('click', (e) => {
+  if (e.target.id === 'notifModal') closeNotifModal();
+});
+document.getElementById('openNotifOutbox').addEventListener('click', openNotifModal);
+
+// ============================================================
+// WEB NOTIFICATION API (替代桌面 notify-send)
+// ============================================================
+async function fireWebNotifications(notifs) {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'default') {
+    try {
+      await Notification.requestPermission();
+    } catch (e) { /* ignore */ }
+  }
+  if (Notification.permission !== 'granted') return;
+
+  notifs.forEach((n, idx) => {
+    setTimeout(() => {
+      try {
+        new Notification(n.title, {
+          body: n.body,
+          icon: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="80" font-size="80">📅</text></svg>',
+          tag: n.event_uid || `notif-${idx}`,
+        });
+      } catch (e) {
+        // Fallback: in-page toast
+        showToast(n);
+      }
+    }, idx * 800);  // 間隔 800ms 避免 spam
+  });
+}
+
+function showToast(n) {
+  const toast = document.createElement('div');
+  toast.className = `notification-toast ${n.urgency}`;
+  toast.innerHTML = `
+    <div class="urgency">${n.urgency}</div>
+    <div class="title">${escapeHtml(n.title)}</div>
+    <div class="body">${escapeHtml(n.body)}</div>`;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 6000);
+}
+
+// ============================================================
+// EVENT LISTENERS
+// ============================================================
+document.getElementById('searchBox').addEventListener('input', renderEvents);
+document.getElementById('sortBy').addEventListener('change', renderEvents);
+document.getElementById('filterAllDay').addEventListener('change', renderEvents);
+
+document.getElementById('reloadBtn').addEventListener('click', async () => {
+  if (!confirm('這會在伺服器端重新抓取 ICS feed (需 ~30 秒),確定嗎?')) return;
+  document.getElementById('reloadBtn').textContent = '抓取中...';
+  document.getElementById('reloadBtn').disabled = true;
+  // Note: 真實環境需後端 endpoint;此處示範觸發 fetch
+  alert('實際部署需要後端 API endpoint (例:POST /api/refresh)。前端觸發僅為示意。');
+  document.getElementById('reloadBtn').textContent = '重新抓取 ICS';
+  document.getElementById('reloadBtn').disabled = false;
+});
+
+// ============================================================
+// UTILS
+// ============================================================
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+// 啟動
+loadData();
+</script>
+</body>
+</html>

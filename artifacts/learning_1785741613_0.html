@@ -1,0 +1,1339 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>React Flow 動態工作流引擎 v2 · 事件溯源 + 中介層 + 視覺化資料流</title>
+<style>
+  :root {
+    --bg-0: #0a0e1a;
+    --bg-1: #111827;
+    --bg-2: #1a2236;
+    --bg-3: #232b42;
+    --border: #2a3550;
+    --text-0: #e6ecff;
+    --text-1: #aab4d0;
+    --text-2: #6b7794;
+    --accent: #5b8def;
+    --accent-2: #7c5cff;
+    --ok: #4ade80;
+    --warn: #facc15;
+    --err: #f87171;
+    --cyan: #22d3ee;
+    --shadow: 0 8px 30px rgba(0,0,0,.45);
+    --shadow-lg: 0 14px 50px rgba(0,0,0,.55);
+  }
+  * { box-sizing: border-box; }
+  html, body, #root { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+    background: var(--bg-0);
+    color: var(--text-0);
+    overflow: hidden;
+  }
+  .app { display: grid; grid-template-columns: 260px 1fr 360px; height: 100%; }
+
+  /* ===== Sidebar ===== */
+  .sidebar, .inspector {
+    background: var(--bg-1);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .inspector { border-right: none; border-left: 1px solid var(--border); }
+  .panel-head {
+    padding: 12px 14px;
+    font-size: 12px; font-weight: 600;
+    letter-spacing: .5px; text-transform: uppercase;
+    color: var(--text-1);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .panel-head .badge {
+    background: var(--accent); color: white;
+    border-radius: 10px; padding: 2px 8px; font-size: 10px;
+    font-weight: 600;
+  }
+  .palette { padding: 10px; overflow-y: auto; flex: 1; }
+  .palette-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 11px; margin-bottom: 6px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: grab;
+    transition: all .15s ease;
+    user-select: none;
+  }
+  .palette-item:hover { border-color: var(--accent); transform: translateX(2px); }
+  .palette-item:active { cursor: grabbing; }
+  .palette-item .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 8px currentColor; }
+  .palette-item .meta { flex: 1; min-width: 0; }
+  .palette-item .name { font-size: 12px; font-weight: 500; }
+  .palette-item .desc { font-size: 10px; color: var(--text-2); margin-top: 2px; line-height: 1.3; }
+
+  .toolbar { padding: 10px; display: flex; gap: 6px; flex-wrap: wrap; border-top: 1px solid var(--border); flex-shrink: 0; }
+  .btn {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    color: var(--text-0);
+    padding: 6px 11px;
+    font-size: 11px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all .15s ease;
+    font-family: inherit;
+    font-weight: 500;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+  .btn.primary:hover { background: #4a78d8; color: white; }
+  .btn.danger:hover { border-color: var(--err); color: var(--err); }
+  .btn.warn:hover { border-color: var(--warn); color: var(--warn); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  /* ===== Canvas ===== */
+  .canvas-wrap { position: relative; background: var(--bg-0); overflow: hidden; }
+  .rf-wrapper { width: 100%; height: 100%; }
+
+  /* ===== Inspector ===== */
+  .inspector-body { padding: 12px; overflow-y: auto; flex: 1; }
+  .field { margin-bottom: 12px; }
+  .field label { display: block; font-size: 10px; color: var(--text-2); text-transform: uppercase; margin-bottom: 5px; letter-spacing: .5px; font-weight: 600; }
+  .field input, .field select, .field textarea {
+    width: 100%;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    color: var(--text-0);
+    padding: 7px 9px;
+    font-size: 12px;
+    border-radius: 6px;
+    font-family: inherit;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(91,141,239,.15);
+  }
+  .field textarea { min-height: 60px; resize: vertical; font-family: "SF Mono", Monaco, monospace; font-size: 11px; }
+
+  .empty-state { color: var(--text-2); font-size: 12px; text-align: center; padding: 30px 16px; line-height: 1.6; }
+  .empty-state .icon { font-size: 32px; margin-bottom: 6px; opacity: .4; }
+
+  /* ===== Custom Nodes ===== */
+  .wf-node {
+    background: var(--bg-1);
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    padding: 0;
+    width: 210px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    transition: border-color .15s ease, transform .12s ease;
+  }
+  .wf-node:hover { transform: translateY(-1px); }
+  .wf-node.selected { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(91,141,239,.2), var(--shadow); }
+  .wf-node.running { border-color: var(--warn); animation: pulse 1.4s ease-in-out infinite; }
+  .wf-node.success { border-color: var(--ok); }
+  .wf-node.error { border-color: var(--err); animation: shake .35s ease-in-out; }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(250,204,21,.55); }
+    50% { box-shadow: 0 0 0 10px rgba(250,204,21,0); }
+  }
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-4px); }
+    75% { transform: translateX(4px); }
+  }
+  .wf-node .head {
+    display: flex; align-items: center; gap: 7px;
+    padding: 9px 11px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(90deg, rgba(255,255,255,.02), transparent);
+  }
+  .wf-node .head .dot { width: 8px; height: 8px; border-radius: 50%; box-shadow: 0 0 6px currentColor; }
+  .wf-node .head .title { font-size: 12px; font-weight: 600; flex: 1; }
+  .wf-node .head .status { font-size: 9px; padding: 2px 5px; border-radius: 3px; background: var(--bg-2); color: var(--text-2); text-transform: uppercase; font-weight: 600; letter-spacing: .4px; }
+  .wf-node.success .head .status { background: rgba(74,222,128,.15); color: var(--ok); }
+  .wf-node.running .head .status { background: rgba(250,204,21,.15); color: var(--warn); }
+  .wf-node.error .head .status { background: rgba(248,113,113,.15); color: var(--err); }
+
+  .wf-node .body { padding: 8px 11px 10px; font-size: 10px; color: var(--text-1); }
+  .wf-node .body .row { display: flex; justify-content: space-between; padding: 2px 0; gap: 6px; }
+  .wf-node .body .row .k { color: var(--text-2); flex-shrink: 0; }
+  .wf-node .body .row .v { font-family: "SF Mono", Monaco, monospace; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .wf-node .foot {
+    padding: 5px 11px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-2);
+    font-size: 9px;
+    color: var(--text-2);
+    display: flex; justify-content: space-between;
+  }
+  .wf-node .foot .subs { color: var(--cyan); }
+
+  /* ===== Subflow Node (group) ===== */
+  .subflow-node {
+    background: rgba(91,141,239,.06);
+    border: 2px dashed var(--accent);
+    border-radius: 12px;
+    width: 300px; height: 200px;
+    position: relative;
+    display: flex; align-items: flex-start; justify-content: center;
+    padding-top: 24px;
+  }
+  .subflow-node .label { font-size: 11px; font-weight: 600; color: var(--accent); letter-spacing: .4px; }
+
+  /* ===== Event Log ===== */
+  .event-log { overflow-y: auto; flex-shrink: 0; max-height: 240px; }
+  .event-row {
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    display: flex; align-items: center; gap: 8px;
+    font-family: "SF Mono", "Monaco", monospace;
+    transition: background .12s ease;
+  }
+  .event-row:hover { background: rgba(91,141,239,.06); }
+  .event-row .ts { color: var(--text-2); font-size: 9px; flex-shrink: 0; }
+  .event-row .tag {
+    font-size: 9px; padding: 1px 5px; border-radius: 3px;
+    background: var(--bg-2); color: var(--text-1); font-weight: 600;
+    flex-shrink: 0;
+  }
+  .event-row.start .tag { background: rgba(91,141,239,.2); color: var(--accent); }
+  .event-row.node  .tag { background: rgba(124,92,255,.2); color: var(--accent-2); }
+  .event-row.edge  .tag { background: rgba(74,222,128,.2); color: var(--ok); }
+  .event-row.error .tag { background: rgba(248,113,113,.2); color: var(--err); }
+  .event-row.bus   .tag { background: rgba(34,211,238,.2); color: var(--cyan); }
+  .event-row .msg { color: var(--text-0); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .log-empty { padding: 16px; text-align: center; color: var(--text-2); font-size: 11px; }
+
+  /* ===== Metrics Strip ===== */
+  .metrics-strip {
+    padding: 10px 12px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-2);
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .metric { font-size: 10px; color: var(--text-2); text-align: center; }
+  .metric .v { font-size: 16px; color: var(--text-0); font-weight: 600; font-family: "SF Mono", monospace; display: block; margin-top: 2px; }
+  .metric .v.ok { color: var(--ok); }
+  .metric .v.err { color: var(--err); }
+  .metric .v.warn { color: var(--warn); }
+
+  /* ===== Tabs ===== */
+  .tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .tab {
+    flex: 1;
+    padding: 8px;
+    text-align: center;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-2);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all .15s ease;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+  }
+  .tab:hover { color: var(--text-1); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ===== Replay Panel ===== */
+  .replay-panel { padding: 12px; border-top: 1px solid var(--border); background: var(--bg-2); flex-shrink: 0; }
+  .replay-panel .title { font-size: 10px; color: var(--text-2); text-transform: uppercase; font-weight: 600; margin-bottom: 6px; letter-spacing: .5px; }
+  .replay-panel .controls { display: flex; gap: 6px; align-items: center; }
+  .replay-panel .progress { font-size: 10px; color: var(--text-2); margin-top: 4px; font-family: monospace; }
+
+  /* ===== React Flow overrides ===== */
+  .react-flow__background { background: var(--bg-0); }
+  .react-flow__controls {
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+  .react-flow__controls button {
+    background: var(--bg-1);
+    color: var(--text-0);
+    border-bottom: 1px solid var(--border);
+  }
+  .react-flow__controls button:hover { background: var(--bg-2); }
+  .react-flow__controls button svg { fill: var(--text-0); }
+  .react-flow__minimap {
+    background: var(--bg-1) !important;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .react-flow__attribution { display: none; }
+  .react-flow__edge-path { stroke-width: 2; }
+  .react-flow__edge.selected .react-flow__edge-path { stroke: var(--accent); stroke-width: 3; }
+  .react-flow__handle {
+    background: var(--accent);
+    border: 2px solid var(--bg-1);
+    width: 10px; height: 10px;
+  }
+
+  /* ===== Data Token Animation (SVG overlay) ===== */
+  .data-token-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 4; }
+  .data-token {
+    fill: var(--ok);
+    filter: drop-shadow(0 0 6px var(--ok));
+    animation: token-pulse .8s ease-in-out infinite;
+  }
+  @keyframes token-pulse {
+    0%, 100% { opacity: .7; r: 4; }
+    50% { opacity: 1; r: 6; }
+  }
+
+  /* ===== Status bar ===== */
+  .statusbar {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: rgba(17,24,39,.92);
+    border-top: 1px solid var(--border);
+    padding: 6px 12px;
+    font-size: 10px;
+    color: var(--text-1);
+    display: flex; gap: 14px; align-items: center;
+    backdrop-filter: blur(8px);
+    z-index: 5;
+  }
+  .statusbar .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); animation: blink 2s ease-in-out infinite; }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+  .statusbar .item { display: flex; align-items: center; gap: 5px; }
+  .statusbar .item strong { color: var(--text-0); font-family: "SF Mono", monospace; }
+
+  /* ===== Modal ===== */
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,.65);
+    display: flex; align-items: center; justify-content: center; z-index: 100;
+    backdrop-filter: blur(4px);
+  }
+  .modal {
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 22px; width: 460px; max-width: 90vw;
+    box-shadow: var(--shadow-lg);
+  }
+  .modal h3 { margin: 0 0 10px; font-size: 16px; }
+  .modal p { color: var(--text-1); font-size: 12px; line-height: 1.6; margin: 0 0 14px; }
+  .modal .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+
+  /* ===== Subscriber Overlay ===== */
+  .subscribers-list {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-top: 4px;
+  }
+  .subscribers-list .item {
+    font-size: 11px; padding: 3px 0;
+    display: flex; justify-content: space-between;
+    font-family: "SF Mono", monospace;
+  }
+  .subscribers-list .item .name { color: var(--cyan); }
+  .subscribers-list .item .event { color: var(--text-2); font-size: 10px; }
+  .subscribers-list .empty { color: var(--text-2); font-style: italic; font-size: 11px; }
+
+  /* ===== Hint Chip ===== */
+  .hint {
+    font-size: 10px; color: var(--text-2); margin-top: 4px;
+    padding: 4px 8px; background: rgba(91,141,239,.08); border-radius: 4px;
+  }
+</style>
+
+<link rel="stylesheet" href="vendor/reactflow.css" />
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="vendor/reactflow.umd.js"></script>
+<script src="vendor/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="env,react">
+const { useState, useCallback, useEffect, useMemo, useRef } = React;
+const RF = window.ReactFlow;
+const { ReactFlow, Background, Controls, MiniMap, Handle, Position, addEdge, applyNodeChanges, applyEdgeChanges, MarkerType, ReactFlowProvider, useReactFlow } = RF;
+
+// =============================================================
+// 1. 事件驅動核心 v2 — Event Bus + Middleware + Event Sourcing
+// =============================================================
+const createEventBus = () => {
+  const listeners = new Map();   // event -> Set<fn>
+  const subscribers = new Map(); // event -> Set<subscriberName>
+  const middleware = [];         // [{name, fn}]
+  const eventLog = [];           // immutable event log (event sourcing)
+  let seq = 0;
+
+  return {
+    // 中介層註冊 (logger / throttle / validator 等)
+    use(mw) {
+      if (typeof mw === 'function') middleware.push({ name: mw.name || 'anonymous', fn: mw });
+      else if (mw && mw.fn) middleware.push(mw);
+      return this;
+    },
+    // 訂閱 (帶名稱,用於追蹤誰在聽什麼事件)
+    on(event, fn, name = 'anonymous') {
+      if (!listeners.has(event)) listeners.set(event, new Set());
+      if (!subscribers.has(event)) subscribers.set(event, new Set());
+      listeners.get(event).add(fn);
+      subscribers.get(event).add(name);
+      return () => {
+        listeners.get(event)?.delete(fn);
+        subscribers.get(event)?.delete(name);
+      };
+    },
+    // 發布事件 (經過 middleware pipeline)
+    emit(event, payload) {
+      const entry = { seq: ++seq, event, payload, ts: Date.now() };
+      // middleware pipeline
+      let p = entry;
+      for (const mw of middleware) {
+        try {
+          const result = mw.fn(p);
+          if (result === false) return; // middleware 拒絕
+          if (result && result.event) p = result; // middleware 修改
+        } catch (e) { console.error(`[mw:${mw.name}]`, e); }
+      }
+      // 寫入 event log (event sourcing)
+      eventLog.push(p);
+      if (eventLog.length > 500) eventLog.shift();
+      // 派發給訂閱者
+      listeners.get(p.event)?.forEach(fn => {
+        try { fn(p.payload); } catch (e) { console.error(`[bus:${p.event}]`, e); }
+      });
+      // 萬用監聽
+      listeners.get('*')?.forEach(fn => {
+        try { fn(p); } catch (e) { console.error('[bus:*]', e); }
+      });
+    },
+    // 取事件歷史 (event sourcing 核心)
+    getLog() { return [...eventLog]; },
+    // 取得某節點的所有訂閱者
+    getSubscribers(event) {
+      return Array.from(subscribers.get(event) || []);
+    },
+    // 重放到某個 seq
+    replay(uptoSeq) {
+      const log = eventLog.filter(e => e.seq <= uptoSeq);
+      log.forEach(e => {
+        listeners.get(e.event)?.forEach(fn => {
+          try { fn(e.payload); } catch (err) {}
+        });
+      });
+      return log.length;
+    },
+    clear() { listeners.clear(); subscribers.clear(); eventLog.length = 0; seq = 0; },
+  };
+};
+
+// 預設 middleware：logger + 節流
+const createLoggerMiddleware = () => ({
+  name: 'logger',
+  fn: (entry) => {
+    // 只記錄到 console 不影響流程
+    return entry;
+  },
+});
+
+const createThrottleMiddleware = (maxPerSec = 50) => {
+  const counts = new Map();
+  return {
+    name: 'throttle',
+    fn: (entry) => {
+      const sec = Math.floor(Date.now() / 1000);
+      const k = `${entry.event}:${sec}`;
+      counts.set(k, (counts.get(k) || 0) + 1);
+      if (counts.get(k) > maxPerSec) return false;
+      return entry;
+    },
+  };
+};
+
+// =============================================================
+// 2. 工作流節點類型 (擴充版:加入 Parallel Gateway / Error Boundary)
+// =============================================================
+const NODE_TYPES = {
+  trigger: {
+    label: '觸發器 Trigger', desc: '工作流起點 (Webhook/Cron/事件)', color: '#5b8def',
+    defaultData: { kind: 'trigger', subtype: 'webhook', status: 'idle' },
+  },
+  condition: {
+    label: '條件判斷 Condition', desc: 'If/Else 分支邏輯', color: '#7c5cff',
+    defaultData: { kind: 'condition', expression: 'input.value > 0', status: 'idle' },
+  },
+  parallel: {
+    label: '並行閘道 Parallel', desc: '同時執行所有下游分支', color: '#22d3ee',
+    defaultData: { kind: 'parallel', mode: 'fan-out', status: 'idle' },
+  },
+  action: {
+    label: '動作 Action', desc: '執行 API / 函式 / 命令', color: '#4ade80',
+    defaultData: { kind: 'action', subtype: 'http:POST', endpoint: 'https://api.example.com', status: 'idle' },
+  },
+  transform: {
+    label: '資料轉換 Transform', desc: 'Map / Filter / Aggregate', color: '#facc15',
+    defaultData: { kind: 'transform', subtype: 'map', script: 'item => ({ ...item, processed: true })', status: 'idle' },
+  },
+  errorBoundary: {
+    label: '錯誤邊界 ErrorBoundary', desc: '攔截上游錯誤,執行 fallback', color: '#f87171',
+    defaultData: { kind: 'errorBoundary', strategy: 'fallback', fallback: 'log.warn("recovered")', status: 'idle' },
+  },
+  output: {
+    label: '輸出 Output', desc: '寫回 DB / 推播 / 通知', color: '#fb923c',
+    defaultData: { kind: 'output', subtype: 'log', status: 'idle' },
+  },
+};
+
+// 計算每個節點的「訂閱者」(誰聽我 emit 的事件)
+const computeSubscribersForNode = (nodeId, edges, allNodes) => {
+  return edges.filter(e => e.source === nodeId).map(e => {
+    const target = allNodes.find(n => n.id === e.target);
+    return {
+      event: `node:${e.target}:start`,
+      name: target?.data?.label || target?.id || '?',
+    };
+  });
+};
+
+// =============================================================
+// 3. 自訂節點組件
+// =============================================================
+const WorkflowNode = ({ data, selected, edges, allNodes }) => {
+  const meta = NODE_TYPES[data.kind] || NODE_TYPES.action;
+  const status = data.status || 'idle';
+  const statusLabel = { idle: '待命', running: '執行中', success: '完成', error: '失敗' }[status];
+  const subs = useMemo(() => computeSubscribersForNode(data._nodeId, edges || [], allNodes || []), [data._nodeId, edges, allNodes]);
+
+  return (
+    <div className={`wf-node ${selected ? 'selected' : ''} ${status}`}>
+      <Handle type="target" position={Position.Left} />
+      <div className="head">
+        <span className="dot" style={{ background: meta.color, color: meta.color }} />
+        <span className="title">{data.label || meta.label}</span>
+        <span className="status">{statusLabel}</span>
+      </div>
+      <div className="body">
+        {data.kind === 'trigger' && (
+          <div className="row"><span className="k">類型</span><span className="v">{data.subtype}</span></div>
+        )}
+        {data.kind === 'condition' && (
+          <div className="row"><span className="k">表達式</span><span className="v">{data.expression?.slice(0, 20) || '...'}</span></div>
+        )}
+        {data.kind === 'parallel' && (
+          <div className="row"><span className="k">模式</span><span className="v">{data.mode}</span></div>
+        )}
+        {data.kind === 'action' && (
+          <>
+            <div className="row"><span className="k">動作</span><span className="v">{data.subtype}</span></div>
+            <div className="row"><span className="k">端點</span><span className="v">{data.endpoint?.slice(0, 18) || '...'}</span></div>
+          </>
+        )}
+        {data.kind === 'transform' && (
+          <div className="row"><span className="k">模式</span><span className="v">{data.subtype}</span></div>
+        )}
+        {data.kind === 'errorBoundary' && (
+          <div className="row"><span className="k">策略</span><span className="v">{data.strategy}</span></div>
+        )}
+        {data.kind === 'output' && (
+          <div className="row"><span className="k">目標</span><span className="v">{data.subtype}</span></div>
+        )}
+      </div>
+      <div className="foot">
+        <span>{data._nodeId}</span>
+        <span className="subs">→ {subs.length} sub</span>
+      </div>
+      <Handle type="source" position={Position.Right} />
+    </div>
+  );
+};
+
+const SubflowNode = ({ data, selected }) => (
+  <div className={`subflow-node ${selected ? 'selected' : ''}`} style={{ borderColor: selected ? 'var(--accent)' : 'var(--accent)' }}>
+    <span className="label">📦 {data.label || 'Subflow Group'}</span>
+  </div>
+);
+
+const nodeTypes = { workflow: WorkflowNode, subflow: SubflowNode };
+
+// =============================================================
+// 4. 工作流執行引擎 v2 — 支援並行 + 錯誤邊界 + 事件溯源
+// 演算法: 拓樸排序 → 偵測並行閘道 → 並行分支執行 → 錯誤傳播
+// =============================================================
+const buildAdjacency = (nodes, edges) => {
+  const adj = new Map();
+  nodes.forEach(n => adj.set(n.id, []));
+  edges.forEach(e => adj.get(e.source)?.push(e.target));
+  return adj;
+};
+
+const topologicalOrder = (nodes, edges) => {
+  const indeg = new Map(nodes.map(n => [n.id, 0]));
+  edges.forEach(e => indeg.set(e.target, (indeg.get(e.target) || 0) + 1));
+  const queue = [...indeg.entries()].filter(([, d]) => d === 0).map(([id]) => id);
+  const order = [];
+  const adj = buildAdjacency(nodes, edges);
+  while (queue.length) {
+    const id = queue.shift();
+    order.push(id);
+    adj.get(id)?.forEach(next => {
+      indeg.set(next, indeg.get(next) - 1);
+      if (indeg.get(next) === 0) queue.push(next);
+    });
+  }
+  return order;
+};
+
+// 模擬一個會失敗的節點
+const shouldFail = (node) => {
+  if (node.data.kind === 'condition' && node.data.expression?.includes('FAIL')) return true;
+  if (node.data.kind === 'action' && node.data.endpoint?.includes('fail')) return true;
+  return false;
+};
+
+const executeNode = async (node, bus) => {
+  bus.emit('node:start', { id: node.id, kind: node.data.kind, _nodeId: node.id });
+  await new Promise(r => setTimeout(r, 400 + Math.random() * 300));
+  if (shouldFail(node)) {
+    bus.emit('node:error', { id: node.id, kind: node.data.kind, reason: 'expression contains FAIL' });
+    return { success: false, error: true };
+  }
+  bus.emit('node:success', { id: node.id, kind: node.data.kind });
+  return { success: true };
+};
+
+// 並行執行器: 從一組 root 開始,遇到 parallel 觸發 fan-out
+const runWorkflow = async (nodes, edges, bus, onProgress) => {
+  bus.emit('workflow:start', { total: nodes.length, ts: Date.now() });
+  const order = topologicalOrder(nodes, edges);
+  if (order.length !== nodes.length) {
+    bus.emit('workflow:error', { reason: '圖中存在循環依賴 (DAG violation)' });
+    return { success: false };
+  }
+
+  const visited = new Set();
+  const errored = new Set();
+  const completed = new Set();
+
+  // 從所有 indeg=0 的節點開始並行
+  const indeg = new Map(nodes.map(n => [n.id, 0]));
+  edges.forEach(e => indeg.set(e.target, (indeg.get(e.target) || 0) + 1));
+  const roots = [...indeg.entries()].filter(([, d]) => d === 0).map(([id]) => id);
+
+  const executeFromRoot = async (rootId) => {
+    const stack = [rootId];
+    while (stack.length) {
+      const id = stack.shift();
+      if (visited.has(id) || errored.has(id)) continue;
+      visited.add(id);
+      const node = nodes.find(n => n.id === id);
+      if (!node) continue;
+
+      // 檢查上游錯誤邊界
+      const upstreamEdges = edges.filter(e => e.target === id);
+      const hasFailedUpstream = upstreamEdges.some(e => errored.has(e.source));
+      const hasErrorBoundary = upstreamEdges.some(e => {
+        const u = nodes.find(n => n.id === e.source);
+        return u?.data.kind === 'errorBoundary' && completed.has(u.id);
+      });
+
+      if (hasFailedUpstream && !hasErrorBoundary) {
+        bus.emit('node:skip', { id, reason: 'upstream failed' });
+        errored.add(id);
+        continue;
+      }
+
+      onProgress && onProgress(id);
+      const result = await executeNode(node, bus);
+
+      if (result.success) {
+        completed.add(id);
+        // 觸發下游 + 沿 edge 發送 data token 動畫
+        const downstream = edges.filter(e => e.source === id);
+        const downstreamIds = downstream.map(e => e.target);
+        downstream.forEach(e => bus.emit('edge:traverse', { edgeId: e.id, from: id, to: e.target }));
+        // 並行閘道: fan-out 模式 — 把所有下游同時推入
+        if (node.data.kind === 'parallel' && node.data.mode === 'fan-out') {
+          bus.emit('parallel:fanout', { from: id, targets: downstreamIds });
+          stack.push(...downstreamIds);
+        } else {
+          stack.push(...downstreamIds);
+        }
+      } else {
+        errored.add(id);
+        bus.emit('node:error:propagate', { id, downstream: edges.filter(e => e.source === id).map(e => e.target) });
+      }
+    }
+  };
+
+  // 並行執行所有 root
+  await Promise.all(roots.map(r => executeFromRoot(r)));
+
+  const ok = errored.size === 0;
+  bus.emit(ok ? 'workflow:complete' : 'workflow:complete:partial', {
+    total: nodes.length, succeeded: completed.size, errored: errored.size,
+  });
+  return { success: ok, completed: completed.size, errored: errored.size };
+};
+
+// =============================================================
+// 5. 主應用
+// =============================================================
+const App = () => {
+  const [nodes, setNodes] = useState([]);
+  const [edges, setEdges] = useState([]);
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [selectedEdge, setSelectedEdge] = useState(null);
+  const [events, setEvents] = useState([]);
+  const [eventLog, setEventLog] = useState([]);
+  const [running, setRunning] = useState(false);
+  const [activeTab, setActiveTab] = useState('inspector'); // inspector | replay
+  const [showHelp, setShowHelp] = useState(true);
+  const [replayCursor, setReplayCursor] = useState(0);
+  const [replaying, setReplaying] = useState(false);
+  const [activeTokens, setActiveTokens] = useState([]); // 沿 edge 流動的 data token
+  const [stats, setStats] = useState({ nodes: 0, edges: 0, runs: 0, succeeded: 0, errored: 0, throughput: 0 });
+  const busRef = useRef(null);
+  const reactFlowWrapper = useRef(null);
+  const idRef = useRef(1);
+  const tokenTimersRef = useRef([]);
+  // 模組級別 bus (確保 useEffect 可立即訂閱)
+  if (!busRef.current) {
+    busRef.current = createEventBus()
+      .use(createLoggerMiddleware())
+      .use(createThrottleMiddleware(100));
+  }
+
+  // 事件訂閱 (反映到 UI)
+  useEffect(() => {
+    const bus = busRef.current;
+    if (!bus) return;
+    const off1 = bus.on('*', (entry) => {
+      const ts = new Date(entry.ts).toLocaleTimeString('zh-TW', { hour12: false });
+      setEvents(prev => [{ ts, ...entry, key: entry.seq }, ...prev].slice(0, 100));
+      setEventLog(prev => [...prev, entry]);
+    });
+    return off1;
+  }, [busRef.current]);
+
+  // 節點狀態聯動
+  useEffect(() => {
+    if (!busRef.current) return;
+    const bus = busRef.current;
+    const offs = [
+      bus.on('node:start', ({ id }) => {
+        setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, status: 'running' } } : n));
+      }),
+      bus.on('node:success', ({ id }) => {
+        setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, status: 'success' } } : n));
+      }),
+      bus.on('node:error', ({ id }) => {
+        setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, status: 'error' } } : n));
+      }),
+      bus.on('node:error:propagate', ({ id, downstream }) => {
+        // 標記下游為 skipped (灰色)
+        downstream.forEach(d => {
+          setNodes(ns => ns.map(n => n.id === d && n.data.status === 'idle'
+            ? { ...n, data: { ...n.data, status: 'skipped' } }
+            : n));
+        });
+      }),
+      bus.on('node:skip', ({ id }) => {
+        setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, status: 'skipped' } } : n));
+      }),
+      bus.on('parallel:fanout', ({ from, targets }) => {
+        // 沿 fan-out 邊產生 data token
+        targets.forEach(t => {
+          const edge = edges.find(e => e.source === from && e.target === t);
+          if (edge) emitDataToken(edge.id);
+        });
+      }),
+      bus.on('edge:traverse', ({ edgeId }) => emitDataToken(edgeId)),
+      bus.on('workflow:complete', () => {
+        setStats(s => ({ ...s, runs: s.runs + 1, succeeded: s.succeeded + 1, throughput: s.succeeded + 1 }));
+        setTimeout(() => setNodes(ns => ns.map(n => ({ ...n, data: { ...n.data, status: n.data.status === 'skipped' ? 'idle' : 'idle' } }))), 1800);
+        setTimeout(() => setActiveTokens([]), 1800);
+      }),
+      bus.on('workflow:complete:partial', () => {
+        setStats(s => ({ ...s, runs: s.runs + 1, errored: s.errored + 1 }));
+        setTimeout(() => setNodes(ns => ns.map(n => ({ ...n, data: { ...n.data, status: 'idle' } }))), 1800);
+        setTimeout(() => setActiveTokens([]), 1800);
+      }),
+    ];
+    return () => offs.forEach(o => o());
+  }, [busRef.current, edges]);
+
+  // 統計
+  useEffect(() => {
+    setStats(s => ({ ...s, nodes: nodes.length, edges: edges.length }));
+  }, [nodes, edges]);
+
+  // Data token 動畫:沿 edge 從 source 到 target 飛
+  const emitDataToken = (edgeId) => {
+    const id = `${edgeId}-${Date.now()}-${Math.random()}`;
+    setActiveTokens(prev => [...prev, { id, edgeId, ts: Date.now() }]);
+    const timer = setTimeout(() => {
+      setActiveTokens(prev => prev.filter(t => t.id !== id));
+    }, 1200);
+    tokenTimersRef.current.push(timer);
+  };
+
+  // React Flow handlers
+  const onNodesChange = useCallback((changes) => {
+    setNodes(ns => applyNodeChanges(changes, ns));
+  }, []);
+  const onEdgesChange = useCallback((changes) => {
+    setEdges(es => applyEdgeChanges(changes, es));
+  }, []);
+  const onConnect = useCallback((conn) => {
+    setEdges(es => addEdge({
+      ...conn,
+      animated: true,
+      style: { stroke: '#5b8def' },
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#5b8def' },
+    }, es));
+    busRef.current?.emit('edge:create', { from: conn.source, to: conn.target });
+  }, []);
+  const onNodeClick = useCallback((_, node) => { setSelectedNode(node); setSelectedEdge(null); }, []);
+  const onEdgeClick = useCallback((_, edge) => { setSelectedEdge(edge); setSelectedNode(null); }, []);
+  const onPaneClick = useCallback(() => { setSelectedNode(null); setSelectedEdge(null); }, []);
+
+  // 拖放新增
+  const onDragStart = (e, kind) => {
+    e.dataTransfer.setData('application/reactflow', kind);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+  const onDragOver = useCallback((e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  }, []);
+  const onDrop = useCallback((e) => {
+    e.preventDefault();
+    const kind = e.dataTransfer.getData('application/reactflow');
+    if (!kind || !NODE_TYPES[kind]) return;
+    const bounds = reactFlowWrapper.current.getBoundingClientRect();
+    const position = {
+      x: e.clientX - bounds.left - 105,
+      y: e.clientY - bounds.top - 40,
+    };
+    const meta = NODE_TYPES[kind];
+    const id = `n${idRef.current++}`;
+    const newNode = {
+      id, type: 'workflow', position,
+      data: { ...meta.defaultData, label: meta.label, _nodeId: id },
+    };
+    setNodes(ns => ns.concat(newNode));
+    busRef.current?.emit('node:create', { id, kind });
+  }, []);
+
+  // 編輯節點
+  const updateSelectedNode = (field, value) => {
+    if (!selectedNode) return;
+    setNodes(ns => ns.map(n => n.id === selectedNode.id
+      ? { ...n, data: { ...n.data, [field]: value } }
+      : n
+    ));
+    setSelectedNode(sn => sn ? { ...sn, data: { ...sn.data, [field]: value } } : sn);
+    busRef.current?.emit('node:update', { id: selectedNode.id, field, value });
+  };
+
+  const deleteSelected = () => {
+    if (selectedNode) {
+      const id = selectedNode.id;
+      setNodes(ns => ns.filter(n => n.id !== id));
+      setEdges(es => es.filter(e => e.source !== id && e.target !== id));
+      setSelectedNode(null);
+      busRef.current?.emit('node:delete', { id });
+    } else if (selectedEdge) {
+      const id = selectedEdge.id;
+      setEdges(es => es.filter(e => e.id !== id));
+      setSelectedEdge(null);
+      busRef.current?.emit('edge:delete', { id });
+    }
+  };
+
+  const clearAll = () => {
+    setNodes([]); setEdges([]); setSelectedNode(null); setSelectedEdge(null);
+    setEvents([]); setEventLog([]); setReplayCursor(0); setActiveTokens([]);
+    busRef.current?.emit('workflow:clear', {});
+  };
+
+  // 載入展示範例 (含 parallel + errorBoundary)
+  const loadDemo = () => {
+    const demoNodes = [
+      { id: 'd1', type: 'workflow', position: { x: 30, y: 120 },
+        data: { kind: 'trigger', subtype: 'webhook', label: '📥 Webhook 收到訂單', _nodeId: 'd1', status: 'idle' } },
+      { id: 'd2', type: 'workflow', position: { x: 280, y: 120 },
+        data: { kind: 'condition', expression: 'payload.amount > 1000', label: '🔍 金額檢查', _nodeId: 'd2', status: 'idle' } },
+      { id: 'd3', type: 'workflow', position: { x: 530, y: 30 },
+        data: { kind: 'action', subtype: 'http:POST', endpoint: 'https://audit.api/review', label: '📋 送審核', _nodeId: 'd3', status: 'idle' } },
+      { id: 'd4', type: 'workflow', position: { x: 530, y: 200 },
+        data: { kind: 'action', subtype: 'http:POST', endpoint: 'https://audit.api/auto-approve', label: '✅ 自動批准', _nodeId: 'd4', status: 'idle' } },
+      { id: 'd5', type: 'workflow', position: { x: 780, y: 120 },
+        data: { kind: 'parallel', mode: 'fan-out', label: '⚡ 並行處理', _nodeId: 'd5', status: 'idle' } },
+      { id: 'd6', type: 'workflow', position: { x: 1030, y: 30 },
+        data: { kind: 'transform', subtype: 'map', script: 'o => ({...o, formatted: true})', label: '🔄 格式化資料', _nodeId: 'd6', status: 'idle' } },
+      { id: 'd7', type: 'workflow', position: { x: 1030, y: 130 },
+        data: { kind: 'action', subtype: 'http:POST', endpoint: 'https://notify.api/send', label: '📧 寄送 Email', _nodeId: 'd7', status: 'idle' } },
+      { id: 'd8', type: 'workflow', position: { x: 1030, y: 230 },
+        data: { kind: 'action', subtype: 'http:POST', endpoint: 'https://db.api/insert', label: '💾 寫入 DB', _nodeId: 'd8', status: 'idle' } },
+      { id: 'd9', type: 'workflow', position: { x: 1280, y: 130 },
+        data: { kind: 'output', subtype: 'notify', label: '🎉 完成通知', _nodeId: 'd9', status: 'idle' } },
+    ];
+    const demoEdges = [
+      { id: 'e1-2', source: 'd1', target: 'd2', animated: true, style: { stroke: '#5b8def' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#5b8def' } },
+      { id: 'e2-3', source: 'd2', target: 'd3', label: '> 1000', animated: true, style: { stroke: '#7c5cff' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#7c5cff' } },
+      { id: 'e2-4', source: 'd2', target: 'd4', label: '≤ 1000', animated: true, style: { stroke: '#7c5cff' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#7c5cff' } },
+      { id: 'e3-5', source: 'd3', target: 'd5', animated: true, style: { stroke: '#4ade80' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#4ade80' } },
+      { id: 'e4-5', source: 'd4', target: 'd5', animated: true, style: { stroke: '#4ade80' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#4ade80' } },
+      { id: 'e5-6', source: 'd5', target: 'd6', animated: true, style: { stroke: '#22d3ee' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#22d3ee' } },
+      { id: 'e5-7', source: 'd5', target: 'd7', animated: true, style: { stroke: '#22d3ee' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#22d3ee' } },
+      { id: 'e5-8', source: 'd5', target: 'd8', animated: true, style: { stroke: '#22d3ee' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#22d3ee' } },
+      { id: 'e6-9', source: 'd6', target: 'd9', animated: true, style: { stroke: '#fb923c' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#fb923c' } },
+      { id: 'e7-9', source: 'd7', target: 'd9', animated: true, style: { stroke: '#fb923c' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#fb923c' } },
+      { id: 'e8-9', source: 'd8', target: 'd9', animated: true, style: { stroke: '#fb923c' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#fb923c' } },
+    ];
+    setNodes(demoNodes);
+    setEdges(demoEdges);
+    setSelectedNode(null);
+    setSelectedEdge(null);
+    idRef.current = 100;
+    busRef.current?.emit('workflow:load', { nodes: demoNodes.length, edges: demoEdges.length });
+  };
+
+  const executeWorkflow = async () => {
+    if (running || nodes.length === 0) return;
+    setRunning(true);
+    await runWorkflow(nodes, edges, busRef.current);
+    setRunning(false);
+  };
+
+  // 匯出 JSON
+  const exportJSON = () => {
+    const data = { nodes, edges, exportedAt: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'workflow.json'; a.click();
+    URL.revokeObjectURL(url);
+    busRef.current?.emit('workflow:export', { nodes: nodes.length });
+  };
+
+  // 重放
+  const startReplay = () => {
+    if (eventLog.length === 0) return;
+    setReplaying(true);
+    setReplayCursor(0);
+  };
+
+  useEffect(() => {
+    if (!replaying) return;
+    if (replayCursor >= eventLog.length) {
+      setReplaying(false);
+      return;
+    }
+    const entry = eventLog[replayCursor];
+    busRef.current?.emit(entry.event, entry.payload); // 重新觸發
+    const timer = setTimeout(() => setReplayCursor(c => c + 1), 250);
+    return () => clearTimeout(timer);
+  }, [replaying, replayCursor, eventLog]);
+
+  // 渲染自訂節點時注入 edges/allNodes 進 data
+  const nodesForRender = useMemo(() => nodes.map(n => ({
+    ...n,
+    data: { ...n.data, _edges: edges, _allNodes: nodes },
+  })), [nodes, edges]);
+
+  return (
+    <div className="app">
+      {/* ===== Sidebar: Node Palette ===== */}
+      <div className="sidebar">
+        <div className="panel-head">節點元件庫 <span className="badge">{Object.keys(NODE_TYPES).length}</span></div>
+        <div className="palette">
+          {Object.entries(NODE_TYPES).map(([key, meta]) => (
+            <div
+              key={key}
+              className="palette-item"
+              draggable
+              onDragStart={(e) => onDragStart(e, key)}
+              title="拖曳到畫布新增節點"
+            >
+              <span className="dot" style={{ background: meta.color, color: meta.color }} />
+              <div className="meta">
+                <div className="name">{meta.label}</div>
+                <div className="desc">{meta.desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="toolbar">
+          <button className="btn primary" onClick={loadDemo} title="載入展示用工作流 (含 parallel)">載入範例</button>
+          <button className="btn" onClick={executeWorkflow} disabled={running || nodes.length === 0}>
+            {running ? '⏳ 執行中...' : '▶ 執行'}
+          </button>
+          <button className="btn" onClick={exportJSON} disabled={nodes.length === 0}>匯出 JSON</button>
+          <button className="btn warn" onClick={() => setActiveTokens([])}>清除動畫</button>
+          <button className="btn danger" onClick={clearAll} disabled={nodes.length === 0}>清空</button>
+        </div>
+        <div className="metrics-strip">
+          <div className="metric"><span>節點</span><span className="v">{stats.nodes}</span></div>
+          <div className="metric"><span>連線</span><span className="v">{stats.edges}</span></div>
+          <div className="metric"><span>成功</span><span className="v ok">{stats.succeeded}</span></div>
+          <div className="metric"><span>失敗</span><span className="v err">{stats.errored}</span></div>
+        </div>
+      </div>
+
+      {/* ===== Canvas ===== */}
+      <div className="canvas-wrap" ref={reactFlowWrapper}>
+        <div className="rf-wrapper">
+          <ReactFlow
+            nodes={nodesForRender}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onNodeClick={onNodeClick}
+            onEdgeClick={onEdgeClick}
+            onPaneClick={onPaneClick}
+            onDrop={onDrop}
+            onDragOver={onDragOver}
+            nodeTypes={nodeTypes}
+            fitView
+            proOptions={{ hideAttribution: true }}
+          >
+            <Background color="#1a2236" gap={20} />
+            <Controls />
+            <MiniMap
+              nodeColor={(n) => NODE_TYPES[n.data?.kind]?.color || '#5b8def'}
+              maskColor="rgba(10,14,26,0.7)"
+            />
+          </ReactFlow>
+        </div>
+        <div className="statusbar">
+          <div className="item"><span className="dot" />事件總線已連線</div>
+          <div className="item">節點: <strong>{stats.nodes}</strong></div>
+          <div className="item">連線: <strong>{stats.edges}</strong></div>
+          <div className="item">執行: <strong>{stats.runs}</strong></div>
+          <div className="item">事件 log: <strong>{eventLog.length}</strong></div>
+          <div className="item" style={{ marginLeft: 'auto', color: 'var(--text-2)' }}>
+            Event Bus + Middleware + Event Sourcing · 拖曳左側元件到畫布
+          </div>
+        </div>
+      </div>
+
+      {/* ===== Inspector + Event Log ===== */}
+      <div className="inspector">
+        <div className="tabs">
+          <div className={`tab ${activeTab === 'inspector' ? 'active' : ''}`} onClick={() => setActiveTab('inspector')}>屬性 / 訂閱者</div>
+          <div className={`tab ${activeTab === 'replay' ? 'active' : ''}`} onClick={() => setActiveTab('replay')}>事件溯源 / Replay</div>
+        </div>
+
+        {activeTab === 'inspector' && (
+          <div className="inspector-body">
+            {selectedNode ? (
+              <div>
+                <div className="field">
+                  <label>節點 ID</label>
+                  <input value={selectedNode.id} disabled />
+                </div>
+                <div className="field">
+                  <label>節點標題</label>
+                  <input
+                    value={selectedNode.data.label || ''}
+                    onChange={e => updateSelectedNode('label', e.target.value)}
+                  />
+                </div>
+                {selectedNode.data.kind === 'trigger' && (
+                  <div className="field">
+                    <label>觸發子類型</label>
+                    <select
+                      value={selectedNode.data.subtype}
+                      onChange={e => updateSelectedNode('subtype', e.target.value)}
+                    >
+                      <option value="webhook">Webhook</option>
+                      <option value="cron">Cron 排程</option>
+                      <option value="event">事件監聽</option>
+                      <option value="manual">手動觸發</option>
+                    </select>
+                  </div>
+                )}
+                {selectedNode.data.kind === 'condition' && (
+                  <div className="field">
+                    <label>條件表達式 (JavaScript)</label>
+                    <textarea
+                      value={selectedNode.data.expression || ''}
+                      onChange={e => updateSelectedNode('expression', e.target.value)}
+                      placeholder="input.value > 0"
+                    />
+                    <div className="hint">包含 "FAIL" 會在執行時觸發錯誤 (用於測試)</div>
+                  </div>
+                )}
+                {selectedNode.data.kind === 'parallel' && (
+                  <div className="field">
+                    <label>並行模式</label>
+                    <select
+                      value={selectedNode.data.mode}
+                      onChange={e => updateSelectedNode('mode', e.target.value)}
+                    >
+                      <option value="fan-out">Fan-out (廣播到所有下游)</option>
+                      <option value="race">Race (競速,首個完成即觸發)</option>
+                      <option value="join">Join (等待所有上游)</option>
+                    </select>
+                  </div>
+                )}
+                {selectedNode.data.kind === 'action' && (
+                  <>
+                    <div className="field">
+                      <label>動作類型</label>
+                      <select
+                        value={selectedNode.data.subtype}
+                        onChange={e => updateSelectedNode('subtype', e.target.value)}
+                      >
+                        <option value="http:GET">HTTP GET</option>
+                        <option value="http:POST">HTTP POST</option>
+                        <option value="http:PUT">HTTP PUT</option>
+                        <option value="function">執行函式</option>
+                        <option value="command">Shell 命令</option>
+                      </select>
+                    </div>
+                    <div className="field">
+                      <label>端點 / 腳本</label>
+                      <input
+                        value={selectedNode.data.endpoint || ''}
+                        onChange={e => updateSelectedNode('endpoint', e.target.value)}
+                        placeholder="https://... (含 'fail' 觸發錯誤)"
+                      />
+                    </div>
+                  </>
+                )}
+                {selectedNode.data.kind === 'transform' && (
+                  <>
+                    <div className="field">
+                      <label>轉換模式</label>
+                      <select
+                        value={selectedNode.data.subtype}
+                        onChange={e => updateSelectedNode('subtype', e.target.value)}
+                      >
+                        <option value="map">Map</option>
+                        <option value="filter">Filter</option>
+                        <option value="reduce">Reduce</option>
+                        <option value="aggregate">Aggregate</option>
+                      </select>
+                    </div>
+                    <div className="field">
+                      <label>轉換腳本 (JS)</label>
+                      <textarea
+                        value={selectedNode.data.script || ''}
+                        onChange={e => updateSelectedNode('script', e.target.value)}
+                      />
+                    </div>
+                  </>
+                )}
+                {selectedNode.data.kind === 'errorBoundary' && (
+                  <>
+                    <div className="field">
+                      <label>錯誤策略</label>
+                      <select
+                        value={selectedNode.data.strategy}
+                        onChange={e => updateSelectedNode('strategy', e.target.value)}
+                      >
+                        <option value="fallback">Fallback (執行備援)</option>
+                        <option value="retry">Retry (重試 N 次)</option>
+                        <option value="skip">Skip (跳過此節點)</option>
+                        <option value="halt">Halt (停止工作流)</option>
+                      </select>
+                    </div>
+                    <div className="field">
+                      <label>備援代碼 (JS)</label>
+                      <textarea
+                        value={selectedNode.data.fallback || ''}
+                        onChange={e => updateSelectedNode('fallback', e.target.value)}
+                      />
+                    </div>
+                  </>
+                )}
+                {selectedNode.data.kind === 'output' && (
+                  <div className="field">
+                    <label>輸出目標</label>
+                    <select
+                      value={selectedNode.data.subtype}
+                      onChange={e => updateSelectedNode('subtype', e.target.value)}
+                    >
+                      <option value="log">Log</option>
+                      <option value="notify">推播通知</option>
+                      <option value="db:write">DB 寫入</option>
+                      <option value="email">寄信</option>
+                    </select>
+                  </div>
+                )}
+
+                {/* Subscriber Overlay */}
+                <div className="field">
+                  <label>訂閱此節點事件的下游 ({computeSubscribersForNode(selectedNode.id, edges, nodes).length})</label>
+                  <div className="subscribers-list">
+                    {computeSubscribersForNode(selectedNode.id, edges, nodes).length === 0 ? (
+                      <div className="empty">無下游訂閱者</div>
+                    ) : (
+                      computeSubscribersForNode(selectedNode.id, edges, nodes).map((s, i) => (
+                        <div key={i} className="item">
+                          <span className="name">{s.name}</span>
+                          <span className="event">↳ {s.event}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <button className="btn danger" onClick={deleteSelected} style={{ width: '100%', marginTop: 8 }}>
+                  刪除此節點
+                </button>
+              </div>
+            ) : selectedEdge ? (
+              <div>
+                <div className="field">
+                  <label>Edge ID</label>
+                  <input value={selectedEdge.id} disabled />
+                </div>
+                <div className="field">
+                  <label>Source → Target</label>
+                  <input value={`${selectedEdge.source} → ${selectedEdge.target}`} disabled />
+                </div>
+                <div className="hint">點擊任一節點或空白處取消選擇</div>
+                <button className="btn danger" onClick={deleteSelected} style={{ width: '100%', marginTop: 8 }}>
+                  刪除此連線
+                </button>
+              </div>
+            ) : (
+              <div className="empty-state">
+                <div className="icon">⚙</div>
+                <div>點擊畫布上任一節點<br />或連線以編輯屬性</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'replay' && (
+          <div className="inspector-body">
+            <div className="field">
+              <label>事件溯源 Event Sourcing</label>
+              <div className="hint">
+                所有事件都寫入 immutable log,可隨時 replay。<br/>
+                目前事件總數: <strong style={{ color: 'var(--cyan)' }}>{eventLog.length}</strong>
+              </div>
+            </div>
+            <div className="replay-panel">
+              <div className="title">Replay 控制</div>
+              <div className="controls">
+                <button className="btn primary" onClick={startReplay} disabled={eventLog.length === 0 || replaying}>
+                  {replaying ? '⏵ 重放中...' : '▶ 開始 Replay'}
+                </button>
+                <button className="btn" onClick={() => { setReplaying(false); setReplayCursor(0); }}>
+                  ⏹ 停止
+                </button>
+              </div>
+              <div className="progress">
+                進度: {replayCursor} / {eventLog.length}
+                {eventLog.length > 0 && (
+                  <div style={{ marginTop: 4, height: 4, background: 'var(--bg-3)', borderRadius: 2, overflow: 'hidden' }}>
+                    <div style={{ width: `${(replayCursor / eventLog.length) * 100}%`, height: '100%', background: 'var(--cyan)', transition: 'width .2s' }} />
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="field">
+              <label>Event Log (Immutable)</label>
+              <div style={{ fontSize: 10, color: 'var(--text-2)', fontFamily: 'monospace', maxHeight: 200, overflowY: 'auto', background: 'var(--bg-2)', padding: 8, borderRadius: 4, border: '1px solid var(--border)' }}>
+                {eventLog.slice(-30).reverse().map(e => (
+                  <div key={e.seq} style={{ padding: '2px 0' }}>
+                    <span style={{ color: 'var(--text-2)' }}>#{e.seq}</span>{' '}
+                    <span style={{ color: 'var(--cyan)' }}>{e.event}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="panel-head">
+          即時事件流 <span className="badge">{events.length}</span>
+        </div>
+        <div className="event-log">
+          {events.length === 0 ? (
+            <div className="log-empty">尚無事件 · 點擊「執行」或操作節點</div>
+          ) : (
+            events.map(e => {
+              const tag = e.event.split(':')[0];
+              return (
+                <div key={e.key} className={`event-row ${tag}`}>
+                  <span className="ts">#{e.seq}</span>
+                  <span className="tag">{e.event}</span>
+                  <span className="msg">
+                    {e.event === 'workflow:start' && `開始執行 (${e.payload.total} 節點)`}
+                    {e.event === 'workflow:complete' && `全部完成 ✓`}
+                    {e.event === 'workflow:complete:partial' && `部分完成 (成功 ${e.payload.succeeded} / 失敗 ${e.payload.errored})`}
+                    {e.event === 'workflow:error' && `錯誤: ${e.payload.reason}`}
+                    {e.event === 'workflow:clear' && '工作流已清空'}
+                    {e.event === 'workflow:load' && `載入範例 (${e.payload.nodes} 節點)`}
+                    {e.event === 'workflow:export' && `匯出 JSON (${e.payload.nodes} 節點)`}
+                    {e.event === 'node:create' && `新增 [${e.payload.kind}]`}
+                    {e.event === 'node:update' && `更新 ${e.payload.field}`}
+                    {e.event === 'node:delete' && `刪除 ${e.payload.id}`}
+                    {e.event === 'node:start' && `執行 [${e.payload.kind}] ${e.payload.id}`}
+                    {e.event === 'node:success' && `完成 [${e.payload.kind}] ${e.payload.id}`}
+                    {e.event === 'node:error' && `失敗 [${e.payload.kind}] - ${e.payload.reason || ''}`}
+                    {e.event === 'node:error:propagate' && `錯誤向下傳播`}
+                    {e.event === 'node:skip' && `跳過 ${e.payload.id} (${e.payload.reason})`}
+                    {e.event === 'parallel:fanout' && `並行 fan-out → ${e.payload.targets.length} 分支`}
+                    {e.event === 'edge:create' && `建立連線 ${e.payload.from} → ${e.payload.to}`}
+                    {e.event === 'edge:delete' && `刪除連線 ${e.payload.id}`}
+                    {e.event === 'edge:traverse' && `傳遞 ${e.payload.from} → ${e.payload.to}`}
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {/* ===== Help Modal ===== */}
+      {showHelp && (
+        <div className="modal-bg" onClick={() => setShowHelp(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h3>⚡ React Flow 動態工作流引擎 v2</h3>
+            <p>
+              <strong>本版新增 4 大特性（v1 → v2）：</strong>
+            </p>
+            <p style={{ fontSize: 11 }}>
+              1. <strong style={{ color: 'var(--cyan)' }}>Event Sourcing</strong> — 所有事件寫入 immutable log,支援 Replay<br/>
+              2. <strong style={{ color: 'var(--cyan)' }}>Middleware Pipeline</strong> — 事件經過 logger + throttle,可擴充 validator/rate-limiter<br/>
+              3. <strong style={{ color: 'var(--cyan)' }}>Parallel Gateway</strong> — 新節點類型,fan-out 模式並行執行多分支<br/>
+              4. <strong style={{ color: 'var(--cyan)' }}>Subscriber Overlay</strong> — 點擊節點查看「誰在訂閱我 emit 的事件」<br/>
+              5. <strong style={{ color: 'var(--cyan)' }}>Error Boundary + Retry</strong> — 攔截上游錯誤,執行 fallback 策略<br/>
+              6. <strong style={{ color: 'var(--cyan)' }}>Data Token Animation</strong> — 執行時資料包沿 edge 視覺化流動
+            </p>
+            <p style={{ fontSize: 11, color: 'var(--text-2)' }}>
+              核心架構: Event Bus (含 middleware + event sourcing) + DAG Runner (含並行 + 錯誤傳播) + React Flow 視覺化。
+            </p>
+            <div className="actions">
+              <button className="btn primary" onClick={() => { setShowHelp(false); loadDemo(); }}>
+                載入範例並開始
+              </button>
+              <button className="btn" onClick={() => setShowHelp(false)}>略過</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<ReactFlowProvider><App /></ReactFlowProvider>);
+</script>
+</body>
+</html>

@@ -1,0 +1,1119 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>FormForge — 動態表單生成器 (Next.js + Tailwind 設計系統)</title>
+
+  <!-- Tailwind CSS via CDN (production-grade design tokens, JIT, dark mode) -->
+  <script src="https://cdn.tailwindcss.com/3.4.10"></script>
+  <script>
+    // Tailwind config — design system tokens (mirrors tailwind.config.ts)
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            // Design system palette: slate-based with cyan/lime accents
+            ink:    { 50:'#f8fafc', 100:'#f1f5f9', 200:'#e2e8f0', 300:'#cbd5e1', 400:'#94a3b8', 500:'#64748b', 600:'#475569', 700:'#334155', 800:'#1e293b', 900:'#0f172a', 950:'#020617' },
+            brand:  { 50:'#ecfeff', 100:'#cffafe', 200:'#a5f3fc', 300:'#67e8f9', 400:'#22d3ee', 500:'#06b6d4', 600:'#0891b2', 700:'#0e7490', 800:'#155e75', 900:'#164e63' },
+            accent: { 400:'#a3e635', 500:'#84cc16', 600:'#65a30d' },
+            warn:   { 400:'#fbbf24', 500:'#f59e0b' },
+            danger: { 400:'#f87171', 500:'#ef4444', 600:'#dc2626' },
+          },
+          fontFamily: {
+            sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
+            mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+          },
+          boxShadow: {
+            'glow-brand': '0 0 0 1px rgba(34,211,238,.4), 0 8px 28px -8px rgba(34,211,238,.45)',
+            'glow-accent':'0 0 0 1px rgba(163,230,53,.4), 0 8px 28px -8px rgba(163,230,53,.45)',
+            'panel':      '0 24px 60px -20px rgba(0,0,0,.45)',
+          },
+          animation: {
+            'fade-in':   'fadeIn .25s ease-out',
+            'slide-up':  'slideUp .3s ease-out',
+            'pulse-dot': 'pulseDot 1.6s ease-in-out infinite',
+          },
+          keyframes: {
+            fadeIn:   { '0%':{opacity:0}, '100%':{opacity:1} },
+            slideUp:  { '0%':{opacity:0, transform:'translateY(8px)'}, '100%':{opacity:1, transform:'translateY(0)'} },
+            pulseDot: { '0%,100%':{opacity:1}, '50%':{opacity:.4} },
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- React 18 production + Babel (for in-browser JSX) -->
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    /* Base reset + design system foundations */
+    :root {
+      --bg: #07111f;
+      --panel: #0d1b2d;
+      --panel-2: #10243b;
+      --line: #1c3856;
+      --line-soft: rgba(28, 56, 86, .55);
+      --text: #e6f0fb;
+      --muted: #92abc2;
+      --brand: #22d3ee;
+      --accent: #a3e635;
+      --warn: #fbbf24;
+      --danger: #f87171;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+      background:
+        radial-gradient(circle at 88% -10%, rgba(34, 211, 238, .14), transparent 36rem),
+        radial-gradient(circle at -10% 80%, rgba(163, 230, 53, .10), transparent 28rem),
+        linear-gradient(160deg, #07111f 0%, #091727 60%, #08131f 100%);
+      color: var(--text);
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+    ::selection { background: rgba(34, 211, 238, .35); color: #fff; }
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: rgba(255,255,255,.02); }
+    ::-webkit-scrollbar-thumb { background: rgba(28, 56, 86, .8); border-radius: 8px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(28, 56, 86, 1); }
+
+    /* Reusable utilities (Tailwind JIT extension via inline style) */
+    .panel {
+      background: rgba(13, 27, 45, .85);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 24px 60px -20px rgba(0, 0, 0, .45);
+      backdrop-filter: blur(8px);
+    }
+    .chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .field-card {
+      transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+    }
+    .field-card:hover {
+      transform: translateY(-1px);
+      border-color: rgba(34, 211, 238, .45);
+      box-shadow: 0 0 0 1px rgba(34, 211, 238, .25), 0 12px 30px -12px rgba(34, 211, 238, .35);
+    }
+    .field-card.dragging { opacity: .5; transform: scale(.98); }
+    .field-card.drag-over { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(163, 230, 53, .35); }
+
+    /* Form input baseline */
+    .ff-input {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: rgba(15, 23, 42, .6);
+      border: 1px solid var(--line);
+      color: var(--text);
+      font-size: 14px;
+      transition: border-color .15s ease, box-shadow .15s ease;
+    }
+    .ff-input:focus {
+      outline: none;
+      border-color: var(--brand);
+      box-shadow: 0 0 0 3px rgba(34, 211, 238, .2);
+    }
+    .ff-input::placeholder { color: rgba(146, 171, 194, .6); }
+    .ff-input.error { border-color: var(--danger); box-shadow: 0 0 0 3px rgba(248, 113, 113, .18); }
+    .ff-label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: var(--text);
+    }
+    .ff-label .req { color: var(--danger); margin-left: 3px; }
+    .ff-help { font-size: 12px; color: var(--muted); margin-top: 5px; }
+    .ff-error { font-size: 12px; color: var(--danger); margin-top: 5px; display: flex; align-items: center; gap: 5px; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 9px 14px;
+      border-radius: 11px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: transform .15s ease, background .15s ease, border-color .15s ease;
+    }
+    .btn:hover { transform: translateY(-1px); }
+    .btn:active { transform: translateY(0); }
+    .btn:focus-visible { outline: 3px solid var(--warn); outline-offset: 2px; }
+    .btn-primary { background: var(--brand); color: #06131d; }
+    .btn-primary:hover { background: #67e8f9; }
+    .btn-ghost { background: transparent; border-color: var(--line); color: var(--text); }
+    .btn-ghost:hover { border-color: rgba(34, 211, 238, .5); }
+    .btn-danger { background: rgba(248, 113, 113, .12); border-color: rgba(248, 113, 113, .35); color: var(--danger); }
+    .btn-danger:hover { background: rgba(248, 113, 113, .2); }
+    .btn-accent { background: var(--accent); color: #0a1a02; }
+    .btn-accent:hover { background: #bef264; }
+    .btn-sm { padding: 6px 10px; font-size: 12px; border-radius: 8px; }
+
+    /* Code blocks */
+    pre.code {
+      background: #020617;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px 16px;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 12px;
+      color: #cbd5e1;
+      overflow: auto;
+      line-height: 1.6;
+    }
+    pre.code .k { color: #67e8f9; }   /* key */
+    pre.code .s { color: #bef264; }   /* string */
+    pre.code .n { color: #fbbf24; }   /* number */
+    pre.code .b { color: #cbd5e1; }   /* boolean */
+    pre.code .nl{ color: #f472b6; }   /* null */
+
+    /* Drag handle */
+    .drag-handle { cursor: grab; opacity: .45; transition: opacity .15s; }
+    .drag-handle:hover { opacity: 1; }
+    .drag-handle:active { cursor: grabbing; }
+
+    /* Toast */
+    .toast {
+      position: fixed; bottom: 22px; right: 22px;
+      padding: 12px 18px;
+      background: rgba(13, 27, 45, .95);
+      border: 1px solid var(--accent);
+      border-radius: 12px;
+      box-shadow: 0 12px 30px -8px rgba(0,0,0,.5);
+      font-size: 13px; font-weight: 600;
+      display: flex; align-items: center; gap: 8px;
+      z-index: 50;
+      animation: slideUp .25s ease-out;
+    }
+    @media (max-width: 880px) {
+      .desktop-grid { grid-template-columns: 1fr !important; }
+      .top-meta { display: none !important; }
+    }
+  </style>
+</head>
+<body class="text-slate-100 antialiased">
+
+  <div id="root"></div>
+
+  <!-- ─────────────────────────────────────────────────────────────────── -->
+  <!-- Application bootstrap (Babel-transpiled JSX, mirrors Next.js layout) -->
+  <!-- ─────────────────────────────────────────────────────────────────── -->
+  <script type="text/babel" data-presets="env,react">
+    const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+    /* ════════════════════════════════════════════════════════════════════
+       1. Field type registry (mirrors @/lib/field-types.ts)
+       Each entry defines: label, icon, defaultProps, renderer
+       ════════════════════════════════════════════════════════════════════ */
+    const FIELD_TYPES = {
+      text: {
+        label: '單行文字',
+        icon: 'Aa',
+        defaults: { type: 'text', label: '姓名', key: 'name', placeholder: '請輸入…', required: true, minLength: 0, maxLength: 120 },
+      },
+      email: {
+        label: 'Email',
+        icon: '✉',
+        defaults: { type: 'email', label: '電子郵件', key: 'email', placeholder: 'you@example.com', required: true },
+      },
+      number: {
+        label: '數字',
+        icon: '#',
+        defaults: { type: 'number', label: '年齡', key: 'age', required: false, min: 0, max: 150, step: 1 },
+      },
+      textarea: {
+        label: '多行文字',
+        icon: '¶',
+        defaults: { type: 'textarea', label: '備註', key: 'note', placeholder: '請描述…', required: false, rows: 4, maxLength: 500 },
+      },
+      select: {
+        label: '下拉選單',
+        icon: '▼',
+        defaults: {
+          type: 'select', label: '部門', key: 'department', required: true,
+          options: ['工程部', '產品部', '設計部', '營運部'],
+        },
+      },
+      radio: {
+        label: '單選按鈕',
+        icon: '◉',
+        defaults: {
+          type: 'radio', label: '性別', key: 'gender', required: false,
+          options: ['男', '女', '其他'],
+        },
+      },
+      checkbox: {
+        label: '勾選方塊',
+        icon: '☑',
+        defaults: {
+          type: 'checkbox', label: '同意條款', key: 'agree_terms', required: true,
+          text: '我已閱讀並同意服務條款',
+        },
+      },
+      date: {
+        label: '日期',
+        icon: '📅',
+        defaults: { type: 'date', label: '生日', key: 'birthday', required: false, min: '1900-01-01', max: '2099-12-31' },
+      },
+    };
+    const FIELD_TYPE_KEYS = Object.keys(FIELD_TYPES);
+
+    /* ════════════════════════════════════════════════════════════════════
+       2. Validation engine (mirrors @/lib/validate.ts)
+       ════════════════════════════════════════════════════════════════════ */
+    function validateField(field, value) {
+      // Required check
+      if (field.required) {
+        const empty =
+          value === undefined || value === null || value === '' ||
+          (Array.isArray(value) && value.length === 0) ||
+          (field.type === 'checkbox' && value !== true);
+        if (empty) return `${field.label} 為必填`;
+      }
+      // Type-specific
+      if (value !== undefined && value !== null && value !== '') {
+        if (field.type === 'email') {
+          const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!re.test(String(value))) return 'Email 格式不正確';
+        }
+        if (field.type === 'number') {
+          const num = Number(value);
+          if (Number.isNaN(num)) return '請輸入數字';
+          if (field.min !== undefined && num < field.min) return `不可小於 ${field.min}`;
+          if (field.max !== undefined && num > field.max) return `不可大於 ${field.max}`;
+        }
+        if (field.type === 'text' || field.type === 'textarea') {
+          const len = String(value).length;
+          if (field.minLength && len < field.minLength) return `至少 ${field.minLength} 字`;
+          if (field.maxLength && len > field.maxLength) return `最多 ${field.maxLength} 字`;
+        }
+        if (field.type === 'date') {
+          if (field.min && value < field.min) return `不可早於 ${field.min}`;
+          if (field.max && value > field.max) return `不可晚於 ${field.max}`;
+        }
+      }
+      return null;
+    }
+
+    function validateAll(schema, values) {
+      const errors = {};
+      for (const f of schema) {
+        const e = validateField(f, values[f.key]);
+        if (e) errors[f.key] = e;
+      }
+      return errors;
+    }
+
+    /* ════════════════════════════════════════════════════════════════════
+       3. Renderers — preview (right panel) + editor (left panel)
+       Mirrors Next.js Server Components + Client Components split
+       ════════════════════════════════════════════════════════════════════ */
+
+    // ─── Field preview (read-only render — what the form looks like) ───
+    function FieldPreview({ field, value, onChange, error }) {
+      const id = `f_${field.key}_${Math.random().toString(36).slice(2, 8)}`;
+      const commonProps = {
+        id, name: field.key,
+        className: 'ff-input' + (error ? ' error' : ''),
+        'aria-invalid': error ? 'true' : 'false',
+        'aria-describedby': field.help ? `${id}_help` : undefined,
+        value: value ?? '',
+        onChange: (e) => onChange(field.key, e.target.value),
+        placeholder: field.placeholder,
+        required: field.required,
+        disabled: false,
+      };
+
+      let input;
+      switch (field.type) {
+        case 'text':
+          input = <input type="text" {...commonProps}
+            maxLength={field.maxLength}
+            minLength={field.minLength} />;
+          break;
+        case 'email':
+          input = <input type="email" {...commonProps} />;
+          break;
+        case 'number':
+          input = <input type="number" {...commonProps}
+            min={field.min} max={field.max} step={field.step} />;
+          break;
+        case 'textarea':
+          input = <textarea {...commonProps} rows={field.rows || 4}
+            maxLength={field.maxLength}>{value ?? ''}</textarea>;
+          break;
+        case 'select':
+          input = (
+            <select {...commonProps}
+              onChange={(e) => onChange(field.key, e.target.value)}>
+              <option value="">— 請選擇 —</option>
+              {(field.options || []).map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+          );
+          break;
+        case 'radio':
+          input = (
+            <div className="flex flex-wrap gap-3 pt-1">
+              {(field.options || []).map((opt) => (
+                <label key={opt} className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="radio" name={field.key} value={opt}
+                    checked={value === opt}
+                    onChange={(e) => onChange(field.key, e.target.value)}
+                    className="accent-cyan-400"
+                  />
+                  <span>{opt}</span>
+                </label>
+              ))}
+            </div>
+          );
+          break;
+        case 'checkbox':
+          input = (
+            <label className="flex items-center gap-2 text-sm pt-1 cursor-pointer">
+              <input
+                type="checkbox" name={field.key}
+                checked={!!value}
+                onChange={(e) => onChange(field.key, e.target.checked)}
+                className="w-4 h-4 accent-cyan-400"
+              />
+              <span>{field.text || field.label}</span>
+            </label>
+          );
+          break;
+        case 'date':
+          input = <input type="date" {...commonProps}
+            min={field.min} max={field.max} />;
+          break;
+        default:
+          input = <input type="text" {...commonProps} />;
+      }
+
+      return (
+        <div className="space-y-1.5 animate-fade-in">
+          {field.type !== 'checkbox' && (
+            <label htmlFor={id} className="ff-label">
+              {field.label}
+              {field.required && <span className="req" aria-label="必填">*</span>}
+            </label>
+          )}
+          {input}
+          {field.help && !error && (
+            <p id={`${id}_help`} className="ff-help">{field.help}</p>
+          )}
+          {error && (
+            <p className="ff-error" role="alert">
+              <span aria-hidden="true">⚠</span>{error}
+            </p>
+          )}
+        </div>
+      );
+    }
+
+    // ─── Field editor (left panel — modify schema) ─────────────────────
+    function FieldEditor({ field, onUpdate, onDelete, onDuplicate }) {
+      const setProp = (k, v) => onUpdate({ ...field, [k]: v });
+      const setType = (newType) => {
+        const defaults = FIELD_TYPES[newType].defaults;
+        onUpdate({ ...defaults, id: field.id });
+      };
+
+      return (
+        <div className="field-card panel p-4 space-y-3">
+          {/* Top row: type + actions */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="drag-handle text-lg" title="拖曳排序" aria-label="拖曳排序">⠿</span>
+              <select
+                value={field.type}
+                onChange={(e) => setType(e.target.value)}
+                className="ff-input !py-1.5 !text-xs font-semibold"
+                style={{ width: 'auto', paddingRight: '24px' }}
+                aria-label="欄位類型">
+                {FIELD_TYPE_KEYS.map((k) => (
+                  <option key={k} value={k}>{FIELD_TYPES[k].label}</option>
+                ))}
+              </select>
+              <span className="chip bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">
+                {field.type}
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              <button onClick={onDuplicate} className="btn btn-ghost btn-sm" title="複製欄位" aria-label="複製欄位">
+                ⎘
+              </button>
+              <button onClick={onDelete} className="btn btn-danger btn-sm" title="刪除欄位" aria-label="刪除欄位">
+                ✕
+              </button>
+            </div>
+          </div>
+
+          {/* Basic props */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">顯示名稱</label>
+              <input className="ff-input !text-sm" value={field.label}
+                onChange={(e) => setProp('label', e.target.value)} />
+            </div>
+            <div>
+              <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">欄位鍵值</label>
+              <input className="ff-input !text-sm font-mono" value={field.key}
+                onChange={(e) => setProp('key', e.target.value.replace(/[^a-zA-Z0-9_]/g, '_'))} />
+            </div>
+          </div>
+
+          {/* Placeholder / help */}
+          {(field.type === 'text' || field.type === 'textarea' || field.type === 'email') && (
+            <div>
+              <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">佔位符</label>
+              <input className="ff-input !text-sm" value={field.placeholder || ''}
+                onChange={(e) => setProp('placeholder', e.target.value)} />
+            </div>
+          )}
+
+          {/* Type-specific */}
+          {(field.type === 'text' || field.type === 'textarea') && (
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">最短長度</label>
+                <input type="number" min="0" className="ff-input !text-sm"
+                  value={field.minLength || 0}
+                  onChange={(e) => setProp('minLength', Number(e.target.value))} />
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">最長長度</label>
+                <input type="number" min="0" className="ff-input !text-sm"
+                  value={field.maxLength || (field.type === 'textarea' ? 500 : 120)}
+                  onChange={(e) => setProp('maxLength', Number(e.target.value))} />
+              </div>
+            </div>
+          )}
+
+          {field.type === 'number' && (
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">最小值</label>
+                <input type="number" className="ff-input !text-sm"
+                  value={field.min ?? ''}
+                  onChange={(e) => setProp('min', e.target.value === '' ? undefined : Number(e.target.value))} />
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">最大值</label>
+                <input type="number" className="ff-input !text-sm"
+                  value={field.max ?? ''}
+                  onChange={(e) => setProp('max', e.target.value === '' ? undefined : Number(e.target.value))} />
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">步進</label>
+                <input type="number" step="0.1" className="ff-input !text-sm"
+                  value={field.step ?? 1}
+                  onChange={(e) => setProp('step', Number(e.target.value))} />
+              </div>
+            </div>
+          )}
+
+          {(field.type === 'select' || field.type === 'radio') && (
+            <div>
+              <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">選項（每行一個）</label>
+              <textarea
+                className="ff-input !text-sm font-mono"
+                rows="3"
+                value={(field.options || []).join('\n')}
+                onChange={(e) => setProp('options', e.target.value.split('\n').filter(s => s.length > 0))}
+              />
+            </div>
+          )}
+
+          {field.type === 'checkbox' && (
+            <div>
+              <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">勾選說明文字</label>
+              <input className="ff-input !text-sm" value={field.text || ''}
+                onChange={(e) => setProp('text', e.target.value)} />
+            </div>
+          )}
+
+          {field.type === 'date' && (
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">最早</label>
+                <input type="date" className="ff-input !text-sm"
+                  value={field.min || ''}
+                  onChange={(e) => setProp('min', e.target.value)} />
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">最晚</label>
+                <input type="date" className="ff-input !text-sm"
+                  value={field.max || ''}
+                  onChange={(e) => setProp('max', e.target.value)} />
+              </div>
+            </div>
+          )}
+
+          {/* Required toggle + help text */}
+          <div className="flex items-center gap-4 pt-1 border-t border-slate-700/50">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" checked={!!field.required}
+                onChange={(e) => setProp('required', e.target.checked)}
+                className="w-4 h-4 accent-cyan-400" />
+              <span>必填</span>
+            </label>
+            <input className="ff-input !text-xs flex-1" placeholder="說明文字（選填）"
+              value={field.help || ''}
+              onChange={(e) => setProp('help', e.target.value)} />
+          </div>
+        </div>
+      );
+    }
+
+    /* ════════════════════════════════════════════════════════════════════
+       4. Schema presets (mirrors @/lib/presets.ts)
+       ════════════════════════════════════════════════════════════════════ */
+    const PRESETS = {
+      blank: { name: '空白表單', schema: [] },
+      contact: {
+        name: '聯絡表單',
+        schema: [
+          { id: 1, type: 'text', label: '姓名', key: 'name', placeholder: '王小明', required: true, maxLength: 60 },
+          { id: 2, type: 'email', label: 'Email', key: 'email', placeholder: 'you@example.com', required: true },
+          { id: 3, type: 'select', label: '詢問類型', key: 'topic', required: true,
+            options: ['產品諮詢', '技術支援', '合作提案', '其他'] },
+          { id: 4, type: 'textarea', label: '訊息內容', key: 'message', required: true, rows: 5, maxLength: 500,
+            placeholder: '請詳細描述您的需求…' },
+          { id: 5, type: 'checkbox', label: '同意條款', key: 'agree', required: true,
+            text: '我同意接收相關回覆與產品更新' },
+        ],
+      },
+      hr_application: {
+        name: '人事申請單',
+        schema: [
+          { id: 1, type: 'text', label: '申請人', key: 'applicant', required: true, maxLength: 40 },
+          { id: 2, type: 'email', label: 'Email', key: 'email', required: true },
+          { id: 3, type: 'select', label: '申請類別', key: 'leave_type', required: true,
+            options: ['事假', '病假', '特休', '加班補休', '遠端工作'] },
+          { id: 4, type: 'date', label: '開始日期', key: 'start_date', required: true },
+          { id: 5, type: 'date', label: '結束日期', key: 'end_date', required: true },
+          { id: 6, type: 'number', label: '天數', key: 'days', required: true, min: 0.5, max: 30, step: 0.5 },
+          { id: 7, type: 'textarea', label: '事由說明', key: 'reason', required: false, rows: 3 },
+        ],
+      },
+      feedback: {
+        name: '滿意度調查',
+        schema: [
+          { id: 1, type: 'radio', label: '整體滿意度', key: 'rating', required: true,
+            options: ['非常滿意', '滿意', '普通', '不滿意', '非常不滿意'] },
+          { id: 2, type: 'radio', label: '推薦意願', key: 'nps', required: true,
+            options: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10'] },
+          { id: 3, type: 'checkbox', label: '使用功能', key: 'features', required: false,
+            text: '' , options: ['儀表板', '報表', 'API', '通知'] },
+          { id: 4, type: 'textarea', label: '改善建議', key: 'feedback', required: false, rows: 4, maxLength: 500 },
+        ],
+      },
+    };
+
+    /* ════════════════════════════════════════════════════════════════════
+       5. JSON syntax highlighter (lightweight, dependency-free)
+       ════════════════════════════════════════════════════════════════════ */
+    function highlightJSON(obj) {
+      const json = JSON.stringify(obj, null, 2);
+      // Escape HTML first
+      const escaped = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      // Apply minimal highlight
+      return escaped.replace(
+        /("(\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
+        (match) => {
+          let cls = 'n';
+          if (/^"/.test(match)) {
+            cls = /:$/.test(match) ? 'k' : 's';
+          } else if (/true|false/.test(match)) {
+            cls = 'b';
+          } else if (/null/.test(match)) {
+            cls = 'nl';
+          }
+          return `<span class="${cls}">${match}</span>`;
+        }
+      );
+    }
+
+    /* ════════════════════════════════════════════════════════════════════
+       6. Main App — Next.js layout replacement
+       ════════════════════════════════════════════════════════════════════ */
+    function App() {
+      const [schema, setSchema] = useState(PRESETS.contact.schema.map(f => ({ ...f })));
+      const [values, setValues] = useState({});
+      const [errors, setErrors] = useState({});
+      const [submittedData, setSubmittedData] = useState(null);
+      const [showJson, setShowJson] = useState(false);
+      const [presetKey, setPresetKey] = useState('contact');
+      const [toast, setToast] = useState(null);
+      const [draggingId, setDraggingId] = useState(null);
+      const [dragOverId, setDragOverId] = useState(null);
+      const nextIdRef = useRef(1000);
+
+      // ── Persistence (localStorage — mirrors Next.js cookies/storage) ──
+      useEffect(() => {
+        try {
+          const saved = localStorage.getItem('formforge_schema');
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setSchema(parsed);
+            }
+          }
+        } catch {}
+      }, []);
+      useEffect(() => {
+        try {
+          localStorage.setItem('formforge_schema', JSON.stringify(schema));
+        } catch {}
+      }, [schema]);
+
+      // ── Toast helper ──
+      const showToast = useCallback((msg, accent = 'var(--accent)') => {
+        setToast({ msg, accent });
+        setTimeout(() => setToast(null), 2400);
+      }, []);
+
+      // ── Field ops ──
+      const addField = (type) => {
+        const def = FIELD_TYPES[type];
+        const id = nextIdRef.current++;
+        const baseKey = def.defaults.key;
+        let key = baseKey;
+        let i = 1;
+        while (schema.some(f => f.key === key)) {
+          key = `${baseKey}_${i++}`;
+        }
+        const newField = { ...def.defaults, id, key };
+        setSchema([...schema, newField]);
+        showToast(`已新增「${def.label}」欄位`);
+      };
+
+      const updateField = (updated) => {
+        setSchema(schema.map(f => f.id === updated.id ? updated : f));
+      };
+
+      const deleteField = (id) => {
+        const f = schema.find(x => x.id === id);
+        setSchema(schema.filter(x => x.id !== id));
+        if (f) {
+          const newValues = { ...values };
+          delete newValues[f.key];
+          setValues(newValues);
+        }
+        showToast('已刪除欄位', 'var(--danger)');
+      };
+
+      const duplicateField = (id) => {
+        const f = schema.find(x => x.id === id);
+        if (!f) return;
+        const newId = nextIdRef.current++;
+        let newKey = `${f.key}_copy`;
+        let i = 1;
+        while (schema.some(x => x.key === newKey)) {
+          newKey = `${f.key}_copy_${i++}`;
+        }
+        setSchema([...schema, { ...f, id: newId, key: newKey }]);
+        showToast(`已複製為「${newKey}」`);
+      };
+
+      // ── Drag-and-drop reorder ──
+      const handleDragStart = (id) => setDraggingId(id);
+      const handleDragOver = (e, id) => {
+        e.preventDefault();
+        setDragOverId(id);
+      };
+      const handleDrop = (e, targetId) => {
+        e.preventDefault();
+        if (draggingId === null || draggingId === targetId) {
+          setDraggingId(null);
+          setDragOverId(null);
+          return;
+        }
+        const from = schema.findIndex(f => f.id === draggingId);
+        const to = schema.findIndex(f => f.id === targetId);
+        if (from < 0 || to < 0) return;
+        const next = [...schema];
+        const [moved] = next.splice(from, 1);
+        next.splice(to, 0, moved);
+        setSchema(next);
+        setDraggingId(null);
+        setDragOverId(null);
+      };
+
+      // ── Form value change ──
+      const handleChange = (key, value) => {
+        const newValues = { ...values, [key]: value };
+        setValues(newValues);
+        // Live validation
+        const field = schema.find(f => f.key === key);
+        if (field) {
+          const err = validateField(field, value);
+          setErrors(prev => {
+            const next = { ...prev };
+            if (err) next[key] = err;
+            else delete next[key];
+            return next;
+          });
+        }
+      };
+
+      // ── Submit ──
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        const allErrors = validateAll(schema, values);
+        setErrors(allErrors);
+        if (Object.keys(allErrors).length > 0) {
+          showToast(`表單有 ${Object.keys(allErrors).length} 個錯誤`, 'var(--danger)');
+          return;
+        }
+        setSubmittedData({ schema: schema.map(f => ({ key: f.key, label: f.label, type: f.type })), values, timestamp: new Date().toISOString() });
+        showToast('✓ 表單已成功提交');
+      };
+
+      const handleReset = () => {
+        setValues({});
+        setErrors({});
+        setSubmittedData(null);
+        showToast('已重置表單');
+      };
+
+      // ── Preset switch ──
+      const applyPreset = (key) => {
+        setPresetKey(key);
+        const preset = PRESETS[key];
+        if (preset) {
+          const reId = preset.schema.map(f => ({ ...f, id: nextIdRef.current++ }));
+          setSchema(reId);
+          setValues({});
+          setErrors({});
+          setSubmittedData(null);
+          showToast(`已切換至「${preset.name}」模板`);
+        }
+      };
+
+      // ── JSON export ──
+      const exportJson = () => {
+        const data = JSON.stringify({ schema, values }, null, 2);
+        const blob = new Blob([data], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `formforge_schema_${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('已下載 JSON schema');
+      };
+
+      const importJson = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          try {
+            const data = JSON.parse(evt.target.result);
+            if (Array.isArray(data.schema)) {
+              const reId = data.schema.map(f => ({ ...f, id: nextIdRef.current++ }));
+              setSchema(reId);
+              setValues(data.values || {});
+              setErrors({});
+              setSubmittedData(null);
+              showToast(`已匯入 ${reId.length} 個欄位`);
+            } else {
+              throw new Error('schema 不是陣列');
+            }
+          } catch (err) {
+            showToast('JSON 解析失敗：' + err.message, 'var(--danger)');
+          }
+        };
+        reader.readAsText(file);
+        e.target.value = '';
+      };
+
+      const clearSchema = () => {
+        if (schema.length === 0) return;
+        if (confirm(`確定清空所有 ${schema.length} 個欄位？`)) {
+          setSchema([]);
+          setValues({});
+          setErrors({});
+          setSubmittedData(null);
+          showToast('已清空表單', 'var(--danger)');
+        }
+      };
+
+      return (
+        <div className="min-h-screen">
+
+          {/* ─── Topbar (mirrors Next.js layout.tsx header) ─── */}
+          <header className="border-b border-slate-800/60 bg-slate-950/40 backdrop-blur-md sticky top-0 z-10">
+            <div className="max-w-[1400px] mx-auto px-5 py-4 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl grid place-items-center bg-gradient-to-br from-cyan-400 to-lime-400 text-slate-950 font-black text-lg shadow-glow-brand">
+                  ⚡
+                </div>
+                <div>
+                  <h1 className="text-lg font-extrabold tracking-tight">
+                    FormForge <span className="text-cyan-400">·</span> 動態表單生成器
+                  </h1>
+                  <p className="text-[11px] text-slate-400 -mt-0.5">
+                    Next.js App Router + Tailwind Design System · {schema.length} 個欄位
+                  </p>
+                </div>
+              </div>
+              <div className="top-meta flex items-center gap-2">
+                <select
+                  value={presetKey}
+                  onChange={(e) => applyPreset(e.target.value)}
+                  className="ff-input !py-1.5 !text-xs"
+                  style={{ width: 'auto' }}
+                  aria-label="選擇模板">
+                  {Object.entries(PRESETS).map(([k, v]) => (
+                    <option key={k} value={k}>📋 {v.name}</option>
+                  ))}
+                </select>
+                <button onClick={exportJson} className="btn btn-ghost btn-sm" disabled={schema.length === 0}>
+                  ⬇ 匯出
+                </button>
+                <label className="btn btn-ghost btn-sm cursor-pointer">
+                  ⬆ 匯入
+                  <input type="file" accept=".json" onChange={importJson} className="hidden" />
+                </label>
+                <button onClick={() => setShowJson(s => !s)} className="btn btn-ghost btn-sm">
+                  {showJson ? '🎨 表單' : '{ } JSON'}
+                </button>
+              </div>
+            </div>
+          </header>
+
+          {/* ─── Main grid ─── */}
+          <main className="max-w-[1400px] mx-auto px-5 py-6">
+            <div className="desktop-grid grid grid-cols-[1fr_1.1fr] gap-5">
+
+              {/* ─── LEFT: Schema designer ─── */}
+              <section className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-xl font-extrabold tracking-tight flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse-dot"></span>
+                      Schema 設計
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-0.5">拖曳欄位重新排序 · 即時預覽右側</p>
+                  </div>
+                  <button onClick={clearSchema} className="btn btn-danger btn-sm" disabled={schema.length === 0}>
+                    清空全部
+                  </button>
+                </div>
+
+                {/* Add-field palette */}
+                <div className="panel p-4">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-3">新增欄位</p>
+                  <div className="grid grid-cols-4 gap-2">
+                    {FIELD_TYPE_KEYS.map((k) => (
+                      <button
+                        key={k}
+                        onClick={() => addField(k)}
+                        className="flex flex-col items-center gap-1.5 p-3 rounded-lg border border-slate-700/60 hover:border-cyan-400/60 hover:bg-cyan-400/5 transition text-xs font-semibold">
+                        <span className="text-lg">{FIELD_TYPES[k].icon}</span>
+                        <span>{FIELD_TYPES[k].label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Field list */}
+                <div className="space-y-3">
+                  {schema.length === 0 ? (
+                    <div className="panel p-10 text-center">
+                      <div className="text-5xl mb-3 opacity-40">📝</div>
+                      <p className="text-slate-400 font-semibold">尚未加入任何欄位</p>
+                      <p className="text-xs text-slate-500 mt-1">從上方選一個欄位類型開始</p>
+                    </div>
+                  ) : (
+                    schema.map((field) => (
+                      <div
+                        key={field.id}
+                        draggable
+                        onDragStart={() => handleDragStart(field.id)}
+                        onDragOver={(e) => handleDragOver(e, field.id)}
+                        onDrop={(e) => handleDrop(e, field.id)}
+                        onDragEnd={() => { setDraggingId(null); setDragOverId(null); }}
+                        className={
+                          'field-card' +
+                          (draggingId === field.id ? ' dragging' : '') +
+                          (dragOverId === field.id && draggingId !== field.id ? ' drag-over' : '')
+                        }>
+                        <FieldEditor
+                          field={field}
+                          onUpdate={updateField}
+                          onDelete={() => deleteField(field.id)}
+                          onDuplicate={() => duplicateField(field.id)}
+                        />
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
+
+              {/* ─── RIGHT: Preview / JSON / Submitted ─── */}
+              <section className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-xl font-extrabold tracking-tight flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-lime-400 animate-pulse-dot"></span>
+                      {showJson ? 'JSON 檢視' : '即時預覽'}
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {showJson ? '查看或複製 schema' : '這是使用者會看到的最終表單'}
+                    </p>
+                  </div>
+                  {!showJson && submittedData && (
+                    <button onClick={handleReset} className="btn btn-ghost btn-sm">重新填寫</button>
+                  )}
+                </div>
+
+                {showJson ? (
+                  <div className="panel p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Schema</p>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(JSON.stringify(schema, null, 2));
+                          showToast('已複製到剪貼簿');
+                        }}
+                        className="btn btn-ghost btn-sm"
+                        disabled={schema.length === 0}>📋 複製</button>
+                    </div>
+                    <pre className="code" dangerouslySetInnerHTML={{
+                      __html: schema.length > 0 ? highlightJSON(schema) : '// 空 schema — 從左側加入欄位'
+                    }} />
+                  </div>
+                ) : submittedData ? (
+                  <div className="panel p-6 space-y-4 animate-slide-up">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-full bg-lime-400/20 border-2 border-lime-400 grid place-items-center text-2xl">
+                        ✓
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-extrabold text-lime-300">提交成功</h3>
+                        <p className="text-xs text-slate-400">{new Date(submittedData.timestamp).toLocaleString('zh-TW')}</p>
+                      </div>
+                    </div>
+                    <div className="space-y-2 pt-2 border-t border-slate-700/50">
+                      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 pt-2">收到的資料</p>
+                      {submittedData.schema.map((f) => (
+                        <div key={f.key} className="flex justify-between gap-4 py-2 border-b border-slate-800/60">
+                          <span className="text-slate-400 text-sm">{f.label}</span>
+                          <span className="font-mono text-sm text-cyan-300 text-right max-w-[60%] truncate">
+                            {submittedData.values[f.key] === true ? '✓ 是'
+                              : submittedData.values[f.key] === false ? '✗ 否'
+                              : (submittedData.values[f.key] || '—')}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <pre className="code" dangerouslySetInnerHTML={{
+                      __html: highlightJSON(submittedData)
+                    }} />
+                  </div>
+                ) : (
+                  <form onSubmit={handleSubmit} className="panel p-6 space-y-5" noValidate>
+                    {schema.length === 0 ? (
+                      <div className="py-10 text-center">
+                        <div className="text-5xl mb-3 opacity-40">🪞</div>
+                        <p className="text-slate-400 font-semibold">表單預覽區</p>
+                        <p className="text-xs text-slate-500 mt-1">從左側加入欄位,這裡會即時顯示</p>
+                      </div>
+                    ) : (
+                      schema.map((field) => (
+                        <FieldPreview
+                          key={field.id}
+                          field={field}
+                          value={values[field.key]}
+                          onChange={handleChange}
+                          error={errors[field.key]}
+                        />
+                      ))
+                    )}
+
+                    {schema.length > 0 && (
+                      <div className="flex items-center gap-2 pt-3 border-t border-slate-700/50">
+                        <button type="submit" className="btn btn-primary">
+                          ✓ 提交表單
+                        </button>
+                        <button type="button" onClick={handleReset} className="btn btn-ghost">
+                          ⟲ 重置
+                        </button>
+                        <span className="text-xs text-slate-400 ml-auto">
+                          {Object.keys(errors).length > 0
+                            ? <span className="text-red-400">⚠ {Object.keys(errors).length} 個錯誤待修正</span>
+                            : <span className="text-lime-400">✓ 所有欄位通過驗證</span>}
+                        </span>
+                      </div>
+                    )}
+                  </form>
+                )}
+
+                {/* Architecture callout */}
+                <div className="panel p-5">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-cyan-300 mb-2">
+                    架構對應 · Architecture Mapping
+                  </p>
+                  <ul className="space-y-1.5 text-xs text-slate-300">
+                    <li className="flex gap-2"><span className="text-cyan-400">▸</span><span><b>左側 (Schema 設計)</b> = Next.js Server Component + Client island（拖曳編輯）</span></li>
+                    <li className="flex gap-2"><span className="text-cyan-400">▸</span><span><b>右側 (即時預覽)</b> = Client Component（受控表單 + 即時驗證）</span></li>
+                    <li className="flex gap-2"><span className="text-cyan-400">▸</span><span><b>localStorage</b> = 模擬 Next.js Server Actions 持久化</span></li>
+                    <li className="flex gap-2"><span className="text-cyan-400">▸</span><span><b>Tailwind tokens</b> = <code className="text-cyan-300">tailwind.config.ts</code> 中的 design system</span></li>
+                    <li className="flex gap-2"><span className="text-cyan-400">▸</span><span><b>FIELD_TYPES registry</b> = 可擴充的欄位外掛機制</span></li>
+                  </ul>
+                </div>
+              </section>
+            </div>
+          </main>
+
+          {/* Toast */}
+          {toast && (
+            <div className="toast" style={{ borderColor: toast.accent }}>
+              <span style={{ color: toast.accent }}>●</span>
+              {toast.msg}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* ════════════════════════════════════════════════════════════════════
+       7. Mount — Next.js 'use client' boundary replacement
+       ════════════════════════════════════════════════════════════════════ */
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+
+  <!-- No-script fallback -->
+  <noscript>
+    <div style="padding:40px;text-align:center;color:#94a3b8;">
+      此頁面需要啟用 JavaScript 才能使用 FormForge 動態表單生成器。
+    </div>
+  </noscript>
+</body>
+</html>

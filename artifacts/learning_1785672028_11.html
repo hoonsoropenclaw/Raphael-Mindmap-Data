@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Glassmorphism UI · Micro-Animation Lab</title>
+
+<!-- Display serif + UI sans (avoiding pure Inter per anti-slop) -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,500;9..144,700&family=Inter+Tight:wght@400;500;600&display=swap"
+  rel="stylesheet"
+/>
+
+<!-- GSAP core via CDN -->
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+
+<style>
+  /* ==========================================================
+     Design tokens — Aurora Glassmorphism
+     ========================================================== */
+  :root {
+    --ink:        #0c0d1a;       /* near-black indigo for text */
+    --ink-soft:   #4b4e69;
+    --paper:      #f4f3ee;       /* warm off-white surface */
+    --line:       rgba(12,13,26,0.08);
+
+    /* Aurora blob colors (vivid, not stock-purple-SaaS) */
+    --aurora-1:   #ff6b9d;       /* hot pink */
+    --aurora-2:   #5b8def;       /* cobalt */
+    --aurora-3:   #5eead4;       /* mint */
+    --aurora-4:   #fbbf24;       /* amber */
+
+    --glass-bg:        rgba(255,255,255,0.42);
+    --glass-bg-strong: rgba(255,255,255,0.62);
+    --glass-border:    rgba(255,255,255,0.55);
+    --glass-shadow:    0 10px 40px -10px rgba(12,13,26,0.18),
+                       0 2px 6px rgba(12,13,26,0.06),
+                       inset 0 1px 0 rgba(255,255,255,0.7);
+
+    --radius-card: 24px;
+    --radius-btn:  999px;
+    --radius-modal:28px;
+
+    --ease-soft:  cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-pop:   cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  /* ==========================================================
+     Reset + base
+     ========================================================== */
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    font-family: 'Inter Tight', system-ui, -apple-system, sans-serif;
+    color: var(--ink);
+    background: var(--paper);
+    overflow-x: hidden;
+    position: relative;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ==========================================================
+     Aurora background — 4 blob layers driven by CSS variables
+     mouse position updated from JS (--mx, --my in %)
+     ========================================================== */
+  .aurora {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .aurora__blob {
+    position: absolute;
+    width: 60vmax;
+    height: 60vmax;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.55;
+    mix-blend-mode: multiply;
+    will-change: transform;
+  }
+  .aurora__blob--1 {
+    background: var(--aurora-1);
+    top:  calc((var(--my, 50) * 1%)  - 30vmax);
+    left: calc((var(--mx, 50) * 1%)  - 30vmax);
+    animation: drift1 18s ease-in-out infinite alternate;
+  }
+  .aurora__blob--2 {
+    background: var(--aurora-2);
+    top:  calc(100% - (var(--my, 50) * 1%) - 30vmax);
+    right: calc((var(--mx, 50) * 1%) - 30vmax);
+    animation: drift2 22s ease-in-out infinite alternate;
+  }
+  .aurora__blob--3 {
+    background: var(--aurora-3);
+    bottom: calc((var(--mx, 50) * 1%) - 30vmax);
+    left:  calc(100% - (var(--my, 50) * 1%) - 30vmax);
+    animation: drift3 26s ease-in-out infinite alternate;
+  }
+  .aurora__blob--4 {
+    background: var(--aurora-4);
+    top: 30%;
+    left: 30%;
+    opacity: 0.35;
+    animation: drift4 30s ease-in-out infinite alternate;
+  }
+  @keyframes drift1 { to { transform: translate(-8vmax, 6vmax) scale(1.15); } }
+  @keyframes drift2 { to { transform: translate(6vmax, -8vmax) scale(1.20); } }
+  @keyframes drift3 { to { transform: translate(-6vmax, -6vmax) scale(1.10); } }
+  @keyframes drift4 { to { transform: translate(8vmax, 8vmax) scale(1.30); } }
+
+  /* Subtle grain overlay to break the smooth blur gradient (anti-slop) */
+  .grain {
+    position: fixed; inset: 0; z-index: 1; pointer-events: none;
+    opacity: 0.08;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.7'/></svg>");
+  }
+
+  /* ==========================================================
+     Layout
+     ========================================================== */
+  .stage {
+    position: relative;
+    z-index: 2;
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 72px 32px 120px;
+  }
+
+  .masthead { margin-bottom: 64px; }
+  .masthead__eyebrow {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 6px 14px;
+    font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--ink-soft);
+    background: rgba(255,255,255,0.5);
+    border: 1px solid var(--glass-border);
+    border-radius: 999px;
+    backdrop-filter: blur(12px);
+  }
+  .masthead__eyebrow::before {
+    content: ""; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--aurora-1);
+    box-shadow: 0 0 0 4px rgba(255,107,157,0.18);
+  }
+  .masthead__title {
+    font-family: 'Fraunces', Georgia, serif;
+    font-weight: 500;
+    font-size: clamp(40px, 6.4vw, 84px);
+    line-height: 0.98;
+    letter-spacing: -0.02em;
+    margin: 22px 0 18px;
+    font-variation-settings: "opsz" 144;
+  }
+  .masthead__title em {
+    font-style: italic;
+    font-weight: 300;
+    color: transparent;
+    background: linear-gradient(110deg, var(--aurora-1), var(--aurora-2) 50%, var(--aurora-3));
+    -webkit-background-clip: text;
+    background-clip: text;
+  }
+  .masthead__sub {
+    max-width: 56ch;
+    font-size: 17px;
+    color: var(--ink-soft);
+  }
+
+  /* ==========================================================
+     Section heading
+     ========================================================== */
+  .section { margin-top: 80px; }
+  .section__head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 14px;
+    margin-bottom: 28px;
+  }
+  .section__no {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 14px;
+    color: var(--ink-soft);
+  }
+  .section__title {
+    font-family: 'Fraunces', serif;
+    font-weight: 500;
+    font-size: 24px;
+    letter-spacing: -0.01em;
+  }
+  .section__note {
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+
+  /* ==========================================================
+     GLASS CARD — 3D tilt on hover
+     ========================================================== */
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 22px;
+  }
+  .card {
+    position: relative;
+    padding: 28px 26px 24px;
+    border-radius: var(--radius-card);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    overflow: hidden;
+    transform-style: preserve-3d;
+    transform: perspective(900px) rotateX(0) rotateY(0);
+    transition: box-shadow 0.5s var(--ease-soft);
+    will-change: transform;
+  }
+  .card::before {
+    /* shimmer sweep on hover */
+    content: "";
+    position: absolute; inset: 0;
+    background: linear-gradient(115deg,
+      transparent 30%,
+      rgba(255,255,255,0.55) 45%,
+      rgba(255,255,255,0.0) 60%);
+    transform: translateX(-110%);
+    transition: transform 0.9s var(--ease-soft);
+    pointer-events: none;
+  }
+  .card:hover::before { transform: translateX(110%); }
+  .card:hover { box-shadow: 0 22px 60px -16px rgba(12,13,26,0.28),
+                            0 4px 10px rgba(12,13,26,0.08),
+                            inset 0 1px 0 rgba(255,255,255,0.8); }
+  .card__icon {
+    width: 48px; height: 48px;
+    border-radius: 14px;
+    display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--aurora-1), var(--aurora-2));
+    color: white;
+    font-family: 'Fraunces', serif;
+    font-size: 22px; font-weight: 700;
+    box-shadow: 0 8px 22px -6px rgba(91,141,239,0.5);
+    margin-bottom: 18px;
+  }
+  .card:nth-child(2) .card__icon { background: linear-gradient(135deg, var(--aurora-2), var(--aurora-3)); box-shadow: 0 8px 22px -6px rgba(94,234,212,0.5); }
+  .card:nth-child(3) .card__icon { background: linear-gradient(135deg, var(--aurora-3), var(--aurora-4)); box-shadow: 0 8px 22px -6px rgba(251,191,36,0.5); }
+  .card:nth-child(4) .card__icon { background: linear-gradient(135deg, var(--aurora-4), var(--aurora-1)); box-shadow: 0 8px 22px -6px rgba(255,107,157,0.5); }
+
+  .card__title {
+    font-family: 'Fraunces', serif;
+    font-weight: 500;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+    margin: 0 0 6px;
+    transform: translateZ(30px); /* lift on tilt for parallax depth */
+  }
+  .card__body {
+    color: var(--ink-soft);
+    font-size: 14.5px;
+    margin: 0 0 18px;
+    transform: translateZ(18px);
+  }
+  .card__meta {
+    display: flex; gap: 10px; flex-wrap: wrap;
+    transform: translateZ(24px);
+  }
+  .tag {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.55);
+    border: 1px solid var(--glass-border);
+  }
+
+  /* ==========================================================
+     GLASS BUTTON — magnetic cursor pull + press feedback
+     ========================================================== */
+  .button-row {
+    display: flex; flex-wrap: wrap; gap: 18px; align-items: center;
+  }
+  .btn {
+    position: relative;
+    font: inherit;
+    font-size: 15px; font-weight: 500;
+    padding: 14px 28px;
+    border-radius: var(--radius-btn);
+    border: 1px solid var(--glass-border);
+    background: var(--glass-bg-strong);
+    backdrop-filter: blur(14px) saturate(160%);
+    -webkit-backdrop-filter: blur(14px) saturate(160%);
+    box-shadow: var(--glass-shadow);
+    color: var(--ink);
+    cursor: pointer;
+    will-change: transform;
+    transition: box-shadow 0.4s var(--ease-soft),
+                background 0.3s ease;
+  }
+  .btn:hover { background: rgba(255,255,255,0.78); }
+  .btn--primary {
+    background: linear-gradient(135deg, var(--ink) 0%, #1f2240 100%);
+    color: white;
+    border-color: rgba(255,255,255,0.18);
+    box-shadow: 0 10px 30px -10px rgba(12,13,26,0.5),
+                inset 0 1px 0 rgba(255,255,255,0.15);
+  }
+  .btn--primary:hover { background: linear-gradient(135deg, #1f2240 0%, #2a2e58 100%); }
+  .btn--ghost {
+    background: transparent;
+    border-color: var(--line);
+    box-shadow: none;
+  }
+  .btn--accent {
+    background: linear-gradient(135deg, var(--aurora-1), var(--aurora-2));
+    color: white;
+    border-color: rgba(255,255,255,0.3);
+    box-shadow: 0 10px 30px -10px rgba(255,107,157,0.5),
+                inset 0 1px 0 rgba(255,255,255,0.3);
+  }
+  .btn__label { position: relative; z-index: 1; }
+  .btn__pulse {
+    position: absolute; inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    opacity: 0;
+  }
+  .btn.is-pressed .btn__pulse {
+    animation: pulse 0.5s var(--ease-soft);
+  }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0   rgba(91,141,239,0.55); opacity: 1; }
+    100% { box-shadow: 0 0 0 18px rgba(91,141,239,0.0);  opacity: 0; }
+  }
+
+  /* ==========================================================
+     GLASS MODAL — open/close with scale + blur reveal
+     ========================================================== */
+  .demo-zone {
+    display: flex; gap: 18px; flex-wrap: wrap; align-items: center;
+  }
+  .modal {
+    position: fixed; inset: 0;
+    display: grid; place-items: center;
+    z-index: 100;
+    background: rgba(12,13,26,0.32);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.35s var(--ease-soft);
+  }
+  .modal.is-open { opacity: 1; pointer-events: auto; }
+  .modal__panel {
+    width: min(520px, 90vw);
+    padding: 36px 32px 28px;
+    border-radius: var(--radius-modal);
+    background: var(--glass-bg-strong);
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 30px 80px -20px rgba(12,13,26,0.4),
+                inset 0 1px 0 rgba(255,255,255,0.8);
+    backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    transform: scale(0.88) translateY(20px);
+    opacity: 0;
+    transition: transform 0.55s var(--ease-pop),
+                opacity   0.4s  var(--ease-soft);
+  }
+  .modal.is-open .modal__panel {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+  .modal__head {
+    display: flex; align-items: center; gap: 14px;
+    margin-bottom: 18px;
+  }
+  .modal__icon {
+    width: 44px; height: 44px; border-radius: 13px;
+    display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--aurora-2), var(--aurora-3));
+    color: white; font-size: 20px; font-weight: 700;
+    font-family: 'Fraunces', serif;
+  }
+  .modal__title {
+    font-family: 'Fraunces', serif;
+    font-weight: 500; font-size: 22px;
+    margin: 0;
+  }
+  .modal__close {
+    margin-left: auto;
+    background: rgba(255,255,255,0.5);
+    border: 1px solid var(--glass-border);
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    display: grid; place-items: center;
+    cursor: pointer; font-size: 18px; line-height: 1;
+    color: var(--ink);
+    transition: transform 0.3s var(--ease-soft), background 0.2s;
+  }
+  .modal__close:hover { background: rgba(255,255,255,0.9); transform: rotate(90deg); }
+  .modal__body {
+    color: var(--ink-soft); font-size: 15px;
+    margin: 0 0 24px;
+  }
+  .modal__actions {
+    display: flex; gap: 12px; justify-content: flex-end;
+  }
+
+  /* ==========================================================
+     Reveal initial state (animated in by GSAP)
+     ========================================================== */
+  .reveal { opacity: 0; transform: translateY(24px); }
+
+  /* ==========================================================
+     Footer
+     ========================================================== */
+  .footnote {
+    margin-top: 96px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+
+  /* Reduced motion respect (GSAP + CSS combined) */
+  @media (prefers-reduced-motion: reduce) {
+    .aurora__blob { animation: none !important; }
+    *, *::before, *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+    }
+  }
+</style>
+</head>
+<body>
+
+<!-- Aurora background (mouse-driven) -->
+<div class="aurora" aria-hidden="true">
+  <div class="aurora__blob aurora__blob--1"></div>
+  <div class="aurora__blob aurora__blob--2"></div>
+  <div class="aurora__blob aurora__blob--3"></div>
+  <div class="aurora__blob aurora__blob--4"></div>
+</div>
+<div class="grain" aria-hidden="true"></div>
+
+<main class="stage">
+
+  <!-- Masthead -->
+  <header class="masthead">
+    <span class="masthead__eyebrow reveal">Glassmorphism · Micro-Animation Lab</span>
+    <h1 class="masthead__title reveal">
+      Frosted layers,<br />
+      <em>breathing</em> motion.
+    </h1>
+    <p class="masthead__sub reveal">
+      A standalone reference of three reusable glassmorphism components —
+      cards, buttons, and a modal — each wired to a micro-animation
+      that earns its place: 3D tilt, magnetic cursor pull, shimmer sweep,
+      and a stagger reveal on entry.
+    </p>
+  </header>
+
+  <!-- Section 1: Cards -->
+  <section class="section" id="cards">
+    <div class="section__head">
+      <span class="section__no">№ 01</span>
+      <h2 class="section__title">Glass cards · 3D tilt + shimmer sweep</h2>
+      <span class="section__note">Hover</span>
+    </div>
+    <div class="card-grid">
+      <article class="card reveal" data-tilt>
+        <div class="card__icon">A</div>
+        <h3 class="card__title">Aurora gradient</h3>
+        <p class="card__body">The background blobs are CSS-driven and follow
+          the cursor position via custom properties — no canvas required.</p>
+        <div class="card__meta">
+          <span class="tag">CSS vars</span>
+          <span class="tag">Pointer events</span>
+        </div>
+      </article>
+
+      <article class="card reveal" data-tilt>
+        <div class="card__icon">B</div>
+        <h3 class="card__title">Frosted backdrop</h3>
+        <p class="card__body">Backdrop-filter blur and saturate combine for
+          a glass effect that survives busy backgrounds without losing
+          contrast on the type.</p>
+        <div class="card__meta">
+          <span class="tag">backdrop-filter</span>
+          <span class="tag">Layered shadow</span>
+        </div>
+      </article>
+
+      <article class="card reveal" data-tilt>
+        <div class="card__icon">C</div>
+        <h3 class="card__title">Parallax depth</h3>
+        <p class="card__body">On hover the card tilts in 3D and the title
+          lifts further than the body, producing a believable parallax
+          gap without scroll-linked animation.</p>
+        <div class="card__meta">
+          <span class="tag">transform-style</span>
+          <span class="tag">translateZ</span>
+        </div>
+      </article>
+
+      <article class="card reveal" data-tilt>
+        <div class="card__icon">D</div>
+        <h3 class="card__title">Shimmer sweep</h3>
+        <p class="card__body">A diagonal highlight slides across the surface
+          on hover — implemented as a translated pseudo-element, no
+          additional DOM needed.</p>
+        <div class="card__meta">
+          <span class="tag">::before</span>
+          <span class="tag">One keyframe</span>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- Section 2: Buttons -->
+  <section class="section" id="buttons">
+    <div class="section__head">
+      <span class="section__no">№ 02</span>
+      <h2 class="section__title">Glass buttons · magnetic cursor pull</h2>
+      <span class="section__note">Move near · click</span>
+    </div>
+    <div class="button-row">
+      <button class="btn btn--primary reveal" data-magnetic>
+        <span class="btn__label">Primary action</span>
+        <span class="btn__pulse"></span>
+      </button>
+      <button class="btn reveal" data-magnetic>
+        <span class="btn__label">Default</span>
+        <span class="btn__pulse"></span>
+      </button>
+      <button class="btn btn--ghost reveal" data-magnetic>
+        <span class="btn__label">Ghost</span>
+        <span class="btn__pulse"></span>
+      </button>
+      <button class="btn btn--accent reveal" data-magnetic>
+        <span class="btn__label">Aurora accent</span>
+        <span class="btn__pulse"></span>
+      </button>
+    </div>
+  </section>
+
+  <!-- Section 3: Modal -->
+  <section class="section" id="modal">
+    <div class="section__head">
+      <span class="section__no">№ 03</span>
+      <h2 class="section__title">Glass modal · scale + blur reveal</h2>
+      <span class="section__note">Click below</span>
+    </div>
+    <div class="demo-zone">
+      <button class="btn btn--primary reveal" id="openModal">
+        <span class="btn__label">Open modal</span>
+        <span class="btn__pulse"></span>
+      </button>
+      <p class="masthead__sub" style="margin:0;font-size:14px;">
+        Click the button to see the frosted overlay, scale-in panel,
+        and the close icon's 90° rotate on hover.
+      </p>
+    </div>
+  </section>
+
+  <footer class="footnote">
+    <span>Glassmorphism · Micro-Animation Lab</span>
+    <span>Standalone HTML · GSAP 3.12 via CDN</span>
+  </footer>
+</main>
+
+<!-- Modal markup -->
+<div class="modal" id="modalRoot" role="dialog" aria-modal="true" aria-labelledby="modalTitle" hidden>
+  <div class="modal__panel">
+    <div class="modal__head">
+      <div class="modal__icon">G</div>
+      <h3 class="modal__title" id="modalTitle">Glass panel confirmed</h3>
+      <button class="modal__close" id="closeModal" aria-label="Close">×</button>
+    </div>
+    <p class="modal__body">
+      The panel scales in with a soft spring, the backdrop blurs the page,
+      and the close button rotates 90° on hover. Everything is driven by
+      CSS transitions plus a tiny GSAP boost on first paint.
+    </p>
+    <div class="modal__actions">
+      <button class="btn btn--ghost" id="modalCancel">
+        <span class="btn__label">Cancel</span>
+      </button>
+      <button class="btn btn--primary" id="modalConfirm">
+        <span class="btn__label">Got it</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+  /* ============================================================
+     1. Aurora background — mouse position → CSS variables
+     ============================================================ */
+  const aurora = document.querySelector('.aurora');
+  let raf = 0, mx = 50, my = 50;
+  function onMove(e) {
+    const x = (e.clientX / window.innerWidth)  * 100;
+    const y = (e.clientY / window.innerHeight) * 100;
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      aurora.style.setProperty('--mx', x.toFixed(2));
+      aurora.style.setProperty('--my', y.toFixed(2));
+      raf = 0;
+    });
+  }
+  window.addEventListener('pointermove', onMove, { passive: true });
+
+  /* ============================================================
+     2. GSAP initial reveal — stagger from below
+     ============================================================ */
+  if (window.gsap) {
+    gsap.defaults({ ease: 'power3.out', duration: 0.9 });
+    gsap.to('.reveal', {
+      opacity: 1,
+      y: 0,
+      stagger: 0.08,
+      delay: 0.1,
+    });
+    gsap.from('.masthead__title', {
+      y: 60,
+      opacity: 0,
+      duration: 1.2,
+      ease: 'expo.out',
+    });
+  }
+
+  /* ============================================================
+     3. Card 3D tilt — pointer position over each card
+     ============================================================ */
+  document.querySelectorAll('[data-tilt]').forEach(card => {
+    let rect = null;
+    function enter() { rect = card.getBoundingClientRect(); }
+    function move(e) {
+      if (!rect) rect = card.getBoundingClientRect();
+      const px = (e.clientX - rect.left) / rect.width;
+      const py = (e.clientY - rect.top)  / rect.height;
+      const rx = (0.5 - py) * 8;   // up to ±4deg
+      const ry = (px - 0.5) * 10;  // up to ±5deg
+      card.style.transform =
+        `perspective(900px) rotateX(${rx.toFixed(2)}deg) rotateY(${ry.toFixed(2)}deg)`;
+    }
+    function leave() {
+      rect = null;
+      card.style.transform = 'perspective(900px) rotateX(0) rotateY(0)';
+    }
+    card.addEventListener('pointerenter', enter);
+    card.addEventListener('pointermove',  move);
+    card.addEventListener('pointerleave', leave);
+  });
+
+  /* ============================================================
+     4. Magnetic buttons — pull toward cursor within range
+     ============================================================ */
+  document.querySelectorAll('[data-magnetic]').forEach(btn => {
+    const STRENGTH = 0.28;        // how far it pulls (0..1)
+    const RANGE    = 90;          // px influence radius
+    let active = false;
+    function move(e) {
+      const r = btn.getBoundingClientRect();
+      const cx = r.left + r.width  / 2;
+      const cy = r.top  + r.height / 2;
+      const dx = e.clientX - cx;
+      const dy = e.clientY - cy;
+      const dist = Math.hypot(dx, dy);
+      if (dist > RANGE) {
+        if (active) { btn.style.transform = ''; active = false; }
+        return;
+      }
+      active = true;
+      const pull = (1 - dist / RANGE) * STRENGTH;
+      btn.style.transform =
+        `translate(${(dx * pull).toFixed(2)}px, ${(dy * pull).toFixed(2)}px)`;
+    }
+    function leave() {
+      active = false;
+      btn.style.transform = '';
+    }
+    window.addEventListener('pointermove', move, { passive: true });
+    btn.addEventListener('pointerleave', leave);
+    btn.addEventListener('pointerdown', () => btn.classList.add('is-pressed'));
+    btn.addEventListener('pointerup',   () => btn.classList.remove('is-pressed'));
+    btn.addEventListener('blur',        () => btn.classList.remove('is-pressed'));
+  });
+
+  /* ============================================================
+     5. Modal open / close
+     ============================================================ */
+  const modal     = document.getElementById('modalRoot');
+  const openBtn   = document.getElementById('openModal');
+  const closeBtn  = document.getElementById('closeModal');
+  const cancelBtn = document.getElementById('modalCancel');
+  const confirmBtn= document.getElementById('modalConfirm');
+
+  function openModal() {
+    modal.hidden = false;
+    // force layout so transition runs
+    void modal.offsetWidth;
+    modal.classList.add('is-open');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeModal() {
+    modal.classList.remove('is-open');
+    document.body.style.overflow = '';
+    // wait for transition before hiding
+    setTimeout(() => { if (!modal.classList.contains('is-open')) modal.hidden = true; }, 400);
+  }
+  openBtn.addEventListener('click', openModal);
+  closeBtn.addEventListener('click', closeModal);
+  cancelBtn.addEventListener('click', closeModal);
+  confirmBtn.addEventListener('click', closeModal);
+  modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && modal.classList.contains('is-open')) closeModal();
+  });
+</script>
+
+</body>
+</html>

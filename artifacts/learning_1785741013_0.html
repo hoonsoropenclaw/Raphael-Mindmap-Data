@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>React Flow 動態工作流引擎 · 事件驅動視覺化設計</title>
+<style>
+  :root {
+    --bg-0: #0b0f1a;
+    --bg-1: #121826;
+    --bg-2: #1a2236;
+    --border: #2a3550;
+    --text-0: #e6ecff;
+    --text-1: #aab4d0;
+    --text-2: #6b7794;
+    --accent: #5b8def;
+    --accent-2: #7c5cff;
+    --ok: #4ade80;
+    --warn: #facc15;
+    --err: #f87171;
+    --node-w: 220px;
+    --shadow: 0 8px 30px rgba(0,0,0,.45);
+  }
+  * { box-sizing: border-box; }
+  html, body, #root { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+    background: var(--bg-0);
+    color: var(--text-0);
+    overflow: hidden;
+  }
+  .app { display: grid; grid-template-columns: 280px 1fr 340px; height: 100%; }
+  /* ===== Sidebar ===== */
+  .sidebar, .inspector {
+    background: var(--bg-1);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .inspector { border-right: none; border-left: 1px solid var(--border); }
+  .panel-head {
+    padding: 14px 16px;
+    font-size: 13px; font-weight: 600;
+    letter-spacing: .5px; text-transform: uppercase;
+    color: var(--text-1);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .panel-head .badge {
+    background: var(--accent); color: white;
+    border-radius: 10px; padding: 2px 8px; font-size: 11px;
+  }
+  .palette { padding: 12px; overflow-y: auto; flex: 1; }
+  .palette-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; margin-bottom: 8px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: grab;
+    transition: all .15s ease;
+    user-select: none;
+  }
+  .palette-item:hover { border-color: var(--accent); transform: translateX(2px); }
+  .palette-item:active { cursor: grabbing; }
+  .palette-item .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .palette-item .meta { flex: 1; }
+  .palette-item .name { font-size: 13px; font-weight: 500; }
+  .palette-item .desc { font-size: 11px; color: var(--text-2); margin-top: 2px; }
+  .toolbar { padding: 12px; display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--border); }
+  .btn {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    color: var(--text-0);
+    padding: 6px 12px;
+    font-size: 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all .15s ease;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+  .btn.primary:hover { background: #4a78d8; }
+  .btn.danger:hover { border-color: var(--err); color: var(--err); }
+  /* ===== Canvas ===== */
+  .canvas-wrap { position: relative; background: var(--bg-0); overflow: hidden; }
+  .canvas-wrap .rf-wrapper { width: 100%; height: 100%; }
+  /* ===== Inspector ===== */
+  .inspector-body { padding: 14px; overflow-y: auto; flex: 1; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 11px; color: var(--text-2); text-transform: uppercase; margin-bottom: 6px; letter-spacing: .5px; }
+  .field input, .field select, .field textarea {
+    width: 100%;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    color: var(--text-0);
+    padding: 8px 10px;
+    font-size: 13px;
+    border-radius: 6px;
+    font-family: inherit;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    outline: none; border-color: var(--accent);
+  }
+  .field textarea { min-height: 60px; resize: vertical; }
+  .empty-state {
+    color: var(--text-2);
+    font-size: 13px;
+    text-align: center;
+    padding: 40px 20px;
+    line-height: 1.6;
+  }
+  .empty-state .icon { font-size: 36px; margin-bottom: 8px; opacity: .4; }
+  /* ===== Custom Node ===== */
+  .wf-node {
+    background: var(--bg-1);
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    padding: 0;
+    width: var(--node-w);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    transition: border-color .15s ease, transform .1s ease;
+  }
+  .wf-node:hover { transform: translateY(-1px); }
+  .wf-node.selected { border-color: var(--accent); }
+  .wf-node.running { border-color: var(--warn); animation: pulse 1.4s ease-in-out infinite; }
+  .wf-node.success { border-color: var(--ok); }
+  .wf-node.error { border-color: var(--err); }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(250,204,21,.5); }
+    50% { box-shadow: 0 0 0 8px rgba(250,204,21,0); }
+  }
+  .wf-node .head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .wf-node .head .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .wf-node .head .title { font-size: 13px; font-weight: 600; flex: 1; }
+  .wf-node .head .status { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: var(--bg-2); color: var(--text-2); }
+  .wf-node .body { padding: 8px 12px 12px; font-size: 11px; color: var(--text-1); }
+  .wf-node .body .row { display: flex; justify-content: space-between; padding: 2px 0; }
+  .wf-node .body .row .k { color: var(--text-2); }
+  /* ===== Event Log ===== */
+  .event-log { padding: 0; }
+  .event-row {
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    display: flex; align-items: center; gap: 10px;
+    font-family: "SF Mono", "Monaco", monospace;
+  }
+  .event-row .ts { color: var(--text-2); font-size: 10px; }
+  .event-row .tag {
+    font-size: 10px; padding: 1px 6px; border-radius: 3px;
+    background: var(--bg-2); color: var(--text-1);
+  }
+  .event-row.start .tag { background: rgba(91,141,239,.2); color: var(--accent); }
+  .event-row.node  .tag { background: rgba(124,92,255,.2); color: var(--accent-2); }
+  .event-row.edge  .tag { background: rgba(74,222,128,.2); color: var(--ok); }
+  .event-row.error .tag { background: rgba(248,113,113,.2); color: var(--err); }
+  .event-row .msg { color: var(--text-0); flex: 1; }
+  .log-empty { padding: 20px; text-align: center; color: var(--text-2); font-size: 12px; }
+  /* ===== React Flow overrides ===== */
+  .react-flow__background { background: var(--bg-0); }
+  .react-flow__controls {
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .react-flow__controls button {
+    background: var(--bg-1);
+    color: var(--text-0);
+    border-bottom: 1px solid var(--border);
+  }
+  .react-flow__controls button:hover { background: var(--bg-2); }
+  .react-flow__controls button svg { fill: var(--text-0); }
+  .react-flow__minimap {
+    background: var(--bg-1) !important;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .react-flow__attribution { display: none; }
+  .react-flow__edge-path { stroke-width: 2; }
+  .react-flow__edge.selected .react-flow__edge-path { stroke: var(--accent); }
+  .react-flow__handle {
+    background: var(--accent);
+    border: 2px solid var(--bg-1);
+    width: 10px; height: 10px;
+  }
+  /* ===== Status bar ===== */
+  .statusbar {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: rgba(18,24,38,.9);
+    border-top: 1px solid var(--border);
+    padding: 6px 14px;
+    font-size: 11px;
+    color: var(--text-1);
+    display: flex; gap: 18px; align-items: center;
+    backdrop-filter: blur(8px);
+    z-index: 5;
+  }
+  .statusbar .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+  .statusbar .item { display: flex; align-items: center; gap: 6px; }
+  /* ===== Modal ===== */
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,.6);
+    display: flex; align-items: center; justify-content: center; z-index: 100;
+  }
+  .modal {
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 24px; width: 420px;
+    box-shadow: var(--shadow);
+  }
+  .modal h3 { margin: 0 0 12px; font-size: 16px; }
+  .modal p { color: var(--text-1); font-size: 13px; line-height: 1.6; margin: 0 0 16px; }
+  .modal .actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .node-color-trigger { background: #5b8def; }
+  .node-color-condition { background: #7c5cff; }
+  .node-color-action { background: #4ade80; }
+  .node-color-transform { background: #facc15; }
+  .node-color-output { background: #f87171; }
+</style>
+
+<!-- React + ReactDOM + ReactFlow + Babel (vendored locally for offline / headless reliability) -->
+<link rel="stylesheet" href="vendor/reactflow.css" />
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
+<script src="vendor/reactflow.umd.js"></script>
+<script src="vendor/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="env,react">
+const { useState, useCallback, useEffect, useMemo, useRef } = React;
+const RF = window.ReactFlow;
+const { ReactFlow, Background, Controls, MiniMap, Handle, Position, addEdge, applyNodeChanges, applyEdgeChanges, MarkerType } = RF;
+
+// =============================================================
+// 1. 事件驅動核心 (Event Bus)
+// =============================================================
+const createEventBus = () => {
+  const listeners = new Map();
+  return {
+    on(event, fn) {
+      if (!listeners.has(event)) listeners.set(event, new Set());
+      listeners.get(event).add(fn);
+      return () => listeners.get(event)?.delete(fn);
+    },
+    emit(event, payload) {
+      listeners.get(event)?.forEach(fn => {
+        try { fn(payload); } catch (e) { console.error(`[bus:${event}]`, e); }
+      });
+      // 萬用事件 (供 Event Log 訂閱)
+      listeners.get('*')?.forEach(fn => {
+        try { fn({ event, payload }); } catch (e) { console.error('[bus:*]', e); }
+      });
+    },
+    clear() { listeners.clear(); },
+  };
+};
+
+// =============================================================
+// 2. 工作流節點類型定義
+// =============================================================
+const NODE_TYPES = {
+  trigger: {
+    label: '觸發器 Trigger',
+    desc: '工作流起點 (Webhook / Cron / 事件)',
+    color: '#5b8def',
+    defaultData: { kind: 'trigger', subtype: 'webhook', status: 'idle' },
+  },
+  condition: {
+    label: '條件判斷 Condition',
+    desc: 'If/Else 分支邏輯',
+    color: '#7c5cff',
+    defaultData: { kind: 'condition', expression: 'input.value > 0', status: 'idle' },
+  },
+  action: {
+    label: '動作 Action',
+    desc: '執行 API / 函式 / 命令',
+    color: '#4ade80',
+    defaultData: { kind: 'action', subtype: 'http', endpoint: 'https://api.example.com', status: 'idle' },
+  },
+  transform: {
+    label: '資料轉換 Transform',
+    desc: 'Map / Filter / Aggregate',
+    color: '#facc15',
+    defaultData: { kind: 'transform', subtype: 'map', script: 'item => item', status: 'idle' },
+  },
+  output: {
+    label: '輸出 Output',
+    desc: '寫回 DB / 推播 / 通知',
+    color: '#f87171',
+    defaultData: { kind: 'output', subtype: 'log', status: 'idle' },
+  },
+};
+
+// =============================================================
+// 3. 自訂節點組件 (Custom Node Renderer)
+// =============================================================
+const WorkflowNode = ({ data, selected }) => {
+  const meta = NODE_TYPES[data.kind] || NODE_TYPES.action;
+  const status = data.status || 'idle';
+  const statusLabel = { idle: '待命', running: '執行中', success: '完成', error: '失敗' }[status];
+
+  return (
+    <div className={`wf-node ${meta.color}-trigger ${selected ? 'selected' : ''} ${status}`}>
+      <Handle type="target" position={Position.Left} />
+      <div className="head">
+        <span className="dot" style={{ background: meta.color }} />
+        <span className="title">{data.label || meta.label}</span>
+        <span className="status">{statusLabel}</span>
+      </div>
+      <div className="body">
+        {data.kind === 'trigger' && (
+          <div className="row"><span className="k">類型</span><span>{data.subtype}</span></div>
+        )}
+        {data.kind === 'condition' && (
+          <div className="row"><span className="k">表達式</span><span style={{ fontFamily: 'monospace' }}>{data.expression?.slice(0, 24)}</span></div>
+        )}
+        {data.kind === 'action' && (
+          <div className="row"><span className="k">Endpoint</span><span style={{ fontFamily: 'monospace' }}>{data.subtype}</span></div>
+        )}
+        {data.kind === 'transform' && (
+          <div className="row"><span className="k">模式</span><span>{data.subtype}</span></div>
+        )}
+        {data.kind === 'output' && (
+          <div className="row"><span className="k">目標</span><span>{data.subtype}</span></div>
+        )}
+      </div>
+      <Handle type="source" position={Position.Right} />
+    </div>
+  );
+};
+
+const nodeTypes = { workflow: WorkflowNode };
+
+// =============================================================
+// 4. 工作流執行引擎 (DAG Runner)
+// 演算法: 拓樸排序 → BFS 遍歷節點 → 觸發事件
+// =============================================================
+const buildAdjacency = (nodes, edges) => {
+  const adj = new Map();
+  nodes.forEach(n => adj.set(n.id, []));
+  edges.forEach(e => adj.get(e.source)?.push(e.target));
+  return adj;
+};
+
+const topologicalOrder = (nodes, edges) => {
+  const indeg = new Map(nodes.map(n => [n.id, 0]));
+  edges.forEach(e => indeg.set(e.target, (indeg.get(e.target) || 0) + 1));
+  const queue = [...indeg.entries()].filter(([, d]) => d === 0).map(([id]) => id);
+  const order = [];
+  const adj = buildAdjacency(nodes, edges);
+  while (queue.length) {
+    const id = queue.shift();
+    order.push(id);
+    adj.get(id)?.forEach(next => {
+      indeg.set(next, indeg.get(next) - 1);
+      if (indeg.get(next) === 0) queue.push(next);
+    });
+  }
+  return order;
+};
+
+const runWorkflow = async (nodes, edges, bus) => {
+  bus.emit('workflow:start', { total: nodes.length });
+  const order = topologicalOrder(nodes, edges);
+  if (order.length !== nodes.length) {
+    bus.emit('workflow:error', { reason: '圖中存在循環依賴' });
+    return;
+  }
+  for (const id of order) {
+    const node = nodes.find(n => n.id === id);
+    bus.emit('node:start', { id, kind: node.data.kind });
+    // 模擬執行延遲
+    await new Promise(r => setTimeout(r, 600));
+    // 簡單的成功/失敗模擬
+    const willFail = node.data.kind === 'condition' && node.data.expression?.includes('FAIL');
+    if (willFail) {
+      bus.emit('node:error', { id, kind: node.data.kind });
+      return;
+    }
+    bus.emit('node:success', { id, kind: node.data.kind });
+    // 觸發下游 edge 事件
+    edges.filter(e => e.source === id).forEach(e => {
+      bus.emit('edge:traverse', { from: id, to: e.target });
+    });
+  }
+  bus.emit('workflow:complete', { total: nodes.length });
+};
+
+// =============================================================
+// 5. 主應用
+// =============================================================
+const App = () => {
+  const [nodes, setNodes] = useState([]);
+  const [edges, setEdges] = useState([]);
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [events, setEvents] = useState([]);
+  const [running, setRunning] = useState(false);
+  const [showHelp, setShowHelp] = useState(true);
+  const [stats, setStats] = useState({ nodes: 0, edges: 0, runs: 0 });
+  const busRef = useRef(createEventBus());
+  const reactFlowWrapper = useRef(null);
+  const idRef = useRef(1);
+
+  // -- 事件總線訂閱 (反映到 UI) --
+  useEffect(() => {
+    const bus = busRef.current;
+    const off = bus.on('*', ({ event, payload }) => {
+      const ts = new Date().toLocaleTimeString('zh-TW', { hour12: false });
+      setEvents(prev => [{ ts, event, payload, key: Date.now() + Math.random() }, ...prev].slice(0, 80));
+    });
+    return off;
+  }, []);
+
+  // -- 節點狀態聯動 (running/success/error) --
+  useEffect(() => {
+    const bus = busRef.current;
+    const offs = [
+      bus.on('node:start', ({ id }) => {
+        setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, status: 'running' } } : n));
+      }),
+      bus.on('node:success', ({ id }) => {
+        setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, status: 'success' } } : n));
+      }),
+      bus.on('node:error', ({ id }) => {
+        setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, status: 'error' } } : n));
+      }),
+      bus.on('workflow:complete', () => {
+        setTimeout(() => setNodes(ns => ns.map(n => ({ ...n, data: { ...n.data, status: 'idle' } }))), 1500);
+      }),
+    ];
+    return () => offs.forEach(o => o());
+  }, []);
+
+  // -- 統計 --
+  useEffect(() => {
+    setStats(s => ({ ...s, nodes: nodes.length, edges: edges.length }));
+  }, [nodes, edges]);
+
+  // -- React Flow handlers --
+  const onNodesChange = useCallback((changes) => {
+    setNodes(ns => applyNodeChanges(changes, ns));
+  }, []);
+  const onEdgesChange = useCallback((changes) => {
+    setEdges(es => applyEdgeChanges(changes, es));
+  }, []);
+  const onConnect = useCallback((conn) => {
+    setEdges(es => addEdge({
+      ...conn,
+      animated: true,
+      style: { stroke: '#5b8def' },
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#5b8def' },
+    }, es));
+    busRef.current.emit('edge:create', { from: conn.source, to: conn.target });
+  }, []);
+  const onNodeClick = useCallback((_, node) => setSelectedNode(node), []);
+  const onPaneClick = useCallback(() => setSelectedNode(null), []);
+
+  // -- 拖放新增節點 --
+  const onDragStart = (e, kind) => {
+    e.dataTransfer.setData('application/reactflow', kind);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+  const onDragOver = useCallback((e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  }, []);
+  const onDrop = useCallback((e) => {
+    e.preventDefault();
+    const kind = e.dataTransfer.getData('application/reactflow');
+    if (!kind || !NODE_TYPES[kind]) return;
+    const bounds = reactFlowWrapper.current.getBoundingClientRect();
+    const position = {
+      x: e.clientX - bounds.left - 110,
+      y: e.clientY - bounds.top - 40,
+    };
+    const meta = NODE_TYPES[kind];
+    const newNode = {
+      id: `n${idRef.current++}`,
+      type: 'workflow',
+      position,
+      data: { ...meta.defaultData, label: meta.label },
+    };
+    setNodes(ns => ns.concat(newNode));
+    busRef.current.emit('node:create', { id: newNode.id, kind });
+  }, []);
+
+  // -- 動作 --
+  const updateSelectedNode = (field, value) => {
+    if (!selectedNode) return;
+    setNodes(ns => ns.map(n => n.id === selectedNode.id
+      ? { ...n, data: { ...n.data, [field]: value } }
+      : n
+    ));
+    setSelectedNode(sn => sn ? { ...sn, data: { ...sn.data, [field]: value } } : sn);
+    busRef.current.emit('node:update', { id: selectedNode.id, field, value });
+  };
+
+  const deleteSelected = () => {
+    if (!selectedNode) return;
+    const id = selectedNode.id;
+    setNodes(ns => ns.filter(n => n.id !== id));
+    setEdges(es => es.filter(e => e.source !== id && e.target !== id));
+    setSelectedNode(null);
+    busRef.current.emit('node:delete', { id });
+  };
+
+  const clearAll = () => {
+    setNodes([]); setEdges([]); setSelectedNode(null); setEvents([]);
+    busRef.current.emit('workflow:clear', {});
+  };
+
+  const loadDemo = () => {
+    const demoNodes = [
+      { id: 'demo1', type: 'workflow', position: { x: 50, y: 100 },
+        data: { kind: 'trigger', subtype: 'webhook', label: '收到 Webhook', status: 'idle' } },
+      { id: 'demo2', type: 'workflow', position: { x: 320, y: 100 },
+        data: { kind: 'condition', expression: 'payload.amount > 1000', label: '金額檢查', status: 'idle' } },
+      { id: 'demo3', type: 'workflow', position: { x: 590, y: 30 },
+        data: { kind: 'action', subtype: 'http:POST', label: '送審核', status: 'idle' } },
+      { id: 'demo4', type: 'workflow', position: { x: 590, y: 180 },
+        data: { kind: 'action', subtype: 'http:GET', label: '自動批准', status: 'idle' } },
+      { id: 'demo5', type: 'workflow', position: { x: 860, y: 100 },
+        data: { kind: 'output', subtype: 'notify', label: '寄送通知', status: 'idle' } },
+    ];
+    const demoEdges = [
+      { id: 'e1-2', source: 'demo1', target: 'demo2', animated: true, style: { stroke: '#5b8def' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#5b8def' } },
+      { id: 'e2-3', source: 'demo2', target: 'demo3', label: '> 1000', animated: true, style: { stroke: '#7c5cff' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#7c5cff' } },
+      { id: 'e2-4', source: 'demo2', target: 'demo4', label: '≤ 1000', animated: true, style: { stroke: '#7c5cff' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#7c5cff' } },
+      { id: 'e3-5', source: 'demo3', target: 'demo5', animated: true, style: { stroke: '#5b8def' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#5b8def' } },
+      { id: 'e4-5', source: 'demo4', target: 'demo5', animated: true, style: { stroke: '#5b8def' }, markerEnd: { type: MarkerType.ArrowClosed, color: '#5b8def' } },
+    ];
+    setNodes(demoNodes);
+    setEdges(demoEdges);
+    setSelectedNode(null);
+    idRef.current = Math.max(100, ...demoNodes.map(n => parseInt(n.id.replace(/\D/g, '')) || 0)) + 1;
+    busRef.current.emit('workflow:load', { nodes: demoNodes.length, edges: demoEdges.length });
+  };
+
+  const executeWorkflow = async () => {
+    if (running || nodes.length === 0) return;
+    setRunning(true);
+    setStats(s => ({ ...s, runs: s.runs + 1 }));
+    await runWorkflow(nodes, edges, busRef.current);
+    setRunning(false);
+  };
+
+  // -- 匯出 JSON --
+  const exportJSON = () => {
+    const data = { nodes, edges, exportedAt: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'workflow.json'; a.click();
+    URL.revokeObjectURL(url);
+    busRef.current.emit('workflow:export', { nodes: nodes.length });
+  };
+
+  return (
+    <div className="app">
+      {/* ===== Sidebar: Node Palette + Event Log ===== */}
+      <div className="sidebar">
+        <div className="panel-head">節點元件庫 <span className="badge">{Object.keys(NODE_TYPES).length}</span></div>
+        <div className="palette">
+          {Object.entries(NODE_TYPES).map(([key, meta]) => (
+            <div
+              key={key}
+              className="palette-item"
+              draggable
+              onDragStart={(e) => onDragStart(e, key)}
+              title="拖曳到畫布新增節點"
+            >
+              <span className="dot" style={{ background: meta.color }} />
+              <div className="meta">
+                <div className="name">{meta.label}</div>
+                <div className="desc">{meta.desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="toolbar">
+          <button className="btn primary" onClick={loadDemo} title="載入展示用工作流">載入範例</button>
+          <button className="btn" onClick={executeWorkflow} disabled={running || nodes.length === 0}>
+            {running ? '執行中...' : '▶ 執行'}
+          </button>
+          <button className="btn" onClick={exportJSON} disabled={nodes.length === 0}>匯出 JSON</button>
+          <button className="btn danger" onClick={clearAll} disabled={nodes.length === 0}>清空</button>
+        </div>
+      </div>
+
+      {/* ===== Canvas ===== */}
+      <div className="canvas-wrap" ref={reactFlowWrapper}>
+        <div className="rf-wrapper">
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onNodeClick={onNodeClick}
+            onPaneClick={onPaneClick}
+            onDrop={onDrop}
+            onDragOver={onDragOver}
+            nodeTypes={nodeTypes}
+            fitView
+            proOptions={{ hideAttribution: true }}
+          >
+            <Background color="#1a2236" gap={20} />
+            <Controls />
+            <MiniMap
+              nodeColor={(n) => NODE_TYPES[n.data?.kind]?.color || '#5b8def'}
+              maskColor="rgba(11,15,26,0.7)"
+            />
+          </ReactFlow>
+        </div>
+        <div className="statusbar">
+          <div className="item"><span className="dot" />事件總線已連線</div>
+          <div className="item">節點: <strong style={{ color: 'var(--text-0)' }}>{stats.nodes}</strong></div>
+          <div className="item">連線: <strong style={{ color: 'var(--text-0)' }}>{stats.edges}</strong></div>
+          <div className="item">執行次數: <strong style={{ color: 'var(--text-0)' }}>{stats.runs}</strong></div>
+          <div className="item" style={{ marginLeft: 'auto', color: 'var(--text-2)' }}>
+            拖曳左側元件到畫布 · 連接兩個 handle 建立事件流
+          </div>
+        </div>
+      </div>
+
+      {/* ===== Inspector + Event Log ===== */}
+      <div className="inspector">
+        <div className="panel-head">屬性編輯器</div>
+        <div className="inspector-body">
+          {selectedNode ? (
+            <div>
+              <div className="field">
+                <label>節點標題</label>
+                <input
+                  value={selectedNode.data.label || ''}
+                  onChange={e => updateSelectedNode('label', e.target.value)}
+                />
+              </div>
+              {selectedNode.data.kind === 'trigger' && (
+                <div className="field">
+                  <label>觸發子類型</label>
+                  <select
+                    value={selectedNode.data.subtype}
+                    onChange={e => updateSelectedNode('subtype', e.target.value)}
+                  >
+                    <option value="webhook">Webhook</option>
+                    <option value="cron">Cron 排程</option>
+                    <option value="event">事件監聽</option>
+                    <option value="manual">手動觸發</option>
+                  </select>
+                </div>
+              )}
+              {selectedNode.data.kind === 'condition' && (
+                <div className="field">
+                  <label>條件表達式 (JavaScript)</label>
+                  <textarea
+                    value={selectedNode.data.expression || ''}
+                    onChange={e => updateSelectedNode('expression', e.target.value)}
+                    placeholder="input.value > 0"
+                  />
+                  <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 4 }}>
+                    提示: 包含 "FAIL" 會在執行時觸發錯誤 (用於測試)
+                  </div>
+                </div>
+              )}
+              {selectedNode.data.kind === 'action' && (
+                <>
+                  <div className="field">
+                    <label>動作類型</label>
+                    <select
+                      value={selectedNode.data.subtype}
+                      onChange={e => updateSelectedNode('subtype', e.target.value)}
+                    >
+                      <option value="http:GET">HTTP GET</option>
+                      <option value="http:POST">HTTP POST</option>
+                      <option value="http:PUT">HTTP PUT</option>
+                      <option value="function">執行函式</option>
+                      <option value="command">Shell 命令</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>端點 / 腳本</label>
+                    <input
+                      value={selectedNode.data.endpoint || ''}
+                      onChange={e => updateSelectedNode('endpoint', e.target.value)}
+                      placeholder="https://..."
+                    />
+                  </div>
+                </>
+              )}
+              {selectedNode.data.kind === 'transform' && (
+                <>
+                  <div className="field">
+                    <label>轉換模式</label>
+                    <select
+                      value={selectedNode.data.subtype}
+                      onChange={e => updateSelectedNode('subtype', e.target.value)}
+                    >
+                      <option value="map">Map</option>
+                      <option value="filter">Filter</option>
+                      <option value="reduce">Reduce</option>
+                      <option value="aggregate">Aggregate</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>轉換腳本 (JS)</label>
+                    <textarea
+                      value={selectedNode.data.script || ''}
+                      onChange={e => updateSelectedNode('script', e.target.value)}
+                    />
+                  </div>
+                </>
+              )}
+              {selectedNode.data.kind === 'output' && (
+                <div className="field">
+                  <label>輸出目標</label>
+                  <select
+                    value={selectedNode.data.subtype}
+                    onChange={e => updateSelectedNode('subtype', e.target.value)}
+                  >
+                    <option value="log">Log</option>
+                    <option value="notify">推播通知</option>
+                    <option value="db:write">DB 寫入</option>
+                    <option value="email">寄信</option>
+                  </select>
+                </div>
+              )}
+              <button className="btn danger" onClick={deleteSelected} style={{ width: '100%', marginTop: 10 }}>
+                刪除此節點
+              </button>
+            </div>
+          ) : (
+            <div className="empty-state">
+              <div className="icon">⚙</div>
+              <div>點擊畫布上任一節點<br />以編輯屬性</div>
+            </div>
+          )}
+        </div>
+        <div className="panel-head" style={{ borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
+          事件日誌 <span className="badge">{events.length}</span>
+        </div>
+        <div className="event-log" style={{ maxHeight: 280, overflowY: 'auto' }}>
+          {events.length === 0 ? (
+            <div className="log-empty">尚無事件 · 點擊「執行」或操作節點</div>
+          ) : (
+            events.map(e => {
+              const tag = e.event.split(':')[0];
+              return (
+                <div key={e.key} className={`event-row ${tag}`}>
+                  <span className="ts">{e.ts}</span>
+                  <span className="tag">{e.event}</span>
+                  <span className="msg">
+                    {e.event === 'workflow:start' && `開始執行 (${e.payload.total} 節點)`}
+                    {e.event === 'workflow:complete' && `全部完成 (${e.payload.total} 節點)`}
+                    {e.event === 'workflow:error' && `錯誤: ${e.payload.reason}`}
+                    {e.event === 'workflow:clear' && '工作流已清空'}
+                    {e.event === 'workflow:load' && `載入範例 (${e.payload.nodes} 節點)`}
+                    {e.event === 'workflow:export' && `匯出 JSON (${e.payload.nodes} 節點)`}
+                    {e.event === 'node:create' && `新增節點 [${e.payload.kind}]`}
+                    {e.event === 'node:update' && `更新 ${e.payload.field}`}
+                    {e.event === 'node:delete' && `刪除節點 ${e.payload.id}`}
+                    {e.event === 'node:start' && `執行 [${e.payload.kind}] ${e.payload.id}`}
+                    {e.event === 'node:success' && `完成 [${e.payload.kind}] ${e.payload.id}`}
+                    {e.event === 'node:error' && `失敗 [${e.payload.kind}] ${e.payload.id}`}
+                    {e.event === 'edge:create' && `建立連線 ${e.payload.from} → ${e.payload.to}`}
+                    {e.event === 'edge:traverse' && `傳遞 ${e.payload.from} → ${e.payload.to}`}
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {/* ===== Help Modal ===== */}
+      {showHelp && (
+        <div className="modal-bg" onClick={() => setShowHelp(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h3>🚀 React Flow 動態工作流引擎</h3>
+            <p>
+              <strong>這是一個事件驅動的可視化工作流編輯器</strong>。
+              從左側拖曳節點到畫布,連接 Handle 建立流程,然後按「▶ 執行」看拓樸排序跑完整個 DAG。
+            </p>
+            <p style={{ fontSize: 12, color: 'var(--text-2)' }}>
+              核心架構: Event Bus (發布/訂閱) + DAG 拓樸排序執行器 + React Flow 視覺化渲染。
+              所有節點狀態變化 (running/success/error) 都透過事件傳播,事件日誌會即時顯示在右側。
+            </p>
+            <div className="actions">
+              <button className="btn primary" onClick={() => { setShowHelp(false); loadDemo(); }}>
+                載入範例並開始
+              </button>
+              <button className="btn" onClick={() => setShowHelp(false)}>略過</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+</body>
+</html>

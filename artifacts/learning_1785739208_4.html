@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Framer Motion × React Flow — 微動畫實驗室</title>
+
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- React 18 UMD (production) -->
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+
+<!-- React Flow 11 (UMD 全套：核心 + 背景 + Controls + MiniMap) -->
+<script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css" />
+
+<!-- Framer Motion 11 UMD -->
+<script src="https://unpkg.com/framer-motion@11.11.17/dist/framer-motion.js"></script>
+
+<!-- Babel Standalone (for JSX in browser) -->
+<script src="https://unpkg.com/@babel/standalone@7.25.7/babel.min.js"></script>
+
+<style>
+  :root {
+    /* Glass tokens */
+    --glass-bg: rgba(255, 255, 255, 0.08);
+    --glass-bg-strong: rgba(255, 255, 255, 0.14);
+    --glass-border: 1px solid rgba(255, 255, 255, 0.18);
+    --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+    --glass-blur: 18px;
+
+    /* Theme palette */
+    --bg-from: #0b1020;
+    --bg-via: #131836;
+    --bg-to: #1a0f2e;
+    --text: #f5f7ff;
+    --muted: #9aa3c7;
+    --accent: #7c5cff;
+    --accent-2: #22d3ee;
+    --accent-3: #f472b6;
+    --accent-4: #34d399;
+    --line: rgba(255, 255, 255, 0.08);
+    --ease-glass: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  html, body, #root { height: 100%; }
+  body {
+    margin: 0;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(circle at 12% 10%, rgba(124, 92, 255, 0.30), transparent 38%),
+      radial-gradient(circle at 88% 90%, rgba(34, 211, 238, 0.22), transparent 40%),
+      linear-gradient(135deg, var(--bg-from) 0%, var(--bg-via) 50%, var(--bg-to) 100%);
+    background-attachment: fixed;
+    overflow: hidden;
+  }
+
+  /* Animated aurora background orbs (pure CSS, GPU-friendly) */
+  body::before, body::after {
+    content: '';
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(80px);
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.45;
+    will-change: transform;
+  }
+  body::before {
+    width: 540px; height: 540px;
+    left: -120px; top: -120px;
+    background: radial-gradient(circle, #7c5cff 0%, transparent 70%);
+    animation: drift1 22s var(--ease-glass) infinite alternate;
+  }
+  body::after {
+    width: 620px; height: 620px;
+    right: -160px; bottom: -160px;
+    background: radial-gradient(circle, #22d3ee 0%, transparent 70%);
+    animation: drift2 26s var(--ease-glass) infinite alternate;
+  }
+  @keyframes drift1 { to { transform: translate(120px, 80px) scale(1.15); } }
+  @keyframes drift2 { to { transform: translate(-100px, -90px) scale(1.1); } }
+
+  /* React Flow z-index management (per micro-skill §4) */
+  .react-flow__background { background-color: transparent !important; z-index: 0 !important; }
+  .react-flow__background svg { pointer-events: none !important; }
+  .react-flow__container { z-index: 1 !important; }
+  .react-flow__nodes, .react-flow__edges, .react-flow__viewport { z-index: 2 !important; position: relative; }
+  .react-flow__panel { z-index: 5 !important; }
+  .react-flow__controls, .react-flow__minimap { z-index: 6 !important; }
+
+  /* Edge stroke gradient illusion via filter */
+  .react-flow__edge-path {
+    stroke-linecap: round;
+    filter: drop-shadow(0 0 6px rgba(124, 92, 255, 0.35));
+  }
+
+  /* Custom Node styling */
+  .flow-node {
+    min-width: 180px;
+    padding: 12px 16px;
+    border-radius: 14px;
+    background: var(--glass-bg-strong);
+    backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.15);
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.35;
+    transform-origin: center;
+    will-change: transform, box-shadow;
+  }
+  .flow-node.selected {
+    box-shadow:
+      0 0 0 2px var(--accent),
+      0 0 30px rgba(124, 92, 255, 0.55),
+      0 12px 28px rgba(0,0,0,0.45),
+      inset 0 1px 0 rgba(255,255,255,0.20);
+  }
+  .flow-node .node-title {
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 4px;
+  }
+  .flow-node .node-desc {
+    color: var(--muted);
+    font-size: 11.5px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+  /* Toolbar */
+  .toolbar {
+    position: absolute; top: 16px; left: 16px; right: 16px;
+    display: flex; gap: 12px; align-items: center; z-index: 10;
+    pointer-events: none;
+  }
+  .toolbar > * { pointer-events: auto; }
+  .pill {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+    border: var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    border-radius: 999px;
+    padding: 8px 16px;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 500;
+    display: inline-flex; align-items: center; gap: 8px;
+    transition: transform 200ms var(--ease-glass), background 200ms var(--ease-glass);
+    cursor: pointer;
+    user-select: none;
+  }
+  .pill:hover { background: var(--glass-bg-strong); transform: translateY(-1px); }
+  .pill:active { transform: translateY(0); }
+  .pill .badge {
+    background: var(--accent); color: white;
+    font-size: 10.5px; font-weight: 600;
+    padding: 2px 8px; border-radius: 999px;
+  }
+
+  /* Right legend / info card */
+  .info-card {
+    position: absolute; bottom: 16px; left: 16px;
+    width: 320px; padding: 18px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+    border: var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    border-radius: 18px;
+    color: var(--text);
+    z-index: 10;
+  }
+  .info-card h3 { margin: 0 0 8px; font-size: 14px; font-weight: 700; letter-spacing: 0.02em; }
+  .info-card p  { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+  .info-card ul { margin: 10px 0 0; padding: 0; list-style: none; font-size: 12.5px; color: var(--muted); }
+  .info-card li { padding: 4px 0; display: flex; gap: 8px; align-items: center; }
+
+  /* Top right action toolbar */
+  .actions { margin-left: auto; display: flex; gap: 8px; }
+
+  /* Reduce motion respect (accessibility) */
+  @media (prefers-reduced-motion: reduce) {
+    body::before, body::after { animation: none; }
+    .pill { transition: none; }
+  }
+
+  /* React Flow Controls / MiniMap theming */
+  .react-flow__controls { box-shadow: var(--glass-shadow); }
+  .react-flow__controls-button { background: var(--glass-bg-strong) !important; color: var(--text) !important; border-bottom: 1px solid var(--line) !important; }
+  .react-flow__controls-button:hover { background: rgba(124,92,255,0.25) !important; }
+  .react-flow__attribution { background: rgba(0,0,0,0.25) !important; color: var(--muted) !important; }
+
+  /* Edge animation (dash flow) */
+  @keyframes dashflow {
+    to { stroke-dashoffset: -24; }
+  }
+  .react-flow__edge.animated .react-flow__edge-path {
+    stroke-dasharray: 6 6;
+    animation: dashflow 1.2s linear infinite;
+  }
+
+  /* Pulse halo for newly added nodes */
+  @keyframes pulse-halo {
+    0%   { box-shadow: 0 0 0 0 rgba(124, 92, 255, 0.6), 0 8px 24px rgba(0,0,0,0.35); }
+    70%  { box-shadow: 0 0 0 18px rgba(124, 92, 255, 0),  0 8px 24px rgba(0,0,0,0.35); }
+    100% { box-shadow: 0 0 0 0 rgba(124, 92, 255, 0),      0 8px 24px rgba(0,0,0,0.35); }
+  }
+  .flow-node.pulse { animation: pulse-halo 1100ms var(--ease-glass) 1; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-type="module">
+const { useState, useEffect, useCallback, useMemo, useRef } = React;
+// React Flow 11 UMD exposes its API as window.ReactFlow (object of named exports),
+// not as a default component. We must destructure Background, Controls, MiniMap, etc.
+const RF = window.ReactFlow || {};
+const ReactFlow = RF.ReactFlow || RF.default;
+const ReactFlowProvider = RF.ReactFlowProvider;
+const Background = RF.Background;
+const Controls = RF.Controls;
+const MiniMap = RF.MiniMap;
+const applyNodeChanges = RF.applyNodeChanges;
+const applyEdgeChanges = RF.applyEdgeChanges;
+const addEdge = RF.addEdge;
+// Framer Motion 11 UMD exposes itself as window.Motion (verified from unpkg bundle)
+const FM = window.Motion || window.framerMotion || window["framer-motion"] || {};
+const FramerProvider = FM.Provider || (({children}) => children);
+const motion = FM.motion || { div: 'div', button: 'button', span: 'span', li: 'li', ul: 'ul' };
+const AnimatePresence = FM.AnimatePresence || (({children}) => children);
+const AnimatePresenceSafe = AnimatePresence;
+
+// ----------------- Custom Node (wrapped in motion.div) -----------------
+const colorMap = {
+  source:  '#7c5cff',
+  process: '#22d3ee',
+  decision:'#f472b6',
+  output:  '#34d399',
+};
+
+function FlowNode({ data, selected }) {
+  const color = colorMap[data.kind] || '#7c5cff';
+  return (
+    <motion.div
+      className={`flow-node ${data.pulse ? 'pulse' : ''}`}
+      initial={{ opacity: 0, scale: 0.6, y: 14 }}
+      animate={{
+        opacity: 1,
+        scale: selected ? 1.06 : 1,
+        y: 0,
+        boxShadow: selected
+          ? `0 0 0 2px ${color}, 0 12px 28px rgba(0,0,0,0.45)`
+          : `0 8px 24px rgba(0,0,0,0.35)`,
+      }}
+      exit={{ opacity: 0, scale: 0.6, y: -10 }}
+      whileHover={{ scale: 1.04, y: -2 }}
+      whileTap={{ scale: 0.98 }}
+      transition={{ type: 'spring', stiffness: 320, damping: 22, mass: 0.6 }}
+      style={{ borderTop: `2px solid ${color}` }}
+    >
+      <div className="node-title">
+        <span className="dot" style={{ background: color, boxShadow: `0 0 8px ${color}` }} />
+        <span>{data.label}</span>
+      </div>
+      <div className="node-desc">{data.desc}</div>
+    </motion.div>
+  );
+}
+
+// ----------------- Toolbar Button (motion) -----------------
+function ToolbarButton({ onClick, children, accent = '#7c5cff' }) {
+  return (
+    <motion.button
+      className="pill"
+      onClick={onClick}
+      whileHover={{ y: -2, scale: 1.03 }}
+      whileTap={{ scale: 0.95 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 18 }}
+      style={{ boxShadow: `0 0 0 1px rgba(255,255,255,0.06), 0 4px 14px ${accent}33` }}
+    >
+      {children}
+    </motion.button>
+  );
+}
+
+// ----------------- Main App -----------------
+const initialNodes = [
+  { id: '1', type: 'glass', position: { x: 60,  y: 120 }, data: { label: '使用者輸入', desc: '事件起點：拖曳 / 點擊 / 鍵盤', kind: 'source',  pulse: false } },
+  { id: '2', type: 'glass', position: { x: 320, y: 60  }, data: { label: '解析意圖',  desc: 'NLP 解析 → 結構化指令',         kind: 'process', pulse: false } },
+  { id: '3', type: 'glass', position: { x: 320, y: 220 }, data: { label: '查詢知識庫', desc: '向量檢索 RAG 增強',             kind: 'process', pulse: false } },
+  { id: '4', type: 'glass', position: { x: 600, y: 140 }, data: { label: '路由決策',  desc: '判斷走 LLM 或工作流',           kind: 'decision',pulse: false } },
+  { id: '5', type: 'glass', position: { x: 880, y: 60  }, data: { label: 'LLM 推論',  desc: '生成式回應',                   kind: 'process', pulse: false } },
+  { id: '6', type: 'glass', position: { x: 880, y: 220 }, data: { label: '工具呼叫',  desc: 'API / Function Calling',        kind: 'process', pulse: false } },
+  { id: '7', type: 'glass', position: { x: 1140,y: 140 }, data: { label: '回應輸出',  desc: '最終回傳給使用者',              kind: 'output',  pulse: false } },
+];
+
+const initialEdges = [
+  { id: 'e1-2', source: '1', target: '2', type: 'smoothstep', animated: true },
+  { id: 'e1-3', source: '1', target: '3', type: 'smoothstep', animated: true },
+  { id: 'e2-4', source: '2', target: '4', type: 'smoothstep', animated: true },
+  { id: 'e3-4', source: '3', target: '4', type: 'smoothstep', animated: true },
+  { id: 'e4-5', source: '4', target: '5', type: 'smoothstep', animated: true, label: '語意型' },
+  { id: 'e4-6', source: '4', target: '6', type: 'smoothstep', animated: true, label: '動作型' },
+  { id: 'e5-7', source: '5', target: '7', type: 'smoothstep', animated: true },
+  { id: 'e6-7', source: '6', target: '7', type: 'smoothstep', animated: true },
+];
+
+const nodeTypes = { glass: FlowNode };
+const proOptions = { hideAttribution: true };
+const defaultViewport = { x: 40, y: 40, zoom: 0.85 };
+
+function App() {
+  const [nodes, setNodes] = useState(initialNodes);
+  const [edges, setEdges] = useState(initialEdges);
+  const [selectedId, setSelectedId] = useState(null);
+  const [counter, setCounter] = useState(8);
+  const [stats, setStats] = useState({ nodes: initialNodes.length, edges: initialEdges.length });
+
+  // Recompute stats
+  useEffect(() => {
+    setStats({ nodes: nodes.length, edges: edges.length });
+  }, [nodes, edges]);
+
+  // ------- Handlers -------
+  const onNodesChange = useCallback((changes) => {
+    setNodes((nds) => applyNodeChanges(changes, nds));
+  }, []);
+  const onEdgesChange = useCallback((changes) => {
+    setEdges((eds) => applyEdgeChanges(changes, eds));
+  }, []);
+  const onConnect = useCallback((params) => {
+    setEdges((eds) => addEdge({ ...params, type: 'smoothstep', animated: true }, eds));
+  }, []);
+
+  const onNodeClick = useCallback((_, node) => {
+    setSelectedId(node.id);
+  }, []);
+  const onPaneClick = useCallback(() => setSelectedId(null), []);
+
+  // ------- Add Node with Framer Motion pulse trigger -------
+  const addRandomNode = useCallback(() => {
+    const kinds = ['source', 'process', 'decision', 'output'];
+    const labels = ['新事件', '新流程', '新決策', '新輸出'];
+    const descs = [
+      '點擊新增的事件源',
+      '剛加入的處理節點',
+      '需要人工 / 規則判斷',
+      '對外回應的端點'
+    ];
+    const i = (counter - 8) % 4;
+    const id = String(counter);
+    const newNode = {
+      id,
+      type: 'glass',
+      position: {
+        x: 100 + Math.random() * 800,
+        y: 60 + Math.random() * 360,
+      },
+      data: { label: labels[i], desc: descs[i], kind: kinds[i], pulse: true },
+    };
+    setNodes((nds) => [...nds, newNode]);
+
+    // Connect to a random existing node
+    if (nodes.length > 0) {
+      const src = nodes[Math.floor(Math.random() * nodes.length)];
+      setEdges((eds) => [
+        ...eds,
+        {
+          id: `e-${src.id}-${id}`,
+          source: src.id,
+          target: id,
+          type: 'smoothstep',
+          animated: true,
+        },
+      ]);
+    }
+    setCounter((c) => c + 1);
+    setSelectedId(id);
+
+    // Clear pulse class after animation finishes so the CSS halo only fires once
+    setTimeout(() => {
+      setNodes((nds) =>
+        nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, pulse: false } } : n))
+      );
+    }, 1200);
+  }, [counter, nodes]);
+
+  // ------- Reset graph (animated exit) -------
+  const resetGraph = useCallback(() => {
+    setNodes([]);
+    setEdges([]);
+    setTimeout(() => {
+      setNodes(initialNodes);
+      setEdges(initialEdges);
+      setCounter(8);
+      setSelectedId(null);
+    }, 350);
+  }, []);
+
+  // ------- Shuffle (animated reorder via layout-ish random reposition) -------
+  const shuffleNodes = useCallback(() => {
+    setNodes((nds) =>
+      nds.map((n) => ({
+        ...n,
+        position: {
+          x: 60 + Math.random() * 1100,
+          y: 40 + Math.random() * 360,
+        },
+      }))
+    );
+  }, []);
+
+  // ------- Selected node display info -------
+  const selectedNode = useMemo(
+    () => nodes.find((n) => n.id === selectedId) || null,
+    [nodes, selectedId]
+  );
+
+  return (
+    <FramerProvider>
+      <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+
+        {/* Toolbar */}
+        <div className="toolbar">
+          <motion.div
+            className="pill"
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.05, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+          >
+            ⚡ Framer Motion × React Flow
+            <span className="badge">v1</span>
+          </motion.div>
+
+          <motion.div
+            className="pill"
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.12, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <span className="dot" style={{ background: '#22d3ee', boxShadow: '0 0 8px #22d3ee' }} />
+            節點 {stats.nodes} · 邊 {stats.edges}
+          </motion.div>
+
+          <div className="actions">
+            <ToolbarButton onClick={addRandomNode} accent="#22d3ee">
+              <span className="dot" style={{ background: '#22d3ee' }} /> + 新增節點
+            </ToolbarButton>
+            <ToolbarButton onClick={shuffleNodes} accent="#f472b6">
+              <span className="dot" style={{ background: '#f472b6' }} /> 🔀 打散節點
+            </ToolbarButton>
+            <ToolbarButton onClick={resetGraph} accent="#f59e0b">
+              <span className="dot" style={{ background: '#f59e0b' }} /> ⟲ 重置
+            </ToolbarButton>
+          </div>
+        </div>
+
+        {/* Info Card (animated entry) */}
+        <AnimatePresenceSafe>
+          <motion.div
+            key="info-card"
+            className="info-card"
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 24 }}
+            transition={{ delay: 0.25, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <h3>🎬 微動畫設計清單</h3>
+            <p>Framer Motion 與 React Flow 結合的六種 UX 增強手段：</p>
+            <ul>
+              <li><span className="dot" style={{ background: '#7c5cff' }} /> <b>節點進場</b> — 彈簧 (stiffness 320 / damping 22)</li>
+              <li><span className="dot" style={{ background: '#22d3ee' }} /> <b>Hover 抬起</b> — y -2 / scale 1.04</li>
+              <li><span className="dot" style={{ background: '#f472b6' }} /> <b>選中發光</b> — box-shadow 動態切換</li>
+              <li><span className="dot" style={{ background: '#34d399' }} /> <b>新增 halo</b> — CSS keyframes pulse-halo</li>
+              <li><span className="dot" style={{ background: '#fbbf24' }} /> <b>ToolBar 入場</b> — staggered fade-down</li>
+              <li><span className="dot" style={{ background: '#a78bfa' }} /> <b>邊流動畫</b> — dashflow 沿 path 滑動</li>
+            </ul>
+            <AnimatePresence mode="wait">
+              {selectedNode && (
+                <motion.div
+                  key={selectedNode.id + '-detail'}
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                  style={{ overflow: 'hidden', marginTop: 10 }}
+                >
+                  <div style={{
+                    padding: '10px 12px',
+                    borderRadius: 10,
+                    background: 'rgba(124,92,255,0.10)',
+                    border: '1px solid rgba(124,92,255,0.25)',
+                    fontSize: 12,
+                  }}>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                      目前選中：{selectedNode.data.label}
+                    </div>
+                    <div style={{ color: 'var(--muted)' }}>{selectedNode.data.desc}</div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.div>
+        </AnimatePresenceSafe>
+
+        {/* React Flow Canvas */}
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onNodeClick={onNodeClick}
+          onPaneClick={onPaneClick}
+          defaultViewport={defaultViewport}
+          minZoom={0.2}
+          maxZoom={1.6}
+          fitViewOptions={{ padding: 0.2, maxZoom: 1.0 }}
+          onlyRenderVisibleElements
+          proOptions={proOptions}
+          connectionLineType="smoothstep"
+          defaultEdgeOptions={{ type: 'smoothstep', animated: true }}
+        >
+          <Background gap={24} size={1.2} color="rgba(255,255,255,0.08)" />
+          <Controls
+            position="top-right"
+            showInteractive={false}
+            style={{ marginTop: 64 }}
+          />
+          <MiniMap
+            position="bottom-right"
+            pannable
+            zoomable
+            nodeColor={(n) => colorMap[n.data?.kind] || '#7c5cff'}
+            maskColor="rgba(11,16,32,0.6)"
+            style={{
+              background: 'var(--glass-bg)',
+              backdropFilter: 'blur(14px)',
+              border: 'var(--glass-border)',
+              borderRadius: 12,
+            }}
+          />
+        </ReactFlow>
+      </div>
+    </FramerProvider>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+</body>
+</html>

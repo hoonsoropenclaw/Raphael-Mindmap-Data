@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>異步事件驅動架構在 RPA 自動化流程中的應用與優化</title>
+<style>
+:root{
+  --bg:#0b1020; --panel:#121933; --panel2:#0f1631; --line:#263063;
+  --text:#e6e9f5; --muted:#8a93b8; --accent:#7aa2ff; --accent2:#5be7c4;
+  --warn:#ffb454; --err:#ff6b81; --ok:#5be7c4; --pending:#8a93b8;
+  --running:#7aa2ff; --shadow:0 8px 24px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+  font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+  line-height:1.6;font-size:14px}
+header{padding:28px 36px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#0b1020,#10183a)}
+h1{margin:0;font-size:24px;letter-spacing:.5px}
+.sub{color:var(--muted);margin-top:6px;font-size:13px}
+main{max-width:1180px;margin:0 auto;padding:24px 28px 80px}
+section{margin:28px 0;padding:20px;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
+section h2{margin:0 0 12px;font-size:18px;color:var(--accent)}
+section h3{margin:16px 0 8px;font-size:15px;color:var(--accent2)}
+p{margin:8px 0}
+.muted{color:var(--muted)}
+code{background:#0a1130;color:#cfe1ff;padding:2px 6px;border-radius:5px;font-family:"JetBrains Mono","Fira Code",Consolas,monospace;font-size:12.5px}
+pre{background:#070d24;color:#d6e1ff;padding:14px 16px;border-radius:10px;border:1px solid var(--line);overflow:auto;font-family:"JetBrains Mono","Fira Code",Consolas,monospace;font-size:12.5px;line-height:1.55}
+pre .kw{color:#ff9bb4} pre .str{color:#b8e986} pre .num{color:#f9c87a}
+pre .com{color:#6c779a;font-style:italic} pre .fn{color:#7aa2ff}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+@media (max-width:880px){.grid2,.grid3,.grid4{grid-template-columns:1fr}}
+.card{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:14px}
+table{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px}
+th,td{padding:8px 10px;border:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:#0d1530;color:var(--accent2);font-weight:600}
+tr:nth-child(even) td{background:#0e1734}
+.pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;border:1px solid var(--line)}
+.pill.ok{color:var(--ok);border-color:#2a6a5b}
+.pill.warn{color:var(--warn);border-color:#7a5a2a}
+.pill.err{color:var(--err);border-color:#7a2a3a}
+.pill.run{color:var(--running);border-color:#2a4a7a}
+
+/* Architecture diagram */
+.arch{display:grid;grid-template-columns:1fr 50px 1fr 50px 1fr 50px 1fr;gap:8px;align-items:center;margin-top:8px}
+.arch .box{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;text-align:center;font-size:13px}
+.arch .box b{display:block;color:var(--accent2);margin-bottom:4px;font-size:12px;letter-spacing:.5px}
+.arch .arrow{text-align:center;color:var(--accent);font-size:18px}
+
+/* Demo control panel */
+.controls{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 14px;align-items:center}
+.controls button{background:#16214a;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer;font-size:13px;transition:all .15s}
+.controls button:hover{background:#1c2a5e;border-color:var(--accent)}
+.controls button.primary{background:var(--accent);color:#0b1020;border-color:var(--accent);font-weight:600}
+.controls button.primary:hover{background:#9bbcff}
+.controls button.danger{background:#3a1a25;color:#ffd0d6;border-color:#7a2a3a}
+.controls button:disabled{opacity:.4;cursor:not-allowed}
+.controls label{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.controls input[type=range]{width:120px}
+.speeds{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.speeds button{border:none;border-radius:0;background:#16214a;color:var(--text);padding:7px 10px}
+.speeds button.active{background:var(--accent);color:#0b1020}
+
+/* Pipeline */
+.pipeline{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:8px 0 14px}
+.stage{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;min-height:78px;position:relative;transition:all .25s}
+.stage.running{border-color:var(--running);box-shadow:0 0 0 1px var(--running) inset}
+.stage.success{border-color:var(--ok)}
+.stage.failed{border-color:var(--err);box-shadow:0 0 0 1px var(--err) inset}
+.stage.retry{border-color:var(--warn)}
+.stage .title{font-size:11px;letter-spacing:1px;color:var(--muted);text-transform:uppercase}
+.stage .name{margin:4px 0;font-weight:600;color:var(--accent2)}
+.stage .badge{display:inline-block;margin-top:4px;padding:1px 7px;border-radius:99px;font-size:11px;border:1px solid var(--line);color:var(--muted)}
+.stage.running .badge{color:var(--running);border-color:var(--running)}
+.stage.success .badge{color:var(--ok);border-color:var(--ok)}
+.stage.failed .badge{color:var(--err);border-color:var(--err)}
+.stage.retry .badge{color:var(--warn);border-color:var(--warn)}
+.stage .meta{font-size:11px;color:var(--muted);margin-top:5px}
+
+/* Event log */
+.logwrap{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:880px){.logwrap{grid-template-columns:1fr}}
+.log{background:#070d24;border:1px solid var(--line);border-radius:10px;padding:10px;height:300px;overflow:auto;font-family:"JetBrains Mono","Fira Code",Consolas,monospace;font-size:12px;line-height:1.55}
+.log .row{padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.log .row .ts{color:#5d6a99;margin-right:6px}
+.log .row .lv{font-weight:600;margin-right:6px}
+.log .row .id{color:#9aa5d4;margin-right:6px}
+.log .lv-info{color:#7aa2ff}
+.log .lv-ok{color:#5be7c4}
+.log .lv-warn{color:#ffb454}
+.log .lv-err{color:#ff6b81}
+
+/* Metrics */
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
+@media (max-width:880px){.metrics{grid-template-columns:repeat(2,1fr)}}
+.metric{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px}
+.metric .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+.metric .v{font-size:22px;font-weight:700;color:var(--accent);margin-top:4px;font-family:"JetBrains Mono","Fira Code",Consolas,monospace}
+.metric .d{font-size:11px;color:var(--muted);margin-top:2px}
+
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--muted);margin-top:6px}
+.legend span{display:inline-flex;align-items:center;gap:4px}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%}
+.dot-pending{background:var(--pending)}
+.dot-running{background:var(--running)}
+.dot-success{background:var(--ok)}
+.dot-failed{background:var(--err)}
+.dot-retry{background:var(--warn)}
+
+footer{margin-top:30px;color:var(--muted);font-size:12px;text-align:center;padding-bottom:40px}
+footer a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>異步事件驅動架構在 RPA 自動化流程中的應用與優化</h1>
+  <div class="sub">事件匯流排（Event Bus） · 工作者池（Worker Pool） · 重試退避（Retrier） · 死信佇列（DLQ） · 可觀測性（Observability）— 含即時互動示範</div>
+</header>
+
+<main>
+
+<!-- ==================== §1 概述 ==================== -->
+<section>
+  <h2>1 · 為什麼 RPA 需要從「同步腳本」升級成「異步事件驅動」</h2>
+  <p>傳統 RPA（UiPath、Automation Anywhere、Playwright + Python）多半是<strong>線性同步腳本</strong>：開瀏覽器 → 登入 → 抓資料 → 寫入 Excel → 寄信 → 關閉瀏覽器。流程中只要任何一步失敗或慢，整個排程就被卡住，到了夜間批次時常常<strong>OOM、長時間等待、重複點擊同一頁面 200 次</strong>。</p>
+  <p>把腳本改寫成「<strong>事件驅動</strong>」（event-driven）後，每一個動作變成一條 <code>Event</code> 投遞到 <code>EventBus</code>，由多個 <code>Worker</code> 並行消費；中間結果透過事件傳遞而不是回傳值；失敗可以丟進 <code>DLQ</code> 讓人工介入。整個流程變成<strong>可觀測、可暫停、可重試、可水平擴展</strong>的系統。</p>
+  <div class="grid3" style="margin-top:14px">
+    <div class="card"><span class="pill warn">瓶頸 1</span><br><strong>同步阻塞</strong><div class="muted">登入慢 → 整個 pipeline 等待；其他任務無法插隊。</div></div>
+    <div class="card"><span class="pill warn">瓶頸 2</span><br><strong>競態 (Race)</strong><div class="muted">多 agent 同時改同一個 Excel → 覆寫衝突。</div></div>
+    <div class="card"><span class="pill warn">瓶頸 3</span><br><strong>失敗無重試</strong><div class="muted">網站 503 一次就放棄，整批失敗。</div></div>
+    <div class="card"><span class="pill warn">瓶頸 4</span><br><strong>事件丟失</strong><div class="muted">process crash 後，沒做完的任務蒸發，沒有 audit log。</div></div>
+  </div>
+</section>
+
+<!-- ==================== §2 架構 ==================== -->
+<section>
+  <h2>2 · 整體架構：事件驅動 RPA Pipeline</h2>
+  <p>把 RPA 拆成五個角色，事件是它們之間唯一的溝通介面：</p>
+  <div class="arch">
+    <div class="box"><b>SCHEDULER</b>排程器<br><span class="muted">cron / 觸發器</span></div>
+    <div class="arrow">→</div>
+    <div class="box"><b>EVENT BUS</b>事件匯流排<br><span class="muted">publish / subscribe</span></div>
+    <div class="arrow">→</div>
+    <div class="box"><b>WORKERS</b>工作者池<br><span class="muted">concurrency=N</span></div>
+    <div class="arrow">→</div>
+    <div class="box"><b>DLQ + RETRY</b>死信佇列<br><span class="muted">backoff 退避</span></div>
+  </div>
+
+  <h3>2.1 五大核心元件</h3>
+  <table>
+    <thead><tr><th>元件</th><th>職責</th><th>RPA 場景對應</th></tr></thead>
+    <tbody>
+      <tr><td><code>EventBus</code></td><td>pub/sub 廣播、保留歷史快照</td><td>取代「全域變數」、提供事件溯源 (event sourcing)</td></tr>
+      <tr><td><code>Worker</code></td><td>消費事件、執行副作用、可並行</td><td>取代「線性函式呼叫」、可以 5 個瀏覽器同時跑</td></tr>
+      <tr><td><code>Retrier</code></td><td>指數退避 + jitter、最多重 N 次</td><td>取代「try/except 一次就放棄」</td></tr>
+      <tr><td><code>DLQ</code></td><td>最終失敗的事件，落地 + 人工介入</td><td>取代「丟到空氣」、保留 audit trail</td></tr>
+      <tr><td><code>Idempotency-Key</code></td><td>事件唯一 id，重複消費去重</td><td>解決「同一封信寄出 3 次」的競態</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ==================== §3 程式碼骨架 ==================== -->
+<section>
+  <h2>3 · 核心程式碼骨架（Python asyncio）</h2>
+  <p>以下 code 整合 <code>event_driven_application_development.md</code> 與 <code>workflow_simulation.md</code> 兩個既有微技能，並補上 RPA 專屬的重試 / DLQ / idempotency。</p>
+
+<pre><span class="com"># event_bus.py — 異步 publish/subscribe + 歷史快照 + 廣播</span>
+<span class="kw">from</span> collections <span class="kw">import</span> deque
+<span class="kw">from</span> typing <span class="kw">import</span> AsyncGenerator
+<span class="kw">import</span> asyncio, uuid, time
+
+<span class="kw">class</span> <span class="fn">BusEvent</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, type: str, data: dict, idem_key: str | <span class="kw">None</span> = <span class="kw">None</span>):
+        self.id = <span class="str">"evt_"</span> + uuid.uuid4().hex[:<span class="num">8</span>]
+        self.type = type
+        self.data = data
+        self.idem_key = idem_key <span class="kw">or</span> self.id
+        self.ts = time.time()
+
+    <span class="kw">def</span> <span class="fn">to_dict</span>(self):
+        <span class="kw">return</span> {<span class="str">"id"</span>: self.id, <span class="str">"type"</span>: self.type,
+                <span class="str">"data"</span>: self.data, <span class="str">"idem_key"</span>: self.idem_key,
+                <span class="str">"ts"</span>: self.ts}
+
+<span class="kw">class</span> <span class="fn">EventBus</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, history_size=<span class="num">500</span>):
+        self._subscribers: list[asyncio.Queue] = []
+        self._history = deque(maxlen=history_size)
+        self._seen_idem: set[str] = set()   <span class="com"># idempotency</span>
+
+    <span class="kw">async def</span> <span class="fn">subscribe</span>(self) -&gt; AsyncGenerator[BusEvent, <span class="kw">None</span>]:
+        q: asyncio.Queue = asyncio.Queue()
+        self._subscribers.append(q)
+        <span class="kw">try</span>:
+            <span class="kw">while True</span>:
+                evt = <span class="kw">await</span> q.get()
+                <span class="kw">yield</span> evt
+        <span class="kw">finally</span>:
+            self._subscribers.remove(q)     <span class="com"># 防 memory leak</span>
+
+    <span class="kw">def</span> <span class="fn">publish</span>(self, event: BusEvent):
+        <span class="kw">if</span> event.idem_key <span class="kw">in</span> self._seen_idem:
+            <span class="kw">return False</span>            <span class="com"># 重複事件略過</span>
+        self._seen_idem.add(event.idem_key)
+        self._history.append(event)
+        <span class="kw">for</span> q <span class="kw">in</span> self._subscribers:
+            q.put_nowait(event)
+        <span class="kw">return True</span>
+
+    <span class="kw">def</span> <span class="fn">history_snapshot</span>(self, n: int = <span class="num">20</span>):
+        <span class="kw">return</span> [e.to_dict() <span class="kw">for</span> e <span class="kw">in</span> list(self._history)[-n:]]</pre>
+
+<pre><span class="com"># rpa_pipeline.py — 工作者 + 重試退避 + DLQ</span>
+<span class="kw">import</span> asyncio, random, logging
+
+<span class="kw">async def</span> <span class="fn">worker</span>(name, bus, dlq, handler, max_retry=<span class="num">3</span>):
+    <span class="str">"工作者：訂閱事件 → 跑 handler → 失敗就指數退避 → 最終丟 DLQ"</span>
+    <span class="kw">async for</span> evt <span class="kw">in</span> bus.subscribe():
+        <span class="kw">for</span> attempt <span class="kw">in</span> range(<span class="num">1</span>, max_retry + <span class="num">1</span>):
+            <span class="kw">try</span>:
+                <span class="kw">await</span> handler(evt.data)
+                logging.info(<span class="str">f"[%s] ✓ %s 嘗試 %d 次成功"</span>, name, evt.type, attempt)
+                <span class="kw">break</span>
+            <span class="kw">except</span> Exception <span class="kw">as</span> e:
+                <span class="kw">if</span> attempt == max_retry:
+                    dlq.put_nowait((evt, repr(e)))
+                    logging.error(<span class="str">f"[%s] ✕ %s 丟進 DLQ: %s"</span>, name, evt.type, e)
+                <span class="kw">else</span>:
+                    <span class="com"># 指數退避 + jitter，避免 thundering herd</span>
+                    wait = (<span class="num">2</span> ** attempt) + random.uniform(<span class="num">0</span>, <span class="num">0.5</span>)
+                    <span class="kw">await</span> asyncio.sleep(wait)
+
+<span class="com"># DLQ 用 asyncio.Queue + 背景 writer 把事件寫到檔案 / DB / Slack</span></pre>
+
+<pre><span class="com"># main.py — RPA pipeline 編排（典型：抓 5 個網站 → 整理 Excel → 寄信）</span>
+<span class="kw">async def</span> <span class="fn">main</span>():
+    bus = EventBus()
+    dlq = asyncio.Queue()
+
+    <span class="com"># 5 個 worker 同時處理「抓網站」事件</span>
+    workers = [asyncio.create_task(worker(<span class="str">f"w{i}"</span>, bus, dlq, scrape_site))
+               <span class="kw">for</span> i <span class="kw">in</span> range(<span class="num">5</span>)]
+
+    <span class="com"># 排程器丟事件</span>
+    <span class="kw">for</span> url <span class="kw">in</span> urls:
+        bus.publish(BusEvent(<span class="str">"scrape.request"</span>, {<span class="str">"url"</span>: url}, idem_key=url))
+
+    <span class="com"># 等所有 scrape 完成後丟「彙整」事件（單一 worker）</span>
+    <span class="kw">await</span> asyncio.sleep(<span class="num">10</span>)
+    bus.publish(BusEvent(<span class="str">"report.compose"</span>, {<span class="str">"rows"</span>: results}))
+
+    <span class="kw">for</span> w <span class="kw">in</span> workers: w.cancel()</pre>
+</section>
+
+<!-- ==================== §4 同步 vs 異步 ==================== -->
+<section>
+  <h2>4 · 同步 vs 異步事件驅動 — 量化的差異</h2>
+  <table>
+    <thead><tr><th>指標</th><th>同步腳本</th><th>事件驅動</th></tr></thead>
+    <tbody>
+      <tr><td>5 個網站抓取 (各 4s)</td><td>20s（線性）</td><td>4-5s（並行 + EventBus）</td></tr>
+      <tr><td>單點失敗影響</td><td>整批失敗</td><td>只有該事件丟 DLQ</td></tr>
+      <tr><td>水平擴展</td><td>改程式碼</td><td>加 worker instance</td></tr>
+      <tr><td>Audit / 重播</td><td>看 log 檔</td><td><code>bus.history_snapshot()</code></td></tr>
+      <tr><td>競態風險</td><td>多 agent 寫同一 Excel</td><td>idem_key 去重 + DB row lock</td></tr>
+      <tr><td>可觀測性</td><td>看 stdout</td><td>每事件 <code>id/ts/type/data</code></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ==================== §5 五大瓶頸與優化 ==================== -->
+<section>
+  <h2>5 · RPA 場景的五大瓶頸與優化策略</h2>
+  <h3>5.1 同步等待 → 非阻塞 IO</h3>
+  <p>把 <code>requests.get()</code>、<code>time.sleep()</code>、<code>page.wait_for_selector()</code> 包進 <code>asyncio.to_thread()</code>，或直接換成 <code>aiohttp</code> / <code>playwright.async_api</code>。這是事件驅動的<strong>前置條件</strong>：EventBus 上的 worker 必須是非阻塞的，否則整條 pipeline 還是會卡住。</p>
+
+  <h3>5.2 競態衝突 → Idempotency-Key + 去重佇列</h3>
+  <p>所有副作用事件（寄信、寫 DB、扣款）必須帶 <code>idem_key</code>。EventBus 在 publish 時就過濾重複；如果下游是資料庫，把 <code>idem_key</code> 設為 unique index。實務上「同一封信寄出 3 次」幾乎都靠這個修掉。</p>
+
+  <h3>5.3 失敗無重試 → 指數退避 + Jitter</h3>
+  <p>網站 503 是常態。指數退避（2s, 4s, 8s）+ jitter（±0.5s 隨機）可以避免「重試雪崩」。jitter 是關鍵——沒有它，所有 worker 會在同一毫秒一起重試，再次把網站打掛。</p>
+
+  <h3>5.4 事件丟失 → DLQ + Idempotent 落地</h3>
+  <p>最終失敗的事件不要丟給 <code>/dev/null</code>。背景跑一個 DLQ writer 把事件寫到 SQLite / Postgres，並透過 webhook 通知 Slack。人工介入後可以從 DLQ 重新 publish 到 EventBus 重跑。</p>
+
+  <h3>5.5 缺乏觀測 → 結構化日誌 + 指標</h3>
+  <p>每個事件都帶 <code>id / ts / type / data</code>，用 JSON formatter 輸出 → 直接灌進 Loki / ELK。再加四個核心指標：<code>event_throughput</code>、<code>queue_depth</code>、<code>worker_utilization</code>、<code>dlq_size</code>。沒有這四個指標，事件驅動系統就是黑盒子。</p>
+</section>
+
+<!-- ==================== §6 互動 Demo ==================== -->
+<section>
+  <h2>6 · 即時互動示範：瀏覽器內的微型 EventBus + RPA Pipeline</h2>
+  <p>下面是純前端跑的「事件驅動 RPA 模擬器」：4 個階段（登入→抓資料→彙整→寄信），每階段由 worker 從 EventBus 取事件執行。可以：</p>
+  <ul style="margin:6px 0 6px 18px;color:var(--muted)">
+    <li>按「執行批次」觸發 5 個任務並行跑</li>
+    <li>按「注入隨機失敗」讓某 worker 隨機 503</li>
+    <li>調速度（1×/5×/20×）讓你看完整事件流</li>
+    <li>看左邊的 Event Log 和右邊的 Worker Activity</li>
+  </ul>
+
+  <div class="metrics">
+    <div class="metric"><div class="k">總事件數</div><div class="v" id="m-events">0</div><div class="d">publish 進入 bus</div></div>
+    <div class="metric"><div class="k">成功</div><div class="v" id="m-ok" style="color:var(--ok)">0</div><div class="d">handler 第一次就過</div></div>
+    <div class="metric"><div class="k">重試中</div><div class="v" id="m-retry" style="color:var(--warn)">0</div><div class="d">退避後準備重試</div></div>
+    <div class="metric"><div class="k">DLQ</div><div class="v" id="m-dlq" style="color:var(--err)">0</div><div class="d">最終失敗 → 待人工</div></div>
+  </div>
+
+  <div class="controls">
+    <button class="primary" id="btn-batch">▶ 執行批次 (5 tasks)</button>
+    <button id="btn-fail" class="danger">💥 切換「注入失敗」</button>
+    <button id="btn-reset">⟲ 重置</button>
+    <label>速度 <div class="speeds">
+      <button data-speed="1" class="active">1×</button>
+      <button data-speed="5">5×</button>
+      <button data-speed="20">20×</button>
+    </div></label>
+    <label><input type="checkbox" id="chk-noise" checked> worker 噪音</label>
+  </div>
+
+  <div class="legend">
+    <span><span class="dot dot-pending"></span>idle</span>
+    <span><span class="dot dot-running"></span>running</span>
+    <span><span class="dot dot-success"></span>success</span>
+    <span><span class="dot dot-retry"></span>retry</span>
+    <span><span class="dot dot-failed"></span>failed / DLQ</span>
+  </div>
+
+  <div class="pipeline" id="pipeline">
+    <!-- 4 stages generated by JS -->
+  </div>
+
+  <div class="logwrap">
+    <div>
+      <div class="muted" style="margin-bottom:4px">▌ Event Bus Log（發布/消費）</div>
+      <div class="log" id="event-log"></div>
+    </div>
+    <div>
+      <div class="muted" style="margin-bottom:4px">▌ Worker Activity（執行/重試/DLQ）</div>
+      <div class="log" id="worker-log"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== §7 部署 ==================== -->
+<section>
+  <h2>7 · 從原型到生產的部署選擇</h2>
+  <table>
+    <thead><tr><th>規模</th><th>建議方案</th><th>RPA 典型情境</th></tr></thead>
+    <tbody>
+      <tr><td>原型</td><td><code>asyncio.EventBus</code> + in-memory Queue</td><td>個人自動化、每天 100 個事件</td></tr>
+      <tr><td>小隊</td><td>Redis Streams + <code>aioredis</code></td><td>5 個 worker、跨機器、持久化</td></tr>
+      <tr><td>企業</td><td>Kafka / RabbitMQ + DLX + Prometheus</td><td>50+ worker、TB 級日誌、嚴格審計</td></tr>
+    </tbody>
+  </table>
+  <p>不要一開始就上 Kafka。事件驅動的<strong>邏輯</strong>（pub/sub、retrier、DLQ、idempotency）和<strong>傳輸層</strong>（in-memory / Redis / Kafka）是正交的——先用 asyncio 寫完邏輯，再把 EventBus 換成 Redis Streams，最後才升 Kafka。邏輯都不變。</p>
+</section>
+
+<!-- ==================== §8 結論 ==================== -->
+<section>
+  <h2>8 · 結論：三條不可妥協的設計原則</h2>
+  <ol style="margin:6px 0 6px 18px;line-height:1.8">
+    <li><strong>副作用必須帶 idempotency-key</strong>——沒有它，事件驅動 = 「更快的寄出 3 封重複信」。</li>
+    <li><strong>失敗必須有 DLQ</strong>——沒有它，事件驅動 = 「更安靜的吞掉 bug」。</li>
+    <li><strong>重試必須有 jitter</strong>——沒有它，退避 = 「集體重試雪崩」。</li>
+  </ol>
+  <p>滿足這三條，RPA pipeline 就從「脆弱的腳本」進化成「可觀測、可恢復、可擴展」的事件驅動系統。</p>
+</section>
+
+<footer>
+  學習任務 ID · learning_1785672028_14 · 主題 · 異步事件驅動架構在 RPA 自動化流程中的應用與優化
+</footer>
+</main>
+
+<script>
+/* ==================== 互動 Demo：純前端 EventBus + Worker + Retrier + DLQ ==================== */
+(() => {
+  'use strict';
+
+  // ---------- 微型 EventBus ----------
+  class EventBus {
+    constructor() {
+      this.subs = new Set();
+      this.history = [];
+      this.seenIdem = new Set();
+    }
+    publish(evt) {
+      if (this.seenIdem.has(evt.idem)) return false;
+      this.seenIdem.add(evt.idem);
+      this.history.push(evt);
+      for (const q of this.subs) q.push(evt);
+      metrics.events++;
+      renderMetrics();
+      return true;
+    }
+    subscribe() {
+      const q = [];
+      this.subs.add(q);
+      return {
+        next: () => q.shift(),
+        cancel: () => this.subs.delete(q),
+      };
+    }
+  }
+
+  // ---------- 4 個 RPA 階段 ----------
+  const STAGES = [
+    { id: 'login',    name: '登入網站',  baseMs: 250, failRate: 0.15 },
+    { id: 'scrape',   name: '抓資料',    baseMs: 400, failRate: 0.10 },
+    { id: 'compose',  name: '彙整 Excel', baseMs: 300, failRate: 0.05 },
+    { id: 'send',     name: '寄出通知',  baseMs: 200, failRate: 0.08 },
+  ];
+
+  // ---------- 狀態 ----------
+  const bus = new EventBus();
+  const dlq = [];
+  let speedMul = 1;
+  let injectFail = false;
+  let showNoise = true;
+  let taskIdSeq = 0;
+  let evtIdSeq = 0;
+
+  const stageState = {};   // stageId -> {status, lastTask, attempt}
+  STAGES.forEach(s => stageState[s.id] = { status: 'idle', lastTask: null, attempt: 0 });
+
+  // ---------- DOM ----------
+  const pipelineEl = document.getElementById('pipeline');
+  const evtLogEl = document.getElementById('event-log');
+  const wkrLogEl = document.getElementById('worker-log');
+  const mEvents = document.getElementById('m-events');
+  const mOk = document.getElementById('m-ok');
+  const mRetry = document.getElementById('m-retry');
+  const mDlq = document.getElementById('m-dlq');
+
+  const metrics = { events: 0, ok: 0, retry: 0, dlq: 0 };
+
+  // 畫 pipeline stages
+  STAGES.forEach(s => {
+    const div = document.createElement('div');
+    div.className = 'stage';
+    div.id = 'stage-' + s.id;
+    div.innerHTML = `
+      <div class="title">STAGE · ${s.id.toUpperCase()}</div>
+      <div class="name">${s.name}</div>
+      <span class="badge" data-badge>idle</span>
+      <div class="meta" data-meta>—</div>
+    `;
+    pipelineEl.appendChild(div);
+  });
+
+  // ---------- 輔助 ----------
+  const sleep = ms => new Promise(r => setTimeout(r, ms / speedMul));
+  const ts = () => {
+    const d = new Date();
+    return d.toTimeString().slice(0,8) + '.' + String(d.getMilliseconds()).padStart(3,'0');
+  };
+
+  function logEvent(level, msg) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `<span class="ts">${ts()}</span><span class="lv lv-${level}">${level.toUpperCase()}</span><span class="id">bus</span>${msg}`;
+    evtLogEl.appendChild(row);
+    evtLogEl.scrollTop = evtLogEl.scrollHeight;
+    while (evtLogEl.children.length > 300) evtLogEl.removeChild(evtLogEl.firstChild);
+  }
+  function logWorker(level, msg) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `<span class="ts">${ts()}</span><span class="lv lv-${level}">${level.toUpperCase()}</span><span class="id">wkr</span>${msg}`;
+    wkrLogEl.appendChild(row);
+    wkrLogEl.scrollTop = wkrLogEl.scrollHeight;
+    while (wkrLogEl.children.length > 300) wkrLogEl.removeChild(wkrLogEl.firstChild);
+  }
+
+  function renderMetrics() {
+    mEvents.textContent = metrics.events;
+    mOk.textContent = metrics.ok;
+    mRetry.textContent = metrics.retry;
+    mDlq.textContent = metrics.dlq;
+  }
+
+  function setStage(stageId, status, meta) {
+    const el = document.getElementById('stage-' + stageId);
+    el.classList.remove('running','success','failed','retry');
+    if (status !== 'idle') el.classList.add(status);
+    el.querySelector('[data-badge]').textContent = status;
+    if (meta) el.querySelector('[data-meta]').textContent = meta;
+  }
+
+  // ---------- Worker：消費 + 重試退避 + DLQ ----------
+  async function worker(name) {
+    const sub = bus.subscribe();
+    while (true) {
+      const evt = sub.next();
+      if (!evt) { await sleep(50); continue; }
+
+      const stage = STAGES.find(s => s.id === evt.type);
+      if (!stage) continue;
+
+      // stage state：running
+      stageState[stage.id] = { status: 'running', lastTask: evt.taskId, attempt: 1 };
+      setStage(stage.id, 'running', `task #${evt.taskId} · try 1`);
+      logWorker('info', `▶ ${name} 取走 ${stage.name} (task #${evt.taskId})`);
+
+      const maxRetry = 3;
+      let succeeded = false;
+      for (let attempt = 1; attempt <= maxRetry; attempt++) {
+        await sleep(stage.baseMs);
+        const failRoll = injectFail ? stage.failRate * 3 : stage.failRate;
+        const willFail = Math.random() < failRoll;
+
+        if (willFail) {
+          if (attempt === maxRetry) {
+            // 最終失敗 → DLQ
+            metrics.dlq++;
+            renderMetrics();
+            stageState[stage.id].status = 'failed';
+            setStage(stage.id, 'failed', `task #${evt.taskId} · 3 次失敗 → DLQ`);
+            logWorker('err', `✕ ${name} ${stage.name} task #${evt.taskId} 最終失敗 → DLQ`);
+            dlq.push(evt);
+            // 自動恢復 idle
+            setTimeout(() => setStage(stage.id, 'idle', '—'), 1200 / speedMul);
+            break;
+          } else {
+            // 重試退避
+            metrics.retry++;
+            renderMetrics();
+            stageState[stage.id].status = 'retry';
+            stageState[stage.id].attempt = attempt + 1;
+            setStage(stage.id, 'retry', `task #${evt.taskId} · try ${attempt+1}/${maxRetry}`);
+            logWorker('warn', `⟳ ${name} ${stage.name} task #${evt.taskId} 第 ${attempt} 次失敗 → 退避重試`);
+            await sleep((200 * Math.pow(2, attempt)) + Math.random() * 80);
+            metrics.retry = Math.max(0, metrics.retry - 1);
+            renderMetrics();
+          }
+        } else {
+          // 成功
+          metrics.ok++;
+          renderMetrics();
+          succeeded = true;
+          stageState[stage.id].status = 'success';
+          setStage(stage.id, 'success', `task #${evt.taskId} · ✓ (${attempt} try)`);
+          logWorker('ok', `✓ ${name} ${stage.name} task #${evt.taskId} 完成 (try ${attempt})`);
+
+          // 把下一步事件投到 bus（pipeline 編排）
+          const nextIdx = STAGES.findIndex(s => s.id === stage.id) + 1;
+          if (nextIdx < STAGES.length) {
+            const next = STAGES[nextIdx];
+            const nextEvt = {
+              type: next.id,
+              taskId: evt.taskId,
+              idem: `task#${evt.taskId}:${next.id}`,
+            };
+            if (bus.publish(nextEvt)) {
+              logEvent('info', `publish ${next.name} (task #${evt.taskId})`);
+            }
+          } else {
+            logEvent('ok', `task #${evt.taskId} 全流程完成`);
+          }
+          setTimeout(() => setStage(stage.id, 'idle', '—'), 800 / speedMul);
+          break;
+        }
+      }
+
+      // worker idle 時打一點 noise 看真的並行
+      if (showNoise && succeeded === false) {
+        logWorker('info', `· ${name} idle · 等待下一個事件`);
+      }
+    }
+  }
+
+  // ---------- 啟動 4 個 worker（每個 stage 一個）----------
+  const workers = ['worker-A','worker-B','worker-C','worker-D']
+    .map((n, i) => worker(n));
+
+  // ---------- 控制 ----------
+  document.getElementById('btn-batch').addEventListener('click', () => {
+    for (let i = 0; i < 5; i++) {
+      taskIdSeq++;
+      const evt = {
+        type: 'login',
+        taskId: taskIdSeq,
+        idem: `task#${taskIdSeq}:login`,
+      };
+      if (bus.publish(evt)) logEvent('info', `publish 登入網站 (task #${taskIdSeq})`);
+    }
+  });
+
+  document.getElementById('btn-fail').addEventListener('click', e => {
+    injectFail = !injectFail;
+    e.target.textContent = injectFail ? '💥 已開啟 注入失敗' : '💥 切換「注入失敗」';
+    e.target.classList.toggle('danger', !injectFail);
+    logEvent('warn', `注入失敗模式 = ${injectFail}`);
+  });
+
+  document.getElementById('btn-reset').addEventListener('click', () => {
+    metrics.events = 0; metrics.ok = 0; metrics.retry = 0; metrics.dlq = 0;
+    bus.history.length = 0;
+    bus.seenIdem.clear();
+    dlq.length = 0;
+    evtLogEl.innerHTML = '';
+    wkrLogEl.innerHTML = '';
+    STAGES.forEach(s => setStage(s.id, 'idle', '—'));
+    renderMetrics();
+    logEvent('info', 'reset OK');
+  });
+
+  document.querySelectorAll('.speeds button').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.speeds button').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      speedMul = parseInt(b.dataset.speed, 10);
+      logEvent('info', `speed = ${speedMul}×`);
+    });
+  });
+
+  document.getElementById('chk-noise').addEventListener('change', e => {
+    showNoise = e.target.checked;
+  });
+
+  // 初始 log
+  logEvent('info', 'EventBus ready · 4 workers online');
+  renderMetrics();
+})();
+</script>
+</body>
+</html>

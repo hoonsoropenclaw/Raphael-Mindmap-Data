@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OCR + Whisper 自動化工作流系統</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161a22;
+    --panel-2: #1d2230;
+    --border: #2a3041;
+    --text: #e4e7ee;
+    --muted: #8b93a7;
+    --accent: #5eead4;
+    --accent-2: #818cf8;
+    --danger: #f87171;
+    --success: #4ade80;
+    --warn: #facc15;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.55;
+    min-height: 100vh;
+  }
+  header {
+    padding: 28px 32px 16px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #181c25 0%, #0f1115 100%);
+  }
+  h1 {
+    margin: 0 0 6px;
+    font-size: 22px;
+    letter-spacing: 0.5px;
+  }
+  h1 .badge {
+    background: var(--accent);
+    color: #042f2e;
+    font-size: 12px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+  header p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  main {
+    display: grid;
+    grid-template-columns: 380px 1fr;
+    gap: 24px;
+    padding: 24px 32px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; }
+  }
+  section {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+  section h2 {
+    margin: 0 0 14px;
+    font-size: 14px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+  }
+  /* Drop zone */
+  #drop {
+    border: 2px dashed var(--border);
+    border-radius: 8px;
+    padding: 36px 16px;
+    text-align: center;
+    color: var(--muted);
+    transition: all 0.2s;
+    cursor: pointer;
+    margin-bottom: 14px;
+  }
+  #drop:hover, #drop.drag {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(94, 234, 212, 0.06);
+  }
+  #drop .icon {
+    font-size: 32px;
+    margin-bottom: 8px;
+  }
+  #drop small { display: block; margin-top: 8px; opacity: 0.7; }
+  #file { display: none; }
+  /* Buttons */
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  button {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 14px;
+    font: inherit;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary {
+    background: var(--accent);
+    color: #042f2e;
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+  button.primary:hover { background: #2dd4bf; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  /* Stats */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-top: 14px;
+  }
+  .stat {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+  .stat .label {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .stat .value {
+    font-size: 22px;
+    font-weight: 600;
+    margin-top: 2px;
+  }
+  .stat .value.success { color: var(--success); }
+  .stat .value.warn { color: var(--warn); }
+  .stat .value.danger { color: var(--danger); }
+  /* Job list */
+  .job {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 10px;
+    transition: all 0.2s;
+  }
+  .job.done { border-color: var(--success); }
+  .job.failed { border-color: var(--danger); }
+  .job.running { border-color: var(--accent); }
+  .job-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    font-size: 13px;
+  }
+  .job-id {
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .job-kind {
+    background: var(--panel);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--accent-2);
+  }
+  .job-kind.whisper { color: var(--accent); }
+  .status {
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .status.queued { background: #2a3041; color: var(--muted); }
+  .status.running { background: rgba(94,234,212,0.15); color: var(--accent); }
+  .status.done { background: rgba(74,222,128,0.15); color: var(--success); }
+  .status.failed { background: rgba(248,113,113,0.15); color: var(--danger); }
+  .job-text {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 200px;
+    overflow-y: auto;
+    margin-top: 8px;
+  }
+  .job-meta {
+    color: var(--muted);
+    font-size: 11px;
+    margin-top: 6px;
+  }
+  .job-meta span { margin-right: 12px; }
+  .empty {
+    text-align: center;
+    color: var(--muted);
+    padding: 48px 16px;
+    font-size: 13px;
+  }
+  /* Demo controls */
+  .controls {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+  /* Architecture diagram */
+  .arch {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 14px;
+    line-height: 1.7;
+  }
+  .arch strong { color: var(--accent); }
+  .arch code {
+    background: var(--panel-2);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--accent-2);
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>OCR + Whisper 自動化工作流系統 <span class="badge">v1.0</span></h1>
+  <p>文件 OCR 抽取（tesseract-5.3.4）＋語音轉文字（Whisper API / mock）— 純 Python 零外部依賴</p>
+</header>
+
+<main>
+  <!-- 左側：上傳與控制 -->
+  <div>
+    <section>
+      <h2>① 投入檔案</h2>
+      <div id="drop">
+        <div class="icon">⬆</div>
+        <div><strong>拖檔進來</strong> 或點擊選擇</div>
+        <small>
+          OCR：.pdf .png .jpg .tif .bmp .webp<br>
+          Whisper：.mp3 .wav .m4a .flac .ogg .opus
+        </small>
+      </div>
+      <input type="file" id="file" multiple
+             accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp,.mp3,.wav,.m4a,.flac,.ogg,.opus,.webm">
+
+      <div class="controls">
+        <button id="runDemo" class="primary">▶ 跑內建 demo</button>
+        <button id="clearJobs">清空結果</button>
+      </div>
+    </section>
+
+    <section style="margin-top: 16px;">
+      <h2>② 即時狀態</h2>
+      <div class="stats">
+        <div class="stat">
+          <div class="label">總任務</div>
+          <div class="value" id="stat-total">0</div>
+        </div>
+        <div class="stat">
+          <div class="label">完成</div>
+          <div class="value success" id="stat-done">0</div>
+        </div>
+        <div class="stat">
+          <div class="label">執行中</div>
+          <div class="value warn" id="stat-running">0</div>
+        </div>
+        <div class="stat">
+          <div class="label">失敗</div>
+          <div class="value danger" id="stat-failed">0</div>
+        </div>
+      </div>
+
+      <div class="arch">
+        <strong>架構（3 層分離）</strong><br>
+        <code>Adapters</code> 純函式介面（OCR / Whisper）<br>
+        ↓<br>
+        <code>Engine</code> threadpool + queue 派工<br>
+        ↓<br>
+        <code>UI</code> CLI / Web 共用同一個 engine<br>
+        <br>
+        <strong>Mock 模式</strong>：無 OPENAI_API_KEY 也能跑，輸出明確標示 "[mock]"<br>
+        <strong>真實模式</strong>：環境變數帶 OPENAI_API_KEY → 走 <code>api.openai.com/v1/audio/transcriptions</code>
+      </div>
+    </section>
+  </div>
+
+  <!-- 右側：任務清單 -->
+  <div>
+    <section>
+      <h2>③ 任務結果</h2>
+      <div id="jobs"><div class="empty">尚未送出任何任務。試試右側「跑內建 demo」按鈕。</div></div>
+    </section>
+  </div>
+</main>
+
+<script>
+"use strict";
+
+// ────────────────────────────────────────────────
+// 本機 mock backend（瀏覽器內模擬 workflow_system 的 engine）
+// 真實環境應該 fetch('/api/submit', {body: file})
+// ────────────────────────────────────────────────
+const jobs = new Map();    // id → Job
+const pollers = new Map(); // id → setInterval
+
+function classify(name) {
+  const ext = name.split(".").pop().toLowerCase();
+  if (["pdf","png","jpg","jpeg","tif","tiff","bmp","webp"].includes(ext)) return "ocr";
+  if (["mp3","wav","m4a","flac","ogg","opus","webm"].includes(ext)) return "whisper";
+  return null;
+}
+
+function uid() { return Math.random().toString(16).slice(2, 14); }
+
+function makeMockOCR(name) {
+  // 模擬：回傳帶檔名的偽造 OCR 結果（明確標示 demo 字樣，不冒充真 OCR）
+  return {
+    text: `[demo OCR] file=${name}\n(本機瀏覽器無法跑 tesseract CLI；真實結果請用 CLI: python3 workflow_system.py ${name})`,
+    confidence: 0.9577,
+    page_count: 1,
+    duration_ms: 203,
+    engine: "tesseract-5.3.4 (mock)",
+  };
+}
+
+function makeMockWhisper(name, sizeKb) {
+  const dur = (sizeKb / 16).toFixed(1);
+  const sig = (name + sizeKb).split("").reduce((a,c)=>a+((a<<5)-a)+c.charCodeAt(0),0).toString(16).slice(0,12);
+  return {
+    text: `[mock transcription] ${name} (${sizeKb.toFixed(1)} KB) sig=${sig} duration~${dur}s. Set OPENAI_API_KEY env var to enable real Whisper API.`,
+    language: "en",
+    segments: [{id:0, start:0, end:parseFloat(dur), text:`[mock] ${name}`}],
+    duration_sec: parseFloat(dur),
+    engine: "whisper-api-1 (mock)",
+    mode: "mock",
+  };
+}
+
+function submitFile(file) {
+  const kind = classify(file.name);
+  if (!kind) {
+    alert(`不支援的副檔名: ${file.name}`);
+    return;
+  }
+  const id = uid();
+  const job = {
+    id,
+    kind,
+    src: file.name,
+    size: file.size,
+    status: "queued",
+    result: null,
+    error: null,
+    created: new Date().toISOString(),
+  };
+  jobs.set(id, job);
+  render();
+
+  // 模擬排隊 → running → done
+  setTimeout(() => updateJob(id, {status: "running"}), 100);
+  const workMs = 600 + Math.random() * 1200;
+  setTimeout(() => {
+    const sizeKb = file.size / 1024;
+    const result = kind === "ocr" ? makeMockOCR(file.name) : makeMockWhisper(file.name, sizeKb);
+    updateJob(id, {status: "done", result, finished: new Date().toISOString()});
+  }, workMs);
+}
+
+function updateJob(id, patch) {
+  const j = jobs.get(id);
+  if (!j) return;
+  Object.assign(j, patch);
+  render();
+}
+
+function render() {
+  const list = [...jobs.values()].sort((a,b) => b.created.localeCompare(a.created));
+  const root = document.getElementById("jobs");
+  if (list.length === 0) {
+    root.innerHTML = `<div class="empty">尚未送出任何任務。試試右側「跑內建 demo」按鈕。</div>`;
+  } else {
+    root.innerHTML = list.map(j => `
+      <div class="job ${j.status}">
+        <div class="job-head">
+          <div>
+            <span class="job-kind ${j.kind}">${j.kind}</span>
+            <span class="job-id">${j.id} · ${j.src}</span>
+          </div>
+          <span class="status ${j.status}">${j.status}</span>
+        </div>
+        ${j.result ? `
+          <div class="job-text">${escapeHtml(j.result.text).slice(0, 800)}${j.result.text.length>800?'…':''}</div>
+          <div class="job-meta">
+            ${j.kind === 'ocr' ? `
+              <span>conf: <strong>${(j.result.confidence*100).toFixed(1)}%</strong></span>
+              <span>pages: ${j.result.page_count}</span>
+              <span>dur: ${j.result.duration_ms}ms</span>
+              <span>engine: ${j.result.engine}</span>
+            ` : `
+              <span>lang: ${j.result.language || '?'}</span>
+              <span>dur: ${j.result.duration_sec}s</span>
+              <span>mode: ${j.result.mode}</span>
+              <span>engine: ${j.result.engine}</span>
+            `}
+          </div>
+        ` : j.error ? `
+          <div class="job-text" style="color: var(--danger);">${escapeHtml(j.error)}</div>
+        ` : `
+          <div class="job-meta">等待執行…</div>
+        `}
+      </div>
+    `).join("");
+  }
+  renderStats();
+}
+
+function renderStats() {
+  const list = [...jobs.values()];
+  document.getElementById("stat-total").textContent = list.length;
+  document.getElementById("stat-done").textContent = list.filter(j => j.status==="done").length;
+  document.getElementById("stat-running").textContent = list.filter(j => j.status==="running" || j.status==="queued").length;
+  document.getElementById("stat-failed").textContent = list.filter(j => j.status==="failed").length;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ── Event wiring ──
+const drop = document.getElementById("drop");
+const file = document.getElementById("file");
+
+drop.addEventListener("click", () => file.click());
+drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("drag"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("drag"));
+drop.addEventListener("drop", e => {
+  e.preventDefault();
+  drop.classList.remove("drag");
+  for (const f of e.dataTransfer.files) submitFile(f);
+});
+file.addEventListener("change", e => {
+  for (const f of e.target.files) submitFile(f);
+  e.target.value = "";
+});
+
+document.getElementById("runDemo").addEventListener("click", () => {
+  // 模擬兩個 demo 檔案（瀏覽器無法生真實 WAV/PNG，這裡走 mock）
+  const fakeImg = new File([new Uint8Array(1024)], "demo_ocr_sample.png", {type:"image/png"});
+  const fakeWav = new File([new Uint8Array(64*1024)], "demo_whisper_sample.wav", {type:"audio/wav"});
+  submitFile(fakeImg);
+  submitFile(fakeWav);
+});
+
+document.getElementById("clearJobs").addEventListener("click", () => {
+  jobs.clear();
+  render();
+});
+
+// 初始
+render();
+</script>
+</body>
+</html>

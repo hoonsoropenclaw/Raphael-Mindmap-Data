@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>React Flow 表單編輯器 + 跨瀏覽器自動化測試 Demo</title>
+
+  <!--
+    ============================================================
+    交付目標：使用 Playwright 實現跨瀏覽器自動化測試
+              整合 React Flow 表單驗證
+    ============================================================
+    1. 主介面：React Flow 視覺化表單編輯器
+       - 拖曳節點（文字/Email/數字/選項/必填勾選）建立視覺化表單
+       - 節點之間用 edge 連接表單流程
+       - 即時驗證：每個節點的欄位即時檢查格式
+    2. 預覽模式：右側 panel 渲染真正可填的表單
+       - submit 後跑 Playwright 可測試的 5 條驗證規則
+    3. Playwright-friendly markers：
+       - 每個互動元素都有 data-testid（測試 selector 穩定）
+       - 錯誤訊息用 role="alert" + aria-describedby（a11y + 可測試）
+    ============================================================
+  -->
+
+  <!-- React 18 + ReactDOM（CDN，無需 build） -->
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <!-- Babel（讓瀏覽器直接吃 JSX，省掉 build step） -->
+  <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+
+  <!-- React Flow 11（CDN UMD） -->
+  <script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css" />
+
+  <style>
+    :root {
+      --bg: #f7f8fc;
+      --panel: #ffffff;
+      --border: #e2e8f0;
+      --primary: #6366f1;
+      --primary-dark: #4f46e5;
+      --danger: #dc2626;
+      --success: #16a34a;
+      --warning: #f59e0b;
+      --text: #1e293b;
+      --muted: #64748b;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif; background: var(--bg); color: var(--text); height: 100%; }
+    #root { height: 100vh; display: flex; flex-direction: column; }
+
+    header {
+      padding: 12px 20px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-shrink: 0;
+    }
+    header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+    header .subtitle { font-size: 12px; color: var(--muted); }
+    .header-controls { display: flex; gap: 8px; align-items: center; }
+    button {
+      padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border);
+      background: var(--panel); color: var(--text); font-size: 13px; cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    button:hover:not(:disabled) { background: #f1f5f9; }
+    button.primary { background: var(--primary); color: white; border-color: var(--primary); }
+    button.primary:hover:not(:disabled) { background: var(--primary-dark); border-color: var(--primary-dark); }
+    button.danger { color: var(--danger); border-color: #fecaca; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    main { flex: 1; display: flex; overflow: hidden; min-height: 0; }
+
+    /* === Toolbar (left) === */
+    .toolbar {
+      width: 200px; flex-shrink: 0;
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      padding: 16px;
+      overflow-y: auto;
+    }
+    .toolbar h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin: 0 0 12px; }
+    .palette-item {
+      padding: 10px 12px; margin-bottom: 8px;
+      border: 1px dashed var(--border); border-radius: 6px;
+      background: #fafbff; cursor: grab; font-size: 13px;
+      display: flex; align-items: center; gap: 8px;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .palette-item:hover { border-color: var(--primary); background: #eef2ff; }
+    .palette-item:active { cursor: grabbing; }
+    .palette-icon { width: 24px; height: 24px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; font-size: 11px; }
+    .icon-text { background: #6366f1; }
+    .icon-email { background: #06b6d4; }
+    .icon-number { background: #f59e0b; }
+    .icon-select { background: #ec4899; }
+    .icon-checkbox { background: #16a34a; }
+
+    /* === Canvas (center) === */
+    .canvas-wrap { flex: 1; position: relative; min-width: 0; }
+    .react-flow__node {
+      font-size: 12px;
+    }
+    .rf-node {
+      background: white;
+      border: 2px solid var(--primary);
+      border-radius: 8px;
+      padding: 10px 14px;
+      min-width: 160px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    }
+    .rf-node.invalid { border-color: var(--danger); }
+    .rf-node .node-type { font-size: 10px; text-transform: uppercase; color: var(--muted); letter-spacing: 0.5px; }
+    .rf-node .node-label { font-weight: 600; margin-top: 2px; }
+    .rf-node .node-config { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+    /* === Preview panel (right) === */
+    .preview {
+      width: 380px; flex-shrink: 0;
+      background: var(--panel);
+      border-left: 1px solid var(--border);
+      padding: 16px 20px;
+      overflow-y: auto;
+      display: flex; flex-direction: column;
+    }
+    .preview h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin: 0 0 12px; }
+
+    .form-field { margin-bottom: 14px; }
+    .form-field label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 4px; }
+    .form-field label .required { color: var(--danger); margin-left: 2px; }
+    .form-field input[type="text"],
+    .form-field input[type="email"],
+    .form-field input[type="number"],
+    .form-field select {
+      width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 5px;
+      font-size: 13px; font-family: inherit; outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .form-field input:focus, .form-field select:focus {
+      border-color: var(--primary); box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+    }
+    .form-field input.invalid { border-color: var(--danger); }
+    .form-field .error-msg {
+      font-size: 11px; color: var(--danger); margin-top: 4px;
+      min-height: 14px;
+    }
+    .form-field .checkbox-wrap { display: flex; align-items: center; gap: 8px; }
+    .form-field .checkbox-wrap input { width: auto; }
+
+    .form-actions { margin-top: 16px; display: flex; gap: 8px; align-items: center; }
+    .submit-result {
+      margin-top: 12px; padding: 10px 12px; border-radius: 6px;
+      font-size: 13px;
+    }
+    .submit-result.success { background: #dcfce7; color: var(--success); border: 1px solid #bbf7d0; }
+    .submit-result.error { background: #fee2e2; color: var(--danger); border: 1px solid #fecaca; }
+
+    .empty-canvas {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--muted); font-size: 14px; pointer-events: none;
+    }
+
+    .stats {
+      font-size: 11px; color: var(--muted);
+      padding: 6px 12px;
+      background: #f1f5f9;
+      border-radius: 4px;
+      display: inline-block;
+    }
+    .stats .ok { color: var(--success); font-weight: 600; }
+    .stats .err { color: var(--danger); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div id="root" data-testid="app-root">
+    <!-- React mount point -->
+  </div>
+
+  <script type="text/babel" data-presets="react">
+    // ============================================================
+    // React Flow + 表單驗證 — 自包含 Demo
+    // ============================================================
+    const { useState, useCallback, useMemo, useEffect, useRef } = React;
+    // 注意：ReactFlow 的解構放在 component 內部，避免 Babel standalone 將整段包成 function
+    // 時發生 TDZ (Temporal Dead Zone) 錯誤（Cannot access 'ReactFlow' before initialization）
+
+    // === 5 種欄位類型定義 ===
+    const FIELD_TYPES = {
+      text:    { label: '文字欄位', icon: 'Aa', cls: 'icon-text',    color: '#6366f1', defaults: { label: '姓名', required: true,  minLength: 2, maxLength: 30 } },
+      email:   { label: 'Email',    icon: '@',  cls: 'icon-email',   color: '#06b6d4', defaults: { label: 'Email', required: true } },
+      number:  { label: '數字',     icon: '#',  cls: 'icon-number',  color: '#f59e0b', defaults: { label: '年齡', required: false, min: 0, max: 150 } },
+      select:  { label: '下拉選單', icon: '▼',  cls: 'icon-select',  color: '#ec4899', defaults: { label: '類別', required: true, options: '一般,VIP,企業' } },
+      checkbox:{ label: '必填勾選', icon: '✓',  cls: 'icon-checkbox',color: '#16a34a', defaults: { label: '同意條款', required: true } },
+    };
+
+    // === 自訂 React Flow 節點 ===
+    function FieldNode({ data, selected }) {
+      const { Handle, Position } = window.ReactFlow;
+      const def = FIELD_TYPES[data.fieldType] || FIELD_TYPES.text;
+      const isInvalid = data._invalid;
+      return (
+        <div className={`rf-node ${isInvalid ? 'invalid' : ''}`} data-testid={`rf-node-${data.id}`} data-field-type={data.fieldType}>
+          <Handle type="target" position={Position.Left} />
+          <div className="node-type">{def.label}</div>
+          <div className="node-label" data-testid={`rf-node-label-${data.id}`}>{data.label || '(未命名)'}</div>
+          <div className="node-config">
+            {data.required ? <span style={{color:'#dc2626'}}>必填</span> : <span style={{color:'#64748b'}}>選填</span>}
+            {data.fieldType === 'text' && data.minLength ? ` · 最小 ${data.minLength} 字` : ''}
+            {data.fieldType === 'number' ? ` · ${data.min ?? 0}-${data.max ?? 150}` : ''}
+          </div>
+          <Handle type="source" position={Position.Right} />
+        </div>
+      );
+    }
+
+    const nodeTypes = { field: FieldNode };
+
+    // === 單一欄位即時驗證器 ===
+    function validateField(field, value) {
+      const errors = [];
+      const def = FIELD_TYPES[field.fieldType];
+
+      if (field.required) {
+        const isEmpty =
+          value === '' || value === null || value === undefined ||
+          (field.fieldType === 'checkbox' && value !== true);
+        if (isEmpty) errors.push('此欄位為必填');
+      }
+
+      if (field.fieldType === 'email' && value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+        errors.push('Email 格式不正確');
+      }
+
+      if (field.fieldType === 'text' && value) {
+        if (field.minLength && value.length < field.minLength) errors.push(`至少 ${field.minLength} 字`);
+        if (field.maxLength && value.length > field.maxLength) errors.push(`最多 ${field.maxLength} 字`);
+      }
+
+      if (field.fieldType === 'number' && value !== '' && value !== null && !isNaN(Number(value))) {
+        const n = Number(value);
+        if (field.min !== undefined && n < field.min) errors.push(`不能小於 ${field.min}`);
+        if (field.max !== undefined && n > field.max) errors.push(`不能大於 ${field.max}`);
+      }
+
+      return errors;
+    }
+
+    // === 整個表單 submit 驗證 ===
+    function validateForm(fields, values) {
+      const fieldErrors = {};
+      let totalErrors = 0;
+      fields.forEach(f => {
+        const errs = validateField(f, values[f.id]);
+        if (errs.length) {
+          fieldErrors[f.id] = errs;
+          totalErrors += errs.length;
+        }
+      });
+      return { fieldErrors, totalErrors, isValid: totalErrors === 0 };
+    }
+
+    // === 預覽表單欄位 renderer ===
+    function PreviewField({ field, value, error, onChange }) {
+      const def = FIELD_TYPES[field.fieldType];
+      const errorId = `err-${field.id}`;
+      const inputId = `input-${field.id}`;
+      const hasError = error && error.length > 0;
+
+      const commonProps = {
+        id: inputId,
+        'data-testid': `preview-input-${field.id}`,
+        'aria-describedby': errorId,
+        'aria-invalid': hasError ? 'true' : 'false',
+      };
+
+      return (
+        <div className="form-field" data-testid={`preview-field-${field.id}`}>
+          <label htmlFor={inputId}>
+            {field.label || def.label}
+            {field.required && <span className="required" aria-hidden="true">*</span>}
+          </label>
+
+          {field.fieldType === 'checkbox' ? (
+            <div className="checkbox-wrap">
+              <input
+                type="checkbox"
+                checked={!!value}
+                onChange={e => onChange(field.id, e.target.checked)}
+                {...commonProps}
+              />
+              <span style={{fontSize:'13px'}}>{field.label}</span>
+            </div>
+          ) : field.fieldType === 'select' ? (
+            <select
+              value={value || ''}
+              onChange={e => onChange(field.id, e.target.value)}
+              className={hasError ? 'invalid' : ''}
+              {...commonProps}
+            >
+              <option value="">請選擇...</option>
+              {(field.options || '').split(',').map(o => o.trim()).filter(Boolean).map(o => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+            </select>
+          ) : field.fieldType === 'number' ? (
+            <input
+              type="number"
+              value={value ?? ''}
+              min={field.min}
+              max={field.max}
+              onChange={e => onChange(field.id, e.target.value)}
+              className={hasError ? 'invalid' : ''}
+              {...commonProps}
+            />
+          ) : field.fieldType === 'email' ? (
+            <input
+              type="email"
+              value={value || ''}
+              onChange={e => onChange(field.id, e.target.value)}
+              className={hasError ? 'invalid' : ''}
+              {...commonProps}
+            />
+          ) : (
+            <input
+              type="text"
+              value={value || ''}
+              minLength={field.minLength}
+              maxLength={field.maxLength}
+              onChange={e => onChange(field.id, e.target.value)}
+              className={hasError ? 'invalid' : ''}
+              {...commonProps}
+            />
+          )}
+
+          <div
+            id={errorId}
+            className="error-msg"
+            role="alert"
+            data-testid={`preview-error-${field.id}`}
+          >
+            {hasError ? error.join('；') : ''}
+          </div>
+        </div>
+      );
+    }
+
+    // === 主要 App ===
+    function App() {
+      // 在 component 內解構（避免 Babel standalone 將整段包成 IIFE 時的 TDZ 錯誤）
+      const {
+        ReactFlow,
+        ReactFlowProvider,
+        useNodesState,
+        useEdgesState,
+        addEdge,
+        Controls,
+        Background,
+        MarkerType,
+      } = window.ReactFlow;
+
+      const reactFlowWrapper = useRef(null);
+      const [rfInstance, setRfInstance] = useState(null);
+      const [nodes, setNodes, onNodesChange] = useNodesState([]);
+      const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+      const [formValues, setFormValues] = useState({});
+      const [submitResult, setSubmitResult] = useState(null); // { type: 'success'|'error', msg: string }
+      const [draggedType, setDraggedType] = useState(null);
+
+      // 預設範例（讓使用者一打開就有東西可測）
+      useEffect(() => {
+        const initialNodes = [
+          { id: 'n1', type: 'field', position: { x: 80, y: 40 },  data: { id: 'n1', fieldType: 'text',     label: '姓名',  required: true,  minLength: 2, maxLength: 30 } },
+          { id: 'n2', type: 'field', position: { x: 80, y: 160 }, data: { id: 'n2', fieldType: 'email',    label: 'Email', required: true } },
+          { id: 'n3', type: 'field', position: { x: 80, y: 280 }, data: { id: 'n3', fieldType: 'number',   label: '年齡',  required: false, min: 0, max: 150 } },
+          { id: 'n4', type: 'field', position: { x: 80, y: 400 }, data: { id: 'n4', fieldType: 'checkbox', label: '同意條款', required: true } },
+        ];
+        setNodes(initialNodes);
+      }, []);
+
+      // 從節點抽出預覽用的 fields（依 X 座標排序以決定顯示順序）
+      const fields = useMemo(() => {
+        return [...nodes]
+          .filter(n => n.type === 'field')
+          .sort((a, b) => a.position.y - b.position.y)
+          .map(n => n.data);
+      }, [nodes]);
+
+      // 即時驗證（每個欄位）
+      const liveErrors = useMemo(() => {
+        const errs = {};
+        fields.forEach(f => {
+          const e = validateField(f, formValues[f.id]);
+          if (e.length) errs[f.id] = e;
+        });
+        return errs;
+      }, [fields, formValues]);
+
+      const okCount = fields.length - Object.keys(liveErrors).length;
+      const errCount = Object.keys(liveErrors).length;
+
+      // === 拖曳新增節點 ===
+      const onDragStart = (e, fieldType) => {
+        setDraggedType(fieldType);
+        e.dataTransfer.setData('application/reactflow', fieldType);
+        e.dataTransfer.effectAllowed = 'move';
+      };
+
+      const onDragOver = useCallback(e => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+      }, []);
+
+      const onDrop = useCallback(e => {
+        e.preventDefault();
+        const type = e.dataTransfer.getData('application/reactflow');
+        if (!type || !FIELD_TYPES[type] || !reactFlowWrapper.current) return;
+
+        const bounds = reactFlowWrapper.current.getBoundingClientRect();
+        const position = rfInstance
+          ? rfInstance.screenToFlowPosition({ x: e.clientX - bounds.left, y: e.clientY - bounds.top })
+          : { x: e.clientX - bounds.left - 80, y: e.clientY - bounds.top - 20 };
+
+        const newId = `n${Date.now()}`;
+        const newNode = {
+          id: newId,
+          type: 'field',
+          position,
+          data: { id: newId, fieldType: type, ...FIELD_TYPES[type].defaults },
+        };
+        setNodes(nds => nds.concat(newNode));
+        setDraggedType(null);
+      }, [rfInstance, setNodes]);
+
+      const onConnect = useCallback(p => setEdges(eds => addEdge({ ...p, markerEnd: { type: MarkerType.ArrowClosed } }, eds)), [setEdges]);
+
+      const handleValueChange = (id, val) => setFormValues(v => ({ ...v, [id]: val }));
+
+      const handleSubmit = () => {
+        const result = validateForm(fields, formValues);
+        if (result.isValid) {
+          setSubmitResult({ type: 'success', msg: `✓ 提交成功！${fields.length} 個欄位全部通過驗證。` });
+        } else {
+          const msgs = Object.entries(result.fieldErrors).map(([fid, errs]) => {
+            const f = fields.find(x => x.id === fid);
+            return `${f?.label || fid}: ${errs.join(', ')}`;
+          });
+          setSubmitResult({ type: 'error', msg: `✗ 提交失敗，共 ${result.totalErrors} 個錯誤：\n${msgs.join('\n')}` });
+        }
+      };
+
+      const handleReset = () => {
+        setFormValues({});
+        setSubmitResult(null);
+      };
+
+      const handleLoadSample = () => {
+        setFormValues({
+          n1: '王小明',
+          n2: 'test@example.com',
+          n3: '25',
+          n4: true,
+        });
+        setSubmitResult(null);
+      };
+
+      const handleLoadInvalid = () => {
+        // 故意填錯值，讓 Playwright 可測「錯誤狀態」
+        setFormValues({
+          n1: '王',           // 太短（minLength=2）
+          n2: 'not-an-email', // 格式錯
+          n3: '999',          // 超過 max=150
+          n4: false,          // 必填但未勾
+        });
+        setSubmitResult(null);
+      };
+
+      const handleClearCanvas = () => {
+        setNodes([]);
+        setEdges([]);
+        setFormValues({});
+        setSubmitResult(null);
+      };
+
+      return (
+        <ReactFlowProvider>
+          <header data-testid="app-header">
+            <div>
+              <h1>React Flow 表單編輯器</h1>
+              <div className="subtitle">拖曳左側元件到畫布，右側即時預覽+驗證 · Playwright 跨瀏覽器 E2E</div>
+            </div>
+            <div className="header-controls">
+              <span className="stats" data-testid="validation-stats">
+                <span className="ok" data-testid="stats-ok">{okCount}</span> 通過 ·
+                <span className="err" data-testid="stats-err">{errCount}</span> 錯誤 ·
+                {fields.length} 欄位
+              </span>
+              <button onClick={handleLoadSample} data-testid="btn-load-sample">載入有效範例</button>
+              <button onClick={handleLoadInvalid} data-testid="btn-load-invalid">載入無效範例</button>
+              <button className="danger" onClick={handleClearCanvas} data-testid="btn-clear">清空畫布</button>
+            </div>
+          </header>
+
+          <main>
+            {/* Toolbar */}
+            <aside className="toolbar" data-testid="toolbar">
+              <h2>欄位元件</h2>
+              {Object.entries(FIELD_TYPES).map(([type, def]) => (
+                <div
+                  key={type}
+                  className="palette-item"
+                  draggable
+                  onDragStart={e => onDragStart(e, type)}
+                  data-testid={`palette-${type}`}
+                  data-field-type={type}
+                >
+                  <div className={`palette-icon ${def.cls}`}>{def.icon}</div>
+                  <div>{def.label}</div>
+                </div>
+              ))}
+              <p style={{fontSize:'11px', color:'#64748b', marginTop:'16px', lineHeight:1.5}}>
+                提示：將元件拖到中間畫布即可新增欄位。點選節點（未實作編輯面板）後可在預覽區看到驗證狀態。
+              </p>
+            </aside>
+
+            {/* Canvas */}
+            <div className="canvas-wrap" ref={reactFlowWrapper} data-testid="canvas-wrap">
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onConnect={onConnect}
+                onInit={setRfInstance}
+                onDrop={onDrop}
+                onDragOver={onDragOver}
+                nodeTypes={nodeTypes}
+                fitView
+                data-testid="react-flow"
+              >
+                <Controls />
+                <Background gap={16} />
+              </ReactFlow>
+              {nodes.length === 0 && (
+                <div className="empty-canvas" data-testid="empty-canvas-hint">
+                  從左側拖曳元件到這裡開始建立表單
+                </div>
+              )}
+            </div>
+
+            {/* Preview */}
+            <aside className="preview" data-testid="preview-panel">
+              <h2>表單預覽（可填寫 + 驗證）</h2>
+              {fields.length === 0 ? (
+                <p style={{color:'#64748b', fontSize:'13px'}} data-testid="preview-empty">畫布上還沒有欄位。從左側拖一個過來試試。</p>
+              ) : (
+                <form data-testid="preview-form">
+                  {fields.map(f => (
+                    <PreviewField
+                      key={f.id}
+                      field={f}
+                      value={formValues[f.id]}
+                      error={liveErrors[f.id]}
+                      onChange={handleValueChange}
+                    />
+                  ))}
+                  <div className="form-actions">
+                    <button type="button" className="primary" onClick={handleSubmit} data-testid="btn-submit">提交表單</button>
+                    <button type="button" onClick={handleReset} data-testid="btn-reset">重置</button>
+                  </div>
+                  {submitResult && (
+                    <div
+                      className={`submit-result ${submitResult.type}`}
+                      role="status"
+                      data-testid="submit-result"
+                      data-result-type={submitResult.type}
+                    >
+                      <pre style={{margin:0, whiteSpace:'pre-wrap', fontFamily:'inherit'}}>{submitResult.msg}</pre>
+                    </div>
+                  )}
+                </form>
+              )}
+            </aside>
+          </main>
+        </ReactFlowProvider>
+      );
+    }
+
+    // Mount
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+
+    // 對外暴露：Playwright 可透過 window.__app 拿到內部狀態做更深度測試
+    window.__app = {
+      FIELD_TYPES,
+      validateField,
+      validateForm,
+    };
+  </script>
+</body>
+</html>

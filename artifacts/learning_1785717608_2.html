@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Google Calendar ↔ Telegram Sync Dashboard</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1c2128;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d29922;
+    --purple: #bc8cff;
+    --code: #f0f6fc;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header {
+    padding: 32px 40px 20px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, #161b22 0%, #0d1117 100%);
+  }
+  header h1 {
+    margin: 0 0 6px 0;
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+  }
+  header .sub {
+    color: var(--muted);
+    font-size: 14px;
+  }
+  header .endpoint {
+    display: inline-block;
+    margin-top: 10px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: var(--accent);
+    background: rgba(88, 166, 255, 0.1);
+    border: 1px solid rgba(88, 166, 255, 0.3);
+    border-radius: 6px;
+    padding: 4px 10px;
+  }
+  main {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 24px 40px 80px;
+  }
+  .status-bar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .stat-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 18px;
+  }
+  .stat-card .label {
+    font-size: 12px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 6px;
+  }
+  .stat-card .value {
+    font-size: 26px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat-card.ok .value { color: var(--green); }
+  .stat-card.fail .value { color: var(--red); }
+  .stat-card.idle .value { color: var(--muted); }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  @media (max-width: 920px) {
+    .grid { grid-template-columns: 1fr; }
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 22px;
+  }
+  .panel h2 {
+    margin: 0 0 14px 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel h2 .icon {
+    width: 18px; height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+  }
+  .panel p.hint {
+    color: var(--muted);
+    font-size: 13px;
+    margin: 0 0 12px 0;
+  }
+  label {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    margin: 10px 0 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  input[type="text"], input[type="datetime-local"], textarea {
+    width: 100%;
+    padding: 9px 11px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 14px;
+    font-family: inherit;
+  }
+  textarea {
+    min-height: 70px;
+    resize: vertical;
+  }
+  input:focus, textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
+  }
+  button {
+    margin-top: 14px;
+    padding: 9px 16px;
+    background: var(--accent);
+    color: #0d1117;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  button:hover { background: #79b8ff; }
+  button:disabled { background: #444c56; cursor: not-allowed; color: var(--muted); }
+  button.secondary {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  button.secondary:hover { background: #2d333b; }
+  button.danger {
+    background: rgba(248, 81, 73, 0.15);
+    color: var(--red);
+    border: 1px solid rgba(248, 81, 73, 0.4);
+  }
+  button.danger:hover { background: rgba(248, 81, 73, 0.25); }
+  .row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .row > * { flex: 1; min-width: 0; }
+  pre {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    font-size: 12px;
+    color: var(--code);
+    overflow-x: auto;
+    max-height: 240px;
+    overflow-y: auto;
+    margin: 0;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 9px;
+    font-size: 11px;
+    border-radius: 999px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+  }
+  .badge.ok { background: rgba(63, 185, 80, 0.15); color: var(--green); }
+  .badge.fail { background: rgba(248, 81, 73, 0.15); color: var(--red); }
+  .badge.idle { background: rgba(139, 148, 158, 0.15); color: var(--muted); }
+  .badge.info { background: rgba(88, 166, 255, 0.15); color: var(--accent); }
+  .log {
+    margin-top: 14px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: var(--muted);
+    max-height: 220px;
+    overflow-y: auto;
+  }
+  .log .entry { margin: 2px 0; }
+  .log .entry .ts { color: var(--muted); margin-right: 8px; }
+  .log .entry.ok .text { color: var(--green); }
+  .log .entry.fail .text { color: var(--red); }
+  .log .entry.info .text { color: var(--accent); }
+  .endpoint-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .endpoint-list .ep {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    padding: 6px 10px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+  }
+  .endpoint-list .ep .method {
+    display: inline-block;
+    width: 44px;
+    color: var(--muted);
+    margin-right: 8px;
+    font-weight: 600;
+  }
+  .endpoint-list .ep .method.get { color: var(--green); }
+  .endpoint-list .ep .method.post { color: var(--accent); }
+  .endpoint-list .ep .method.delete { color: var(--red); }
+  .footer {
+    margin-top: 36px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 12px;
+    text-align: center;
+  }
+  .last-synced {
+    color: var(--muted);
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📅 Google Calendar ↔ Telegram Sync</h1>
+  <div class="sub">FastAPI integration module · async event bus · retry + backpressure · idempotent webhooks</div>
+  <div class="endpoint" id="api-base">API: <span id="api-base-val">http://127.0.0.1:18090</span></div>
+</header>
+
+<main>
+
+  <!-- Status bar -->
+  <section class="status-bar" id="status-bar">
+    <div class="stat-card idle">
+      <div class="label">Google Calendar</div>
+      <div class="value" id="stat-google">—</div>
+    </div>
+    <div class="stat-card idle">
+      <div class="label">Telegram</div>
+      <div class="value" id="stat-telegram">—</div>
+    </div>
+    <div class="stat-card idle">
+      <div class="label">Queue Size</div>
+      <div class="value" id="stat-queue">—</div>
+    </div>
+    <div class="stat-card idle">
+      <div class="label">Processed</div>
+      <div class="value" id="stat-processed">—</div>
+    </div>
+    <div class="stat-card idle">
+      <div class="label">Failed</div>
+      <div class="value" id="stat-failed">—</div>
+    </div>
+    <div class="stat-card idle">
+      <div class="label">Tracked IDs</div>
+      <div class="value" id="stat-tracked">—</div>
+    </div>
+  </section>
+
+  <div class="grid">
+
+    <!-- LEFT: Create event -->
+    <section class="panel">
+      <h2><span class="icon">➕</span> Create Calendar Event</h2>
+      <p class="hint">POST /events — creates a Google Calendar event and queues a Telegram notification.</p>
+
+      <label>Summary (title)</label>
+      <input type="text" id="ev-summary" placeholder="Team standup" />
+
+      <div class="row">
+        <div>
+          <label>Start</label>
+          <input type="datetime-local" id="ev-start" />
+        </div>
+        <div>
+          <label>End</label>
+          <input type="datetime-local" id="ev-end" />
+        </div>
+      </div>
+
+      <label>Location</label>
+      <input type="text" id="ev-location" placeholder="Conference room A" />
+
+      <label>Description</label>
+      <textarea id="ev-description" placeholder="Agenda, dial-in info, etc."></textarea>
+
+      <label>Attendees (comma-separated emails)</label>
+      <input type="text" id="ev-attendees" placeholder="alice@team.com, bob@team.com" />
+
+      <label>Override Telegram chat id (optional)</label>
+      <input type="text" id="ev-chatid" placeholder="leave blank to use default" />
+
+      <button onclick="createEvent()">Create + notify Telegram</button>
+    </section>
+
+    <!-- RIGHT: Sync from Calendar -->
+    <section class="panel">
+      <h2><span class="icon">🔄</span> Sync Upcoming Events</h2>
+      <p class="hint">POST /sync — pulls upcoming events from Google Calendar and queues a notification per event. Idempotent.</p>
+
+      <label>Max events</label>
+      <input type="text" id="sync-max" value="5" />
+
+      <button onclick="syncUpcoming()">Sync now</button>
+
+      <h2 style="margin-top: 26px;"><span class="icon">📣</span> Send Manual Notification</h2>
+      <p class="hint">POST /notify — push an arbitrary text message to Telegram.</p>
+
+      <label>Message text</label>
+      <textarea id="notify-text" placeholder="Hello from the dashboard"></textarea>
+
+      <button class="secondary" onclick="sendNotify()">Send to Telegram</button>
+    </section>
+
+    <!-- Quick actions -->
+    <section class="panel">
+      <h2><span class="icon">🗑️</span> Delete Event</h2>
+      <p class="hint">DELETE /events/{event_id} — removes an event and queues a Telegram notification.</p>
+
+      <label>Event ID</label>
+      <input type="text" id="del-id" placeholder="evt-abc123" />
+
+      <button class="danger" onclick="deleteEvent()">Delete + notify</button>
+    </section>
+
+    <!-- Webhook tester -->
+    <section class="panel">
+      <h2><span class="icon">📨</span> Simulate Telegram Webhook</h2>
+      <p class="hint">POST /webhooks/telegram — feed in updates; duplicates by <code>update_id</code> are deduped.</p>
+
+      <label>Update IDs (comma-separated)</label>
+      <input type="text" id="wh-ids" placeholder="101, 102, 103" />
+
+      <label>Message text (applied to all)</label>
+      <input type="text" id="wh-text" placeholder="hi from dashboard" />
+
+      <button class="secondary" onclick="sendWebhook()">Send updates</button>
+    </section>
+
+  </div>
+
+  <!-- API Reference -->
+  <section class="panel" style="margin-top: 20px;">
+    <h2><span class="icon">🔌</span> API Reference</h2>
+    <p class="hint">Auto-generated swagger UI is at <a href="/docs" target="_blank">/docs</a> · OpenAPI schema at <a href="/openapi.json" target="_blank">/openapi.json</a></p>
+    <div class="endpoint-list">
+      <div class="ep"><span class="method get">GET</span>/healthz</div>
+      <div class="ep"><span class="method get">GET</span>/stats</div>
+      <div class="ep"><span class="method post">POST</span>/events</div>
+      <div class="ep"><span class="method delete">DELETE</span>/events/{event_id}</div>
+      <div class="ep"><span class="method post">POST</span>/sync</div>
+      <div class="ep"><span class="method post">POST</span>/notify</div>
+      <div class="ep"><span class="method post">POST</span>/webhooks/telegram</div>
+    </div>
+  </section>
+
+  <!-- Activity log -->
+  <section class="panel" style="margin-top: 20px;">
+    <h2><span class="icon">📜</span> Activity Log</h2>
+    <p class="hint">Local run log — no server logs are stored here. Last sync timestamp from the engine:</p>
+    <div class="last-synced" id="last-synced">last_synced_at: —</div>
+    <div class="log" id="log"></div>
+  </section>
+
+  <div class="footer">
+    FastAPI 0.115 · httpx 0.27 · pydantic 2.9 · 17 tests passing · MIT-style common-sense license
+  </div>
+
+</main>
+
+<script>
+  const API = document.getElementById('api-base-val').textContent.trim();
+  const log = document.getElementById('log');
+
+  function logLine(kind, text) {
+    const ts = new Date().toLocaleTimeString();
+    const el = document.createElement('div');
+    el.className = 'entry ' + kind;
+    el.innerHTML = `<span class="ts">${ts}</span><span class="text">${text}</span>`;
+    log.insertBefore(el, log.firstChild);
+    // cap at 50 entries
+    while (log.children.length > 50) log.removeChild(log.lastChild);
+  }
+
+  function toIso(localDt) {
+    if (!localDt) return '';
+    // datetime-local has no timezone; treat as UTC for Google Calendar compat.
+    return new Date(localDt).toISOString().replace('.000', '.000');
+  }
+
+  async function fetchJSON(path, opts = {}) {
+    const url = API + path;
+    try {
+      const r = await fetch(url, {
+        ...opts,
+        headers: { 'content-type': 'application/json', ...(opts.headers || {}) },
+      });
+      const body = await r.text();
+      let parsed;
+      try { parsed = JSON.parse(body); } catch { parsed = body; }
+      return { ok: r.ok, status: r.status, body: parsed };
+    } catch (e) {
+      return { ok: false, status: 0, body: { detail: String(e) } };
+    }
+  }
+
+  // ----- Actions ------------------------------------------------------------
+
+  async function createEvent() {
+    const payload = {
+      summary: document.getElementById('ev-summary').value.trim(),
+      start_iso: toIso(document.getElementById('ev-start').value),
+      end_iso: toIso(document.getElementById('ev-end').value),
+      location: document.getElementById('ev-location').value.trim(),
+      description: document.getElementById('ev-description').value.trim(),
+      attendees: document.getElementById('ev-attendees').value
+        .split(',').map(s => s.trim()).filter(Boolean),
+      chat_id: document.getElementById('ev-chatid').value.trim() || null,
+    };
+    if (!payload.summary || !payload.start_iso || !payload.end_iso) {
+      logLine('fail', 'create_event: summary/start/end are required');
+      return;
+    }
+    const { ok, status, body } = await fetchJSON('/events', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    if (ok) logLine('ok', `created event ${body.id} → ${payload.summary}`);
+    else logLine('fail', `create_event ${status}: ${JSON.stringify(body)}`);
+    refreshStatus();
+  }
+
+  async function syncUpcoming() {
+    const max = parseInt(document.getElementById('sync-max').value || '5', 10);
+    const { ok, status, body } = await fetchJSON('/sync', {
+      method: 'POST',
+      body: JSON.stringify({ max_events: max }),
+    });
+    if (ok) logLine('ok', `sync queued=${body.queued} ids=${(body.event_ids||[]).join(',') || '—'}`);
+    else logLine('fail', `sync ${status}: ${JSON.stringify(body)}`);
+    refreshStatus();
+  }
+
+  async function sendNotify() {
+    const text = document.getElementById('notify-text').value.trim();
+    if (!text) { logLine('fail', 'notify: text is required'); return; }
+    const { ok, status, body } = await fetchJSON('/notify', {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    });
+    if (ok) logLine('ok', `notify queued: "${text.split("\n")[0].slice(0, 40)}..."`);
+    else logLine('fail', `notify ${status}: ${JSON.stringify(body)}`);
+    refreshStatus();
+  }
+
+  async function deleteEvent() {
+    const id = document.getElementById('del-id').value.trim();
+    if (!id) { logLine('fail', 'delete: event_id required'); return; }
+    const { ok, status, body } = await fetchJSON('/events/' + encodeURIComponent(id), {
+      method: 'DELETE',
+    });
+    if (ok) logLine('ok', `deleted event ${id}`);
+    else if (status === 404) logLine('fail', `delete: ${id} not found`);
+    else logLine('fail', `delete ${status}: ${JSON.stringify(body)}`);
+    refreshStatus();
+  }
+
+  async function sendWebhook() {
+    const ids = document.getElementById('wh-ids').value
+      .split(',').map(s => parseInt(s.trim(), 10)).filter(n => Number.isFinite(n));
+    const text = document.getElementById('wh-text').value.trim() || 'hi';
+    if (!ids.length) { logLine('fail', 'webhook: at least one update_id required'); return; }
+    const updates = ids.map(uid => ({ update_id: uid, message: { text } }));
+    const { ok, status, body } = await fetchJSON('/webhooks/telegram', {
+      method: 'POST',
+      body: JSON.stringify(updates),
+    });
+    if (ok) logLine('ok', `webhook accepted=${body.accepted}/${ids.length} (sent ${ids.length} updates)`);
+    else logLine('fail', `webhook ${status}: ${JSON.stringify(body)}`);
+    refreshStatus();
+  }
+
+  // ----- Status refresh ------------------------------------------------------
+
+  async function refreshStatus() {
+    const { ok, status, body } = await fetchJSON('/healthz');
+    if (!ok) {
+      logLine('fail', `healthz ${status}: ${JSON.stringify(body)}`);
+      return;
+    }
+    const g = document.getElementById('stat-google');
+    const t = document.getElementById('stat-telegram');
+    const q = document.getElementById('stat-queue');
+    const p = document.getElementById('stat-processed');
+    const f = document.getElementById('stat-failed');
+    const tr = document.getElementById('stat-tracked');
+
+    const card = (el, ok, text) => {
+      el.textContent = text;
+      el.parentElement.classList.remove('ok','fail','idle');
+      el.parentElement.classList.add(ok ? 'ok' : 'fail');
+    };
+    card(g, body.google_configured, body.google_configured ? '✓ ready' : '✗ missing');
+    card(t, body.telegram_configured, body.telegram_configured ? '✓ ready' : '✗ missing');
+    const engine = body.sync_engine || {};
+    q.textContent = engine.queue_size ?? '—';
+    q.parentElement.classList.remove('ok','fail','idle');
+    q.parentElement.classList.add((engine.queue_size||0) > 0 ? 'ok' : 'idle');
+    p.textContent = engine.processed ?? '—';
+    p.parentElement.classList.remove('ok','fail','idle');
+    p.parentElement.classList.add((engine.processed||0) > 0 ? 'ok' : 'idle');
+    f.textContent = engine.failed ?? '—';
+    f.parentElement.classList.remove('ok','fail','idle');
+    f.parentElement.classList.add((engine.failed||0) > 0 ? 'fail' : 'idle');
+    tr.textContent = (engine.state && engine.state.tracked_event_ids) ?? '—';
+    tr.parentElement.classList.add('idle');
+
+    const ls = (engine.state && engine.state.last_synced_at) || '—';
+    document.getElementById('last-synced').textContent = 'last_synced_at: ' + ls;
+  }
+
+  // Auto-refresh every 3s
+  refreshStatus();
+  setInterval(refreshStatus, 3000);
+</script>
+
+</body>
+</html>

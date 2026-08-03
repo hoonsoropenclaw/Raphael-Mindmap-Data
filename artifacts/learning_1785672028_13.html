@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Real-time Sensor Dashboard · 即時感測器儀表板</title>
+
+<!-- Chart.js v4 (CDN) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+<style>
+  :root {
+    --bg-0: #0a0e1a;
+    --bg-1: #131826;
+    --bg-2: #1c2235;
+    --line: #2a3145;
+    --text-0: #e7ecf3;
+    --text-1: #a5b1c2;
+    --text-2: #6b7589;
+    --accent: #4f8cff;
+    --good: #29c46f;
+    --warn: #f5a623;
+    --bad:  #ff5470;
+    --shadow: 0 6px 24px rgba(0,0,0,.35);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg-0); color: var(--text-0);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", Roboto, Helvetica, Arial, sans-serif; }
+  a { color: var(--accent); text-decoration: none; }
+
+  /* ---------- Top bar ---------- */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 24px; background: linear-gradient(180deg, #11162a 0%, #0a0e1a 100%);
+    border-bottom: 1px solid var(--line);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--good);
+    box-shadow: 0 0 0 4px rgba(41,196,111,.18); animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { transform: scale(1);} 50% { transform: scale(1.25);} }
+  .brand h1 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: .3px; }
+  .brand small { color: var(--text-2); margin-left: 8px; font-weight: 400; }
+  .status { display: flex; gap: 18px; align-items: center; font-size: 13px; color: var(--text-1); }
+  .status .pill { background: var(--bg-2); border: 1px solid var(--line); padding: 4px 10px; border-radius: 999px; }
+  .status .pill b { color: var(--text-0); font-weight: 600; }
+  .status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .dot.on { background: var(--good); }
+  .dot.off { background: var(--bad); }
+
+  /* ---------- KPI cards ---------- */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px; padding: 20px 24px 0; }
+  .kpi { background: var(--bg-1); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px; box-shadow: var(--shadow); position: relative; overflow: hidden; }
+  .kpi::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent); }
+  .kpi.cpu::before    { background: #4f8cff; }
+  .kpi.memory::before { background: #b06bff; }
+  .kpi.network::before{ background: #29c46f; }
+  .kpi.temp::before   { background: #f5a623; }
+  .kpi.latency::before{ background: #ff5470; }
+  .kpi .name { font-size: 12px; color: var(--text-1); text-transform: uppercase; letter-spacing: .8px; }
+  .kpi .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+  .kpi .value .unit { font-size: 14px; color: var(--text-2); margin-left: 4px; font-weight: 400; }
+  .kpi .avg { font-size: 12px; color: var(--text-2); margin-top: 6px; }
+  .kpi .avg b { color: var(--text-1); }
+  .kpi .badge { position: absolute; right: 12px; top: 12px; font-size: 10px;
+    padding: 2px 6px; border-radius: 4px; background: rgba(245,166,35,.15); color: var(--warn);
+    opacity: 0; transition: opacity .2s; }
+  .kpi.alert .badge { opacity: 1; }
+
+  /* ---------- Charts grid ---------- */
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+    gap: 16px; padding: 20px 24px 32px; }
+  .chart-card { background: var(--bg-1); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px 8px; box-shadow: var(--shadow); }
+  .chart-card h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; color: var(--text-0);
+    display: flex; justify-content: space-between; align-items: center; }
+  .chart-card h3 .meta { font-weight: 400; color: var(--text-2); font-size: 11px; }
+  .chart-card canvas { width: 100% !important; height: 220px !important; }
+
+  /* ---------- Footer / event log ---------- */
+  .footer { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; padding: 0 24px 32px; }
+  .events { background: var(--bg-1); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px; box-shadow: var(--shadow); max-height: 280px; overflow-y: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px;
+    color: var(--text-1); }
+  .events h3 { margin: 0 0 10px; color: var(--text-0); font-size: 14px; font-weight: 600; }
+  .events .ev { padding: 4px 0; border-bottom: 1px dashed var(--line); }
+  .events .ev .ts { color: var(--text-2); margin-right: 8px; }
+  .events .ev.anom { color: var(--warn); }
+  .legend { display: flex; gap: 14px; font-size: 11px; color: var(--text-1); margin-top: 6px; }
+  .legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+
+  @media (max-width: 880px) {
+    .footer { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <span class="brand-dot" id="brandDot"></span>
+    <h1>Real-time Sensor Dashboard <small>FastAPI · WebSocket · Chart.js</small></h1>
+  </div>
+  <div class="status">
+    <span class="pill"><span class="dot" id="connDot"></span><span id="connStatus">connecting…</span></span>
+    <span class="pill">Clients <b id="clientCount">0</b></span>
+    <span class="pill">Ticks <b id="tickCount">0</b></span>
+  </div>
+</header>
+
+<section class="kpis" id="kpiRow"></section>
+
+<section class="charts" id="chartsRow"></section>
+
+<section class="footer">
+  <div class="events">
+    <h3>Event log (異常/最近事件)</h3>
+    <div id="eventLog"></div>
+  </div>
+  <div class="events">
+    <h3>Legend</h3>
+    <div class="legend"><span><span class="swatch" style="background:#4f8cff"></span>CPU %</span></div>
+    <div class="legend"><span><span class="swatch" style="background:#b06bff"></span>Memory %</span></div>
+    <div class="legend"><span><span class="swatch" style="background:#29c46f"></span>Network MB/s</span></div>
+    <div class="legend"><span><span class="swatch" style="background:#f5a623"></span>Temp °C</span></div>
+    <div class="legend"><span><span class="swatch" style="background:#ff5470"></span>Latency ms</span></div>
+    <div class="legend"><span><span class="swatch" style="background:#a5b1c2"></span>10-tick moving average</span></div>
+    <div class="legend" style="margin-top:14px; color: var(--text-2);">
+      資料源：<code>/ws</code> WebSocket，每 500ms 一 tick<br>
+      歷史回填：連線時 server 推送最近 60 筆
+    </div>
+  </div>
+</section>
+
+<script>
+/* ============================================================
+   Real-time Sensor Dashboard - Frontend
+   訂閱 /ws，每 500ms 更新 5 通道 Chart.js line chart + KPI 卡
+   ============================================================ */
+
+const CHANNEL_COLORS = {
+  cpu:     '#4f8cff',
+  memory:  '#b06bff',
+  network: '#29c46f',
+  temp:    '#f5a623',
+  latency: '#ff5470',
+};
+const CHANNEL_UNITS = {
+  cpu:'%', memory:'%', network:'MB/s', temp:'°C', latency:'ms'
+};
+const MAX_POINTS = 60;  // 每圖最多顯示 60 個 tick (~30s)
+
+const state = {
+  channels: ['cpu','memory','network','temp','latency'],
+  series: {},          // ch -> {labels:[], values:[], avg:[]}
+  charts: {},          // ch -> Chart 實例
+  kpiEls: {},
+  clientCount: 0,
+  tickCount: 0,
+  eventLog: [],
+};
+
+// ---------- 初始化 charts + KPI ----------
+function init() {
+  const chartsRow = document.getElementById('chartsRow');
+  const kpiRow    = document.getElementById('kpiRow');
+
+  for (const ch of state.channels) {
+    state.series[ch] = { labels: [], values: [], avg: [] };
+
+    // KPI card
+    const kpi = document.createElement('div');
+    kpi.className = `kpi ${ch}`;
+    kpi.id = `kpi-${ch}`;
+    kpi.innerHTML = `
+      <div class="name">${ch}</div>
+      <div class="value" id="kpi-val-${ch}">--<span class="unit">${CHANNEL_UNITS[ch]}</span></div>
+      <div class="avg">avg <b id="kpi-avg-${ch}">--</b></div>
+      <div class="badge">anomaly</div>
+    `;
+    kpiRow.appendChild(kpi);
+    state.kpiEls[ch] = kpi;
+
+    // Chart card
+    const card = document.createElement('div');
+    card.className = 'chart-card';
+    card.innerHTML = `
+      <h3>${ch} <span class="meta" id="meta-${ch}">-- ${CHANNEL_UNITS[ch]}</span></h3>
+      <canvas id="chart-${ch}"></canvas>
+    `;
+    chartsRow.appendChild(card);
+  }
+
+  // 5 charts 建立（延遲到 DOM 渲染完）
+  requestAnimationFrame(() => {
+    for (const ch of state.channels) {
+      const ctx = document.getElementById(`chart-${ch}`).getContext('2d');
+      const color = CHANNEL_COLORS[ch];
+      state.charts[ch] = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [
+            { label: ch, data: [], borderColor: color, backgroundColor: color + '22',
+              tension: .3, pointRadius: 0, borderWidth: 2, fill: true },
+            { label: 'moving avg', data: [], borderColor: '#a5b1c2',
+              borderDash: [4,4], tension: .3, pointRadius: 0, borderWidth: 1.5, fill: false },
+          ],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { color:'#6b7589', maxTicksLimit: 6 }, grid: { color:'#2a3145' } },
+            y: { ticks: { color:'#6b7589' }, grid: { color:'#2a3145' }, beginAtZero: true },
+          },
+        },
+      });
+    }
+  });
+}
+
+// ---------- 處理一筆 tick ----------
+function handleTick(payload) {
+  if (payload.type !== 'tick') return;
+  state.clientCount = payload.client_count ?? state.clientCount;
+  state.tickCount += 1;
+  document.getElementById('clientCount').textContent = state.clientCount;
+  document.getElementById('tickCount').textContent = state.tickCount;
+
+  const tsLabel = new Date(payload.ts).toLocaleTimeString('zh-TW', { hour12:false });
+
+  for (const r of payload.readings) {
+    const s = state.series[r.channel];
+    if (!s) continue;
+    s.labels.push(tsLabel);
+    s.values.push(r.value);
+    s.avg.push(r.moving_avg);
+    if (s.labels.length > MAX_POINTS) {
+      s.labels.shift(); s.values.shift(); s.avg.shift();
+    }
+    // 更新 KPI
+    const kpi = state.kpiEls[r.channel];
+    if (kpi) {
+      kpi.querySelector(`#kpi-val-${r.channel}`).innerHTML =
+        `${r.value}<span class="unit">${r.unit}</span>`;
+      kpi.querySelector(`#kpi-avg-${r.channel}`).textContent = r.moving_avg;
+      kpi.classList.toggle('alert', r.anomaly);
+    }
+    document.getElementById(`meta-${r.channel}`).textContent =
+      `${r.value} ${r.unit} · avg ${r.moving_avg}`;
+
+    // 異常事件 log
+    if (r.anomaly) {
+      pushEvent(`⚠ ${r.channel} = ${r.value}${r.unit} (異常尖峰)`, true);
+    }
+
+    // 更新 chart
+    const chart = state.charts[r.channel];
+    if (chart) {
+      chart.data.labels = s.labels;
+      chart.data.datasets[0].data = s.values;
+      chart.data.datasets[1].data = s.avg;
+      chart.update('none');
+    }
+  }
+}
+
+function pushEvent(text, anom=false) {
+  const log = document.getElementById('eventLog');
+  const ts = new Date().toLocaleTimeString('zh-TW', { hour12:false });
+  const ev = document.createElement('div');
+  ev.className = 'ev' + (anom ? ' anom' : '');
+  ev.innerHTML = `<span class="ts">${ts}</span>${text}`;
+  log.prepend(ev);
+  // 最多保留 50 條
+  while (log.children.length > 50) log.removeChild(log.lastChild);
+}
+
+// ---------- 連線管理（自動重連） ----------
+let ws = null;
+let reconnectDelay = 1000;
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const url = `${proto}://${location.host}/ws`;
+  document.getElementById('connStatus').textContent = 'connecting…';
+  ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    document.getElementById('connStatus').textContent = 'live';
+    document.getElementById('connDot').className = 'dot on';
+    reconnectDelay = 1000;
+    pushEvent('✓ WebSocket connected');
+  };
+  ws.onmessage = (ev) => {
+    try {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === 'history') {
+        // 回填歷史
+        for (const r of msg.items) {
+          const s = state.series[r.channel];
+          if (!s) continue;
+          s.labels.push(new Date(r.timestamp).toLocaleTimeString('zh-TW',{hour12:false}));
+          s.values.push(r.value);
+          s.avg.push(r.moving_avg);
+        }
+        pushEvent(`⟳ history bootstrap: ${msg.items.length} 筆`);
+      } else if (msg.type === 'tick') {
+        handleTick(msg);
+      } else if (msg.type === 'hello') {
+        pushEvent('👋 ' + msg.msg);
+      }
+    } catch(e) { console.error('parse err', e); }
+  };
+  ws.onerror = () => { document.getElementById('connStatus').textContent = 'error'; };
+  ws.onclose = () => {
+    document.getElementById('connDot').className = 'dot off';
+    document.getElementById('connStatus').textContent = 'reconnecting…';
+    setTimeout(connect, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 1.6, 8000);
+  };
+}
+
+// ---------- 健康檢查輪詢（顯示 clients / tick） ----------
+async function pollHealth() {
+  try {
+    const r = await fetch('/health');
+    const j = await r.json();
+    document.getElementById('clientCount').textContent = j.clients;
+  } catch(e) {}
+}
+
+// 啟動
+init();
+connect();
+setInterval(pollHealth, 5000);
+pushEvent('Dashboard 啟動中…');
+</script>
+</body>
+</html>

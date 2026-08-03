@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CalendarTelegram Bridge — 智能日程與任務派送中心</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Helvetica Neue"', 'Helvetica', 'Arial', '"PingFang TC"', '"Microsoft JhengHei"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', '"IBM Plex Mono"', 'Consolas', 'monospace']
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    html, body { scrollbar-width: none; }
+    html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; }
+    .grid-bg {
+      background-image:
+        linear-gradient(to right, rgba(255,255,255,0.08) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255,255,255,0.08) 1px, transparent 1px);
+      background-size: 22px 22px;
+    }
+    .dot-grid {
+      background-image: radial-gradient(rgba(15,23,42,0.08) 1px, transparent 1px);
+      background-size: 14px 14px;
+    }
+    /* DAG 動畫 */
+    @keyframes pulseEdge {
+      0%   { stroke-dashoffset: 0; }
+      100% { stroke-dashoffset: -32; }
+    }
+    .edge-anim { animation: pulseEdge 1.2s linear infinite; }
+    @keyframes nodePop {
+      0%   { transform: scale(0.85); opacity: 0; }
+      60%  { transform: scale(1.05); opacity: 1; }
+      100% { transform: scale(1); }
+    }
+    .node-anim { animation: nodePop 0.4s ease-out; }
+    /* Telegram 訊息動畫 */
+    @keyframes msgIn {
+      from { transform: translateY(8px); opacity: 0; }
+      to   { transform: translateY(0);   opacity: 1; }
+    }
+    .msg-in { animation: msgIn 0.32s ease-out; }
+    /* 進度光芒 */
+    @keyframes shimmer {
+      0%   { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+    .shimmer {
+      background: linear-gradient(90deg, #6366f1 0%, #8b5cf6 50%, #6366f1 100%);
+      background-size: 200% 100%;
+      animation: shimmer 1.6s linear infinite;
+    }
+    /* 響應式:小於 1024px 改單欄 */
+    @media (max-width: 1023px) {
+      .split-cols { grid-template-columns: 1fr !important; }
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans antialiased">
+
+  <!-- ============== HERO ============== -->
+  <section class="bg-gradient-to-br from-indigo-700 via-blue-700 to-purple-800 text-white relative overflow-hidden">
+    <div class="absolute inset-0 grid-bg opacity-60"></div>
+    <div class="relative max-w-6xl mx-auto px-6 py-12 grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+      <div>
+        <div class="inline-flex items-center gap-2 bg-white/15 backdrop-blur rounded-full px-3 py-1 text-xs font-medium mb-4">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          Bridge v1.0 · 2026-08-03
+        </div>
+        <h1 class="text-4xl md:text-5xl font-bold leading-tight mb-3">
+          Google Calendar<br/>×
+          <span class="bg-gradient-to-r from-yellow-300 to-pink-300 bg-clip-text text-transparent">Telegram</span><br/>
+          智能橋接中心
+        </h1>
+        <p class="text-indigo-100 text-base leading-relaxed mb-6">
+          把 Google 日曆事件即時同步到 Telegram 群組／個人,<br/>
+          依「規則引擎」自動分配任務、提醒、升級處理。
+        </p>
+        <div class="flex flex-wrap gap-3">
+          <button id="btn-connect" class="bg-white text-indigo-700 font-semibold px-5 py-2.5 rounded-lg shadow hover:shadow-lg transition flex items-center gap-2">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            連線雙平台
+          </button>
+          <button id="btn-sync" class="bg-white/10 backdrop-blur border border-white/30 text-white px-5 py-2.5 rounded-lg hover:bg-white/20 transition flex items-center gap-2">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            觸發同步
+          </button>
+          <button id="btn-reset" class="bg-white/10 backdrop-blur border border-white/30 text-white px-5 py-2.5 rounded-lg hover:bg-white/20 transition">
+            Reset
+          </button>
+        </div>
+      </div>
+
+      <!-- KPI 面板 -->
+      <div class="grid grid-cols-2 gap-3">
+        <div class="bg-white/10 backdrop-blur rounded-xl p-4 border border-white/20">
+          <div class="text-xs uppercase tracking-wider text-indigo-200 mb-1">今日事件</div>
+          <div class="text-3xl font-bold" id="kpi-events">8</div>
+          <div class="text-xs text-indigo-200 mt-1">+ 3 即將到來</div>
+        </div>
+        <div class="bg-white/10 backdrop-blur rounded-xl p-4 border border-white/20">
+          <div class="text-xs uppercase tracking-wider text-indigo-200 mb-1">已派送任務</div>
+          <div class="text-3xl font-bold text-yellow-300" id="kpi-tasks">12</div>
+          <div class="text-xs text-indigo-200 mt-1">5 待確認</div>
+        </div>
+        <div class="bg-white/10 backdrop-blur rounded-xl p-4 border border-white/20">
+          <div class="text-xs uppercase tracking-wider text-indigo-200 mb-1">同步延遲</div>
+          <div class="text-3xl font-bold text-emerald-300" id="kpi-latency">0.4s</div>
+          <div class="text-xs text-indigo-200 mt-1">P95 &lt; 1s</div>
+        </div>
+        <div class="bg-white/10 backdrop-blur rounded-xl p-4 border border-white/20">
+          <div class="text-xs uppercase tracking-wider text-indigo-200 mb-1">規則命中率</div>
+          <div class="text-3xl font-bold text-pink-300">94<span class="text-base">%</span></div>
+          <div class="text-xs text-indigo-200 mt-1">近 7 日</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== STATUS BAR ============== -->
+  <section class="bg-white border-b border-slate-200">
+    <div class="max-w-6xl mx-auto px-6 py-4">
+      <div id="status" class="flex items-center gap-3 flex-wrap">
+        <span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500" id="status-dot"></span>
+        <span class="font-medium" id="status-title">System Ready</span>
+        <span class="text-slate-500 text-sm" id="status-text">— 等待連線 Google Calendar 與 Telegram Bot</span>
+        <span class="ml-auto text-xs text-slate-400 font-mono" id="status-clock">--:--:--</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== 雙面板:Calendar + Telegram ============== -->
+  <section class="max-w-6xl mx-auto px-6 py-10">
+    <div class="mb-6">
+      <h2 class="text-2xl font-bold mb-1">📅 資料源 & 派送中心</h2>
+      <p class="text-slate-600 text-sm">左:從 Google Calendar 拉取事件並轉換為內部任務卡;右:依規則派送到 Telegram 群組或個人。</p>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 split-cols">
+      <!-- 左:Calendar 同步器 -->
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4285F4" stroke-width="2">
+              <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+            <span class="font-semibold">Google Calendar 同步器</span>
+          </div>
+          <span class="text-xs px-2 py-1 rounded bg-emerald-100 text-emerald-700" id="cal-status">Connected</span>
+        </div>
+        <div class="p-5 space-y-3 max-h-96 overflow-y-auto" id="calendar-list">
+          <!-- 由 JS 動態注入 -->
+        </div>
+      </div>
+
+      <!-- 右:Telegram 派送中心 -->
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="#26A5E4">
+              <path d="M9.78 18.65l.28-4.23 7.68-6.92c.34-.31-.07-.46-.52-.19L7.74 13.3 3.64 12c-.88-.25-.89-.86.2-1.3l15.97-6.16c.73-.33 1.43.18 1.15 1.3l-2.72 12.81c-.19.91-.74 1.13-1.5.71L12.6 16.3l-1.99 1.93c-.23.23-.42.42-.83.42z"/>
+            </svg>
+            <span class="font-semibold">Telegram 派送中心</span>
+          </div>
+          <span class="text-xs px-2 py-1 rounded bg-blue-100 text-blue-700" id="tg-status">@calendar_bot</span>
+        </div>
+        <div class="p-5 bg-gradient-to-b from-slate-50 to-white max-h-96 overflow-y-auto" id="telegram-log">
+          <div id="tg-placeholder" class="text-center text-slate-400 text-sm py-8">
+            <div class="text-3xl mb-2">📭</div>
+            等待訊息派送...
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== 規則引擎 ============== -->
+  <section class="bg-slate-100 border-y border-slate-200">
+    <div class="max-w-6xl mx-auto px-6 py-12">
+      <div class="mb-6">
+        <h2 class="text-2xl font-bold mb-1">⚙️ 智能規則引擎 (Rule Engine)</h2>
+        <p class="text-slate-600 text-sm">宣告式條件 → 動作 的 DAG。每條規則由「觸發條件」「篩選器」「動作鏈」組成,可即時啟用/停用。</p>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4" id="rules-grid">
+        <!-- 由 JS 動態注入 -->
+      </div>
+
+      <!-- 新增規則表單 -->
+      <div class="mt-8 bg-white rounded-xl border border-slate-200 p-6">
+        <h3 class="font-semibold mb-4 flex items-center gap-2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          新增規則
+        </h3>
+        <form id="new-rule-form" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3" onsubmit="event.preventDefault(); addRule();">
+          <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1">規則名稱</label>
+            <input id="in-name" type="text" placeholder="例:VIP 會議升級" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" required>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1">觸發條件</label>
+            <select id="in-trigger" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <option value="title_contains">標題含關鍵字</option>
+              <option value="attendee_gt">與會人數 ≥</option>
+              <option value="duration_gt">時長 ≥ (分)</option>
+              <option value="location_match">地點等於</option>
+              <option value="priority">優先級 = 高</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1">條件值</label>
+            <input id="in-value" type="text" placeholder="關鍵字/數字/地點" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" required>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1">動作</label>
+            <select id="in-action" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <option value="notify_group">→ 通知群組</option>
+              <option value="assign_user">→ 指派給負責人</option>
+              <option value="escalate">→ 升級處理</option>
+              <option value="pre_remind">→ 提前 30 分提醒</option>
+            </select>
+          </div>
+          <div class="md:col-span-2 lg:col-span-4 flex gap-2">
+            <button type="submit" class="bg-indigo-600 text-white font-medium px-4 py-2 rounded-lg hover:bg-indigo-700 transition text-sm">+ 新增規則</button>
+            <button type="button" id="btn-seed" class="bg-slate-200 text-slate-700 font-medium px-4 py-2 rounded-lg hover:bg-slate-300 transition text-sm">載入預設 6 條</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== DAG 流程視覺化 ============== -->
+  <section class="max-w-6xl mx-auto px-6 py-12">
+    <div class="mb-6">
+      <h2 class="text-2xl font-bold mb-1">🔄 派送 DAG (拓樸執行流)</h2>
+      <p class="text-slate-600 text-sm">點擊 「▶ 執行流程」 觀察 DAG 拓樸排序後的順序執行:Calendar → 規則匹配 → 分派 → Telegram 推播。</p>
+    </div>
+
+    <div class="bg-white rounded-xl border border-slate-200 p-6">
+      <div class="flex items-center gap-3 mb-4">
+        <button id="btn-run-dag" class="bg-indigo-600 text-white font-medium px-4 py-2 rounded-lg hover:bg-indigo-700 transition text-sm flex items-center gap-2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="white"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          執行流程
+        </button>
+        <span class="text-sm text-slate-500" id="dag-status">— 等待執行</span>
+        <span class="ml-auto text-xs text-slate-400 font-mono" id="dag-progress">0/4</span>
+      </div>
+
+      <!-- DAG SVG 容器 -->
+      <div class="overflow-x-auto">
+        <svg id="dag-svg" width="100%" height="320" viewBox="0 0 920 320" class="bg-slate-50 rounded-lg dot-grid">
+          <!-- 邊 (由 JS 動態繪製) -->
+          <g id="dag-edges"></g>
+          <!-- 節點 (由 JS 動態繪製) -->
+          <g id="dag-nodes"></g>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== 派送歷史表 ============== -->
+  <section class="bg-slate-100 border-y border-slate-200">
+    <div class="max-w-6xl mx-auto px-6 py-12">
+      <div class="mb-6 flex items-end justify-between">
+        <div>
+          <h2 class="text-2xl font-bold mb-1">📜 派送歷史 (Webhook Log)</h2>
+          <p class="text-slate-600 text-sm">每次觸發同步就會 append 一列,記錄事件 ID、命中規則、派送目標、處理狀態。</p>
+        </div>
+        <div class="text-sm text-slate-500" id="log-count">0 筆</div>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 border-b border-slate-200">
+            <tr class="text-left text-slate-600">
+              <th class="px-4 py-3 font-medium">#</th>
+              <th class="px-4 py-3 font-medium">時間</th>
+              <th class="px-4 py-3 font-medium">事件</th>
+              <th class="px-4 py-3 font-medium">命中規則</th>
+              <th class="px-4 py-3 font-medium">動作</th>
+              <th class="px-4 py-3 font-medium">目標</th>
+              <th class="px-4 py-3 font-medium">狀態</th>
+            </tr>
+          </thead>
+          <tbody id="log-tbody">
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== 架構透明交付 ============== -->
+  <section class="max-w-6xl mx-auto px-6 py-12">
+    <div class="mb-6">
+      <h2 class="text-2xl font-bold mb-1">🧩 架構分層 (Implementation Notes)</h2>
+      <p class="text-slate-600 text-sm">透明交付:採用的微技能、設計權衡、未實作範圍。</p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+          <h3 class="font-semibold">微技能重用</h3>
+        </div>
+        <ul class="text-sm text-slate-700 space-y-1.5">
+          <li>✅ <b>calendar_integration_and_workflow_management</b> — OAuth 流程、events.list mock、DAG 拓樸排序、simulation engine</li>
+          <li>✅ <b>rule_engine_declaration</b> — Rule dataclass + AutomationEngine 結構</li>
+          <li>✅ <b>comprehensive_responsive_web_design</b> — Flexbox/Grid 響應式佈局、@media 1023px 切換單欄</li>
+          <li>✅ <b>comprehensive_anti_patterns</b> — 避免 sync → API 阻塞、避免無超時 polling</li>
+        </ul>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+          <h3 class="font-semibold">核心設計</h3>
+        </div>
+        <ul class="text-sm text-slate-700 space-y-1.5">
+          <li>🎯 <b>OAuth 2.0 Device Flow</b> — N100 headless 唯一乾淨解</li>
+          <li>🎯 <b>DAG 拓樸排序</b> — 規則間有依賴時,DFS 避免無窮遞迴</li>
+          <li>🎯 <b>tearDown 訂閱模型</b> — monitor.subscribe(rule, handler) 避免輪詢</li>
+          <li>🎯 <b>shimmer 進度條</b> — 視覺化長時間操作</li>
+        </ul>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <h3 class="font-semibold">已知限制</h3>
+        </div>
+        <ul class="text-sm text-slate-700 space-y-1.5">
+          <li>⚠️ 本頁是 <b>demo 前端</b>,不直接呼叫真實 Google/Telegram API</li>
+          <li>⚠️ 規則匹配採 <b>同步單執行緒</b>,500+ 規則時建議改 worker pool</li>
+          <li>⚠️ 派送目標僅 3 個示意群組,實際部署需串 webhook URL</li>
+        </ul>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-5">
+        <div class="flex items-center gap-2 mb-2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ec4899" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <h3 class="font-semibold">未實作範圍</h3>
+        </div>
+        <ul class="text-sm text-slate-700 space-y-1.5">
+          <li>❌ 真正的 OAuth Device Code polling (見 hermes-internal.md)</li>
+          <li>❌ Google Calendar Push Notifications (watch API)</li>
+          <li>❌ Telegram Bot long polling 與 inline keyboard</li>
+          <li>❌ 持久化層 (本 demo 為記憶體)</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== FOOTER ============== -->
+  <footer class="bg-slate-900 text-slate-300">
+    <div class="max-w-6xl mx-auto px-6 py-8 flex flex-wrap items-center justify-between gap-3 text-sm">
+      <div>© 2026 CalendarTelegram Bridge · Demo by Raphael (Hermes Agent)</div>
+      <div class="flex gap-4 flex-wrap">
+        <span>Skills: calendar / rule_engine / responsive_web</span>
+        <span>Mode: autonomy-full</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ============== APPLICATION LOGIC ============== -->
+  <script>
+    // ====== 模組 1:Mock 資料(對齊 calendar_integration skill 的 transformEvents) ======
+    const MOCK_CAL_EVENTS = [
+      { id: 'evt_001', summary: '週一產品 standup', start: '2026-08-03T09:00:00', end: '2026-08-03T09:30:00',
+        attendees: 8,  location: 'Zoom', priority: 'normal', tags: ['內部', 'daily'] },
+      { id: 'evt_002', summary: 'VIP 客戶簡報 — 緯創', start: '2026-08-03T14:00:00', end: '2026-08-03T15:30:00',
+        attendees: 12, location: '101 會議室', priority: 'high', tags: ['VIP', '業務'] },
+      { id: 'evt_003', summary: 'Code Review: Auth Refactor', start: '2026-08-03T16:00:00', end: '2026-08-03T17:00:00',
+        attendees: 4, location: 'GitHub', priority: 'normal', tags: ['工程'] },
+      { id: 'evt_004', summary: '家長日座談 (高一)', start: '2026-08-04T19:00:00', end: '2026-08-04T21:00:00',
+        attendees: 60, location: '學務處', priority: 'high', tags: ['學校', '大型'] },
+      { id: 'evt_005', summary: 'FastAPI 異步讀書會', start: '2026-08-05T20:00:00', end: '2026-08-05T21:30:00',
+        attendees: 6,  location: 'Discord', priority: 'low', tags: ['學習'] },
+      { id: 'evt_006', summary: 'Q3 OKR 對齊會議', start: '2026-08-06T10:00:00', end: '2026-08-06T12:00:00',
+        attendees: 15, location: '大會議室', priority: 'high', tags: ['管理層'] },
+      { id: 'evt_007', summary: '牙醫回診', start: '2026-08-06T15:30:00', end: '2026-08-06T16:30:00',
+        attendees: 2,  location: '診所', priority: 'normal', tags: ['個人'] },
+      { id: 'evt_008', summary: 'Hermes 工作流重構 kickoff', start: '2026-08-07T11:00:00', end: '2026-08-07T12:00:00',
+        attendees: 5,  location: 'N100 機房', priority: 'high', tags: ['工程', 'Hermes'] }
+    ];
+
+    // 對齊 rule_engine skill 的 Rule dataclass + matches 邏輯
+    class Rule {
+      constructor({ id, name, trigger, value, action, enabled = true }) {
+        this.id = id || 'r_' + Math.random().toString(36).slice(2, 8);
+        this.name = name;
+        this.trigger = trigger;
+        this.value = value;
+        this.action = action;
+        this.enabled = enabled;
+      }
+      matches(event) {
+        switch (this.trigger) {
+          case 'title_contains': return event.summary.includes(this.value);
+          case 'attendee_gt':    return event.attendees >= parseInt(this.value, 10);
+          case 'duration_gt':    return this.durationMin(event) >= parseInt(this.value, 10);
+          case 'location_match': return event.location === this.value;
+          case 'priority':       return event.priority === this.value;
+          default: return false;
+        }
+      }
+      durationMin(e) {
+        return (new Date(e.end) - new Date(e.start)) / 60000;
+      }
+    }
+
+    // 對齊 calendar_integration skill 的 topologicalSort
+    function topologicalSort(nodes, edges) {
+      const visited = new Set();
+      const sorted = [];
+      const adj = {};
+      nodes.forEach(n => adj[n.id] = []);
+      edges.forEach(e => { adj[e.target].push(e.source); }); // 依賴方向
+      const dfs = (id) => {
+        if (visited.has(id)) return;
+        visited.add(id);
+        (adj[id] || []).forEach(p => dfs(p));
+        sorted.push(id);
+      };
+      nodes.forEach(n => dfs(n.id));
+      return sorted;
+    }
+
+    // 模組 2:全域狀態
+    const state = {
+      connected: { gcal: false, telegram: false },
+      rules: [],
+      log: [],
+      ruleCounter: 0
+    };
+
+    const SEED_RULES = [
+      { name: 'VIP 會議升級群組通知', trigger: 'title_contains', value: 'VIP', action: 'notify_group' },
+      { name: '大型會議指派助理',     trigger: 'attendee_gt',    value: '10', action: 'assign_user' },
+      { name: '長會議提前提醒',       trigger: 'duration_gt',    value: '90', action: 'pre_remind' },
+      { name: '地點 = 101 會議室 升級', trigger: 'location_match', value: '101 會議室', action: 'escalate' },
+      { name: '高優先級一律提醒',     trigger: 'priority',       value: 'high', action: 'pre_remind' },
+      { name: '學校相關自動派群組',   trigger: 'title_contains', value: '學校', action: 'notify_group' }
+    ];
+
+    // ====== 模組 3:DOM 渲染 ======
+    function fmtTime(iso) {
+      const d = new Date(iso);
+      return d.toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+
+    function renderCalendar() {
+      const list = document.getElementById('calendar-list');
+      list.innerHTML = MOCK_CAL_EVENTS.map(e => {
+        const dur = Math.round((new Date(e.end) - new Date(e.start)) / 60000);
+        const priColor = e.priority === 'high' ? 'bg-red-100 text-red-700' :
+                         e.priority === 'low'  ? 'bg-slate-200 text-slate-700' :
+                                                  'bg-blue-100 text-blue-700';
+        return `
+          <div class="group border border-slate-200 rounded-lg p-3 hover:border-indigo-300 hover:shadow-sm transition">
+            <div class="flex items-start justify-between gap-2">
+              <div class="flex-1 min-w-0">
+                <div class="font-medium text-sm truncate">${e.summary}</div>
+                <div class="text-xs text-slate-500 mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                  <span>🕒 ${fmtTime(e.start)} → ${fmtTime(e.end)}</span>
+                  <span>⏱ ${dur} 分</span>
+                  <span>📍 ${e.location}</span>
+                  <span>👥 ${e.attendees}</span>
+                </div>
+              </div>
+              <span class="text-xs px-2 py-0.5 rounded ${priColor} whitespace-nowrap">${e.priority}</span>
+            </div>
+            <div class="mt-2 flex flex-wrap gap-1">
+              ${e.tags.map(t => `<span class="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">#${t}</span>`).join('')}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderRules() {
+      const grid = document.getElementById('rules-grid');
+      if (state.rules.length === 0) {
+        grid.innerHTML = '<div class="col-span-3 text-center text-slate-400 text-sm py-8">尚無規則,請從下方表單新增或點「載入預設 6 條」</div>';
+        return;
+      }
+      grid.innerHTML = state.rules.map((r, i) => {
+        const trigLabel = ({ title_contains:'標題含', attendee_gt:'與會≥', duration_gt:'時長≥', location_match:'地點=', priority:'優先級=' })[r.trigger] || r.trigger;
+        const actLabel  = ({ notify_group:'→ 通知群組', assign_user:'→ 指派負責人', escalate:'→ 升級處理', pre_remind:'→ 提前提醒' })[r.action] || r.action;
+        return `
+          <div class="bg-white rounded-xl border ${r.enabled ? 'border-slate-200' : 'border-slate-100 opacity-60'} p-4 shadow-sm">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-mono text-slate-400">R${String(i+1).padStart(2,'0')}</span>
+              <label class="inline-flex items-center cursor-pointer">
+                <input type="checkbox" ${r.enabled ? 'checked' : ''} onchange="toggleRule('${r.id}')" class="sr-only peer">
+                <div class="relative w-9 h-5 bg-slate-300 rounded-full peer-checked:bg-indigo-600 transition">
+                  <div class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-4"></div>
+                </div>
+              </label>
+            </div>
+            <div class="font-semibold text-sm mb-2 truncate" title="${r.name}">${r.name}</div>
+            <div class="text-xs space-y-1.5">
+              <div class="flex items-center gap-1.5">
+                <span class="text-slate-400">IF</span>
+                <span class="bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">${trigLabel}</span>
+                <span class="font-mono text-slate-700 truncate">${r.value}</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <span class="text-slate-400">THEN</span>
+                <span class="bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded">${actLabel}</span>
+              </div>
+            </div>
+            <button onclick="removeRule('${r.id}')" class="mt-3 text-xs text-red-600 hover:text-red-800">🗑 刪除</button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderLog() {
+      const tbody = document.getElementById('log-tbody');
+      const cnt = document.getElementById('log-count');
+      cnt.textContent = state.log.length + ' 筆';
+      if (state.log.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="px-4 py-8 text-center text-slate-400 text-sm">尚無派送記錄,點擊「觸發同步」開始</td></tr>';
+        return;
+      }
+      tbody.innerHTML = state.log.slice().reverse().map((row, i) => {
+        const statusCls = row.status === 'success' ? 'text-emerald-600' : 'text-red-600';
+        const statusDot = row.status === 'success' ? 'bg-emerald-500' : 'bg-red-500';
+        const actCls = row.action === 'notify_group' ? 'bg-blue-100 text-blue-800' :
+                      row.action === 'assign_user'   ? 'bg-purple-100 text-purple-800' :
+                      row.action === 'escalate'      ? 'bg-red-100 text-red-800' :
+                                                      'bg-amber-100 text-amber-800';
+        return `
+          <tr class="border-b border-slate-100">
+            <td class="px-4 py-3 text-slate-500 font-mono text-xs">#${String(row.idx).padStart(3,'0')}</td>
+            <td class="px-4 py-3 text-xs text-slate-600">${row.time}</td>
+            <td class="px-4 py-3 truncate max-w-[180px]" title="${row.event}">${row.event}</td>
+            <td class="px-4 py-3 text-xs text-slate-600">${row.rule}</td>
+            <td class="px-4 py-3"><span class="text-xs px-2 py-0.5 rounded ${actCls}">${row.action}</span></td>
+            <td class="px-4 py-3 font-mono text-xs text-slate-500">${row.target}</td>
+            <td class="px-4 py-3"><span class="inline-block w-2 h-2 rounded-full ${statusDot} mr-1"></span><span class="text-xs font-semibold ${statusCls}">${row.status}</span></td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // ====== 模組 4:Telegram 訊息注入器(對齊 mockCalendarAPI 模式) ======
+    function pushTelegramMessage({ title, body, urgency }) {
+      const log = document.getElementById('telegram-log');
+      // 第一次注入時移除 placeholder(用 id 精準匹配,避免誤刪 msg-in 卡片內的 class)
+      const placeholder = document.getElementById('tg-placeholder');
+      if (placeholder) placeholder.remove();
+
+      const colorMap = { high: 'border-red-400 bg-red-50', normal: 'border-blue-400 bg-blue-50', low: 'border-slate-300 bg-slate-50' };
+      const badgeMap = { high: 'bg-red-500', normal: 'bg-blue-500', low: 'bg-slate-400' };
+      const html = `
+        <div class="msg-in mb-3 border-l-4 ${colorMap[urgency] || colorMap.normal} rounded-r-lg p-3 shadow-sm">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="inline-block w-2 h-2 rounded-full ${badgeMap[urgency] || badgeMap.normal}"></span>
+            <span class="text-xs font-semibold text-slate-700">@calendar_bot</span>
+            <span class="text-xs text-slate-400 font-mono">${new Date().toLocaleTimeString('zh-TW', { hour12: false })}</span>
+          </div>
+          <div class="text-sm font-semibold text-slate-800">${title}</div>
+          <div class="text-xs text-slate-600 mt-1">${body}</div>
+        </div>
+      `;
+      log.insertAdjacentHTML('beforeend', html);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function clearTelegramLog() {
+      document.getElementById('telegram-log').innerHTML =
+        '<div id="tg-placeholder" class="text-center text-slate-400 text-sm py-8"><div class="text-3xl mb-2">📭</div>等待訊息派送...</div>';
+    }
+
+    // ====== 模組 5:核心同步邏輯 ======
+    function setStatus(state_, title, text) {
+      const colors = { ready: 'bg-emerald-500', running: 'bg-amber-500', error: 'bg-red-500', done: 'bg-blue-500' };
+      document.getElementById('status-dot').className = 'inline-block w-2.5 h-2.5 rounded-full ' + (colors[state_] || 'bg-emerald-500');
+      document.getElementById('status-title').textContent = title;
+      document.getElementById('status-text').textContent = '— ' + text;
+    }
+
+    function connectPlatforms() {
+      state.connected.gcal = true;
+      state.connected.telegram = true;
+      document.getElementById('cal-status').className = 'text-xs px-2 py-1 rounded bg-emerald-100 text-emerald-700';
+      document.getElementById('cal-status').textContent = 'Connected';
+      document.getElementById('tg-status').className = 'text-xs px-2 py-1 rounded bg-emerald-100 text-emerald-700';
+      document.getElementById('tg-status').textContent = 'Online';
+      setStatus('done', '雙平台已連線', 'Google Calendar OAuth2 + Telegram Bot 已就緒');
+      pushTelegramMessage({
+        title: '✅ 系統就緒',
+        body: '已連線 Google Calendar (primary) 與 Telegram Bot @calendar_bot。規則引擎待命中。',
+        urgency: 'normal'
+      });
+    }
+
+    function triggerSync() {
+      if (!state.connected.gcal) {
+        setStatus('error', '尚未連線', '請先點「連線雙平台」');
+        return;
+      }
+      setStatus('running', '同步中...', '正在拉取 Google Calendar 事件並匹配規則');
+      pushTelegramMessage({
+        title: '🔄 同步啟動',
+        body: '開始拉取 ' + MOCK_CAL_EVENTS.length + ' 個事件,匹配 ' + state.rules.filter(r => r.enabled).length + ' 條啟用規則',
+        urgency: 'normal'
+      });
+
+      // 逐步處理:每 400ms 處理一個事件
+      let idx = 0;
+      const processNext = () => {
+        if (idx >= MOCK_CAL_EVENTS.length) {
+          setStatus('done', '同步完成', '共派送 ' + state.log.length + ' 筆任務');
+          return;
+        }
+        const evt = MOCK_CAL_EVENTS[idx];
+        const matched = state.rules.filter(r => r.enabled && r.matches(evt));
+        matched.forEach(rule => {
+          recordDispatch(evt, rule);
+        });
+        idx++;
+        setTimeout(processNext, 350);
+      };
+      processNext();
+    }
+
+    function recordDispatch(evt, rule) {
+      const targets = {
+        notify_group: '#work-alerts',
+        assign_user:  '@assistant',
+        escalate:     '@oncall-lead',
+        pre_remind:   '@user-self'
+      };
+      const actionDesc = {
+        notify_group: '通知群組',
+        assign_user:  '指派負責人',
+        escalate:     '升級處理',
+        pre_remind:   '提前提醒'
+      };
+      const logEntry = {
+        idx: state.log.length + 1,
+        time: new Date().toLocaleTimeString('zh-TW', { hour12: false }),
+        event: evt.summary,
+        rule: rule.name,
+        action: actionDesc[rule.action] || rule.action,
+        target: targets[rule.action] || '@unknown',
+        status: Math.random() > 0.05 ? 'success' : 'failed'  // 95% 成功率
+      };
+      state.log.push(logEntry);
+
+      // 推 Telegram 訊息
+      pushTelegramMessage({
+        title: '📌 ' + evt.summary,
+        body: '規則: ' + rule.name + '<br>動作: ' + actionDesc[rule.action] + ' → ' + logEntry.target,
+        urgency: evt.priority
+      });
+
+      renderLog();
+    }
+
+    // ====== 模組 6:規則操作 ======
+    function addRule() {
+      const name = document.getElementById('in-name').value.trim();
+      const trigger = document.getElementById('in-trigger').value;
+      const value = document.getElementById('in-value').value.trim();
+      const action = document.getElementById('in-action').value;
+      if (!name || !value) return;
+      state.rules.push(new Rule({ name, trigger, value, action }));
+      state.ruleCounter++;
+      document.getElementById('in-name').value = '';
+      document.getElementById('in-value').value = '';
+      renderRules();
+      setStatus('done', '規則已新增', '「' + name + '」已加入規則庫');
+    }
+
+    function seedRules() {
+      state.rules = SEED_RULES.map(r => new Rule(r));
+      state.ruleCounter = state.rules.length;
+      renderRules();
+      setStatus('done', '預設規則已載入', '已建立 ' + state.rules.length + ' 條預設規則');
+    }
+
+    function toggleRule(id) {
+      const r = state.rules.find(x => x.id === id);
+      if (r) { r.enabled = !r.enabled; renderRules(); }
+    }
+
+    function removeRule(id) {
+      state.rules = state.rules.filter(x => x.id !== id);
+      renderRules();
+    }
+
+    // ====== 模組 7:DAG 視覺化(對齊 calendar_integration skill 的 simulation engine) ======
+    const DAG_NODES = [
+      { id: 'n1', label: 'GCal Watch',  x: 60,  y: 140, color: '#4285F4', icon: '📅' },
+      { id: 'n2', label: 'Event Queue', x: 240, y: 140, color: '#6366f1', icon: '📥' },
+      { id: 'n3', label: 'Rule Engine', x: 420, y: 140, color: '#8b5cf6', icon: '⚙️' },
+      { id: 'n4', label: 'Dispatcher',  x: 600, y: 140, color: '#ec4899', icon: '🚀' },
+      { id: 'n5', label: 'Telegram',    x: 780, y: 140, color: '#26A5E4', icon: '✈️' },
+      { id: 'n6', label: 'Webhook Log',     x: 420, y: 260, color: '#10b981', icon: '📜' },
+      { id: 'n7', label: 'Notification DB', x: 600, y: 260, color: '#f59e0b', icon: '💾' }
+    ];
+    const DAG_EDGES = [
+      { source: 'n1', target: 'n2' },
+      { source: 'n2', target: 'n3' },
+      { source: 'n3', target: 'n4' },
+      { source: 'n4', target: 'n5' },
+      { source: 'n3', target: 'n6' },
+      { source: 'n4', target: 'n7' }
+    ];
+
+    function renderDAG(activeIds = []) {
+      const nodesG = document.getElementById('dag-nodes');
+      const edgesG = document.getElementById('dag-edges');
+      nodesG.innerHTML = '';
+      edgesG.innerHTML = '';
+
+      // 繪邊
+      DAG_EDGES.forEach(e => {
+        const s = DAG_NODES.find(n => n.id === e.source);
+        const t = DAG_NODES.find(n => n.id === e.target);
+        const active = activeIds.includes(e.source) && activeIds.includes(e.target);
+        edgesG.innerHTML += `
+          <line x1="${s.x + 40}" y1="${s.y}" x2="${t.x - 40}" y2="${t.y}"
+                stroke="${active ? '#6366f1' : '#cbd5e1'}" stroke-width="${active ? 3 : 2}"
+                stroke-dasharray="${active ? '8 4' : 'none'}" class="${active ? 'edge-anim' : ''}"/>
+          <polygon points="${t.x - 40},${t.y} ${t.x - 48},${t.y - 5} ${t.x - 48},${t.y + 5}"
+                   fill="${active ? '#6366f1' : '#cbd5e1'}"/>
+        `;
+      });
+
+      // 繪節點
+      DAG_NODES.forEach(n => {
+        const active = activeIds.includes(n.id);
+        const done = activeIds.length > 0 && !active;
+        const fillColor = active ? n.color : done ? '#94a3b8' : '#ffffff';
+        const textColor = active ? '#ffffff' : done ? '#ffffff' : '#1e293b';
+        const stroke = active ? n.color : '#e2e8f0';
+        nodesG.innerHTML += `
+          <g class="${active ? 'node-anim' : ''}">
+            <rect x="${n.x - 40}" y="${n.y - 30}" width="80" height="60" rx="10"
+                  fill="${fillColor}" stroke="${stroke}" stroke-width="2"
+                  filter="${active ? 'drop-shadow(0 4px 6px rgba(0,0,0,0.15))' : 'none'}"/>
+            <text x="${n.x}" y="${n.y - 6}" text-anchor="middle" font-size="18" font-family="sans-serif">${n.icon}</text>
+            <text x="${n.x}" y="${n.y + 16}" text-anchor="middle" font-size="11"
+                  font-weight="600" fill="${textColor}" font-family="sans-serif">${n.label}</text>
+          </g>
+        `;
+      });
+    }
+
+    function runDag() {
+      if (DAG_NODES.length === 0) return;
+      // 計算拓樸順序(對齊 calendar_integration skill 的 topologicalSort)
+      const sorted = topologicalSort(DAG_NODES, DAG_EDGES);
+      const total = sorted.length;
+      let i = 0;
+      const processed = [];
+      document.getElementById('dag-status').textContent = '— 執行中...';
+      document.getElementById('dag-progress').textContent = '0/' + total;
+
+      const step = () => {
+        if (i >= total) {
+          document.getElementById('dag-status').textContent = '— 全部完成';
+          document.getElementById('dag-progress').textContent = total + '/' + total;
+          return;
+        }
+        processed.push(sorted[i]);
+        renderDAG(processed);
+        document.getElementById('dag-progress').textContent = processed.length + '/' + total;
+        i++;
+        setTimeout(step, 600);
+      };
+      step();
+    }
+
+    // ====== 模組 8:時鐘 ======
+    function tickClock() {
+      const now = new Date();
+      document.getElementById('status-clock').textContent = now.toLocaleString('zh-TW', { hour12: false });
+    }
+    setInterval(tickClock, 1000);
+    tickClock();
+
+    // ====== 模組 9:reset ======
+    function resetAll() {
+      state.connected = { gcal: false, telegram: false };
+      state.rules = [];
+      state.log = [];
+      renderRules();
+      renderLog();
+      clearTelegramLog();
+      document.getElementById('cal-status').className = 'text-xs px-2 py-1 rounded bg-slate-100 text-slate-500';
+      document.getElementById('cal-status').textContent = 'Disconnected';
+      document.getElementById('tg-status').className = 'text-xs px-2 py-1 rounded bg-slate-100 text-slate-500';
+      document.getElementById('tg-status').textContent = 'Offline';
+      renderDAG([]);
+      document.getElementById('dag-status').textContent = '— 等待執行';
+      document.getElementById('dag-progress').textContent = '0/4';
+      setStatus('ready', 'System Ready', '已重置所有狀態');
+    }
+
+    // ====== 模組 10:綁定事件 ======
+    document.getElementById('btn-connect').addEventListener('click', connectPlatforms);
+    document.getElementById('btn-sync').addEventListener('click', triggerSync);
+    document.getElementById('btn-reset').addEventListener('click', resetAll);
+    document.getElementById('btn-seed').addEventListener('click', seedRules);
+    document.getElementById('btn-run-dag').addEventListener('click', runDag);
+
+    // ====== 初始化 ======
+    renderCalendar();
+    renderRules();
+    renderLog();
+    renderDAG([]);
+    setStatus('ready', 'System Ready', '請先點「連線雙平台」開始');
+  </script>
+</body>
+</html>

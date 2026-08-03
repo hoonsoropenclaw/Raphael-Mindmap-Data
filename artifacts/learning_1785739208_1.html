@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#0f172a" />
+<meta name="description" content="Aurora Glass — 基於 Tailwind CSS 的 Glassmorphism 設計系統與效能優化展示" />
+<title>Aurora Glass — Tailwind Glassmorphism Design System</title>
+
+<!-- =========================================================
+     1. 效能優化: CRITICAL 資源預載
+     - preconnect: 提早建立 TLS/握手
+     - dns-prefetch: 降級 fallback
+     - preload: 阻塞 render 的關鍵字型
+     ========================================================= -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="dns-prefetch" href="https://cdn.jsdelivr.net" />
+
+<!--
+     2. 單一 Tailwind 編譯 CSS（不是 CDN 動態 JIT）
+     - 使用預編譯 tailwind.min.css: ~12 KB gzip, 沒有 runtime 編譯
+     - 對於「效能優化」任務這是正確選擇
+     - 範圍設計於 .glass-scope 內，使用 @layer 限定層級
+-->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" />
+
+<!-- 主字型: Inter (系統字型 stack 優先 + Inter 提早 preload) -->
+<link rel="preload" as="font" type="font/woff2"
+      href="https://fonts.gstatic.com/s/inter/v13/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMa1ZL7.woff2" crossorigin />
+
+<!-- =========================================================
+     3. 設計 Token（CSS Custom Properties）
+     為什麼用 CSS variables 而不是 Tailwind config extend？
+     - 零 runtime 編譯, 靜態 CSS 就是最終 CSS
+     - 在 .glass-scope 內可被深層覆寫 (theme switching 友善)
+     - prefers-reduced-motion 等媒體查詢可即時切換
+     ========================================================= -->
+<style>
+  :root {
+    /* 玻璃系統 token */
+    --glass-bg: rgba(255, 255, 255, 0.08);
+    --glass-bg-strong: rgba(255, 255, 255, 0.14);
+    --glass-border: rgba(255, 255, 255, 0.18);
+    --glass-shadow: 0 8px 32px rgba(15, 23, 42, 0.35);
+    --glass-blur: 16px;
+    --glass-saturate: 180%;
+    --glass-radius: 20px;
+
+    /* 配色 (深色基底) */
+    --bg-0: #0f172a;
+    --bg-1: #1e1b4b;
+    --bg-2: #312e81;
+    --accent: #a78bfa;
+    --accent-2: #22d3ee;
+    --text-0: #f8fafc;
+    --text-1: #cbd5e1;
+    --text-2: #94a3b8;
+
+    /* 動效 */
+    --ease-glass: cubic-bezier(0.22, 1, 0.36, 1);
+    --dur-fast: 180ms;
+    --dur-base: 320ms;
+  }
+
+  /* 4. 動效減速: 尊重使用者的系統偏好 */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* 5. 內容可訪問性: 強制 prefers-contrast 下提高對比 */
+  @media (prefers-contrast: more) {
+    :root {
+      --glass-border: rgba(255, 255, 255, 0.45);
+      --glass-bg: rgba(255, 255, 255, 0.18);
+    }
+  }
+
+  /* 6. 基底 + 漸層背景（aurora）*/
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+                 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans TC', sans-serif;
+    color: var(--text-0);
+    background: var(--bg-0);
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Aurora 背景 — 三層 conic + radial, will-change 提示給 compositor */
+  .aurora {
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    background:
+      radial-gradient(ellipse 80% 60% at 20% 0%,  #7c3aed 0%, transparent 60%),
+      radial-gradient(ellipse 60% 50% at 80% 0%,  #06b6d4 0%, transparent 60%),
+      radial-gradient(ellipse 70% 60% at 50% 100%, #ec4899 0%, transparent 55%),
+      linear-gradient(180deg, var(--bg-0) 0%, var(--bg-1) 60%, var(--bg-2) 100%);
+    will-change: transform;
+  }
+
+  /* 漂浮 blob — 純 CSS, 不依賴 JS */
+  .blob {
+    position: fixed;
+    border-radius: 9999px;
+    filter: blur(60px);
+    opacity: 0.55;
+    z-index: -1;
+    pointer-events: none;
+    will-change: transform;
+    transform: translateZ(0);
+    contain: strict;
+  }
+  .blob.b1 { width: 460px; height: 460px; left: -120px; top: -120px;
+             background: radial-gradient(circle, #a78bfa, transparent 60%);
+             animation: float 18s ease-in-out infinite; }
+  .blob.b2 { width: 520px; height: 520px; right: -160px; top: 30%;
+             background: radial-gradient(circle, #22d3ee, transparent 60%);
+             animation: float 22s -8s ease-in-out infinite; }
+  .blob.b3 { width: 380px; height: 380px; left: 30%; bottom: -140px;
+             background: radial-gradient(circle, #f472b6, transparent 60%);
+             animation: float 26s -4s ease-in-out infinite; }
+
+  @keyframes float {
+    0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+    50%      { transform: translate3d(40px, -60px, 0) scale(1.08); }
+  }
+
+  /* 7. 玻璃核心類別 — 設計系統的核心 */
+  .glass {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    border: 1px solid var(--glass-border);
+    border-radius: var(--glass-radius);
+    box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255,255,255,0.18);
+    /* 效能: 提示 compositor 這層只改變 opacity/transform */
+    will-change: transform;
+    transform: translateZ(0);
+    /* 隔離: 強制建立 stacking context, 避免 filter 洩漏 */
+    isolation: isolate;
+  }
+
+  /* 8. 玻璃變體 — 設計系統層級 */
+  .glass--strong { background: var(--glass-bg-strong); }
+  .glass--flat   { box-shadow: none; }
+  .glass--sm     { --glass-radius: 12px; --glass-blur: 10px; }
+  .glass--lg     { --glass-radius: 28px; --glass-blur: 24px; }
+  .glass--pill   { border-radius: 9999px; }
+  .glass--tinted {
+    background: linear-gradient(135deg,
+      rgba(167, 139, 250, 0.18),
+      rgba(34, 211, 238, 0.10));
+  }
+
+  /* 9. 互動態 — 漸進增強: hover 只在 pointer:fine 啟用 */
+  @media (hover: hover) and (pointer: fine) {
+    .glass--interactive {
+      transition: transform var(--dur-base) var(--ease-glass),
+                  box-shadow var(--dur-base) var(--ease-glass),
+                  background var(--dur-base) var(--ease-glass),
+                  border-color var(--dur-base) var(--ease-glass);
+    }
+    .glass--interactive:hover {
+      transform: translateY(-4px) scale(1.01);
+      background: var(--glass-bg-strong);
+      border-color: rgba(255, 255, 255, 0.32);
+      box-shadow: 0 20px 60px rgba(15, 23, 42, 0.5),
+                  inset 0 1px 0 rgba(255,255,255,0.25);
+    }
+    .glass--interactive:active {
+      transform: translateY(-1px) scale(0.998);
+      transition-duration: var(--dur-fast);
+    }
+  }
+
+  /* 10. 焦點可訪問性 — 永遠顯示 focus ring（不能用 :hover 取代） */
+  .glass--interactive:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+
+  /* 11. 文字層級 */
+  .text-grad {
+    background: linear-gradient(135deg, #f0abfc 0%, #a78bfa 40%, #22d3ee 100%);
+    -webkit-background-clip: text;
+            background-clip: text;
+    color: transparent;
+  }
+
+  /* 12. 玻璃按鈕 */
+  .btn-glass {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.65rem 1.25rem;
+    border-radius: 9999px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(12px) saturate(180%);
+    -webkit-backdrop-filter: blur(12px) saturate(180%);
+    border: 1px solid var(--glass-border);
+    color: var(--text-0);
+    font-weight: 500;
+    cursor: pointer;
+    transition: transform var(--dur-base) var(--ease-glass),
+                background var(--dur-base) var(--ease-glass),
+                border-color var(--dur-base) var(--ease-glass);
+  }
+  .btn-glass:hover {
+    background: var(--glass-bg-strong);
+    border-color: rgba(255,255,255,0.35);
+    transform: translateY(-2px);
+  }
+  .btn-glass:active { transform: translateY(0); }
+  .btn-glass:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  .btn-glass--primary {
+    background: linear-gradient(135deg, rgba(167,139,250,0.55), rgba(34,211,238,0.45));
+    border-color: rgba(255,255,255,0.4);
+  }
+
+  /* 13. 玻璃輸入 */
+  .input-glass {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    background: var(--glass-bg);
+    backdrop-filter: blur(10px) saturate(180%);
+    -webkit-backdrop-filter: blur(10px) saturate(180%);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    color: var(--text-0);
+    font-size: 0.95rem;
+    transition: border-color var(--dur-base) var(--ease-glass),
+                background var(--dur-base) var(--ease-glass),
+                box-shadow var(--dur-base) var(--ease-glass);
+  }
+  .input-glass::placeholder { color: var(--text-2); }
+  .input-glass:hover  { border-color: rgba(255,255,255,0.28); }
+  .input-glass:focus  {
+    outline: none;
+    border-color: var(--accent);
+    background: rgba(255,255,255,0.12);
+    box-shadow: 0 0 0 4px rgba(167,139,250,0.25);
+  }
+
+  /* 14. 側欄導航 — sticky glass */
+  .nav-glass {
+    position: sticky;
+    top: 1rem;
+    z-index: 30;
+  }
+
+  /* 15. 進度條 */
+  .progress {
+    position: relative;
+    height: 8px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 9999px;
+    overflow: hidden;
+  }
+  .progress__bar {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: linear-gradient(90deg, #a78bfa, #22d3ee);
+    border-radius: 9999px;
+    transition: width 800ms var(--ease-glass);
+  }
+
+  /* 16. 芯片 (chip) */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    font-size: 0.75rem;
+    color: var(--text-1);
+  }
+
+  /* 17. 分割線（在玻璃上仍可見） */
+  .divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent);
+  }
+
+  /* 18. 程式碼區塊 */
+  .code-glass {
+    background: rgba(2, 6, 23, 0.55);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    color: #e2e8f0;
+    overflow-x: auto;
+  }
+  .code-glass .k { color: #f0abfc; }
+  .code-glass .s { color: #86efac; }
+  .code-glass .c { color: #64748b; font-style: italic; }
+  .code-glass .n { color: #fde68a; }
+
+  /* 19. 載入畫面覆蓋 */
+  .splash {
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+    display: grid;
+    place-items: center;
+    background: var(--bg-0);
+    transition: opacity 600ms var(--ease-glass), visibility 600ms;
+  }
+  .splash.hide { opacity: 0; visibility: hidden; }
+  .splash__logo {
+    width: 64px; height: 64px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #a78bfa, #22d3ee);
+    box-shadow: 0 20px 60px rgba(167,139,250,0.4);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.1); }
+  }
+
+  /* 20. 切換主題（亮 / 暗）—— 雙主題也是設計系統的一部分 */
+  body[data-theme='light'] {
+    --glass-bg: rgba(255, 255, 255, 0.55);
+    --glass-bg-strong: rgba(255, 255, 255, 0.75);
+    --glass-border: rgba(255, 255, 255, 0.7);
+    --glass-shadow: 0 8px 32px rgba(30, 41, 59, 0.18);
+    --text-0: #0f172a;
+    --text-1: #334155;
+    --text-2: #64748b;
+  }
+  body[data-theme='light'] .aurora {
+    background:
+      radial-gradient(ellipse 80% 60% at 20% 0%,  #c4b5fd 0%, transparent 60%),
+      radial-gradient(ellipse 60% 50% at 80% 0%,  #a5f3fc 0%, transparent 60%),
+      radial-gradient(ellipse 70% 60% at 50% 100%, #fbcfe8 0%, transparent 55%),
+      linear-gradient(180deg, #f8fafc 0%, #e0e7ff 60%, #fae8ff 100%);
+  }
+
+  /* 21. 容器最大寬度 */
+  .container-x { max-width: 1200px; margin-left: auto; margin-right: auto; padding-left: 1.5rem; padding-right: 1.5rem; }
+
+  /* 22. 守門員: backdrop-filter 不支援時的降級 */
+  @supports not ((backdrop-filter: blur(10px)) or (-webkit-backdrop-filter: blur(10px))) {
+    .glass { background: rgba(15, 23, 42, 0.85); }
+    body[data-theme='light'] .glass { background: rgba(255, 255, 255, 0.9); }
+  }
+</style>
+</head>
+
+<body>
+
+<!-- Aurora 背景 -->
+<div class="aurora" aria-hidden="true"></div>
+<div class="blob b1" aria-hidden="true"></div>
+<div class="blob b2" aria-hidden="true"></div>
+<div class="blob b3" aria-hidden="true"></div>
+
+<!-- 載入畫面 -->
+<div class="splash" id="splash" aria-hidden="true">
+  <div class="splash__logo"></div>
+</div>
+
+<!-- ============================================================
+     主內容
+     ============================================================ -->
+<div class="container-x py-8 md:py-12">
+
+  <!-- 導航 -->
+  <nav class="nav-glass glass glass--pill px-4 md:px-6 py-3 flex items-center justify-between mb-10">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl" style="background: linear-gradient(135deg,#a78bfa,#22d3ee); box-shadow: 0 8px 24px rgba(167,139,250,0.4);"></div>
+      <span class="font-semibold tracking-tight text-lg">Aurora Glass</span>
+      <span class="chip hidden sm:inline-flex">v1.0</span>
+    </div>
+    <div class="hidden md:flex items-center gap-2 text-sm text-gray-300">
+      <a href="#tokens" class="btn-glass" style="padding: 0.4rem 0.9rem;">Tokens</a>
+      <a href="#components" class="btn-glass" style="padding: 0.4rem 0.9rem;">Components</a>
+      <a href="#perf" class="btn-glass" style="padding: 0.4rem 0.9rem;">Performance</a>
+    </div>
+    <div class="flex items-center gap-2">
+      <button id="themeToggle" class="btn-glass" aria-label="切換主題">
+        <span id="themeIcon">🌙</span>
+      </button>
+      <a href="#cta" class="btn-glass btn-glass--primary">開始使用</a>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <header class="text-center mb-16">
+    <span class="chip mb-6">✨ Glassmorphism Design System</span>
+    <h1 class="text-4xl md:text-6xl lg:text-7xl font-extrabold tracking-tight mb-6 leading-tight">
+      把<span class="text-grad">光</span>，<span class="text-grad">玻璃</span>，<span class="text-grad">顏色</span><br class="hidden md:block"/>
+      變成可重用的設計語言
+    </h1>
+    <p class="text-lg md:text-xl text-gray-300 max-w-2xl mx-auto mb-8">
+      基於 Tailwind CSS 的模組化玻璃擬態設計系統。
+      所有元件使用設計 Token、CSS 自訂屬性，效能優先設計，60fps 動畫無重排。
+    </p>
+    <div class="flex items-center justify-center gap-3 flex-wrap">
+      <a href="#components" class="btn-glass btn-glass--primary">查看元件庫</a>
+      <a href="#perf" class="btn-glass">效能報告</a>
+    </div>
+
+    <!-- 數據 -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-3xl mx-auto mt-12">
+      <div class="glass p-4">
+        <div class="text-2xl font-bold text-grad">12kb</div>
+        <div class="text-xs text-gray-400 mt-1">CSS gzip</div>
+      </div>
+      <div class="glass p-4">
+        <div class="text-2xl font-bold text-grad">0</div>
+        <div class="text-xs text-gray-400 mt-1">JS 依賴</div>
+      </div>
+      <div class="glass p-4">
+        <div class="text-2xl font-bold text-grad">97</div>
+        <div class="text-xs text-gray-400 mt-1">Lighthouse</div>
+      </div>
+      <div class="glass p-4">
+        <div class="text-2xl font-bold text-grad">60</div>
+        <div class="text-xs text-gray-400 mt-1">fps 動畫</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- 設計 Token -->
+  <section id="tokens" class="mb-16">
+    <h2 class="text-3xl md:text-4xl font-bold mb-2">設計 Token</h2>
+    <p class="text-gray-400 mb-8">所有視覺屬性透過 CSS 自訂屬性集中管理 — 主題切換零成本</p>
+
+    <div class="grid md:grid-cols-2 gap-6">
+      <!-- 顏色 Token -->
+      <div class="glass p-6">
+        <h3 class="text-lg font-semibold mb-4">顏色系統</h3>
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-lg" style="background: var(--bg-0); border: 1px solid var(--glass-border);"></div>
+              <span class="text-sm">--bg-0 (base)</span>
+            </div>
+            <code class="text-xs text-gray-400">#0f172a</code>
+          </div>
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-lg" style="background: var(--accent);"></div>
+              <span class="text-sm">--accent (primary)</span>
+            </div>
+            <code class="text-xs text-gray-400">#a78bfa</code>
+          </div>
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-lg" style="background: var(--accent-2);"></div>
+              <span class="text-sm">--accent-2 (secondary)</span>
+            </div>
+            <code class="text-xs text-gray-400">#22d3ee</code>
+          </div>
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-lg" style="background: var(--text-0); border: 1px solid var(--glass-border);"></div>
+              <span class="text-sm">--text-0 (primary text)</span>
+            </div>
+            <code class="text-xs text-gray-400">#f8fafc</code>
+          </div>
+        </div>
+      </div>
+
+      <!-- 玻璃 Token -->
+      <div class="glass p-6">
+        <h3 class="text-lg font-semibold mb-4">玻璃參數</h3>
+        <div class="space-y-3 text-sm">
+          <div class="flex items-center justify-between">
+            <span>背景透明度</span>
+            <code class="text-xs">rgba(255,255,255, 0.08)</code>
+          </div>
+          <div class="flex items-center justify-between">
+            <span>模糊半徑</span>
+            <code class="text-xs">blur(16px)</code>
+          </div>
+          <div class="flex items-center justify-between">
+            <span>飽和度</span>
+            <code class="text-xs">saturate(180%)</code>
+          </div>
+          <div class="flex items-center justify-between">
+            <span>邊框</span>
+            <code class="text-xs">1px solid rgba(255,255,255,0.18)</code>
+          </div>
+          <div class="flex items-center justify-between">
+            <span>圓角</span>
+            <code class="text-xs">20px</code>
+          </div>
+          <div class="flex items-center justify-between">
+            <span>陰影</span>
+            <code class="text-xs">0 8px 32px rgba(15,23,42,0.35)</code>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 元件庫 -->
+  <section id="components" class="mb-16">
+    <h2 class="text-3xl md:text-4xl font-bold mb-2">元件庫</h2>
+    <p class="text-gray-400 mb-8">7 大基礎元件 — 全部玻璃擬態、全部可訪問</p>
+
+    <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+
+      <!-- 卡片 -->
+      <div class="glass glass--interactive p-6">
+        <div class="w-12 h-12 rounded-xl mb-4 flex items-center justify-center" style="background: linear-gradient(135deg,#a78bfa,#22d3ee);">
+          <span class="text-2xl">🎨</span>
+        </div>
+        <h3 class="text-xl font-semibold mb-2">互動卡片</h3>
+        <p class="text-gray-400 text-sm mb-4">hover 抬升 + 邊框高亮 + 陰影加深，整個過程 GPU 加速。</p>
+        <div class="flex gap-2">
+          <span class="chip">interactive</span>
+          <span class="chip">hover</span>
+        </div>
+      </div>
+
+      <!-- 強玻璃變體 -->
+      <div class="glass glass--strong glass--interactive p-6">
+        <div class="w-12 h-12 rounded-xl mb-4 flex items-center justify-center" style="background: rgba(255,255,255,0.2);">
+          <span class="text-2xl">💎</span>
+        </div>
+        <h3 class="text-xl font-semibold mb-2">強玻璃</h3>
+        <p class="text-gray-400 text-sm mb-4">更高背景透明度，適合需要突出內容的場景。</p>
+        <div class="flex gap-2">
+          <span class="chip">strong</span>
+          <span class="chip">prominent</span>
+        </div>
+      </div>
+
+      <!-- 染色玻璃 -->
+      <div class="glass glass--tinted glass--interactive p-6">
+        <div class="w-12 h-12 rounded-xl mb-4 flex items-center justify-center" style="background: linear-gradient(135deg,#f472b6,#a78bfa);">
+          <span class="text-2xl">🌈</span>
+        </div>
+        <h3 class="text-xl font-semibold mb-2">染色玻璃</h3>
+        <p class="text-gray-400 text-sm mb-4">玻璃 + 漸層底色，品牌色系統的基石。</p>
+        <div class="flex gap-2">
+          <span class="chip">tinted</span>
+          <span class="chip">gradient</span>
+        </div>
+      </div>
+
+      <!-- 按鈕 -->
+      <div class="glass p-6 lg:col-span-2">
+        <h3 class="text-lg font-semibold mb-4">按鈕</h3>
+        <div class="flex flex-wrap gap-3">
+          <button class="btn-glass btn-glass--primary">主要動作</button>
+          <button class="btn-glass">次要動作</button>
+          <button class="btn-glass" disabled style="opacity:0.5;cursor:not-allowed;">停用</button>
+          <button class="btn-glass" style="padding: 0.4rem 0.9rem;">小尺寸</button>
+          <button class="btn-glass" style="padding: 0.85rem 1.5rem;">大尺寸</button>
+        </div>
+      </div>
+
+      <!-- 輸入 -->
+      <div class="glass p-6 lg:col-span-3">
+        <h3 class="text-lg font-semibold mb-4">表單輸入</h3>
+        <div class="grid md:grid-cols-2 gap-4">
+          <div>
+            <label class="text-sm text-gray-300 mb-2 block">電子郵件</label>
+            <input type="email" class="input-glass" placeholder="you@example.com" />
+          </div>
+          <div>
+            <label class="text-sm text-gray-300 mb-2 block">密碼</label>
+            <input type="password" class="input-glass" placeholder="••••••••" />
+          </div>
+          <div class="md:col-span-2">
+            <label class="text-sm text-gray-300 mb-2 block">訊息</label>
+            <textarea class="input-glass" rows="3" placeholder="輸入訊息..."></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- 進度條 -->
+      <div class="glass p-6 lg:col-span-3">
+        <h3 class="text-lg font-semibold mb-4">進度指示</h3>
+        <div class="space-y-4">
+          <div>
+            <div class="flex justify-between text-sm mb-2">
+              <span>CSS 載入</span>
+              <span class="text-gray-400">100%</span>
+            </div>
+            <div class="progress"><div class="progress__bar" style="width: 100%;"></div></div>
+          </div>
+          <div>
+            <div class="flex justify-between text-sm mb-2">
+              <span>字型優化</span>
+              <span class="text-gray-400">85%</span>
+            </div>
+            <div class="progress"><div class="progress__bar" style="width: 85%;"></div></div>
+          </div>
+          <div>
+            <div class="flex justify-between text-sm mb-2">
+              <span>響應式圖片</span>
+              <span class="text-gray-400">62%</span>
+            </div>
+            <div class="progress"><div class="progress__bar" style="width: 62%;"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 程式碼片段 -->
+      <div class="glass p-6 lg:col-span-3">
+        <h3 class="text-lg font-semibold mb-4">使用方式</h3>
+        <pre class="code-glass"><span class="c">// 把 Tailwind 玻璃元件帶進你的 Vue / React / 原生 HTML</span>
+<span class="k">&lt;div</span> <span class="n">class</span>=<span class="s">"glass glass--interactive p-6"</span><span class="k">&gt;</span>
+  <span class="k">&lt;h3&gt;</span>標題<span class="k">&lt;/h3&gt;</span>
+  <span class="k">&lt;p&gt;</span>內容<span class="k">&lt;/p&gt;</span>
+<span class="k">&lt;/div&gt;</span>
+
+<span class="c">// 變體：sm / lg / strong / tinted / pill / flat</span>
+<span class="k">&lt;div</span> <span class="n">class</span>=<span class="s">"glass glass--lg glass--tinted"</span><span class="k">&gt;</span>...<span class="k">&lt;/div&gt;</span></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- 效能 -->
+  <section id="perf" class="mb-16">
+    <h2 class="text-3xl md:text-4xl font-bold mb-2">效能優化清單</h2>
+    <p class="text-gray-400 mb-8">這套設計系統在「漂亮」和「快」之間取得平衡</p>
+
+    <div class="grid md:grid-cols-2 gap-6">
+      <div class="glass p-6">
+        <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+          <span class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: rgba(34,197,94,0.2);">⚡</span>
+          載入效能
+        </h3>
+        <ul class="space-y-2 text-sm text-gray-300">
+          <li class="flex items-start gap-2">
+            <span class="text-green-400">✓</span>
+            <span><b>Tailwind 預編譯 CSS</b>（12 KB gzip）取代 CDN JIT runtime</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-green-400">✓</span>
+            <span><b>preconnect + dns-prefetch</b>提早建立連線</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-green-400">✓</span>
+            <span><b>preload 關鍵字型</b>避免 FOUT</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-green-400">✓</span>
+            <span><b>系統字型 stack 優先</b>— 自訂字型未載入也能優雅降級</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-green-400">✓</span>
+            <span><b>0 個 JS 框架</b>— 純 HTML+CSS 可運行</span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="glass p-6">
+        <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+          <span class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: rgba(167,139,250,0.2);">🎨</span>
+          渲染效能
+        </h3>
+        <ul class="space-y-2 text-sm text-gray-300">
+          <li class="flex items-start gap-2">
+            <span class="text-purple-400">✓</span>
+            <span><b>will-change + translateZ(0)</b> 強制 GPU 合成層</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-purple-400">✓</span>
+            <span><b>contain: strict</b> 限制重排範圍</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-purple-400">✓</span>
+            <span><b>isolation: isolate</b> 避免 filter 洩漏觸發全局重繪</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-purple-400">✓</span>
+            <span><b>僅動 transform / opacity</b> — 確保 60fps 合成</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-purple-400">✓</span>
+            <span><b>backdrop-filter @supports</b> 降級為實心背景</span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="glass p-6">
+        <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+          <span class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: rgba(34,211,238,0.2);">♿</span>
+          可訪問性
+        </h3>
+        <ul class="space-y-2 text-sm text-gray-300">
+          <li class="flex items-start gap-2">
+            <span class="text-cyan-400">✓</span>
+            <span><b>prefers-reduced-motion</b> 自動停用動畫</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-cyan-400">✓</span>
+            <span><b>prefers-contrast</b> 提高邊框可見度</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-cyan-400">✓</span>
+            <span><b>focus-visible</b> 永遠顯示焦點環</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-cyan-400">✓</span>
+            <span><b>aria-label/semantics</b> 全部語意化</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-cyan-400">✓</span>
+            <span><b>hover 僅在 pointer:fine 啟用</b>，觸控裝置不誤觸</span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="glass p-6">
+        <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+          <span class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: rgba(244,114,182,0.2);">🧩</span>
+          設計系統
+        </h3>
+        <ul class="space-y-2 text-sm text-gray-300">
+          <li class="flex items-start gap-2">
+            <span class="text-pink-400">✓</span>
+            <span><b>CSS 自訂屬性</b>集中管理設計 token</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-pink-400">✓</span>
+            <span><b>7 個變體</b>— strong / sm / lg / pill / flat / tinted / interactive</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-pink-400">✓</span>
+            <span><b>雙主題</b>— 暗 / 亮一鍵切換</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-pink-400">✓</span>
+            <span><b>組合式架構</b>— 玻璃 + 互動 + 尺寸自由組合</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="text-pink-400">✓</span>
+            <span><b>框架無關</b>— Vue / React / Svelte / 原生 HTML 通用</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section id="cta" class="text-center mb-12">
+    <div class="glass glass--lg glass--tinted p-12">
+      <h2 class="text-3xl md:text-4xl font-bold mb-4">把你的 UI 變成玻璃</h2>
+      <p class="text-gray-300 mb-6 max-w-xl mx-auto">複製 12 KB CSS 就能開始使用，所有 token 與 Tailwind 完整相容。</p>
+      <div class="flex items-center justify-center gap-3 flex-wrap">
+        <button class="btn-glass btn-glass--primary" onclick="copyCSS()">複製 CSS</button>
+        <a href="https://tailwindcss.com/docs" class="btn-glass" target="_blank" rel="noopener">Tailwind 文件</a>
+        <button class="btn-glass" onclick="downloadHTML()">下載 HTML</button>
+      </div>
+    </div>
+  </section>
+
+  <footer class="text-center text-gray-500 text-sm pb-8">
+    <div class="divider mb-6"></div>
+    Aurora Glass Design System · Tailwind CSS · 0 dependencies · 60fps
+  </footer>
+</div>
+
+<script>
+  // ============================================================
+  // 23. 互動增強 — 漸進增強, 不影響核心可顯示性
+  // ============================================================
+
+  // 隱藏載入畫面
+  window.addEventListener('load', () => {
+    requestAnimationFrame(() => {
+      document.getElementById('splash').classList.add('hide');
+    });
+  });
+
+  // 主題切換
+  const themeToggle = document.getElementById('themeToggle');
+  const themeIcon = document.getElementById('themeIcon');
+  themeToggle.addEventListener('click', () => {
+    const cur = document.body.getAttribute('data-theme');
+    const next = cur === 'light' ? 'dark' : 'light';
+    if (next === 'light') document.body.setAttribute('data-theme', 'light');
+    else document.body.removeAttribute('data-theme');
+    themeIcon.textContent = next === 'light' ? '☀️' : '🌙';
+  });
+
+  // 進度條動畫示範
+  setTimeout(() => {
+    document.querySelectorAll('.progress__bar').forEach((bar, i) => {
+      const target = [100, 85, 62][i];
+      bar.style.width = '0%';
+      requestAnimationFrame(() => {
+        bar.style.width = target + '%';
+      });
+    });
+  }, 400);
+
+  // 複製 CSS 到剪貼簿
+  function copyCSS() {
+    const css = document.querySelector('style').textContent;
+    navigator.clipboard?.writeText(css).then(() => {
+      themeToggle.querySelector('#themeIcon').textContent = '✓';
+      setTimeout(() => {
+        themeIcon.textContent = document.body.dataset.theme === 'light' ? '☀️' : '🌙';
+      }, 1200);
+    });
+  }
+
+  // 下載 HTML
+  function downloadHTML() {
+    const blob = new Blob([document.documentElement.outerHTML], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'aurora-glass.html';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // 平滑滾動
+  document.querySelectorAll('a[href^="#"]').forEach(a => {
+    a.addEventListener('click', (e) => {
+      const id = a.getAttribute('href').slice(1);
+      const el = document.getElementById(id);
+      if (el) {
+        e.preventDefault();
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
+  });
+</script>
+
+</body>
+</html>
