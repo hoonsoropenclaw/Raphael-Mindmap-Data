@@ -1,31 +1,28 @@
 # Progressive Reveal Animation
 
 ## 說明...
-### 目的
-實現漸進式顯示動畫，使用戶在頁面加載時能夠逐步看到內容，提升用戶體驗。
+使用 CSS keyframes 和自定義變量來實現元素漸進式顯示的動畫效果。
 
-### 關鍵程式碼片段或模式
+## 關鍵程式碼片段或模式...
 ```css
-/* CSS keyframes 動畫 */
-@keyframes fadeInUp {
+.reveal {
+  animation: reveal .65s both;
+  animation-delay: var(--delay, 0ms);
+}
+@keyframes reveal {
   from {
     opacity: 0;
-    transform: translateY(20px);
+    transform: translateY(18px) scale(.985);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
-}
-
-/* 應用動畫的範例 */
-.element {
-  animation: fadeInUp 1s ease-in-out;
 }
 ```
 
-### 常見錯誤及避免方法
-- **錯誤**：動畫未正確觸發。
-  **解決方法**：確保元素的 `display` 屬性設置為 `block` 或其他非 `none` 的值，並檢查 CSS 選擇器的正確性。
-- **錯誤**：動畫效果不流暢。
-  **解決方法**：調整動畫的持續時間和緩動函數，並確保動畫的關鍵幀設置合理。
+## 常見錯誤及避免方法...
+- **錯誤**：動畫延遲時間設置過長或過短，導致效果不自然。
+  **解決方法**：根據設計需求調整 `--delay` 變量的值，並在多個設備上測試動畫效果。
+- **錯誤**：動畫屬性衝突，導致動畫無法正常播放。
+  **解決方法**：檢查 CSS 中是否有其他樣式或腳本干擾動畫屬性，並確保動畫屬性優先級正確。

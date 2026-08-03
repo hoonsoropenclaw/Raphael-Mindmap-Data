@@ -3,167 +3,68 @@
 
 # SKILL_CATALOG.md
 
-1. **Advanced React Application with Design System**  
-   Building sophisticated React applications integrated with design systems for consistent UI/UX.
-
-2. **Trial and Error**  
-   Implementing a systematic approach to problem-solving through iterative testing and learning.
-
-3. **Event-Driven Programming Anti-Patterns**  
-   Identifying and avoiding common mistakes in event-driven programming paradigms.
-
-4. **FastAPI API Development**  
-   Rapidly developing high-performance APIs using the FastAPI framework.
-
-5. **Comprehensive Anti-Patterns Identification**  
-   Detecting and understanding various anti-patterns across different domains.
-
-6. **Headless Browser Verification**  
-   Utilizing headless browsers for automated testing and verification of web applications.
-
-7. **Data Export and Schema-Driven Extraction**  
-   Exporting data and extracting information based on predefined schemas.
-
-8. **Browser Navigate**  
-   Controlling and automating browser navigation for testing and scraping purposes.
-
-9. **APT Package Installer**  
-   Automating the installation of APT packages for system setup and configuration.
-
-10. **Browser Console**  
-    Interacting with the browser's developer console for debugging and testing.
-
-11. **Asynchronous Web Scraping and Event-Driven Crawler Management**  
-    Managing web scraping tasks asynchronously and handling crawlers in an event-driven manner.
-
-12. **Modular Component Library**  
-    Creating a library of reusable, modular components for scalable application development.
-
-13. **Integrated Workflow and Task Management**  
-    Streamlining workflows and managing tasks efficiently within a unified system.
-
-14. **Anti-Patterns in Event-Driven Systems**  
-    Recognizing and mitigating common anti-patterns in event-driven architectures.
-
-15. **Write File**  
-    Handling file writing operations for data storage and persistence.
-
-16. **SQLite3 Thread Safe**  
-    Ensuring thread safety when using SQLite3 for concurrent database operations.
-
-17. **Progressive Reveal Animation**  
-    Implementing animations that reveal content progressively for enhanced user experience.
-
-18. **Comprehensive Software Quality and Performance Assurance**  
-    Ensuring high-quality and performant software through rigorous testing and optimization.
-
-19. **Performance Optimization Anti-Patterns**  
-    Identifying and avoiding common mistakes in performance optimization efforts.
-
-20. **Multilingual Media Processing and Transcription**  
-    Processing and transcribing media content across multiple languages.
-
-21. **UMD Dependency Management**  
-    Managing dependencies for Universal Module Definition (UMD) modules.
-
-22. **Glassmorphism Design System**  
-    Designing user interfaces with a glassmorphism aesthetic, emphasizing transparency and depth.
-
-23. **Advanced Browser Automation and Testing Framework**  
-    Developing a robust framework for automating browser tasks and conducting tests.
-
-24. **Real-Time Audio Transcription Application**  
-    Building applications that transcribe audio in real-time.
-
-25. **Automated Testing and Scraping**  
-    Automating the process of testing web applications and scraping data.
-
-26. **Domain Expansion Proposal**  
-    Proposing strategies for expanding software application domains.
-
-27. **Secure Authentication and Attack Mitigation**  
-    Implementing secure authentication methods and strategies to mitigate cyber attacks.
-
-28. **Automated Browser Testing**  
-    Automating the testing of web applications across different browsers.
-
-29. **Smart Contract with Rule Engine**  
-    Developing smart contracts integrated with a rule engine for dynamic decision-making.
-
-30. **Modular Game Application Design**  
-    Designing game applications with a modular architecture for flexibility and scalability.
-
-31. **Browser Snapshot**  
-    Capturing snapshots of browser states for testing and debugging.
-
-32. **Strategic Smart Contract and Domain Expansion**  
-    Combining strategic smart contract development with domain expansion initiatives.
-
-33. **Babel JSX Standalone Setup**  
-    Setting up Babel for standalone JSX processing in web development.
-
-34. **Visual Regression with Pillow**  
-    Using the Pillow library for visual regression testing to detect changes in UI appearance.
-
-35. **Modular Application with Modern UI**  
-    Building modular applications featuring a modern, responsive user interface.
-
-36. **Lazy Browser Launch**  
-    Implementing lazy loading techniques for launching browsers to improve performance.
-
-37. **Robust HTTP Server Configuration**  
-    Configuring HTTP servers to be robust, secure, and efficient.
-
-38. **Performance Optimization Mode**  
-    Enabling a mode focused on optimizing application performance.
-
-39. **Tailwind CSS Integration**  
-    Integrating Tailwind CSS into projects for utility-first styling.
-
-40. **Responsive UI Development**  
-    Developing user interfaces that adapt to different screen sizes and devices.
-
-41. **Comprehensive Security and Attack Mitigation Strategy**  
-    Formulating a complete strategy to enhance security and mitigate potential attacks.
-
-42. **Browser Click**  
-    Automating browser clicks for testing and automation purposes.
-
-43. **Event-Driven File and Crawler Management**  
-    Managing files and web crawlers in an event-driven architecture.
-
-44. **Responsive Dynamic Form Generation**  
-    Generating dynamic forms that adapt responsively to user input and device characteristics.
-
-45. **Comprehensive Anti-Patterns Detection and Mitigation**  
-    Detecting and mitigating anti-patterns across various aspects of software development.
-
-46. **Read File**  
-    Handling file reading operations for data retrieval and processing.
-
-47. **NextJS UI Integration**  
-    Integrating NextJS for server-side rendered and statically generated UI components.
-
-48. **Regression Testing**  
-    Conducting regression tests to ensure new changes do not break existing functionality.
-
-49. **Comprehensive Quality Assurance and Performance Optimization**  
-    Ensuring software quality and optimizing performance through comprehensive testing and analysis.
-
-50. **Server and Package Management**  
-    Managing servers and packages for efficient deployment and maintenance.
-
-51. **Security and Attack Mitigation**  
-    Implementing measures to enhance security and mitigate potential attacks.
-
-52. **Game Application Development and Testing**  
-    Developing and testing game applications for functionality and performance.
-
-53. **Anti-Patterns Identification and Avoidance**  
-    Identifying and avoiding common anti-patterns in software development.
-
-54. **Playwright Cross-Browser Automation**  
-    Utilizing Playwright for automating tasks across different web browsers.
-
-55. **File and Browser Monitoring System**  
-    Monitoring files and browser activities for security and performance tracking.
+1. **Advanced React Application with Design System** - Develop sophisticated React applications integrated with design systems for enhanced UI/UX.
+2. **Trial and Error** - Implement systematic trial and error methodologies for problem-solving and experimentation.
+3. **Event-Driven Programming Anti-Patterns** - Identify and avoid common pitfalls in event-driven programming paradigms.
+4. **FastAPI API Development** - Build high-performance APIs using FastAPI for efficient web service development.
+5. **Comprehensive Anti-Patterns Identification** - Detect and understand various anti-patterns across different domains of software development.
+6. **Headless Browser Verification** - Utilize headless browsers for automated verification and testing of web applications.
+7. **Data Export and Schema-Driven Extraction** - Export data and perform schema-driven extraction for structured data handling.
+8. **Browser Navigate** - Implement navigation functionalities in browsers for automated browsing tasks.
+9. **APT Package Installer** - Automate the installation of APT packages for system setup and configuration.
+10. **Browser Console** - Interact with the browser console for debugging and logging purposes.
+11. **Advanced Browser Automation and Testing** - Perform sophisticated automation and testing of web applications using browsers.
+12. **Robust Security and Attack Mitigation** - Develop strategies for robust security and mitigation of potential attacks.
+13. **Modular Component Library** - Create a modular library of reusable components for scalable application development.
+14. **Integrated Workflow and Task Management** - Manage workflows and tasks seamlessly with integrated systems and tools.
+15. **Anti-Patterns in Event-Driven Systems** - Recognize and prevent anti-patterns in the design and implementation of event-driven systems.
+16. **Write File** - Handle file writing operations for data storage and manipulation.
+17. **SQLite3 Thread Safe** - Ensure thread safety when using SQLite3 for concurrent database operations.
+18. **Progressive Reveal Animation** - Design animations that progressively reveal content for engaging user experiences.
+19. **Form Management and Testing** - Manage and test forms for efficient data collection and validation.
+20. **Comprehensive Software Quality and Performance Assurance** - Ensure high-quality and performant software through comprehensive testing and optimization.
+21. **Performance Optimization Anti-Patterns** - Identify and avoid common mistakes in performance optimization efforts.
+22. **Multilingual Media Processing and Transcription** - Process and transcribe media content in multiple languages for broader accessibility.
+23. **UMD Dependency Management** - Manage dependencies using UMD (Universal Module Definition) for versatile module loading.
+24. **Comprehensive Performance Optimization** - Apply holistic strategies for optimizing software performance across various metrics.
+25. **Advanced Browser Automation and Testing Framework** - Utilize advanced frameworks for automating and testing browser-based applications.
+26. **Real-Time Audio Transcription Application** - Develop applications that transcribe audio in real-time for immediate text conversion.
+27. **Automated Testing and Scraping** - Automate the process of testing applications and scraping data from websites.
+28. **Domain Expansion Proposal** - Propose strategies for expanding application domains and functionalities.
+29. **Secure Authentication and Attack Mitigation** - Implement secure authentication methods and strategies to mitigate potential attacks.
+30. **Automated Browser Testing** - Automate the testing of web applications across different browsers and platforms.
+31. **Advanced UI Design Systems** - Create advanced design systems for consistent and scalable UI development.
+32. **Smart Contract with Rule Engine** - Develop smart contracts integrated with rule engines for dynamic and flexible contract execution.
+33. **Modular Game Application Design** - Design game applications using modular architecture for easier maintenance and scalability.
+34. **Browser Snapshot** - Capture snapshots of browser states for testing and debugging purposes.
+35. **Strategic Smart Contract and Domain Expansion** - Strategically expand domains and functionalities with smart contracts.
+36. **Babel JSX Standalone Setup** - Set up Babel for standalone JSX processing in JavaScript projects.
+37. **Comprehensive Anti-Patterns Management** - Manage and mitigate anti-patterns across all aspects of software development.
+38. **Visual Regression with Pillow** - Use Pillow for visual regression testing to detect changes in UI appearance.
+39. **Modular Application with Modern UI** - Build modular applications featuring modern and responsive user interfaces.
+40. **Lazy Browser Launch** - Launch browsers lazily to optimize resource usage and improve performance.
+41. **Robust HTTP Server Configuration** - Configure HTTP servers for high performance, security, and reliability.
+42. **Performance Optimization Mode** - Enable modes for optimizing software performance based on specific criteria.
+43. **Tailwind CSS Integration** - Integrate Tailwind CSS for utility-first styling and responsive design.
+44. **Responsive UI Development** - Develop user interfaces that adapt to different screen sizes and devices.
+45. **Browser Click** - Simulate browser clicks for automated interaction and testing.
+46. **Event-Driven File and Crawler Management** - Manage files and web crawlers using event-driven architectures.
+47. **Responsive Dynamic Form Generation** - Generate dynamic forms that respond to user input and device characteristics.
+48. **Read File** - Handle file reading operations for data retrieval and processing.
+49. **Next.js UI Integration** - Integrate Next.js for server-side rendered React applications with optimized UI.
+50. **Regression Testing** - Perform regression testing to ensure new changes do not break existing functionalities.
+51. **Server and Package Management** - Manage servers and packages for efficient system administration and deployment.
+52. **Security and Attack Mitigation** - Implement security measures and strategies to mitigate potential attacks.
+53. **Game Application Development and Testing** - Develop and test game applications for quality assurance and performance optimization.
+54. **Anti-Patterns Identification and Avoidance** - Identify and avoid anti-patterns in software design and development.
+55. **Playwright Cross-Browser Automation** - Use Playwright for automating browser tasks across multiple browsers.
+56. **Event-Driven Systems Management** - Manage and maintain event-driven systems for efficient and scalable operations.
+57. **File and Browser Monitoring System** - Monitor files and browser activities for security, debugging, and performance tracking.
+58. **Systematic Trial and Error** - Apply systematic approaches to trial and error processes for more effective problem-solving.- **tailwind_css_integration**: 將 Tailwind CSS 整合到前端專案中，配置主題、字體、顏色等擴展功能。
+- **progressive_reveal_animation**: 實現漸進式顯示動畫效果，使用 CSS keyframes 和變量控制延遲和動畫屬性。
+- **glassmorphism_design**: 應用 Glassmorphism 設計風格，實現具有景深和模糊效果的 UI 元素。
+- **anti_pattern_infinite_loop**: 識別並修復因無限循環導致的程序掛起問題。
+- **anti_pattern_blocking_io**: 識別並修復因阻塞 I/O 操作導致的程序掛起問題。
+- **html_table_builder**: 生成 HTML 表格並根據數據動態填充內容
+- **visual_diff_engine**: 實現視覺回歸測試的差異比較引擎
+- **path_resolution_fix**: 修正 HTML 文件中資源的路徑解析問題

@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FORM STUDIO — Cross-Browser Visual Regression Demo</title>
+<style>
+  /* ==========================================================
+     FORM STUDIO — 設計用於視覺回歸測試的展示頁
+     - 顏色、間距、字級都是「穩定」基線 (不依賴外部資源)
+     - 動畫透過 .animate-* 觸發,測試時會被 addStyleTag 凍結
+     - 元素都有 data-testid,確保 Playwright 跨瀏覽器選擇穩定
+     ========================================================== */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC",
+                 "Microsoft JhengHei", Roboto, sans-serif;
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    min-height: 100vh;
+    color: #1a1f36;
+    -webkit-font-smoothing: antialiased;
+  }
+  .container {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 48px 32px;
+  }
+  header.studio-header {
+    text-align: center;
+    margin-bottom: 40px;
+    padding: 32px;
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+  }
+  h1.studio-title {
+    font-size: 36px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent; /* fallback */
+  }
+  .studio-subtitle {
+    margin-top: 8px;
+    font-size: 16px;
+    color: #6b7280;
+  }
+  .badge-row {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin-top: 16px;
+  }
+  .badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .badge.chrome { background: #fef3c7; color: #92400e; }
+  .badge.firefox { background: #fee2e2; color: #991b1b; }
+  .badge.webkit { background: #dbeafe; color: #1e40af; }
+  .badge.mobile { background: #d1fae5; color: #065f46; }
+
+  .form-card {
+    background: white;
+    border-radius: 16px;
+    padding: 40px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+  }
+  .form-card h2 {
+    font-size: 24px;
+    margin-bottom: 8px;
+    color: #1a1f36;
+  }
+  .form-card .desc {
+    color: #6b7280;
+    font-size: 14px;
+    margin-bottom: 24px;
+  }
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  @media (max-width: 600px) {
+    .form-row { grid-template-columns: 1fr; }
+    .container { padding: 24px 16px; }
+  }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #374151;
+  }
+  .field input, .field select, .field textarea {
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 14px;
+    font-family: inherit;
+    background: white;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102,126,234,0.18);
+  }
+  .actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 24px;
+    align-items: center;
+  }
+  button.btn {
+    border: 0;
+    cursor: pointer;
+    border-radius: 10px;
+    padding: 12px 24px;
+    font-size: 15px;
+    font-weight: 600;
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+  }
+  button.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+  }
+  button.btn-primary:hover { box-shadow: 0 6px 18px rgba(102,126,234,0.4); }
+  button.btn-primary:active { transform: translateY(1px); }
+  button.btn-secondary {
+    background: #f3f4f6;
+    color: #374151;
+  }
+
+  /* 結果區(測試的關鍵 DOM) */
+  .result-area {
+    margin-top: 28px;
+    min-height: 60px;
+  }
+  .error-summary {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+    padding: 14px 16px;
+    border-radius: 10px;
+    font-size: 14px;
+  }
+  .error-summary ul { margin-left: 20px; margin-top: 6px; }
+  .submit-success {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    color: #166534;
+    padding: 16px;
+    border-radius: 10px;
+    font-size: 14px;
+  }
+  .submit-success strong { display: block; font-size: 16px; margin-bottom: 4px; }
+  .empty-hint {
+    text-align: center;
+    color: #9ca3af;
+    font-size: 13px;
+    padding: 18px 0;
+  }
+
+  /* 裝飾:動畫(測試時會被凍結) */
+  .deco-circle {
+    position: fixed;
+    width: 220px; height: 220px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, rgba(102,126,234,0.25), rgba(118,75,162,0.25));
+    filter: blur(40px);
+    z-index: -1;
+  }
+  .deco-circle.c1 { top: -60px; left: -60px; animation: float-slow 8s ease-in-out infinite; }
+  .deco-circle.c2 { bottom: -80px; right: -40px; animation: float-slow 10s ease-in-out infinite reverse; }
+  @keyframes float-slow {
+    0%, 100% { transform: translate(0,0); }
+    50% { transform: translate(20px, 30px); }
+  }
+  @keyframes pulse-soft {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
+  .animate-pulse-soft { animation: pulse-soft 2.4s ease-in-out infinite; }
+
+  footer {
+    margin-top: 32px;
+    text-align: center;
+    color: #6b7280;
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+  <div class="deco-circle c1"></div>
+  <div class="deco-circle c2"></div>
+
+  <div class="container">
+    <header class="studio-header" data-testid="studio-header">
+      <h1 class="studio-title" data-testid="studio-title">FORM STUDIO</h1>
+      <p class="studio-subtitle" data-testid="studio-subtitle">跨瀏覽器 × 視覺回歸測試示範頁面</p>
+      <div class="badge-row" data-testid="badge-row">
+        <span class="badge chrome animate-pulse-soft" data-testid="badge-chrome">Chromium</span>
+        <span class="badge firefox" data-testid="badge-firefox">Firefox</span>
+        <span class="badge webkit" data-testid="badge-webkit">WebKit</span>
+        <span class="badge mobile" data-testid="badge-mobile">Mobile</span>
+      </div>
+    </header>
+
+    <main class="form-card" data-testid="form-card">
+      <h2 data-testid="form-heading">員工資料登記表</h2>
+      <p class="desc" data-testid="form-desc">請填寫以下欄位,系統會即時驗證。</p>
+
+      <form id="demo-form" data-testid="demo-form" autocomplete="off">
+        <div class="form-row">
+          <div class="field">
+            <label for="name">姓名 <span style="color:#ef4444">*</span></label>
+            <input id="name" name="name" type="text" placeholder="王小明"
+                   data-testid="input-name" />
+          </div>
+          <div class="field">
+            <label for="email">Email <span style="color:#ef4444">*</span></label>
+            <input id="email" name="email" type="text" inputmode="email" placeholder="user@example.com"
+                   data-testid="input-email" />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="department">部門</label>
+            <select id="department" name="department" data-testid="select-department">
+              <option value="">請選擇</option>
+              <option value="engineering">工程部</option>
+              <option value="design">設計部</option>
+              <option value="hr">人力資源</option>
+              <option value="finance">財務部</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="role">職稱</label>
+            <input id="role" name="role" type="text" placeholder="工程師"
+                   data-testid="input-role" />
+          </div>
+        </div>
+
+        <div class="field" style="margin-bottom:16px;">
+          <label for="note">備註</label>
+          <textarea id="note" name="note" rows="3" placeholder="選填"
+                    data-testid="textarea-note"></textarea>
+        </div>
+
+        <div class="actions">
+          <button type="submit" class="btn btn-primary"
+                  data-testid="submit-form">送出</button>
+          <button type="reset" class="btn btn-secondary"
+                  data-testid="reset-form">重設</button>
+        </div>
+      </form>
+
+      <div class="result-area" data-testid="result-area" aria-live="polite">
+        <p class="empty-hint" data-testid="result-empty">尚未送出</p>
+      </div>
+    </main>
+
+    <footer>
+      <p>© 2026 FORM STUDIO · Playwright Cross-Browser + Visual Regression Demo</p>
+    </footer>
+  </div>
+
+<script>
+  // 簡單前端驗證 + 結果渲染
+  (function () {
+    const form     = document.getElementById('demo-form');
+    const result   = document.querySelector('[data-testid="result-area"]');
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, m => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[m]));
+    }
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      const name  = form.name.value.trim();
+      const email = form.email.value.trim();
+      const dept  = form.department.value;
+
+      const errors = [];
+      if (!name)  errors.push('姓名不可為空');
+      if (!email) errors.push('Email 不可為空');
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.push('Email 格式不正確');
+      if (!dept)  errors.push('請選擇部門');
+
+      if (errors.length > 0) {
+        result.innerHTML =
+          '<div class="error-summary" data-testid="error-summary">' +
+            '<strong>請修正以下錯誤:</strong>' +
+            '<ul>' + errors.map(err => '<li>' + escapeHtml(err) + '</li>').join('') + '</ul>' +
+          '</div>';
+        return;
+      }
+
+      result.innerHTML =
+        '<div class="submit-success" data-testid="submit-success">' +
+          '<strong>✓ 送出成功</strong>' +
+          '感謝 ' + escapeHtml(name) + ' 的填寫,我們會儘快與您聯繫。' +
+        '</div>';
+    });
+
+    form.addEventListener('reset', function () {
+      // 等瀏覽器 reset 完再清結果
+      setTimeout(function () {
+        result.innerHTML = '<p class="empty-hint" data-testid="result-empty">尚未送出</p>';
+      }, 0);
+    });
+  })();
+</script>
+</body>
+</html>

@@ -1,16 +1,16 @@
-# Comprehensive Quality Assurance and Performance Optimization
+# Comprehensive Performance Optimization
 
 ## Overview
-This micro-skill focuses on ensuring high standards of software quality and performance through a combination of rigorous testing, optimization strategies, and the use of performance modes. It emphasizes maintaining functionality through regression testing and aims to develop scalable, reliable, and efficient applications across various domains, including gaming and web development.
+Comprehensive Performance Optimization is a micro-skill focused on achieving high software quality and performance through the identification and mitigation of optimization anti-patterns, rigorous testing, and in-depth analysis. This skill is essential for developing scalable, reliable, and efficient applications across various domains, including gaming and web development.
 
 ## Key Components
 
 ### 1. **Modular Application Design**
 
 #### **Modular Design System**
-A modular design system is essential for creating consistent, scalable, and maintainable applications. It relies on standardized components, clear naming conventions, and reusable design tokens.
+A modular design system is crucial for building consistent, scalable, and maintainable applications. It emphasizes standardized components, clear naming conventions, and reusable design tokens.
 
-- **CSS Custom Properties**: Utilize CSS variables to manage design tokens and theme values, enhancing consistency and simplifying updates.
+- **CSS Custom Properties**: Leverage CSS variables to manage design tokens and theme values, enhancing consistency and simplifying updates.
   ```css
   :root {
     --glass-bg: rgba(255, 255, 255, 0.08);
