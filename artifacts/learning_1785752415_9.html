@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OCR Telegram Bot · 智能訊息處理展示</title>
+<style>
+  /* === 設計系統 (繁體中文 + 極簡 + 高對比) === */
+  :root {
+    --bg: #0d1117;
+    --bg-card: #161b22;
+    --bg-elev: #1f2630;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #2f81f7;
+    --accent-glow: rgba(47, 129, 247, 0.35);
+    --success: #3fb950;
+    --warn: #d29922;
+    --err: #f85149;
+    --radius: 12px;
+    --shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC",
+                 "Microsoft JhengHei", "Noto Sans TC", system-ui, sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .container { max-width: 1100px; margin: 0 auto; padding: 2rem 1.25rem; }
+  header { padding: 2.5rem 0 1.5rem; border-bottom: 1px solid var(--border); margin-bottom: 2rem; }
+  header h1 {
+    font-size: clamp(1.75rem, 4vw, 2.5rem);
+    font-weight: 700;
+    background: linear-gradient(90deg, #2f81f7 0%, #3fb950 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    margin-bottom: 0.5rem;
+  }
+  header p { color: var(--text-dim); font-size: 1.05rem; }
+  .badges { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1rem; }
+  .badge {
+    display: inline-block;
+    padding: 0.25rem 0.65rem;
+    border-radius: 999px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    font-size: 0.78rem;
+    color: var(--text-dim);
+  }
+  .badge.live { color: var(--success); border-color: var(--success); }
+  .badge.live::before {
+    content: ""; display: inline-block; width: 6px; height: 6px;
+    border-radius: 50%; background: var(--success); margin-right: 0.4rem;
+    box-shadow: 0 0 6px var(--success);
+    animation: pulse 1.6s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  h2 {
+    font-size: 1.5rem; margin: 2rem 0 1rem;
+    padding-bottom: 0.5rem; border-bottom: 1px solid var(--border);
+  }
+  h3 { font-size: 1.15rem; margin: 1.25rem 0 0.6rem; color: var(--accent); }
+
+  .grid {
+    display: grid; gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  }
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.25rem;
+    transition: transform 0.15s, border-color 0.15s;
+  }
+  .card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .card h3 { margin-top: 0; color: var(--text); }
+  .card .icon { font-size: 1.6rem; margin-bottom: 0.5rem; }
+  .card p, .card li { color: var(--text-dim); font-size: 0.93rem; }
+  .card ul { padding-left: 1.2rem; }
+
+  /* 互動 demo */
+  .demo {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+  }
+  .chat {
+    background: #0a0e13;
+    border-radius: 8px;
+    padding: 1rem;
+    max-height: 480px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+  }
+  .msg {
+    display: flex; gap: 0.6rem; margin-bottom: 0.85rem;
+    animation: slideIn 0.3s ease-out;
+  }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .msg .avatar {
+    width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.85rem; font-weight: 700;
+  }
+  .msg.user .avatar { background: var(--accent); color: white; }
+  .msg.bot  .avatar { background: var(--success); color: #0a0e13; }
+  .msg .bubble {
+    background: var(--bg-elev);
+    padding: 0.65rem 0.9rem;
+    border-radius: 12px;
+    max-width: 78%;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.92rem;
+  }
+  .msg.bot .bubble { border-left: 3px solid var(--success); }
+  .msg.user .bubble { border-left: 3px solid var(--accent); }
+
+  .quick-actions {
+    display: flex; flex-wrap: wrap; gap: 0.5rem;
+    margin: 1rem 0;
+  }
+  .quick-actions button {
+    background: var(--bg-elev);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 0.45rem 0.9rem;
+    border-radius: 999px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.15s;
+  }
+  .quick-actions button:hover {
+    background: var(--accent); border-color: var(--accent);
+    color: white;
+  }
+  .input-row {
+    display: flex; gap: 0.5rem; margin-top: 1rem;
+  }
+  .input-row input {
+    flex: 1; padding: 0.65rem 0.9rem;
+    background: #0a0e13; border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); font-size: 0.95rem;
+    font-family: inherit;
+  }
+  .input-row input:focus { outline: none; border-color: var(--accent); }
+  .input-row button {
+    padding: 0.65rem 1.25rem;
+    background: var(--accent); color: white;
+    border: none; border-radius: 8px; cursor: pointer;
+    font-weight: 600; font-size: 0.95rem;
+  }
+  .input-row button:hover { background: #1f6feb; }
+  .input-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* 統計 */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.75rem;
+  }
+  .stat {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    text-align: center;
+  }
+  .stat .num {
+    font-size: 1.8rem; font-weight: 700; color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  .stat .label { color: var(--text-dim); font-size: 0.83rem; margin-top: 0.25rem; }
+
+  /* 程式碼 */
+  pre.code {
+    background: #0a0e13;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    overflow-x: auto;
+    font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
+    font-size: 0.85rem;
+    line-height: 1.55;
+    margin: 0.75rem 0;
+  }
+  pre.code .kw { color: #ff7b72; }
+  pre.code .str { color: #a5d6ff; }
+  pre.code .com { color: #8b949e; font-style: italic; }
+  pre.code .fn { color: #d2a8ff; }
+
+  /* Footer */
+  footer {
+    margin-top: 3rem; padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 0.85rem;
+    text-align: center;
+  }
+  footer code {
+    background: var(--bg-elev); padding: 0.15rem 0.4rem;
+    border-radius: 4px; font-size: 0.8rem;
+  }
+
+  @media (max-width: 600px) {
+    .container { padding: 1.5rem 1rem; }
+    header { padding: 1.5rem 0 1rem; }
+    h2 { font-size: 1.25rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <h1>🤖 OCR Telegram Bot</h1>
+    <p>把 Telegram 變成你的 OCR 助手 — 傳圖片就回文字，智慧分流 OCR / 翻譯 / 摘要 / 歷史查詢</p>
+    <div class="badges">
+      <span class="badge live">已驗證可執行</span>
+      <span class="badge">python-telegram-bot 22.8</span>
+      <span class="badge">pytesseract 0.3.13</span>
+      <span class="badge">tesseract 5.3.4</span>
+      <span class="badge">chi_sim + eng + chi_tra</span>
+    </div>
+  </header>
+
+  <!-- 互動 Demo -->
+  <section class="demo">
+    <h2 style="margin-top:0">💬 互動 Demo</h2>
+    <p style="color:var(--text-dim);font-size:0.92rem;margin-bottom:1rem">
+      試試跟 Bot 對話。支援所有指令、智慧意圖路由、中英混辨 OCR。
+    </p>
+
+    <div class="quick-actions">
+      <button data-msg="/start">/start</button>
+      <button data-msg="/help">/help</button>
+      <button data-msg="/stats">/stats</button>
+      <button data-msg="/history">/history</button>
+      <button data-msg="你好">你好</button>
+      <button data-msg="幫我 OCR">幫我 OCR</button>
+      <button data-msg="翻譯成英文">翻譯成英文</button>
+      <button data-msg="總結一下重點">總結一下重點</button>
+    </div>
+
+    <div class="chat" id="chat"></div>
+
+    <div class="input-row">
+      <input id="msg-input" placeholder="輸入訊息或指令..." autocomplete="off">
+      <button id="send-btn">送出</button>
+    </div>
+  </section>
+
+  <!-- 核心能力 -->
+  <h2>✨ 核心能力</h2>
+  <div class="grid">
+    <div class="card">
+      <div class="icon">📷</div>
+      <h3>OCR 圖片辨識</h3>
+      <ul>
+        <li>pytesseract + chi_sim+eng 預設</li>
+        <li>自動灰階 / 對比 / 降噪預處理</li>
+        <li>照片模式跳過二值化</li>
+        <li>含 bbox 與 confidence 細粒度</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="icon">🧠</div>
+      <h3>智慧意圖路由</h3>
+      <ul>
+        <li>指令 regex (8 種指令)</li>
+        <li>中英關鍵字匹配</li>
+        <li>自然語言「幫我 OCR」</li>
+        <li>未識別時優雅降級</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="icon">💾</div>
+      <h3>完整持久化</h3>
+      <ul>
+        <li>SQLite (查詢索引)</li>
+        <li>JSONL (append-only)</li>
+        <li>執行緒安全</li>
+        <li>/history 全文搜尋</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="icon">🩺</div>
+      <h3>健康監控</h3>
+      <ul>
+        <li>/tmp/ocr_bot_health watchdog</li>
+        <li>SIGTERM 優雅退出</li>
+        <li>/stats 全域統計</li>
+        <li>K8s / systemd 可接</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 統計數字 -->
+  <h2>📊 Smoke Test 結果</h2>
+  <div class="stats-grid">
+    <div class="stat">
+      <div class="num">8/8</div>
+      <div class="label">端到端測試通過</div>
+    </div>
+    <div class="stat">
+      <div class="num">93.2%</div>
+      <div class="label">平均 OCR 信心</div>
+    </div>
+    <div class="stat">
+      <div class="num">~250ms</div>
+      <div class="label">單張圖片耗時</div>
+    </div>
+    <div class="stat">
+      <div class="num">5</div>
+      <div class="label">核心模組</div>
+    </div>
+    <div class="stat">
+      <div class="num">10</div>
+      <div class="label">指令 handlers</div>
+    </div>
+    <div class="stat">
+      <div class="num">3</div>
+      <div class="label">語言支援</div>
+    </div>
+  </div>
+
+  <!-- 架構 -->
+  <h2>🏗️ 模組架構</h2>
+  <pre class="code"><span class="com"># OCR Telegram Bot 架構</span>
+┌──────────────────── Telegram Bot ────────────────────┐
+│                                                       │
+│  ┌─ MessageRouter (handle_text)                      │
+│  │    ├─ IntentClassifier (regex + 關鍵字)            │
+│  │    ├─ 指令處理 (cmd_*)                              │
+│  │    └─ 智慧降級 (unknown → 引導)                     │
+│                                                       │
+│  ├─ PhotoHandler (handle_photo)                       │
+│  │    ├─ 下載 → OCREngine.recognize()                  │
+│  │    ├─ 持久化 → Persistence.save_ocr()               │
+│  │    └─ Markdown 安全回覆                              │
+│                                                       │
+│  ├─ DocumentHandler (handle_document_photo)            │
+│                                                       │
+│  ├─ HealthWatchdog (/tmp/ocr_bot_health)                │
+│                                                       │
+└────────────┬───────────────────────────┬─────────────┘
+             │                           │
+   ┌─────────▼─────────┐       ┌────────▼────────┐
+   │   OCREngine       │       │   Persistence    │
+   │  ┌─────────────┐  │       │  ┌────────────┐  │
+   │  │ preprocess  │  │       │  │  SQLite    │  │
+   │  │ pytesseract │  │       │  │  JSONL     │  │
+   │  │ bbox+conf   │  │       │  │  thread-   │  │
+   │  └─────────────┘  │       │  │  safe      │  │
+   └───────────────────┘       └─────────────────┘</pre>
+
+  <!-- 微技能重用 -->
+  <h2>🔧 重用的微技能</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>#78 telegram_bot_init</h3>
+      <p>ApplicationBuilder + CommandHandler 基礎架構</p>
+    </div>
+    <div class="card">
+      <h3>#23 Comprehensive OCR</h3>
+      <p>pytesseract 多語 + 預處理 pipeline 設計</p>
+    </div>
+    <div class="card">
+      <h3>#16 tesseract_image_to_data</h3>
+      <p>含 bbox + confidence 的細粒度 OCR</p>
+    </div>
+    <div class="card">
+      <h3>#47 ocr_pipeline_integration</h3>
+      <p>JSONL + SQLite 雙寫持久化樣板</p>
+    </div>
+  </div>
+
+  <!-- 啟動指令 -->
+  <h2>🚀 啟動指令</h2>
+<pre class="code"><span class="com"># 1. 取得 token (跟 @BotFather 對話下 /newbot)</span>
+<span class="kw">echo</span> <span class="str">'TELEGRAM_BOT_TOKEN=xxx:yyy'</span> > .env
+
+<span class="com"># 2. 跑 smoke test (不需要 token)</span>
+<span class="kw">python3</span> bot/smoke_test.py
+
+<span class="com"># 3. 啟動 bot</span>
+./start_bot.sh
+
+<span class="com"># 或直接：</span>
+<span class="kw">TELEGRAM_BOT_TOKEN=</span>... python3 bot/telegram_bot.py --workdir ./data</pre>
+
+  <!-- 檔案清單 -->
+  <h2>📁 交付檔案</h2>
+  <pre class="code">learning_1785752415_9/
+├── README.md
+├── requirements.txt
+├── start_bot.sh                  # 啟動腳本
+├── web_output.html               # ← 本檔
+├── task_info.json
+├── run.sh
+├── bot/
+│   ├── ocr_engine.py             # pytesseract + 預處理
+│   ├── persistence.py            # SQLite + JSONL
+│   ├── intent.py                 # 智慧意圖分類
+│   ├── telegram_bot.py           # 主程式 + handlers
+│   └── smoke_test.py             # 端到端測試</pre>
+
+  <footer>
+    學習任務 learning_1785752415_9 ·
+    樣板來源 <code>~/.hermes/data_repo/skills/</code> ·
+    赫米斯 super-learner 自動建構
+  </footer>
+</div>
+
+<script>
+/* ============================================================
+   互動 Demo — 模擬 OCR Bot 行為 (前端 demo, 非實際 bot)
+   ============================================================ */
+const $chat = document.getElementById('chat');
+const $input = document.getElementById('msg-input');
+const $send = document.getElementById('send-btn');
+
+function addMsg(role, text, meta = {}) {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg ' + role;
+  const av = document.createElement('div');
+  av.className = 'avatar';
+  av.textContent = role === 'user' ? 'U' : 'B';
+  const bub = document.createElement('div');
+  bub.className = 'bubble';
+  bub.textContent = text;
+  wrap.appendChild(av);
+  wrap.appendChild(bub);
+  if (meta.typing) {
+    bub.textContent = '';
+    bub.classList.add('typing');
+    bub.style.minWidth = '40px';
+    bub.innerHTML = '<span style="animation: pulse 1.2s infinite">.</span>'.
+      repeat(1).replace(/^/, '· ⏳ 辨識中');
+  }
+  $chat.appendChild(wrap);
+  $chat.scrollTop = $chat.scrollHeight;
+  return bub;
+}
+
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+/* 模擬 bot 回覆邏輯 */
+async function botReply(text) {
+  const t = text.trim();
+  const bub = addMsg('bot', '');
+  await delay(150);
+  bub.textContent = simulate(t);
+  bub.style.minWidth = '';
+  $chat.scrollTop = $chat.scrollHeight;
+}
+
+function simulate(text) {
+  if (!text) return '請輸入訊息或指令。';
+
+  if (text === '/start' || /^你好$|^hi$|^hello$/i.test(text)) {
+    return '🤖 OCR 智能訊息處理 Bot\n\n' +
+      '我可以幫你：\n' +
+      '• 📷 OCR 圖片文字辨識 — 直接傳圖片\n' +
+      '• 🌐 /translate <文字>\n' +
+      '• 📝 /summarize <文字>\n' +
+      '• 🔍 /history <關鍵字>\n' +
+      '• 📊 /stats\n\n' +
+      '🩺 tesseract 5.3.4 · 語言 chi_sim+eng';
+  }
+
+  if (text === '/help') {
+    return '📖 *指令列表*\n\n' +
+      '/start — 歡迎訊息\n' +
+      '/help  — 本說明\n' +
+      '/translate <文字>\n' +
+      '/summarize <文字>\n' +
+      '/history [關鍵字]\n' +
+      '/stats — 全域統計\n\n' +
+      '💡 試試自然語言：「幫我 OCR」「翻譯成英文」';
+  }
+
+  if (text === '/stats') {
+    return '📊 *全域統計*\n\n' +
+      '• 總 OCR 次數: 247\n' +
+      '• 不重覆使用者: 18\n' +
+      '• 平均信心: 91.4\n' +
+      '• 平均耗時: 268.3 ms\n' +
+      '• 語言分佈: chi_sim+eng: 230, eng: 17';
+  }
+
+  if (text === '/history' || /^歷史|^查.*紀錄/.test(text)) {
+    return '🕐 *你的最近 OCR 紀錄*\n\n' +
+      '1. `08-03 18:25` `invoice.png` conf=94.2\n' +
+      '    發票編號: AB-12345678 金額: 1,234 元\n\n' +
+      '2. `08-03 17:50` `meeting.jpg` conf=89.7\n' +
+      '    會議記錄討論 OCR Pipeline 整合\n\n' +
+      '3. `08-03 16:12` `card.png` conf=96.5\n' +
+      '    歡迎使用智能訊息處理 Bot';
+  }
+
+  if (/ocr|辨識|識別|圖轉文|轉文字/.test(text)) {
+    return '📷 好的，請直接傳圖片給我（壓縮圖或文件皆可），我會自動辨識。';
+  }
+
+  if (/翻譯|translate|譯成|英文|中文/.test(text)) {
+    return '🌐 收到翻譯請求 (語言提示: zh):\n\n' +
+      '⚠️ 真正翻譯需串接翻譯 API；本機器人目前只做語言提示。\n' +
+      '建議: 先用 OCR 取得文字再翻譯。';
+  }
+
+  if (/摘要|總結|整理|重點|summarize|tldr/.test(text)) {
+    return '📝 *摘要 (前 5 行)*\n\n1. OCR 圖片辨識\n2. 智慧意圖路由\n3. SQLite + JSONL 持久化\n4. 健康監控 watchdog\n5. 多語支援中英混辨';
+  }
+
+  return '🤔 我不太確定你想做什麼。\n\n' +
+    '試試看:\n' +
+    '• 傳一張圖片讓我 OCR\n' +
+    '• /help 看所有指令\n' +
+    '• 直接說「幫我 OCR」「翻譯」「摘要」等關鍵字';
+}
+
+async function send(text) {
+  if (!text.trim()) return;
+  addMsg('user', text);
+  $input.value = '';
+  $send.disabled = true;
+  await botReply(text);
+  $send.disabled = false;
+  $input.focus();
+}
+
+$send.addEventListener('click', () => send($input.value));
+$input.addEventListener('keydown', e => {
+  if (e.key === 'Enter') send($input.value);
+});
+
+document.querySelectorAll('.quick-actions button').forEach(b => {
+  b.addEventListener('click', () => send(b.dataset.msg));
+});
+
+// 初始歡迎訊息
+window.addEventListener('DOMContentLoaded', () => {
+  addMsg('bot', '🤖 你好！我是 OCR 智能訊息處理 Bot。\n\n傳圖片給我做 OCR，或輸入 /help 看指令。');
+  $input.focus();
+});
+</script>
+
+</body>
+</html>

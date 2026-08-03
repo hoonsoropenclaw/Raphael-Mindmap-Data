@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DAG Workflow Editor — React Flow</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body, #root { height: 100%; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC",
+      "Microsoft JhengHei", "Noto Sans TC", Roboto, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    overflow: hidden;
+  }
+
+  /* ── App Shell ────────────────────────────── */
+  .app {
+    display: grid;
+    grid-template-columns: 260px 1fr 320px;
+    grid-template-rows: 56px 1fr 32px;
+    grid-template-areas:
+      "top top top"
+      "left main right"
+      "foot foot foot";
+    height: 100vh;
+    width: 100vw;
+  }
+  .topbar  { grid-area: top; }
+  .sidebar { grid-area: left; }
+  .canvas  { grid-area: main; position: relative; }
+  .inspector { grid-area: right; }
+  .footer  { grid-area: foot; }
+
+  /* ── Topbar ────────────────────────────────── */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    background: linear-gradient(90deg, #1e293b, #0f172a);
+    border-bottom: 1px solid #334155;
+  }
+  .topbar h1 {
+    font-size: 15px; font-weight: 600; margin: 0;
+    background: linear-gradient(90deg, #38bdf8, #a78bfa);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    letter-spacing: 0.5px;
+  }
+  .topbar .badge {
+    font-size: 11px; padding: 2px 8px; border-radius: 999px;
+    background: rgba(56, 189, 248, 0.12); color: #38bdf8;
+    border: 1px solid rgba(56, 189, 248, 0.3);
+  }
+  .toolbar { display: flex; gap: 8px; }
+  .btn {
+    background: #334155; color: #e2e8f0; border: 1px solid #475569;
+    border-radius: 6px; padding: 6px 12px; font-size: 12px; cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .btn:hover { background: #475569; border-color: #64748b; }
+  .btn.primary { background: #2563eb; border-color: #3b82f6; }
+  .btn.primary:hover { background: #1d4ed8; }
+  .btn.danger { background: #dc2626; border-color: #ef4444; }
+  .btn.danger:hover { background: #b91c1c; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ── Sidebar ───────────────────────────────── */
+  .sidebar {
+    background: #1e293b;
+    border-right: 1px solid #334155;
+    padding: 16px;
+    overflow-y: auto;
+  }
+  .sidebar h3 {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1px; color: #94a3b8; margin: 0 0 8px;
+  }
+  .palette { display: flex; flex-direction: column; gap: 8px; }
+  .palette .node-type {
+    border: 1px dashed #475569; border-radius: 8px; padding: 10px 12px;
+    cursor: grab; font-size: 12px;
+    background: rgba(30, 41, 59, 0.6);
+    transition: all 0.15s ease;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .palette .node-type:hover {
+    border-style: solid; border-color: #38bdf8;
+    background: rgba(56, 189, 248, 0.1);
+  }
+  .palette .node-type:active { cursor: grabbing; }
+  .palette .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+  }
+  .dot.input  { background: #10b981; }
+  .dot.process{ background: #3b82f6; }
+  .dot.decision { background: #f59e0b; }
+  .dot.output { background: #ec4899; }
+
+  .stats {
+    margin-top: 24px;
+    padding: 12px;
+    background: rgba(15, 23, 42, 0.5);
+    border-radius: 8px;
+    border: 1px solid #334155;
+    font-size: 12px;
+  }
+  .stats div { display: flex; justify-content: space-between; margin: 4px 0; color: #cbd5e1; }
+  .stats div span:last-child { color: #38bdf8; font-weight: 600; }
+
+  .workflows {
+    margin-top: 16px;
+  }
+  .workflow-list {
+    display: flex; flex-direction: column; gap: 4px; margin-top: 8px;
+  }
+  .workflow-item {
+    padding: 8px 10px; border-radius: 6px; font-size: 12px;
+    background: rgba(15, 23, 42, 0.4); cursor: pointer;
+    border: 1px solid transparent;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .workflow-item:hover { border-color: #475569; }
+  .workflow-item.active { border-color: #38bdf8; background: rgba(56, 189, 248, 0.08); }
+
+  /* ── Canvas ────────────────────────────────── */
+  .canvas {
+    background:
+      radial-gradient(circle at 20% 20%, rgba(56, 189, 248, 0.04), transparent 50%),
+      radial-gradient(circle at 80% 80%, rgba(167, 139, 250, 0.04), transparent 50%),
+      #0b1224;
+    position: relative;
+  }
+  .react-flow__node {
+    font-size: 12px;
+    border-radius: 10px;
+    padding: 0;
+    background: #1e293b;
+    color: #e2e8f0;
+    border: 1.5px solid #475569;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    min-width: 160px;
+    transition: all 0.15s ease;
+  }
+  .react-flow__node:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+  .react-flow__node.selected {
+    border-color: #38bdf8;
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.3), 0 8px 24px rgba(0,0,0,0.4);
+  }
+  .react-flow__node-input  { border-color: #10b981; }
+  .react-flow__node-process { border-color: #3b82f6; }
+  .react-flow__node-decision { border-color: #f59e0b; }
+  .react-flow__node-output { border-color: #ec4899; }
+
+  .node-card { padding: 10px 14px; }
+  .node-header {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+    margin-bottom: 4px;
+  }
+  .node-header .type-tag { font-weight: 700; }
+  .node-header .type-tag.input    { color: #10b981; }
+  .node-header .type-tag.process  { color: #60a5fa; }
+  .node-header .type-tag.decision { color: #fbbf24; }
+  .node-header .type-tag.output   { color: #f472b6; }
+  .node-title { font-weight: 600; font-size: 13px; }
+  .node-body { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+
+  .react-flow__handle {
+    width: 10px; height: 10px; background: #64748b; border: 2px solid #0f172a;
+  }
+  .react-flow__handle:hover { background: #38bdf8; }
+
+  .react-flow__edge-path {
+    stroke: #64748b; stroke-width: 2;
+  }
+  .react-flow__edge.selected .react-flow__edge-path {
+    stroke: #38bdf8; stroke-width: 2.5;
+  }
+  .react-flow__edge.animated .react-flow__edge-path {
+    stroke: #38bdf8;
+    stroke-dasharray: 5;
+    animation: dash 0.5s linear infinite;
+  }
+  @keyframes dash {
+    to { stroke-dashoffset: -10; }
+  }
+
+  .react-flow__controls {
+    background: #1e293b; border: 1px solid #334155; border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  }
+  .react-flow__controls button {
+    background: #1e293b; color: #e2e8f0; border-bottom: 1px solid #334155;
+  }
+  .react-flow__controls button:hover { background: #334155; }
+  .react-flow__controls button svg { fill: #e2e8f0; }
+
+  .react-flow__minimap {
+    background: #1e293b; border: 1px solid #334155; border-radius: 8px;
+  }
+  .react-flow__attribution {
+    background: rgba(15, 23, 42, 0.6) !important; color: #64748b !important;
+  }
+
+  /* ── Inspector ─────────────────────────────── */
+  .inspector {
+    background: #1e293b;
+    border-left: 1px solid #334155;
+    padding: 16px;
+    overflow-y: auto;
+  }
+  .inspector h3 {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1px; color: #94a3b8; margin: 0 0 12px;
+  }
+  .field {
+    display: flex; flex-direction: column; gap: 4px;
+    margin-bottom: 12px;
+  }
+  .field label {
+    font-size: 11px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .field input, .field textarea, .field select {
+    background: #0f172a; color: #e2e8f0;
+    border: 1px solid #334155; border-radius: 6px;
+    padding: 8px 10px; font-size: 12px; font-family: inherit;
+    outline: none;
+    transition: border 0.15s ease;
+  }
+  .field input:focus, .field textarea:focus, .field select:focus {
+    border-color: #38bdf8;
+  }
+  .field textarea { resize: vertical; min-height: 60px; }
+
+  .empty-state {
+    text-align: center; padding: 40px 16px; color: #64748b; font-size: 12px;
+  }
+  .empty-state svg { opacity: 0.4; margin-bottom: 12px; }
+
+  /* ── Footer ────────────────────────────────── */
+  .footer {
+    background: #1e293b;
+    border-top: 1px solid #334155;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 16px; font-size: 11px; color: #94a3b8;
+  }
+  .footer .status { display: flex; gap: 12px; align-items: center; }
+  .footer .status .dot-led {
+    width: 8px; height: 8px; border-radius: 50%; background: #10b981;
+    box-shadow: 0 0 8px #10b981;
+  }
+  .footer .status .dot-led.warn { background: #f59e0b; box-shadow: 0 0 8px #f59e0b; }
+  .footer .status .dot-led.err  { background: #ef4444; box-shadow: 0 0 8px #ef4444; }
+
+  /* ── Toast ─────────────────────────────────── */
+  .toast-container {
+    position: fixed; top: 70px; right: 16px; z-index: 9999;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .toast {
+    padding: 10px 14px; border-radius: 8px;
+    background: #1e293b; border: 1px solid #334155;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    color: #e2e8f0; font-size: 12px;
+    animation: slideIn 0.25s ease;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .toast.success { border-left: 3px solid #10b981; }
+  .toast.error   { border-left: 3px solid #ef4444; }
+  .toast.info    { border-left: 3px solid #38bdf8; }
+  @keyframes slideIn {
+    from { transform: translateX(20px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+
+  /* ── Modal ─────────────────────────────────── */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    display: flex; align-items: center; justify-content: center; z-index: 9000;
+  }
+  .modal {
+    background: #1e293b; border: 1px solid #334155; border-radius: 12px;
+    padding: 24px; min-width: 360px; max-width: 80vw;
+    box-shadow: 0 20px 48px rgba(0,0,0,0.5);
+  }
+  .modal h2 { margin: 0 0 12px; font-size: 16px; }
+  .modal .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+  .dag-cycles {
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 8px; padding: 8px 12px;
+    font-size: 11px; color: #fca5a5;
+    margin-top: 8px;
+  }
+  .dag-cycles ul { margin: 4px 0; padding-left: 16px; }
+</style>
+
+<!-- React & ReactDOM UMD (locally bundled for sandbox reliability) -->
+<script crossorigin src="file:///tmp/dag_static/react.production.min.js"></script>
+<script crossorigin src="file:///tmp/dag_static/react-dom.production.min.js"></script>
+<!-- Babel for in-browser JSX -->
+<script src="file:///tmp/dag_static/babel.min.js"></script>
+<!-- React Flow UMD -->
+<script src="file:///tmp/dag_static/reactflow.umd.js"></script>
+<link rel="stylesheet" href="file:///tmp/dag_static/reactflow.css" />
+
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-type="module" data-presets="react">
+// ═══════════════════════════════════════════════════════════════════
+//  DAG Workflow Editor — React Flow UMD single-file implementation
+// ═══════════════════════════════════════════════════════════════════
+const { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } = React;
+const RF = ReactFlow; // shorthand
+
+// ── 1. LocalStorage persistence layer (micro-skill: local_storage_integration) ──
+const STORAGE_KEY = 'dag_workflow_editor_v1';
+const Storage = {
+  load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch (e) {
+      console.warn('[Storage.load] parse failed:', e);
+      return null;
+    }
+  },
+  save(data) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch (e) {
+      console.warn('[Storage.save] write failed:', e);
+    }
+  },
+  clear() {
+    localStorage.removeItem(STORAGE_KEY);
+  }
+};
+
+// ── 2. DAG Topological Sort + cycle detection (micro-skill: dag_topological_sort) ──
+function topologicalSort(nodes, edges) {
+  const adj = new Map();
+  const indeg = new Map();
+  nodes.forEach(n => { adj.set(n.id, []); indeg.set(n.id, 0); });
+  edges.forEach(e => {
+    if (adj.has(e.source) && adj.has(e.target)) {
+      adj.get(e.source).push(e.target);
+      indeg.set(e.target, (indeg.get(e.target) || 0) + 1);
+    }
+  });
+  const queue = [];
+  indeg.forEach((d, id) => { if (d === 0) queue.push(id); });
+  const order = [];
+  while (queue.length) {
+    const id = queue.shift();
+    order.push(id);
+    for (const next of adj.get(id)) {
+      const d = indeg.get(next) - 1;
+      indeg.set(next, d);
+      if (d === 0) queue.push(next);
+    }
+  }
+  const cycles = order.length !== nodes.length
+    ? nodes.filter(n => !order.includes(n.id)).map(n => n.id) : [];
+  return { order, cycles };
+}
+
+// ── 3. Default seed workflow (so the canvas is never empty) ──
+const SEED = {
+  name: '範例：ETL 資料管線',
+  nodes: [
+    { id: 'n1', type: 'input',    position: { x: 60,  y: 80 },  data: { label: 'API Source', description: '從 REST API 拉取原始資料' } },
+    { id: 'n2', type: 'process',  position: { x: 280, y: 40 },  data: { label: 'Parse JSON', description: '解析 JSON payload' } },
+    { id: 'n3', type: 'process',  position: { x: 280, y: 140 }, data: { label: 'Validate', description: 'schema 驗證' } },
+    { id: 'n4', type: 'decision', position: { x: 500, y: 90 },  data: { label: 'Has Error?', description: '檢查驗證結果' } },
+    { id: 'n5', type: 'process',  position: { x: 720, y: 30 },  data: { label: 'Transform', description: '資料清洗與轉換' } },
+    { id: 'n6', type: 'process',  position: { x: 720, y: 150 }, data: { label: 'Quarantine', description: '送入錯誤佇列' } },
+    { id: 'n7', type: 'output',   position: { x: 940, y: 90 },  data: { label: 'Warehouse', description: '寫入資料倉儲' } },
+  ],
+  edges: [
+    { id: 'e1-2', source: 'n1', target: 'n2', animated: true },
+    { id: 'e1-3', source: 'n1', target: 'n3' },
+    { id: 'e2-4', source: 'n2', target: 'n4' },
+    { id: 'e3-4', source: 'n3', target: 'n4' },
+    { id: 'e4-5', source: 'n4', target: 'n5', label: 'valid' },
+    { id: 'e4-6', source: 'n4', target: 'n6', label: 'invalid' },
+    { id: 'e5-7', source: 'n5', target: 'n7', animated: true },
+  ]
+};
+
+// ── 4. Custom node renderer ──
+const NODE_LABELS = {
+  input:    '輸入',
+  process:  '處理',
+  decision: '判斷',
+  output:   '輸出'
+};
+const NODE_ICONS = {
+  input:    '⬇',
+  process:  '⚙',
+  decision: '◆',
+  output:   '⬆'
+};
+
+function DagNode({ data, selected, type }) {
+  const hasTarget = type !== 'input';
+  const hasSource = type !== 'output';
+  return (
+    <div className="node-card">
+      {hasTarget && (
+        <RF.Handle
+          type="target"
+          position={RF.Position.Left}
+          style={{ background: '#10b981', width: 10, height: 10 }}
+        />
+      )}
+      <div className="node-header">
+        <span className={'type-tag ' + type}>{NODE_ICONS[type]} {NODE_LABELS[type]}</span>
+      </div>
+      <div className="node-title">{data?.label || '未命名'}</div>
+      {data?.description && <div className="node-body">{data.description}</div>}
+      {hasSource && (
+        <RF.Handle
+          type="source"
+          position={RF.Position.Right}
+          style={{ background: '#ec4899', width: 10, height: 10 }}
+        />
+      )}
+    </div>
+  );
+};
+const nodeTypes = {
+  input: DagNode,
+  process: DagNode,
+  decision: DagNode,
+  output: DagNode,
+};
+
+// ── 5. Toast notifications ──
+function useToast() {
+  const [toasts, setToasts] = useState([]);
+  const push = useCallback((message, kind = 'info') => {
+    const id = Math.random().toString(36).slice(2);
+    setToasts(prev => [...prev, { id, message, kind }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
+  }, []);
+  return { toasts, push };
+}
+function ToastContainer({ toasts }) {
+  return (
+    <div className="toast-container">
+      {toasts.map(t => (
+        <div key={t.id} className={'toast ' + t.kind}>
+          <span>{t.kind === 'success' ? '✓' : t.kind === 'error' ? '✕' : 'ℹ'}</span>
+          <span>{t.message}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── 6. Sidebar — node palette ──
+function Sidebar({ stats, workflows, currentId, onLoad, onNew }) {
+  const onDragStart = (e, type) => {
+    e.dataTransfer.setData('application/reactflow', type);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+  return (
+    <aside className="sidebar">
+      <h3>節點類型</h3>
+      <div className="palette">
+        {[
+          { type: 'input',    label: '輸入節點',  desc: '工作流的起點' },
+          { type: 'process',  label: '處理節點',  desc: '執行一般處理' },
+          { type: 'decision', label: '判斷節點',  desc: '分支邏輯' },
+          { type: 'output',   label: '輸出節點',  desc: '工作流的終點' }
+        ].map(item => (
+          <div key={item.type}
+               className="node-type"
+               draggable
+               onDragStart={(e) => onDragStart(e, item.type)}>
+            <span className={'dot ' + item.type}></span>
+            <div>
+              <div style={{fontWeight:600}}>{item.label}</div>
+              <div style={{fontSize:10, color:'#94a3b8'}}>{item.desc}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="stats">
+        <h3 style={{marginTop:0}}>當前工作流</h3>
+        <div><span>節點數</span><span>{stats.nodes}</span></div>
+        <div><span>連線數</span><span>{stats.edges}</span></div>
+        <div><span>循環數</span>
+          <span style={{ color: stats.cycles > 0 ? '#ef4444' : '#10b981' }}>
+            {stats.cycles}
+          </span>
+        </div>
+      </div>
+
+      <div className="workflows">
+        <h3>已儲存工作流</h3>
+        <button className="btn primary" style={{width:'100%'}} onClick={onNew}>+ 新建空白</button>
+        <div className="workflow-list">
+          {workflows.length === 0 && (
+            <div style={{fontSize:11, color:'#64748b', padding:'8px 4px'}}>
+              尚無其他工作流
+            </div>
+          )}
+          {workflows.map(w => (
+            <div key={w.id}
+                 className={'workflow-item' + (w.id === currentId ? ' active' : '')}
+                 onClick={() => onLoad(w.id)}>
+              <span style={{overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
+                {w.name}
+              </span>
+              <span style={{fontSize:10, color:'#64748b'}}>{w.nodeCount} 節點</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+// ── 7. Inspector — selected node properties ──
+function Inspector({ selectedNode, onChange, onDelete }) {
+  if (!selectedNode) {
+    return (
+      <aside className="inspector">
+        <h3>屬性檢查器</h3>
+        <div className="empty-state">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <path d="M9 9h6v6H9z"/>
+          </svg>
+          <div>選取一個節點以編輯屬性</div>
+          <div style={{marginTop:8, fontSize:11}}>
+            提示：從左側拖曳節點類型到畫布建立新節點
+          </div>
+        </div>
+      </aside>
+    );
+  }
+  const { id, type, data } = selectedNode;
+  return (
+    <aside className="inspector">
+      <h3>節點屬性</h3>
+      <div className="field">
+        <label>節點 ID</label>
+        <input value={id} disabled style={{opacity:0.6}} />
+      </div>
+      <div className="field">
+        <label>類型</label>
+        <select value={type} onChange={(e) => onChange({ type: e.target.value })}>
+          <option value="input">輸入 (Input)</option>
+          <option value="process">處理 (Process)</option>
+          <option value="decision">判斷 (Decision)</option>
+          <option value="output">輸出 (Output)</option>
+        </select>
+      </div>
+      <div className="field">
+        <label>標題</label>
+        <input value={data.label || ''}
+               onChange={(e) => onChange({ data: { ...data, label: e.target.value } })} />
+      </div>
+      <div className="field">
+        <label>描述</label>
+        <textarea value={data.description || ''}
+                  onChange={(e) => onChange({ data: { ...data, description: e.target.value } })} />
+      </div>
+      <button className="btn danger" style={{width:'100%'}} onClick={onDelete}>
+        🗑 刪除節點
+      </button>
+    </aside>
+  );
+}
+
+// ── 8. DAG validation panel ──
+function DagValidation({ cycles, edges, nodes }) {
+  if (cycles.length === 0) return null;
+  return (
+    <div className="dag-cycles">
+      ⚠ 偵測到 {cycles.length} 個循環依賴節點，拓撲排序無法涵蓋全部節點：
+      <ul>{cycles.map(id => <li key={id}>{id}</li>)}</ul>
+      <div style={{marginTop:4}}>請檢查並移除循環連線以維持 DAG 結構</div>
+    </div>
+  );
+}
+
+// ── 9. Main App ──
+function App() {
+  // load persisted state on first render
+  const persisted = useMemo(() => Storage.load(), []);
+  const initial = persisted?.workflows?.length ? persisted.workflows[0] : SEED;
+
+  const [workflows, setWorkflows] = useState(persisted?.workflows || [SEED]);
+  const [currentId, setCurrentId] = useState(initial.id || 'seed');
+  const current = workflows.find(w => w.id === currentId) || workflows[0];
+
+  const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [showImport, setShowImport] = useState(false);
+
+  const reactFlowWrapper = useRef(null);
+  const { toasts, push: pushToast } = useToast();
+
+  // derive id from index when none
+  useEffect(() => {
+    if (!current.id) {
+      const newId = 'wf_' + Date.now().toString(36);
+      setWorkflows(ws => ws.map(w => w === current ? { ...w, id: newId } : w));
+      setCurrentId(newId);
+    }
+  }, [current]);
+
+  // recompute topological order whenever workflow changes
+  const { order: topoOrder, cycles } = useMemo(
+    () => topologicalSort(current.nodes, current.edges),
+    [current.nodes, current.edges]
+  );
+
+  // persist on change (debounced)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      Storage.save({ workflows, version: 1, savedAt: new Date().toISOString() });
+    }, 500);
+    return () => clearTimeout(t);
+  }, [workflows]);
+
+  // ── mutators ──
+  const updateCurrent = useCallback((updater) => {
+    setWorkflows(ws => ws.map(w =>
+      w.id === currentId ? { ...w, ...updater(w) } : w
+    ));
+  }, [currentId]);
+
+  const onNodesChange = useCallback((changes) => {
+    setWorkflows(ws => ws.map(w => {
+      if (w.id !== currentId) return w;
+      let nodes = [...w.nodes];
+      for (const c of changes) {
+        if (c.type === 'position' && c.position) {
+          nodes = nodes.map(n => n.id === c.id ? { ...n, position: c.position } : n);
+        } else if (c.type === 'remove') {
+          nodes = nodes.filter(n => n.id !== c.id);
+        } else if (c.type === 'select') {
+          nodes = nodes.map(n => n.id === c.id ? { ...n, selected: c.selected } : n);
+        } else if (c.type === 'dimensions') {
+          nodes = nodes.map(n => n.id === c.id ? { ...n, width: c.dimensions?.width, height: c.dimensions?.height } : n);
+        }
+      }
+      return { ...w, nodes };
+    }));
+  }, [currentId]);
+
+  const onEdgesChange = useCallback((changes) => {
+    setWorkflows(ws => ws.map(w => {
+      if (w.id !== currentId) return w;
+      let edges = [...w.edges];
+      for (const c of changes) {
+        if (c.type === 'remove') {
+          edges = edges.filter(e => e.id !== c.id);
+        } else if (c.type === 'select') {
+          edges = edges.map(e => e.id === c.id ? { ...e, selected: c.selected } : e);
+        }
+      }
+      return { ...w, edges };
+    }));
+  }, [currentId]);
+
+  const onConnect = useCallback((params) => {
+    setWorkflows(ws => ws.map(w => {
+      if (w.id !== currentId) return w;
+      // prevent duplicate edges
+      if (w.edges.some(e => e.source === params.source && e.target === params.target)) {
+        pushToast('此連線已存在', 'error');
+        return w;
+      }
+      const newEdge = {
+        ...params,
+        id: 'e_' + params.source + '_' + params.target + '_' + Date.now().toString(36).slice(-4),
+      };
+      pushToast('已建立連線', 'success');
+      return { ...w, edges: [...w.edges, newEdge] };
+    }));
+  }, [currentId, pushToast]);
+
+  const onDragOver = useCallback((e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const onDrop = useCallback((e) => {
+    e.preventDefault();
+    const type = e.dataTransfer.getData('application/reactflow');
+    if (!type) return;
+    const bounds = reactFlowWrapper.current.getBoundingClientRect();
+    const position = {
+      x: e.clientX - bounds.left - 80,
+      y: e.clientY - bounds.top - 30
+    };
+    const newId = 'n_' + Date.now().toString(36);
+    const newNode = {
+      id: newId,
+      type,
+      position,
+      data: {
+        label: NODE_LABELS[type] + ' #' + (current.nodes.length + 1),
+        description: '新建立的 ' + NODE_LABELS[type] + ' 節點'
+      }
+    };
+    updateCurrent(() => ({ nodes: [...current.nodes, newNode] }));
+    setSelectedNodeId(newId);
+    pushToast('已新增節點', 'success');
+  }, [current, updateCurrent, pushToast]);
+
+  const selectedNode = current.nodes.find(n => n.id === selectedNodeId) || null;
+
+  const onNodeClick = useCallback((_, node) => {
+    setSelectedNodeId(node.id);
+  }, []);
+  const onPaneClick = useCallback(() => {
+    setSelectedNodeId(null);
+  }, []);
+
+  const updateNode = useCallback((patch) => {
+    setWorkflows(ws => ws.map(w => {
+      if (w.id !== currentId) return w;
+      return {
+        ...w,
+        nodes: w.nodes.map(n => n.id === selectedNodeId ? { ...n, ...patch } : n)
+      };
+    }));
+  }, [currentId, selectedNodeId]);
+
+  const deleteNode = useCallback(() => {
+    if (!selectedNodeId) return;
+    setWorkflows(ws => ws.map(w => {
+      if (w.id !== currentId) return w;
+      return {
+        ...w,
+        nodes: w.nodes.filter(n => n.id !== selectedNodeId),
+        edges: w.edges.filter(e => e.source !== selectedNodeId && e.target !== selectedNodeId)
+      };
+    }));
+    pushToast('已刪除節點', 'success');
+    setSelectedNodeId(null);
+  }, [currentId, selectedNodeId, pushToast]);
+
+  const renameWorkflow = useCallback((newName) => {
+    if (!newName) return;
+    updateCurrent(() => ({ name: newName }));
+    pushToast('已重新命名', 'success');
+  }, [updateCurrent, pushToast]);
+
+  const newBlank = useCallback(() => {
+    const id = 'wf_' + Date.now().toString(36);
+    const blank = {
+      id,
+      name: '新工作流 ' + (workflows.length + 1),
+      nodes: [],
+      edges: []
+    };
+    setWorkflows(ws => [...ws, blank]);
+    setCurrentId(id);
+    setSelectedNodeId(null);
+    pushToast('已建立空白工作流', 'success');
+  }, [workflows.length, pushToast]);
+
+  const deleteCurrentWorkflow = useCallback(() => {
+    if (workflows.length === 1) {
+      pushToast('至少需保留一個工作流', 'error');
+      return;
+    }
+    setWorkflows(ws => ws.filter(w => w.id !== currentId));
+    const remaining = workflows.filter(w => w.id !== currentId);
+    setCurrentId(remaining[0]?.id || '');
+    pushToast('已刪除工作流', 'success');
+  }, [workflows, currentId, pushToast]);
+
+  const exportJson = useCallback(() => {
+    const data = JSON.stringify(current, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (current.name || 'workflow') + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    pushToast('已匯出 JSON', 'success');
+  }, [current, pushToast]);
+
+  const importJson = useCallback((text) => {
+    try {
+      const parsed = JSON.parse(text);
+      if (!parsed.nodes || !parsed.edges) throw new Error('缺少 nodes 或 edges');
+      const id = 'wf_' + Date.now().toString(36);
+      const next = {
+        id,
+        name: parsed.name || '匯入的工作流',
+        nodes: parsed.nodes,
+        edges: parsed.edges
+      };
+      setWorkflows(ws => [...ws, next]);
+      setCurrentId(id);
+      setShowImport(false);
+      pushToast('已匯入工作流', 'success');
+    } catch (e) {
+      pushToast('匯入失敗：' + e.message, 'error');
+    }
+  }, [pushToast]);
+
+  const validateAndRun = useCallback(() => {
+    if (cycles.length > 0) {
+      pushToast('工作流含有循環依賴，無法執行', 'error');
+      return;
+    }
+    if (current.nodes.length === 0) {
+      pushToast('工作流為空', 'error');
+      return;
+    }
+    pushToast('拓撲順序：' + topoOrder.length + ' 步可執行 ✓', 'success');
+  }, [cycles, current.nodes, topoOrder, pushToast]);
+
+  const stats = {
+    nodes: current.nodes.length,
+    edges: current.edges.length,
+    cycles: cycles.length
+  };
+
+  const fitViewOptions = { padding: 0.2, duration: 400 };
+
+  return (
+    <div className="app">
+      <header className="topbar">
+        <h1>⚡ DAG Workflow Editor</h1>
+        <div style={{display:'flex', alignItems:'center', gap:12}}>
+          <input
+            value={current.name || ''}
+            onChange={(e) => renameWorkflow(e.target.value)}
+            style={{
+              background:'#0f172a', color:'#e2e8f0', border:'1px solid #334155',
+              borderRadius:6, padding:'6px 10px', fontSize:12, width:200
+            }}
+          />
+          <span className="badge">React Flow 11</span>
+        </div>
+        <div className="toolbar">
+          <button className="btn" onClick={validateAndRun} title="執行拓撲驗證">▶ 驗證 DAG</button>
+          <button className="btn" onClick={() => setShowImport(true)}>匯入</button>
+          <button className="btn" onClick={exportJson}>匯出</button>
+          <button className="btn danger" onClick={deleteCurrentWorkflow}>刪除工作流</button>
+        </div>
+      </header>
+
+      <Sidebar
+        stats={stats}
+        workflows={workflows}
+        currentId={currentId}
+        onLoad={setCurrentId}
+        onNew={newBlank}
+      />
+
+      <div className="canvas" ref={reactFlowWrapper}>
+        <RF.ReactFlowProvider>
+          <RF.ReactFlow
+            nodes={current.nodes}
+            edges={current.edges.map(e => ({
+              ...e,
+              style: cycles.includes(e.source) || cycles.includes(e.target)
+                ? { stroke: '#ef4444' } : undefined
+            }))}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onInit={(instance) => {
+              setTimeout(() => instance.fitView(fitViewOptions), 100);
+            }}
+            onDrop={onDrop}
+            onDragOver={onDragOver}
+            onNodeClick={onNodeClick}
+            onPaneClick={onPaneClick}
+            nodeTypes={nodeTypes}
+            fitView
+            fitViewOptions={fitViewOptions}
+            proOptions={{ hideAttribution: true }}
+            defaultEdgeOptions={{
+              type: 'smoothstep',
+              style: { strokeWidth: 2 }
+            }}
+          >
+            <RF.Background gap={20} size={1} color="#1e293b" />
+            <RF.Controls position="bottom-right" />
+            <RF.MiniMap
+              position="bottom-left"
+              nodeColor={(n) => ({
+                input:'#10b981', process:'#3b82f6',
+                decision:'#f59e0b', output:'#ec4899'
+              })[n.type] || '#64748b'}
+              maskColor="rgba(15, 23, 42, 0.6)"
+            />
+          </RF.ReactFlow>
+        </RF.ReactFlowProvider>
+        <div style={{
+          position:'absolute', top:12, left:12, zIndex:5,
+          background:'rgba(15, 23, 42, 0.85)',
+          border:'1px solid #334155', borderRadius:8,
+          padding:8, maxWidth:280, backdropFilter:'blur(8px)'
+        }}>
+          <DagValidation cycles={cycles} edges={current.edges} nodes={current.nodes} />
+        </div>
+      </div>
+
+      <Inspector
+        selectedNode={selectedNode}
+        onChange={updateNode}
+        onDelete={deleteNode}
+      />
+
+      <footer className="footer">
+        <div className="status">
+          <span className={'dot-led ' + (cycles.length > 0 ? 'err' : '')}></span>
+          <span>{cycles.length === 0 ? 'DAG 結構有效' : '偵測到循環依賴'}</span>
+          <span>·</span>
+          <span>拓撲步數：{topoOrder.length}</span>
+          <span>·</span>
+          <span>已儲存 {workflows.length} 個工作流</span>
+        </div>
+        <div>React Flow 11 · 自動儲存到 LocalStorage · 拖曳左側節點到畫布</div>
+      </footer>
+
+      <ToastContainer toasts={toasts} />
+
+      {showImport && (
+        <ImportModal
+          onClose={() => setShowImport(false)}
+          onImport={importJson}
+        />
+      )}
+    </div>
+  );
+}
+
+function ImportModal({ onClose, onImport }) {
+  const [text, setText] = useState('');
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2>匯入工作流 JSON</h2>
+        <div style={{fontSize:12, color:'#94a3b8', marginBottom:8}}>
+          貼上先前匯出的 JSON（需含 nodes 與 edges 陣列）
+        </div>
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          style={{
+            width:'100%', minHeight:200, background:'#0f172a',
+            color:'#e2e8f0', border:'1px solid #334155',
+            borderRadius:6, padding:8, fontFamily:'monospace', fontSize:11
+          }}
+          placeholder='{"name":"My Workflow","nodes":[...],"edges":[...]}'
+        />
+        <div className="modal-actions">
+          <button className="btn" onClick={onClose}>取消</button>
+          <button className="btn primary" onClick={() => onImport(text)} disabled={!text.trim()}>
+            匯入
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── 10. Mount ──
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+
+// Register the toast/window helpers
+window.dagEditor = {
+  get workflows() { return JSON.parse(localStorage.getItem('dag_workflow_editor_v1') || 'null'); },
+  clearStorage: () => { localStorage.removeItem('dag_workflow_editor_v1'); location.reload(); }
+};
+console.log('%c⚡ DAG Editor ready', 'color:#38bdf8;font-weight:bold;font-size:14px');
+console.log('Debug helpers: window.dagEditor.workflows / clearStorage()');
+</script>
+</body>
+</html>

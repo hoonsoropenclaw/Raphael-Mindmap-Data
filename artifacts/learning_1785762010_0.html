@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>React Flow UMD DAG 編輯器</title>
+
+  <!-- React Flow 官方樣式（UMD 對應版本 11.11.4） -->
+  <link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css" />
+
+  <!-- React 18 UMD（生產版）+ ReactDOM 18 UMD -->
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+
+  <!-- React Flow 11.11.4 UMD（暴露 window.ReactFlow） -->
+  <script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+
+  <!-- Babel Standalone：即時編譯瀏覽器內 JSX -->
+  <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+    }
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    header {
+      padding: 12px 20px;
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+    header .badge {
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: #0ea5e9;
+      color: #0c4a6e;
+      font-weight: 600;
+    }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .toolbar button {
+      background: #334155;
+      color: #e2e8f0;
+      border: 1px solid #475569;
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: background 0.15s;
+    }
+    .toolbar button:hover {
+      background: #475569;
+    }
+    .toolbar button.primary {
+      background: #0ea5e9;
+      color: #0c4a6e;
+      border-color: #0284c7;
+    }
+    .toolbar button.primary:hover {
+      background: #0284c7;
+    }
+    .toolbar button.danger {
+      background: #ef4444;
+      color: #fff;
+      border-color: #dc2626;
+    }
+    .toolbar button.danger:hover {
+      background: #dc2626;
+    }
+    #dag-container {
+      flex: 1;
+      background: #0f172a;
+      position: relative;
+    }
+    .status-bar {
+      background: #1e293b;
+      border-top: 1px solid #334155;
+      padding: 8px 20px;
+      font-size: 12px;
+      display: flex;
+      gap: 24px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .status-item {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .status-item strong {
+      color: #f1f5f9;
+    }
+    .pill {
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .pill.ok { background: #064e3b; color: #6ee7b7; }
+    .pill.warn { background: #78350f; color: #fcd34d; }
+    .pill.err { background: #7f1d1d; color: #fca5a5; }
+    .pill.info { background: #1e3a8a; color: #93c5fd; }
+
+    /* 自訂節點樣式（內層 .dag-node 直接套色，data.nodeType 區分 input/output/task） */
+    .dag-node {
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 2px solid #475569;
+      background: #1e293b;
+      color: #e2e8f0;
+      font-size: 13px;
+      font-weight: 600;
+      min-width: 110px;
+      text-align: center;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      box-sizing: border-box;
+    }
+    /* 用 .react-flow__node 後代選擇器 + !important 蓋過 .react-flow__node-default */
+    .react-flow__node .dag-node.input {
+      background: #064e3b !important;
+      border-color: #10b981 !important;
+      color: #d1fae5 !important;
+    }
+    .react-flow__node .dag-node.output {
+      background: #7f1d1d !important;
+      border-color: #ef4444 !important;
+      color: #fee2e2 !important;
+    }
+    .dag-node .node-meta {
+      font-size: 10px;
+      font-weight: 400;
+      opacity: 0.7;
+      margin-top: 4px;
+    }
+    .react-flow__attribution {
+      background: rgba(30, 41, 59, 0.7) !important;
+      color: #94a3b8 !important;
+    }
+    .react-flow__attribution a {
+      color: #94a3b8 !important;
+    }
+    /* 自訂節點 handle 樣式 */
+    .react-flow__handle {
+      background: #0ea5e9;
+      border: 2px solid #0c4a6e;
+      width: 10px;
+      height: 10px;
+    }
+    .legend {
+      position: absolute;
+      bottom: 16px;
+      left: 16px;
+      background: rgba(30, 41, 59, 0.9);
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      font-size: 11px;
+      line-height: 1.6;
+      z-index: 10;
+      backdrop-filter: blur(4px);
+    }
+    .legend .dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 3px;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .error-overlay {
+      background: #7f1d1d;
+      color: #fee2e2;
+      padding: 12px;
+      margin: 12px;
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 13px;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>⚡ React Flow UMD · DAG 編輯器</h1>
+      <span class="badge">React 18 + React Flow 11.11.4</span>
+    </header>
+    <div id="error-root"></div>
+    <div id="dag-container"></div>
+  </div>
+
+  <!-- JSX 在瀏覽器內即時編譯 -->
+  <script type="text/babel" data-presets="react">
+    (function () {
+      // ===== 0. 失敗保護：把所有錯誤打到畫面上（瀏覽器環境無 process.stderr）=====
+      function fatal(msg, err) {
+        const el = document.createElement('div');
+        el.className = 'error-overlay';
+        el.textContent = '[致命錯誤] ' + msg + '\n' +
+          (err && err.stack ? err.stack : String(err || ''));
+        document.getElementById('error-root').appendChild(el);
+        console.error(msg, err);
+      }
+      window.addEventListener('error', function (e) {
+        fatal('window.onerror: ' + e.message, e.error);
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        fatal('unhandledrejection', e.reason);
+      });
+
+      try {
+        // ===== 1. 從 UMD 全域物件解構出 React Flow 元件 =====
+        // 舊樣板提示：UMD 解構要先驗 namespace layout，避免 `ReactFlow is not defined`
+        // [fix] Babel 預設會在解構前插入 TDZ 守衛，導致 `Cannot access 'ReactFlow' before initialization`
+        // 解法：用 var 先建 alias，避免 const 解構被 Babel 改寫
+        if (typeof window.ReactFlow === 'undefined') {
+          throw new Error('window.ReactFlow 不存在，請確認 unpkg.com/reactflow UMD 是否載入成功');
+        }
+        if (typeof window.React === 'undefined' || typeof window.ReactDOM === 'undefined') {
+          throw new Error('React / ReactDOM UMD 未載入');
+        }
+        var ReactFlowNS = window.ReactFlow;
+        var ReactNS = window.React;
+        var ReactDOMNS = window.ReactDOM;
+        var RF = ReactFlowNS;             // 本地別名方便讀
+        var {
+          ReactFlow,
+          Background,
+          Controls,
+          MiniMap,
+          Handle,
+          Position,
+          applyNodeChanges,
+          applyEdgeChanges,
+          addEdge,
+          ReactFlowProvider,
+        } = RF;
+
+        var useState = ReactNS.useState;
+        var useCallback = ReactNS.useCallback;
+        var useMemo = ReactNS.useMemo;
+        var useEffect = ReactNS.useEffect;
+        var useRef = ReactNS.useRef;
+
+        // ===== 2. 自訂節點元件（含 Handle 與類型徽章）=====
+        function DagNode({ data, id, selected }) {
+          var cls = 'dag-node ' + (data && data.nodeType ? data.nodeType : '');
+          var label = (data && data.label) || (id || '?');
+          var nodeType = (data && data.nodeType) || 'task';
+          return (
+            <div className={cls} style={{
+              borderColor: selected ? '#0ea5e9' : undefined,
+              boxShadow: selected ? '0 0 0 3px rgba(14,165,233,0.4), 0 4px 12px rgba(0,0,0,0.4)' : undefined,
+            }}>
+              <Handle type="target" position={Position.Left} />
+              <div>{label}</div>
+              <div className="node-meta">
+                {nodeType} · {(id || '').slice(0, 6)}
+              </div>
+              <Handle type="source" position={Position.Right} />
+            </div>
+          );
+        }
+
+        const nodeTypes = { dag: DagNode };
+
+        // ===== 3. DAG 演算法：拓樸排序 + 環偵測（Kahn's algorithm）=====
+        function analyzeDag(nodes, edges) {
+          // in-degree 計算
+          var inDegree = {};
+          var outEdges = {};
+          nodes.forEach(function (n) {
+            inDegree[n.id] = 0;
+            outEdges[n.id] = [];
+          });
+          edges.forEach(function (e) {
+            if (inDegree[e.target] === undefined) inDegree[e.target] = 0;
+            inDegree[e.target] = inDegree[e.target] + 1;
+            outEdges[e.source] = outEdges[e.source].concat([e.target]);
+          });
+
+          // 記錄起點與終點（用「原始」inDegree / 出度，不要在 BFS 後才看）
+          var roots = nodes.filter(function (n) { return inDegree[n.id] === 0; }).map(function (n) { return n.id; });
+          var leaves = nodes.filter(function (n) { return (outEdges[n.id] || []).length === 0; }).map(function (n) { return n.id; });
+
+          // Kahn's BFS：用獨立 mutatedInDegree，避免污染 roots/leaves 的依據
+          var mutatedInDegree = Object.assign({}, inDegree);
+          var queue = roots.slice();
+          var order = [];
+          var visited = {};
+          while (queue.length) {
+            var id = queue.shift();
+            if (visited[id]) continue;
+            visited[id] = true;
+            order.push(id);
+            (outEdges[id] || []).forEach(function (nxt) {
+              mutatedInDegree[nxt] = mutatedInDegree[nxt] - 1;
+              if (mutatedInDegree[nxt] === 0) queue.push(nxt);
+            });
+          }
+          var hasCycle = order.length !== nodes.length;
+          var cycleNodes = nodes.filter(function (n) { return !visited[n.id]; }).map(function (n) { return n.id; });
+
+          // 上游可達（從 leaves 往回 BFS）
+          var upstream = {};
+          nodes.forEach(function (n) { upstream[n.id] = []; });
+          var reverseQueue = leaves.slice();
+          while (reverseQueue.length) {
+            var cur = reverseQueue.shift();
+            var sources = edges.filter(function (e) { return e.target === cur; }).map(function (e) { return e.source; });
+            sources.forEach(function (src) {
+              // 合併上游
+              var existing = upstream[src] || [];
+              var existingSet = new Set(existing);
+              existingSet.add(cur);
+              upstream[src] = Array.from(existingSet);
+              upstream[src] = upstream[src].concat(upstream[cur] || []);
+              // 去重
+              upstream[src] = Array.from(new Set(upstream[src]));
+              reverseQueue.push(src);
+            });
+          }
+
+          return {
+            order: order,
+            hasCycle: hasCycle,
+            cycleNodes: cycleNodes,
+            roots: roots,
+            leaves: leaves,
+            upstream: upstream,
+          };
+        }
+
+        // ===== 4. 預設範例 DAG（用 type='dag' 自訂，data.nodeType 區分 input/output/task）=====
+                var seedNodes = [
+                  { id: '1', type: 'dag', position: { x: 60, y: 280 }, data: { label: '讀取來源', nodeType: 'input' } },
+                  { id: '2', type: 'dag', position: { x: 340, y: 240 }, data: { label: '解析欄位', nodeType: 'task' } },
+                  { id: '3', type: 'dag', position: { x: 340, y: 540 }, data: { label: '驗證格式', nodeType: 'task' } },
+                  { id: '4', type: 'dag', position: { x: 620, y: 380 }, data: { label: '彙總', nodeType: 'task' } },
+                  { id: '5', type: 'dag', position: { x: 900, y: 380 }, data: { label: '寫出結果', nodeType: 'output' } },
+                ];
+        var seedEdges = [
+          { id: 'e1-2', source: '1', target: '2', animated: true },
+          { id: 'e1-3', source: '1', target: '3', animated: true },
+          { id: 'e2-4', source: '2', target: '4', animated: true },
+          { id: 'e3-4', source: '3', target: '4', animated: true },
+          { id: 'e4-5', source: '4', target: '5', animated: true },
+        ];
+
+        // ===== 5. 主元件 =====
+        function DagEditor() {
+          const [nodes, setNodes] = useState(seedNodes);
+          const [edges, setEdges] = useState(seedEdges);
+          const wrapperRef = useRef(null);
+          const [rfInstance, setRfInstance] = useState(null);
+
+          const onNodesChange = useCallback((changes) => {
+            setNodes((nds) => applyNodeChanges(changes, nds));
+          }, []);
+          const onEdgesChange = useCallback((changes) => {
+            setEdges((eds) => applyEdgeChanges(changes, eds));
+          }, []);
+          const onConnect = useCallback((params) => {
+            setEdges((eds) => addEdge({ ...params, animated: true, style: { stroke: '#0ea5e9', strokeWidth: 2 } }, eds));
+          }, []);
+
+          const analysis = useMemo(() => analyzeDag(nodes, edges), [nodes, edges]);
+
+          // 在 canvas 雙擊空白處：新增一個 task 節點
+          const onPaneDoubleClick = useCallback((event) => {
+            if (!rfInstance) return;
+            const position = rfInstance.screenToFlowPosition({
+              x: event.clientX,
+              y: event.clientY,
+            });
+            const id = 'n' + Date.now().toString(36) + Math.floor(Math.random() * 1000).toString(36);
+            setNodes((nds) => [
+              ...nds,
+              { id, type: 'dag', position, data: { label: '新任務', nodeType: 'task' } },
+            ]);
+          }, [rfInstance]);
+
+          // 工具列：新增節點（中央）
+          const addCenterNode = useCallback(() => {
+            const id = 'n' + Date.now().toString(36);
+            setNodes((nds) => [
+              ...nds,
+              { id, type: 'dag', position: { x: 240 + Math.random() * 200, y: 240 + Math.random() * 80 }, data: { label: '新任務', nodeType: 'task' } },
+            ]);
+          }, []);
+
+          // 重置範例
+          const resetSample = useCallback(() => {
+            setNodes(seedNodes);
+            setEdges(seedEdges);
+          }, []);
+
+          // 全部清空
+          const clearAll = useCallback(() => {
+            setNodes([]);
+            setEdges([]);
+          }, []);
+
+          // 自動布局（簡易）：按拓樸順序水平排列
+          const autoLayout = useCallback(() => {
+            if (analysis.hasCycle) return;
+            const layerOf = {};
+            const inDeg = {};
+            nodes.forEach(n => { inDeg[n.id] = 0; });
+            edges.forEach(e => { inDeg[e.target] = (inDeg[e.target] || 0) + 1; });
+            const queue = nodes.filter(n => inDeg[n.id] === 0).map(n => n.id);
+            layerOf[queue[0] || nodes[0]?.id] = 0;
+            let head = 0;
+            while (head < queue.length) {
+              const cur = queue[head++];
+              edges.filter(e => e.source === cur).forEach(e => {
+                inDeg[e.target] -= 1;
+                if (inDeg[e.target] === 0) {
+                  layerOf[e.target] = (layerOf[cur] || 0) + 1;
+                  queue.push(e.target);
+                }
+              });
+            }
+            const buckets = {};
+            Object.entries(layerOf).forEach(([id, layer]) => {
+              buckets[layer] = buckets[layer] || [];
+              buckets[layer].push(id);
+            });
+            const positioned = nodes.map(n => {
+              const layer = layerOf[n.id] || 0;
+              const idx = (buckets[layer] || []).indexOf(n.id);
+              const yCount = (buckets[layer] || []).length;
+              return {
+                ...n,
+                position: { x: 80 + layer * 200, y: 40 + idx * (yCount > 1 ? 280 / (yCount - 1 || 1) : 60) },
+              };
+            });
+            setNodes(positioned);
+            setTimeout(() => rfInstance && rfInstance.fitView({ padding: 0.2 }), 50);
+          }, [nodes, edges, analysis.hasCycle, rfInstance]);
+
+          // 匯出 JSON
+          const exportJson = useCallback(() => {
+            const data = JSON.stringify({ nodes, edges, analysis }, null, 2);
+            const blob = new Blob([data], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'dag-' + Date.now() + '.json';
+            a.click();
+            URL.revokeObjectURL(url);
+          }, [nodes, edges, analysis]);
+
+          // 狀態摘要
+          let cyclePill, orderPill, rootsPill;
+          if (analysis.hasCycle) {
+            cyclePill = <span className="pill err">⚠ 偵測到循環（{analysis.cycleNodes.length} 節點被困）</span>;
+          } else {
+            cyclePill = <span className="pill ok">✓ 無循環（DAG 有效）</span>;
+          }
+          orderPill = <span className="pill info">拓樸序：{analysis.order.length}/{nodes.length}</span>;
+          rootsPill = <span className="pill info">起點 {analysis.roots.length} · 終點 {analysis.leaves.length}</span>;
+
+          return (
+            <ReactFlowProvider>
+              <div style={{ position: 'absolute', top: 64, left: 16, right: 16, bottom: 8, display: 'flex', flexDirection: 'column' }}>
+                <div className="toolbar" style={{ marginBottom: 8 }}>
+                  <button className="primary" onClick={addCenterNode}>+ 新增節點</button>
+                  <button onClick={autoLayout} disabled={analysis.hasCycle || nodes.length === 0}>⚙ 自動布局</button>
+                  <button onClick={exportJson}>⬇ 匯出 JSON</button>
+                  <button onClick={resetSample}>↺ 載入範例</button>
+                  <button className="danger" onClick={clearAll}>✕ 清空</button>
+                </div>
+                <div ref={wrapperRef} style={{ flex: 1, borderRadius: 8, overflow: 'hidden', border: '1px solid #334155', position: 'relative' }}>
+                  <ReactFlow
+                    nodes={nodes}
+                    edges={edges}
+                    onNodesChange={onNodesChange}
+                    onEdgesChange={onEdgesChange}
+                    onConnect={onConnect}
+                    onInit={setRfInstance}
+                    onDoubleClick={onPaneDoubleClick}
+                    nodeTypes={nodeTypes}
+                    fitView
+                    minZoom={0.2}
+                    maxZoom={2}
+                    proOptions={{ hideAttribution: true }}
+                  >
+                    <Background variant="dots" gap={16} size={1.2} color="#334155" />
+                    <Controls position="bottom-right" />
+                    <MiniMap
+                      pannable
+                      zoomable
+                      position="top-right"
+                      maskColor="rgba(15,23,42,0.6)"
+                      nodeColor={(n) => n.type === 'input' ? '#10b981' : n.type === 'output' ? '#ef4444' : '#0ea5e9'}
+                    />
+                  </ReactFlow>
+                  <div className="legend">
+                    <div><span className="dot" style={{ background: '#10b981' }}></span>起點節點（type=input）</div>
+                    <div><span className="dot" style={{ background: '#0ea5e9' }}></span>任務節點（type=dag）</div>
+                    <div><span className="dot" style={{ background: '#ef4444' }}></span>終點節點（type=output）</div>
+                    <div style={{ marginTop: 6, opacity: 0.7 }}>雙擊空白處 = 新增節點 · 拖曳節點右側 handle 連線</div>
+                  </div>
+                </div>
+              </div>
+              <div className="status-bar">
+                <div className="status-item"><strong>節點：</strong>{nodes.length}</div>
+                <div className="status-item"><strong>連線：</strong>{edges.length}</div>
+                {orderPill}
+                {rootsPill}
+                {cyclePill}
+                <div className="status-item" style={{ marginLeft: 'auto', opacity: 0.7 }}>
+                  拓樸序：{analysis.order.slice(0, 6).join(' → ')}{analysis.order.length > 6 ? ' …' : ''}
+                </div>
+              </div>
+            </ReactFlowProvider>
+          );
+        }
+
+        // ===== 6. 掛載到 DOM =====
+        var root = ReactDOMNS.createRoot(document.getElementById('dag-container'));
+        root.render(<DagEditor />);
+      } catch (err) {
+        fatal('初始化 DAG 編輯器失敗', err);
+      }
+    })();
+  </script>
+</body>
+</html>

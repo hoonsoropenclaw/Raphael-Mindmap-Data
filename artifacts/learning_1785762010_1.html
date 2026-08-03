@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic DAG Editor · React Flow</title>
+    <!-- React & ReactDOM UMD -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel Standalone for JSX in-browser -->
+    <script src="https://unpkg.com/@babel/standalone@7.25.7/babel.min.js"></script>
+    <!-- React Flow UMD + styles -->
+    <script src="https://unpkg.com/reactflow@11.10.1/dist/umd/index.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/reactflow@11.10.1/dist/style.css" />
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        :root {
+            --bg-0: #0b1020;
+            --bg-1: #111935;
+            --panel: rgba(20, 28, 56, 0.65);
+            --panel-strong: rgba(20, 28, 56, 0.85);
+            --border: rgba(120, 140, 220, 0.18);
+            --border-strong: rgba(120, 140, 220, 0.35);
+            --text: #e6ebff;
+            --text-dim: #8a93b8;
+            --accent: #5b8def;
+            --accent-2: #7c5cff;
+            --good: #22d3a8;
+            --warn: #f5b342;
+            --bad: #ef5b6b;
+        }
+        html, body { width: 100%; height: 100%; margin: 0; padding: 0; }
+        body {
+            background:
+                radial-gradient(1200px 700px at 12% -10%, rgba(91,141,239,0.18), transparent 60%),
+                radial-gradient(900px 600px at 100% 0%, rgba(124,92,255,0.16), transparent 55%),
+                linear-gradient(180deg, var(--bg-0) 0%, var(--bg-1) 100%);
+            color: var(--text);
+            font-family: 'Segoe UI', 'Inter', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+        }
+        .glass-panel {
+            background: var(--panel);
+            backdrop-filter: blur(14px) saturate(140%);
+            -webkit-backdrop-filter: blur(14px) saturate(140%);
+            border: 1px solid var(--border);
+        }
+        .glass-panel-strong {
+            background: var(--panel-strong);
+            backdrop-filter: blur(14px) saturate(140%);
+            -webkit-backdrop-filter: blur(14px) saturate(140%);
+            border: 1px solid var(--border-strong);
+        }
+        .scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+        .scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .scrollbar::-webkit-scrollbar-thumb { background: rgba(120,140,220,0.25); border-radius: 4px; }
+        .scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(120,140,220,0.4); }
+
+        /* React Flow tweaks */
+        .react-flow__node {
+            font-size: 12px;
+        }
+        .rf-node {
+            padding: 10px 14px;
+            border-radius: 12px;
+            min-width: 160px;
+            border: 1px solid var(--border-strong);
+            background: linear-gradient(180deg, rgba(30,42,80,0.85), rgba(20,28,56,0.85));
+            color: var(--text);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+            transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+        }
+        .rf-node:hover { transform: translateY(-1px); border-color: rgba(120,140,220,0.55); }
+        .rf-node.kind-input { border-color: rgba(34,211,168,0.55); }
+        .rf-node.kind-process { border-color: rgba(91,141,239,0.55); }
+        .rf-node.kind-output { border-color: rgba(245,179,66,0.55); }
+        .rf-node.kind-decision { border-color: rgba(239,91,107,0.55); }
+        .rf-node.collapsed { opacity: 0.55; border-style: dashed; }
+        .rf-node-header {
+            display: flex; align-items: center; gap: 8px;
+            font-weight: 600; letter-spacing: 0.2px;
+        }
+        .rf-node-tag {
+            display: inline-flex; align-items: center; gap: 4px;
+            font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;
+            padding: 2px 8px; border-radius: 999px;
+            background: rgba(120,140,220,0.12);
+            color: var(--text-dim);
+            border: 1px solid var(--border);
+            margin-top: 6px;
+        }
+        .rf-node-actions {
+            display: flex; gap: 4px; margin-top: 8px;
+        }
+        .rf-pill-btn {
+            border: 1px solid var(--border);
+            background: rgba(20,28,56,0.6);
+            color: var(--text);
+            border-radius: 6px;
+            padding: 2px 8px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.12s ease;
+        }
+        .rf-pill-btn:hover { background: rgba(91,141,239,0.18); border-color: rgba(91,141,239,0.55); }
+        .rf-pill-btn.danger:hover { background: rgba(239,91,107,0.18); border-color: rgba(239,91,107,0.55); }
+
+        .react-flow__handle {
+            width: 10px; height: 10px;
+            background: var(--accent);
+            border: 2px solid rgba(255,255,255,0.85);
+        }
+        .react-flow__edge-path { stroke: rgba(140,160,220,0.55); stroke-width: 1.8; }
+        .react-flow__edge.animated .react-flow__edge-path { stroke: var(--accent); stroke-dasharray: 6; }
+        .react-flow__edge.selected .react-flow__edge-path { stroke: var(--accent-2); stroke-width: 2.4; }
+        .react-flow__controls { background: rgba(20,28,56,0.85); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+        .react-flow__controls-button { background: transparent; color: var(--text); border-bottom: 1px solid var(--border); }
+        .react-flow__controls-button:hover { background: rgba(91,141,239,0.18); }
+        .react-flow__minimap { background: rgba(11,16,32,0.85); border: 1px solid var(--border); border-radius: 10px; }
+        .react-flow__background { background: transparent; }
+        .react-flow__attribution { display: none; }
+
+        /* Tree */
+        .tree-row {
+            display: flex; align-items: center; gap: 6px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--text);
+            transition: background 0.12s ease;
+        }
+        .tree-row:hover { background: rgba(91,141,239,0.12); }
+        .tree-row.active { background: rgba(91,141,239,0.22); border-left: 2px solid var(--accent); }
+        .tree-row.collapsed-row { color: var(--text-dim); }
+        .tree-toggle {
+            width: 14px; height: 14px;
+            display: inline-flex; align-items: center; justify-content: center;
+            border-radius: 3px;
+            color: var(--text-dim);
+            transition: background 0.12s ease;
+        }
+        .tree-toggle:hover { background: rgba(120,140,220,0.18); color: var(--text); }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 13px; font-weight: 500;
+            border: 1px solid var(--border);
+            background: rgba(20,28,56,0.6);
+            color: var(--text);
+            cursor: pointer;
+            transition: all 0.12s ease;
+        }
+        .btn:hover { background: rgba(91,141,239,0.18); border-color: rgba(91,141,239,0.55); }
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            border-color: transparent;
+        }
+        .btn-primary:hover { filter: brightness(1.08); }
+        .btn-danger { color: var(--bad); }
+        .btn-danger:hover { background: rgba(239,91,107,0.18); border-color: rgba(239,91,107,0.55); }
+
+        .chip {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            background: rgba(120,140,220,0.12);
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+        }
+
+        .stat-card {
+            display: flex; flex-direction: column; gap: 2px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: rgba(15,22,48,0.6);
+            border: 1px solid var(--border);
+        }
+        .stat-card .num { font-size: 22px; font-weight: 700; color: var(--text); }
+        .stat-card .lbl { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.6px; }
+
+        select, input[type="text"] {
+            background: rgba(15,22,48,0.7);
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-size: 13px;
+            outline: none;
+        }
+        select:focus, input[type="text"]:focus { border-color: var(--accent); }
+
+        .badge-ok { color: var(--good); }
+        .badge-warn { color: var(--warn); }
+        .badge-bad { color: var(--bad); }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div id="root" style="width: 100%; height: 100vh;"></div>
+
+    <script type="text/babel" data-presets="react">
+        const { useState, useEffect, useMemo, useCallback, useRef, Fragment } = React;
+        const {
+            ReactFlow,
+            ReactFlowProvider,
+            Background,
+            Controls,
+            MiniMap,
+            Handle,
+            Position,
+            applyNodeChanges,
+            applyEdgeChanges,
+            addEdge,
+            useReactFlow,
+        } = window.ReactFlow;
+
+        // ---------- Constants ----------
+        const NODE_TYPES = ['input', 'process', 'output', 'decision'];
+        const TYPE_META = {
+            input:    { label: '輸入',  color: '#22d3a8', icon: 'log-in' },
+            process:  { label: '處理',  color: '#5b8def', icon: 'cog' },
+            output:   { label: '輸出',  color: '#f5b342', icon: 'log-out' },
+            decision: { label: '決策',  color: '#ef5b6b', icon: 'git-branch' },
+        };
+        const STORAGE_KEY = 'dag_editor_state_v2';
+
+        // ---------- DAG algorithms ----------
+        function topoSort(nodes, edges) {
+            const inDeg = {};
+            nodes.forEach(n => inDeg[n.id] = 0);
+            edges.forEach(e => { if (inDeg[e.target] !== undefined) inDeg[e.target] += 1; });
+            const queue = nodes.filter(n => inDeg[n.id] === 0).map(n => n.id);
+            const order = [];
+            while (queue.length) {
+                const id = queue.shift();
+                order.push(id);
+                edges.forEach(e => {
+                    if (e.source === id) {
+                        inDeg[e.target] -= 1;
+                        if (inDeg[e.target] === 0) queue.push(e.target);
+                    }
+                });
+            }
+            return { order, hasCycle: order.length !== nodes.length };
+        }
+
+        function descendantsOf(rootId, edges) {
+            const out = new Set();
+            const stack = [rootId];
+            while (stack.length) {
+                const cur = stack.pop();
+                edges.forEach(e => {
+                    if (e.source === cur && !out.has(e.target)) {
+                        out.add(e.target);
+                        stack.push(e.target);
+                    }
+                });
+            }
+            return out;
+        }
+
+        function ancestorsOf(rootId, edges) {
+            const out = new Set();
+            const stack = [rootId];
+            while (stack.length) {
+                const cur = stack.pop();
+                edges.forEach(e => {
+                    if (e.target === cur && !out.has(e.source)) {
+                        out.add(e.source);
+                        stack.push(e.source);
+                    }
+                });
+            }
+            return out;
+        }
+
+        function depthOf(rootId, edges) {
+            const anc = ancestorsOf(rootId, edges);
+            return anc.size;
+        }
+
+        function longestPathDepth(nodes, edges) {
+            const { order } = topoSort(nodes, edges);
+            const dist = {};
+            order.forEach(id => { dist[id] = 0; });
+            order.forEach(id => {
+                edges.filter(e => e.target === id).forEach(e => {
+                    dist[id] = Math.max(dist[id], (dist[e.source] ?? 0) + 1);
+                });
+            });
+            return Math.max(0, ...Object.values(dist));
+        }
+
+        function rootIds(nodes, edges) {
+            const incoming = new Set();
+            edges.forEach(e => incoming.add(e.target));
+            return nodes.filter(n => !incoming.has(n.id)).map(n => n.id);
+        }
+
+        // ---------- Default DAG dataset ----------
+        const DEFAULT_NODES = [
+            { id: 'n1', type: 'dagNode', data: { label: '使用者請求', kind: 'input',    collapsed: false }, position: { x: 60,  y: 40 } },
+            { id: 'n2', type: 'dagNode', data: { label: 'Auth 驗證',  kind: 'process',  collapsed: false }, position: { x: 280, y: 40 } },
+            { id: 'n3', type: 'dagNode', data: { label: 'Token 有效?', kind: 'decision', collapsed: false }, position: { x: 500, y: 40 } },
+            { id: 'n4', type: 'dagNode', data: { label: '載入使用者',  kind: 'process',  collapsed: false }, position: { x: 740, y: -50 } },
+            { id: 'n5', type: 'dagNode', data: { label: '回 401',      kind: 'output',   collapsed: false }, position: { x: 740, y: 130 } },
+            { id: 'n6', type: 'dagNode', data: { label: '查詢 DB',     kind: 'process',  collapsed: false }, position: { x: 980, y: -50 } },
+            { id: 'n7', type: 'dagNode', data: { label: '格式化結果',  kind: 'process',  collapsed: false }, position: { x: 1220, y: -50 } },
+            { id: 'n8', type: 'dagNode', data: { label: 'JSON Response', kind: 'output', collapsed: false }, position: { x: 1460, y: -50 } },
+        ];
+        const DEFAULT_EDGES = [
+            { id: 'e1', source: 'n1', target: 'n2', animated: true },
+            { id: 'e2', source: 'n2', target: 'n3', animated: true },
+            { id: 'e3', source: 'n3', target: 'n4', label: 'true' },
+            { id: 'e4', source: 'n3', target: 'n5', label: 'false' },
+            { id: 'e5', source: 'n4', target: 'n6' },
+            { id: 'e6', source: 'n6', target: 'n7' },
+            { id: 'e7', source: 'n7', target: 'n8' },
+        ];
+
+        // ---------- Custom Node ----------
+        function DagNode({ id, data, selected }) {
+            const meta = TYPE_META[data.kind || 'process'] || TYPE_META.process;
+            const hasChildren = (data.childCount || 0) > 0;
+            return (
+                <div className={`rf-node kind-${data.kind || 'process'} ${data.collapsed ? 'collapsed' : ''}`}
+                     style={{ outline: selected ? '2px solid #7c5cff' : 'none' }}>
+                    <Handle type="target" position={Position.Left} />
+                    <div className="rf-node-header">
+                        <i data-lucide={meta.icon} style={{ width: 14, height: 14, color: meta.color }}></i>
+                        <span>{data.label}</span>
+                    </div>
+                    <div className="rf-node-tag">
+                        <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: 3, background: meta.color }}></span>
+                        {meta.label}
+                        {hasChildren && (
+                            <span style={{ marginLeft: 6, color: '#8a93b8' }}>
+                                · {data.collapsed ? '已收合' : `${data.childCount} 子節點`}
+                            </span>
+                        )}
+                    </div>
+                    <div className="rf-node-actions">
+                        {hasChildren && (
+                            <button className="rf-pill-btn"
+                                    onClick={(e) => { e.stopPropagation(); data.onToggle(id); }}
+                                    title={data.collapsed ? '展開子節點' : '收合子節點'}>
+                                {data.collapsed ? '▶ 展開' : '▼ 收合'}
+                            </button>
+                        )}
+                        <button className="rf-pill-btn"
+                                onClick={(e) => { e.stopPropagation(); data.onAdd(id); }}
+                                title="新增子節點">+ 子節點</button>
+                        <button className="rf-pill-btn danger"
+                                onClick={(e) => { e.stopPropagation(); data.onDelete(id); }}
+                                title="刪除節點">🗑</button>
+                    </div>
+                    <Handle type="source" position={Position.Right} />
+                </div>
+            );
+        }
+        const nodeTypes = { dagNode: DagNode };
+
+        // ---------- Blueprint Tree (sidebar) ----------
+        function BlueprintTree({ nodes, edges, collapsed, hidden, onToggle, onSelect, onToggleVisibility, selectedId }) {
+            const roots = rootIds(nodes, edges);
+            const children = useMemo(() => {
+                const map = {};
+                nodes.forEach(n => { map[n.id] = []; });
+                edges.forEach(e => { if (map[e.source]) map[e.source].push(e.target); });
+                return map;
+            }, [nodes, edges]);
+
+            const renderNode = (id, depth) => {
+                const node = nodes.find(n => n.id === id);
+                if (!node) return null;
+                const isCollapsed = collapsed.has(id);
+                const isHidden = hidden.has(id);
+                const childs = children[id] || [];
+                const meta = TYPE_META[node.data.kind || 'process'];
+                return (
+                    <div key={id}>
+                        <div
+                            className={`tree-row ${selectedId === id ? 'active' : ''} ${isCollapsed ? 'collapsed-row' : ''}`}
+                            style={{ paddingLeft: 8 + depth * 16 }}
+                            onClick={() => onSelect(id)}
+                        >
+                            {childs.length > 0 ? (
+                                <span className="tree-toggle" onClick={(e) => { e.stopPropagation(); onToggle(id); }}>
+                                    {isCollapsed ? '▶' : '▼'}
+                                </span>
+                            ) : (
+                                <span className="tree-toggle" style={{ visibility: 'hidden' }}>·</span>
+                            )}
+                            <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: 3, background: meta.color }}></span>
+                            <span style={{ flex: 1, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                                {node.data.label}
+                            </span>
+                            <span className="chip" onClick={(e) => { e.stopPropagation(); onToggleVisibility(id); }}
+                                  style={{ cursor: 'pointer', opacity: isHidden ? 0.4 : 1 }}>
+                                {isHidden ? '隱藏' : '顯示'}
+                            </span>
+                        </div>
+                        {!isCollapsed && childs.map(c => renderNode(c, depth + 1))}
+                    </div>
+                );
+            };
+
+            return (
+                <div className="scrollbar" style={{ overflowY: 'auto', maxHeight: '100%', padding: 4 }}>
+                    {roots.map(r => renderNode(r, 0))}
+                    {roots.length === 0 && (
+                        <div style={{ color: 'var(--text-dim)', padding: 12, fontSize: 13 }}>
+                            沒有節點。從右側面板新增一個開始。
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // ---------- Stats Panel ----------
+        function StatsPanel({ nodes, edges, collapsed, hidden, depthLimit, viewMode }) {
+            const total = nodes.length;
+            const visible = nodes.filter(n => !hidden.has(n.id)).length;
+            const collapsedCount = nodes.filter(n => collapsed.has(n.id)).length;
+            const expandRatio = total ? Math.round(((total - collapsedCount) / total) * 100) : 0;
+            const maxDepth = longestPathDepth(nodes, edges);
+            const roots = rootIds(nodes, edges);
+            const orphans = nodes.filter(n => {
+                const hasIn = edges.some(e => e.target === n.id);
+                const hasOut = edges.some(e => e.source === n.id);
+                return !hasIn && !hasOut;
+            }).length;
+            const { hasCycle } = topoSort(nodes, edges);
+            return (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <div className="stat-card">
+                        <span className="lbl">節點總數</span>
+                        <span className="num">{total}</span>
+                        <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>可見 {visible}</span>
+                    </div>
+                    <div className="stat-card">
+                        <span className="lbl">邊連線</span>
+                        <span className="num">{edges.length}</span>
+                        <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>根節點 {roots.length}</span>
+                    </div>
+                    <div className="stat-card">
+                        <span className="lbl">展開率</span>
+                        <span className="num">{expandRatio}%</span>
+                        <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>{collapsedCount} 個已收合</span>
+                    </div>
+                    <div className="stat-card">
+                        <span className="lbl">DAG 深度</span>
+                        <span className="num">{maxDepth}</span>
+                        <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>過濾 ≤ {depthLimit}</span>
+                    </div>
+                    <div className="stat-card" style={{ gridColumn: '1 / -1' }}>
+                        <span className="lbl">狀態</span>
+                        <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 12, flexWrap: 'wrap' }}>
+                            <span className={hasCycle ? 'badge-bad' : 'badge-ok'}>
+                                {hasCycle ? '⛔ 偵測到循環' : '✅ 合法 DAG'}
+                            </span>
+                            <span className="chip">孤兒 {orphans}</span>
+                            <span className="chip">視圖 {viewMode}</span>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // ---------- DAG Editor (main) ----------
+        function DagEditor() {
+            const reactFlow = useReactFlow();
+            const [nodes, setNodes] = useState(DEFAULT_NODES);
+            const [edges, setEdges] = useState(DEFAULT_EDGES);
+            const [collapsed, setCollapsed] = useState(new Set());
+            const [hidden, setHidden] = useState(new Set());
+            const [selectedId, setSelectedId] = useState(null);
+            const [depthLimit, setDepthLimit] = useState(99);
+            const [newNodeKind, setNewNodeKind] = useState('process');
+            const [newNodeLabel, setNewNodeLabel] = useState('');
+            const [showHelp, setShowHelp] = useState(false);
+            const [viewMode, setViewMode] = useState('all'); // all | depth | roots
+
+            // Ref pattern to break circular dependency between onAdd/onDelete
+            const handlersRef = useRef({});
+            const onToggle = useCallback((id) => {
+                setCollapsed(prev => {
+                    const next = new Set(prev);
+                    if (next.has(id)) next.delete(id); else next.add(id);
+                    return next;
+                });
+            }, []);
+            const onAdd = useCallback((parentId) => {
+                const newId = 'n' + Date.now().toString(36);
+                const parent = nodes.find(n => n.id === parentId);
+                const pos = parent ? { x: parent.position.x + 240, y: parent.position.y + (Math.random() - 0.5) * 60 } : { x: 100, y: 100 };
+                const kind = newNodeKind;
+                const label = newNodeLabel.trim() || `${TYPE_META[kind].label} ${nodes.length + 1}`;
+                const h = handlersRef.current;
+                setNodes(prev => [...prev, {
+                    id: newId, type: 'dagNode',
+                    data: { label, kind, collapsed: false, onToggle: h.onToggle, onAdd: h.onAdd, onDelete: h.onDelete, childCount: 0 },
+                    position: pos,
+                }]);
+                setEdges(prev => [...prev, { id: 'e' + Date.now().toString(36) + 'b', source: parentId, target: newId, animated: true }]);
+                setNewNodeLabel('');
+            }, [nodes, newNodeKind, newNodeLabel]);
+            const onDelete = useCallback((id) => {
+                const toRemove = new Set([id, ...descendantsOf(id, edges)]);
+                setNodes(prev => prev.filter(n => !toRemove.has(n.id)));
+                setEdges(prev => prev.filter(e => !toRemove.has(e.source) && !toRemove.has(e.target)));
+                setCollapsed(prev => { const next = new Set(prev); toRemove.forEach(i => next.delete(i)); return next; });
+                if (selectedId === id) setSelectedId(null);
+            }, [edges, selectedId]);
+            handlersRef.current = { onToggle, onAdd, onDelete };
+
+            // Recompute childCount for every node (used by custom node)
+            const childCountMap = useMemo(() => {
+                const m = {};
+                nodes.forEach(n => m[n.id] = 0);
+                edges.forEach(e => { if (m[e.source] !== undefined) m[e.source] += 1; });
+                return m;
+            }, [nodes, edges]);
+
+            // Inject callbacks into existing nodes when they change
+            const decoratedNodes = useMemo(() => {
+                // Apply view filters
+                let filtered = nodes;
+                if (viewMode === 'roots') {
+                    const r = new Set(rootIds(nodes, edges));
+                    filtered = nodes.filter(n => r.has(n.id));
+                } else if (viewMode === 'depth') {
+                    filtered = nodes.filter(n => depthOf(n.id, edges) < depthLimit);
+                }
+                const h = handlersRef.current;
+                return filtered
+                    .filter(n => !hidden.has(n.id))
+                    .map(n => ({
+                        ...n,
+                        data: {
+                            ...n.data,
+                            childCount: childCountMap[n.id] || 0,
+                            onToggle: h.onToggle,
+                            onAdd: h.onAdd,
+                            onDelete: h.onDelete,
+                        },
+                    }));
+            }, [nodes, edges, hidden, viewMode, depthLimit, childCountMap]);
+
+            const decoratedEdges = useMemo(() => {
+                const visNodeIds = new Set(decoratedNodes.map(n => n.id));
+                return edges.filter(e => visNodeIds.has(e.source) && visNodeIds.has(e.target));
+            }, [edges, decoratedNodes]);
+
+            // React Flow change handlers
+            const onNodesChange = useCallback((changes) => {
+                setNodes(ns => applyNodeChanges(changes, ns));
+            }, []);
+            const onEdgesChange = useCallback((changes) => {
+                setEdges(es => applyEdgeChanges(changes, es));
+            }, []);
+            const onConnect = useCallback((c) => {
+                setEdges(es => addEdge({ ...c, animated: true }, es));
+            }, []);
+            const onNodeClick = useCallback((_, node) => setSelectedId(node.id));
+
+            // Tree controls
+            const toggleCollapse = useCallback((id) => {
+                setCollapsed(prev => {
+                    const next = new Set(prev);
+                    if (next.has(id)) next.delete(id); else next.add(id);
+                    return next;
+                });
+            }, []);
+            const toggleVisibility = useCallback((id) => {
+                setHidden(prev => {
+                    const next = new Set(prev);
+                    if (next.has(id)) next.delete(id); else next.add(id);
+                    return next;
+                });
+            }, []);
+            const selectNode = useCallback((id) => {
+                setSelectedId(id);
+                const node = nodes.find(n => n.id === id);
+                if (node) reactFlow.setCenter(node.position.x + 80, node.position.y + 30, { zoom: 1.2, duration: 500 });
+            }, [nodes, reactFlow]);
+
+            // Batch operations
+            const roots = useMemo(() => rootIds(nodes, edges), [nodes, edges]);
+            const expandAll = () => setCollapsed(new Set());
+            const collapseAll = () => setCollapsed(new Set(nodes.map(n => n.id)));
+            const collapseToDepth = (d) => {
+                const next = new Set();
+                nodes.forEach(n => {
+                    if (depthOf(n.id, edges) >= d) next.add(n.id);
+                });
+                setCollapsed(next);
+            };
+            const showOnlyDepth = (d) => {
+                setHidden(new Set(nodes.filter(n => depthOf(n.id, edges) >= d).map(n => n.id)));
+            };
+
+            // Auto layout (simple level-based)
+            const autoLayout = () => {
+                const { order } = topoSort(nodes, edges);
+                const levels = {};
+                order.forEach(id => {
+                    const d = depthOf(id, edges);
+                    levels[d] = (levels[d] || 0) + 1;
+                });
+                const counters = {};
+                const H_GAP = 260, V_GAP = 90;
+                const next = nodes.map(n => {
+                    const d = depthOf(n.id, edges);
+                    counters[d] = (counters[d] || 0) + 1;
+                    const maxPerLevel = Math.max(...Object.values(levels));
+                    const totalH = (maxPerLevel - 1) * V_GAP;
+                    const y = -(totalH / 2) + (counters[d] - 1) * V_GAP;
+                    return { ...n, position: { x: 60 + d * H_GAP, y } };
+                });
+                setNodes(next);
+                setTimeout(() => reactFlow.fitView({ duration: 500, padding: 0.2 }), 50);
+            };
+
+            // Add root node
+            const addRoot = () => {
+                const newId = 'n' + Date.now().toString(36);
+                const kind = newNodeKind;
+                const label = newNodeLabel.trim() || `${TYPE_META[kind].label} ${nodes.length + 1}`;
+                setNodes(prev => [...prev, { id: newId, type: 'dagNode', data: { label, kind, collapsed: false, onToggle, onAdd, onDelete, childCount: 0 }, position: { x: 60, y: 60 + Math.random() * 100 } }]);
+                setNewNodeLabel('');
+            };
+
+            // Persistence
+            useEffect(() => {
+                try {
+                    const raw = localStorage.getItem(STORAGE_KEY);
+                    if (raw) {
+                        const data = JSON.parse(raw);
+                        if (data.nodes && data.edges) {
+                            // Defensive: ensure every node has type/kind and drop callbacks
+                            const sanitized = data.nodes.map(n => ({
+                                ...n,
+                                type: 'dagNode',
+                                data: {
+                                    label: (n.data && n.data.label) || 'Node',
+                                    kind: (n.data && n.data.kind) || 'process',
+                                    collapsed: !!(n.data && n.data.collapsed),
+                                },
+                            }));
+                            setNodes(sanitized);
+                            const cleanEdges = data.edges.map(e => ({
+                                id: e.id, source: e.source, target: e.target,
+                                animated: !!e.animated, label: e.label,
+                            }));
+                            setEdges(cleanEdges);
+                        }
+                    }
+                } catch (e) { /* ignore */ }
+            }, []);
+            useEffect(() => {
+                try {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+                        nodes: nodes.map(n => ({ id: n.id, type: 'dagNode', position: n.position, data: { label: n.data.label, kind: n.data.kind, collapsed: n.data.collapsed } })),
+                        edges: edges.map(e => ({ id: e.id, source: e.source, target: e.target, animated: !!e.animated, label: e.label })),
+                    }));
+                } catch (e) { /* ignore */ }
+            }, [nodes, edges]);
+
+            // Refresh lucide icons after React render
+            useEffect(() => {
+                if (window.lucide) {
+                    setTimeout(() => window.lucide.createIcons(), 50);
+                }
+            });
+
+            // Re-validate DAG to show banner
+            const dag = useMemo(() => topoSort(nodes, edges), [nodes, edges]);
+
+            return (
+                <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr 320px', gridTemplateRows: 'auto 1fr', height: '100vh', gap: 12, padding: 12 }}>
+                    {/* Top toolbar spans all columns */}
+                    <div className="glass-panel" style={{ gridColumn: '1 / -1', borderRadius: 14, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <i data-lucide="git-fork" style={{ width: 22, height: 22, color: '#5b8def' }}></i>
+                            <div>
+                                <div style={{ fontWeight: 700, fontSize: 16 }}>Dynamic DAG Editor</div>
+                                <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>React Flow · 動態展開/收合 · 批次操作 · 深度控制</div>
+                            </div>
+                        </div>
+                        <div style={{ flex: 1 }} />
+                        <button className="btn" onClick={expandAll} title="展開所有節點">
+                            <i data-lucide="maximize-2" style={{ width: 14, height: 14 }}></i> 全部展開
+                        </button>
+                        <button className="btn" onClick={collapseAll} title="收合所有節點">
+                            <i data-lucide="minimize-2" style={{ width: 14, height: 14 }}></i> 全部收合
+                        </button>
+                        <button className="btn" onClick={() => collapseToDepth(2)}>
+                            <i data-lucide="layers" style={{ width: 14, height: 14 }}></i> 收合到深度 2
+                        </button>
+                        <button className="btn" onClick={autoLayout}>
+                            <i data-lucide="align-justify" style={{ width: 14, height: 14 }}></i> 自動佈局
+                        </button>
+                        <button className="btn" onClick={() => { setNodes(DEFAULT_NODES); setEdges(DEFAULT_EDGES); setCollapsed(new Set()); setHidden(new Set()); }}>
+                            <i data-lucide="rotate-ccw" style={{ width: 14, height: 14 }}></i> 重置
+                        </button>
+                        <button className="btn" onClick={() => setShowHelp(s => !s)}>
+                            <i data-lucide="help-circle" style={{ width: 14, height: 14 }}></i> 說明
+                        </button>
+                    </div>
+
+                    {/* Left: Blueprint Tree */}
+                    <div className="glass-panel" style={{ gridColumn: '1 / 2', gridRow: '2 / 3', borderRadius: 14, padding: 12, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                            <i data-lucide="network" style={{ width: 16, height: 16, color: '#7c5cff' }}></i>
+                            <div style={{ fontWeight: 600 }}>藍圖樹</div>
+                            <span className="chip" style={{ marginLeft: 'auto' }}>{nodes.length} 節點</span>
+                        </div>
+                        <BlueprintTree
+                            nodes={nodes}
+                            edges={edges}
+                            collapsed={collapsed}
+                            hidden={hidden}
+                            onToggle={toggleCollapse}
+                            onSelect={selectNode}
+                            onToggleVisibility={toggleVisibility}
+                            selectedId={selectedId}
+                        />
+                    </div>
+
+                    {/* Center: Canvas */}
+                    <div className="glass-panel-strong" style={{ gridColumn: '2 / 3', gridRow: '2 / 3', borderRadius: 14, overflow: 'hidden', position: 'relative', minHeight: 0 }}>
+                        <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <select value={viewMode} onChange={(e) => setViewMode(e.target.value)}>
+                                <option value="all">視圖：全部</option>
+                                <option value="roots">視圖：僅根節點</option>
+                                <option value="depth">視圖：按深度過濾</option>
+                            </select>
+                            {viewMode === 'depth' && (
+                                <input type="number" min="1" max="20" value={depthLimit}
+                                       onChange={(e) => setDepthLimit(parseInt(e.target.value || '1', 10))}
+                                       style={{ width: 80 }} />
+                            )}
+                            <span className="chip">可見 {decoratedNodes.length} / {nodes.length}</span>
+                            <span className={`chip ${dag.hasCycle ? 'badge-bad' : 'badge-ok'}`}>
+                                {dag.hasCycle ? '⛔ 循環' : '✅ DAG'}
+                            </span>
+                        </div>
+
+                        <div style={{ position: 'absolute', top: 10, right: 10, zIndex: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <span style={{ fontSize: 11, color: 'var(--text-dim)' }}>新增節點 →</span>
+                            <select value={newNodeKind} onChange={(e) => setNewNodeKind(e.target.value)}>
+                                {NODE_TYPES.map(t => <option key={t} value={t}>{TYPE_META[t].label}</option>)}
+                            </select>
+                            <input type="text" placeholder="標籤（可選）" value={newNodeLabel}
+                                   onChange={(e) => setNewNodeLabel(e.target.value)}
+                                   onKeyDown={(e) => { if (e.key === 'Enter') addRoot(); }}
+                                   style={{ width: 140 }} />
+                            <button className="btn btn-primary" onClick={addRoot}>
+                                <i data-lucide="plus" style={{ width: 14, height: 14 }}></i> 加根節點
+                            </button>
+                        </div>
+
+                        <ReactFlow
+                            nodes={decoratedNodes}
+                            edges={decoratedEdges}
+                            onNodesChange={onNodesChange}
+                            onEdgesChange={onEdgesChange}
+                            onConnect={onConnect}
+                            onNodeClick={onNodeClick}
+                            nodeTypes={nodeTypes}
+                            fitView
+                            fitViewOptions={{ padding: 0.2 }}
+                            minZoom={0.2}
+                            maxZoom={2}
+                            proOptions={{ hideAttribution: true }}
+                        >
+                            <Background variant="dots" gap={16} size={1} color="rgba(120,140,220,0.18)" />
+                            <Controls />
+                            <MiniMap pannable zoomable nodeColor={(n) => (TYPE_META[n.data.kind || 'process'] || TYPE_META.process).color} />
+                        </ReactFlow>
+
+                        {showHelp && (
+                            <div className="glass-panel" style={{ position: 'absolute', bottom: 16, left: 16, right: 16, padding: 14, borderRadius: 12, maxHeight: 200, overflowY: 'auto', zIndex: 20 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                    <strong>使用說明</strong>
+                                    <button className="btn" onClick={() => setShowHelp(false)}>關閉</button>
+                                </div>
+                                <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, lineHeight: 1.7, color: 'var(--text-dim)' }}>
+                                    <li>拖曳節點移動；從節點右側 Handle 拉到另一節點左側 Handle 即可連線。</li>
+                                    <li>點選任一節點可看到該節點的「展開 / 收合 / +子節點 / 刪除」操作。</li>
+                                    <li>左側「藍圖樹」與畫布雙向同步：點樹上的節點會讓畫布跟著移動並反白高亮。</li>
+                                    <li>工具列「全部展開 / 全部收合 / 收合到深度 2」是批次操作；右上「視圖」可按深度過濾。</li>
+                                    <li>節點右側「+ 子節點」會自動接到該節點；刪除節點會連同子孫一併清掉。</li>
+                                    <li>側邊統計面板即時顯示節點數、邊數、展開率、最大深度、DAG 合法性。</li>
+                                    <li>整體狀態會自動保存在 localStorage（key: <code>dag_editor_state_v1</code>），重整不會掉。</li>
+                                </ul>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Right: Stats Panel */}
+                    <div className="glass-panel" style={{ gridColumn: '3 / 4', gridRow: '2 / 3', borderRadius: 14, padding: 12, display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0, overflowY: 'auto' }} >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <i data-lucide="bar-chart-3" style={{ width: 16, height: 16, color: '#22d3a8' }}></i>
+                            <div style={{ fontWeight: 600 }}>即時統計</div>
+                        </div>
+                        <StatsPanel
+                            nodes={nodes}
+                            edges={edges}
+                            collapsed={collapsed}
+                            hidden={hidden}
+                            depthLimit={depthLimit}
+                            viewMode={viewMode}
+                        />
+
+                        <div style={{ marginTop: 8, fontWeight: 600, fontSize: 13 }}>選中節點</div>
+                        {selectedId ? (
+                            <SelectedEditor
+                                node={nodes.find(n => n.id === selectedId)}
+                                onLabel={(newLabel) => {
+                                    setNodes(prev => prev.map(n => n.id === selectedId ? { ...n, data: { ...n.data, label: newLabel } } : n));
+                                }}
+                                onHide={() => { setHidden(prev => new Set(prev).add(selectedId)); setSelectedId(null); }}
+                                onFocus={() => {
+                                    const node = nodes.find(n => n.id === selectedId);
+                                    if (node) reactFlow.setCenter(node.position.x + 80, node.position.y + 30, { zoom: 1.4, duration: 500 });
+                                }}
+                                onDelete={() => onDelete(selectedId)}
+                            />
+                        ) : (
+                            <div style={{ color: 'var(--text-dim)', fontSize: 13, padding: 8 }}>尚未選取節點</div>
+                        )}
+
+                        <div style={{ marginTop: 8, fontWeight: 600, fontSize: 13 }}>節點類型</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                            {NODE_TYPES.map(t => (
+                                <div key={t} className="stat-card" style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                    <span style={{ width: 10, height: 10, borderRadius: 5, background: TYPE_META[t].color }}></span>
+                                    <span style={{ fontSize: 12 }}>{TYPE_META[t].label}</span>
+                                    <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 700 }}>
+                                        {nodes.filter(n => (n.data.kind || 'process') === t).length}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // ---------- Selected Node Editor ----------
+        function SelectedEditor({ node, onLabel, onHide, onFocus, onDelete }) {
+            const [label, setLabel] = useState(node?.data?.label || '');
+            useEffect(() => { setLabel(node?.data?.label || ''); }, [node]);
+            if (!node) return null;
+            return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 8, borderRadius: 10, background: 'rgba(15,22,48,0.6)', border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>ID: {node.id}</div>
+                    <input type="text" value={label} onChange={(e) => setLabel(e.target.value)}
+                           onBlur={() => onLabel(label)}
+                           onKeyDown={(e) => { if (e.key === 'Enter') onLabel(label); }}
+                           style={{ width: '100%' }} />
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <button className="btn" onClick={onFocus}><i data-lucide="crosshair" style={{ width: 13, height: 13 }}></i> 聚焦</button>
+                        <button className="btn" onClick={onHide}><i data-lucide="eye-off" style={{ width: 13, height: 13 }}></i> 隱藏</button>
+                        <button className="btn btn-danger" onClick={onDelete}><i data-lucide="trash-2" style={{ width: 13, height: 13 }}></i> 刪除</button>
+                    </div>
+                </div>
+            );
+        }
+
+        // ---------- App Root ----------
+        function App() {
+            return (
+                <ReactFlowProvider>
+                    <DagEditor />
+                </ReactFlowProvider>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+
+        // Initial icon render
+        setTimeout(() => { if (window.lucide) window.lucide.createIcons(); }, 200);
+    </script>
+</body>
+</html>

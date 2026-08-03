@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>會議通知機器人 — 控制儀表板</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- ECharts：CDN 優先、fallback 內嵌佔位 -->
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"
+        onerror="this.onerror=null;window.__ECHARTS_FAILED__=true;console.warn('CDN fail, falling back')"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft JhengHei", "PingFang TC", sans-serif;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    color: #e2e8f0;
+    min-height: 100vh;
+    padding: 24px;
+  }
+  header {
+    max-width: 1200px;
+    margin: 0 auto 24px;
+  }
+  h1 { font-size: 28px; margin-bottom: 8px; color: #f8fafc; }
+  .subtitle { color: #94a3b8; font-size: 14px; line-height: 1.6; }
+  .badge {
+    display: inline-block;
+    background: #10b981;
+    color: #064e3b;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-right: 6px;
+  }
+  .grid {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  @media (max-width: 880px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: rgba(30, 41, 59, 0.7);
+    border: 1px solid #334155;
+    border-radius: 12px;
+    padding: 20px;
+    backdrop-filter: blur(10px);
+  }
+  .card h2 {
+    font-size: 16px;
+    color: #f8fafc;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card h2 .icon { font-size: 20px; }
+  #timeline-chart { width: 100%; height: 380px; }
+  #flow-chart { width: 100%; height: 280px; }
+  ul.feature-list { list-style: none; padding: 0; }
+  ul.feature-list li {
+    padding: 8px 0;
+    border-bottom: 1px solid #334155;
+    color: #cbd5e1;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  ul.feature-list li:last-child { border-bottom: none; }
+  ul.feature-list li b { color: #38bdf8; }
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .demo-btn {
+    background: #1e293b;
+    border: 1px solid #475569;
+    color: #cbd5e1;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .demo-btn:hover { background: #334155; border-color: #38bdf8; color: #f8fafc; }
+  .demo-btn.ack { background: #064e3b; border-color: #10b981; color: #d1fae5; }
+  .demo-btn.snooze { background: #422006; border-color: #f59e0b; color: #fed7aa; }
+  .demo-btn.cancel { background: #450a0a; border-color: #ef4444; color: #fecaca; }
+  #demo-output {
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 12px;
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 13px;
+    color: #94a3b8;
+    min-height: 80px;
+  }
+  #demo-output .ts { color: #64748b; }
+  #demo-output .ok { color: #10b981; }
+  #demo-output .warn { color: #f59e0b; }
+  #demo-output .err { color: #ef4444; }
+  footer {
+    max-width: 1200px;
+    margin: 24px auto 0;
+    text-align: center;
+    color: #64748b;
+    font-size: 12px;
+  }
+  footer code { color: #94a3b8; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📅 會議通知機器人 控制儀表板</h1>
+  <p class="subtitle">
+    <span class="badge">Google Calendar API</span>
+    <span class="badge">Telegram Bot</span>
+    <span class="badge">Device Code Flow</span>
+    <span class="badge">APScheduler</span>
+    <br>
+    整合 Google Calendar 與 Telegram 的即時會議提醒系統 — OAuth 不需瀏覽器、inline keyboard 即時互動。
+  </p>
+</header>
+
+<div class="grid">
+  <!-- 卡片 1: 未來 24 小時事件時間軸 -->
+  <section class="card">
+    <h2><span class="icon">📊</span> 未來 24 小時事件時間軸</h2>
+    <div id="timeline-chart"></div>
+    <p class="subtitle" style="margin-top: 12px;">
+      即時模擬資料；正式部署時 <code>bot.py</code> 每 30 秒呼叫 <code>events.list</code> 更新。
+    </p>
+  </section>
+
+  <!-- 卡片 2: 互動流程（樹狀圖） -->
+  <section class="card">
+    <h2><span class="icon">🌳</span> 互動決策流程</h2>
+    <div id="flow-chart"></div>
+  </section>
+
+  <!-- 卡片 3: 功能與指令 -->
+  <section class="card">
+    <h2><span class="icon">💡</span> 支援指令</h2>
+    <ul class="feature-list">
+      <li><b>/start</b> — 確認 bot 活著，回傳 chat_id 與 user_id</li>
+      <li><b>/today</b> — 列出今天剩餘事件</li>
+      <li><b>/week</b> — 列出未來 7 天事件</li>
+      <li><b>/add</b> 明天 3 點 跟 John 開會 — 自然語言建立事件</li>
+      <li><b>/reschedule</b> &lt;event_id&gt; 10 — 延後 10 分鐘</li>
+    </ul>
+  </section>
+
+  <!-- 卡片 4: Inline 互動 demo -->
+  <section class="card">
+    <h2><span class="icon">🎮</span> 提醒按鈕互動（模擬）</h2>
+    <p class="subtitle">正式部署時由 Telegram 推播時附加，點擊會 callback 到 bot。</p>
+    <div class="btn-row">
+      <button class="demo-btn ack" data-action="ack">✅ 確認</button>
+      <button class="demo-btn snooze" data-action="snooze">⏰ 延後 5 分</button>
+      <button class="demo-btn cancel" data-action="cancel">❌ 取消</button>
+    </div>
+    <div id="demo-output">
+      <span class="ts">[demo]</span> 點上方按鈕模擬使用者回應...<br>
+    </div>
+  </section>
+</div>
+
+<footer>
+  <code>calendar_client.py</code> + <code>bot.py</code> · 部署請見 README.md ·
+  token 存放 <code>~/.local/share/hermes/secrets/</code> (chmod 600)
+</footer>
+
+<script>
+  // ============================================================
+  //  內嵌 fallback ECharts (CDN 失效時使用)
+  // ============================================================
+  // CDN 載入是 async，DOMContentLoaded 之後再 init
+  window.addEventListener('DOMContentLoaded', () => {
+    if (window.__ECHARTS_FAILED__) {
+      document.getElementById('timeline-chart').innerHTML =
+        '<p style="text-align:center;color:#94a3b8;padding:80px 20px">' +
+        '⚠️ ECharts CDN 載入失敗<br>請確認網路或下載 echarts.min.js 放到本機' +
+        '</p>';
+      document.getElementById('flow-chart').innerHTML =
+        '<p style="text-align:center;color:#94a3b8;padding:60px 20px">CDN fail</p>';
+      return;
+    }
+    if (typeof echarts === 'undefined') {
+      setTimeout(() => {
+        if (typeof echarts !== 'undefined') {
+          initTimelineChart();
+          initFlowChart();
+        } else {
+          document.getElementById('timeline-chart').innerHTML =
+            '<p style="text-align:center;color:#ef4444;padding:80px 20px">echarts 載入逾時</p>';
+        }
+      }, 500);
+      return;
+    }
+    initTimelineChart();
+    initFlowChart();
+  });
+
+  function initTimelineChart() {
+    // 用 ECharts 標準 scatter + 自訂 symbolSize/position，
+    // 達到 Gantt-like 時間區間視覺，避開 custom series 的繁瑣設定。
+    const events = [
+      { name: '週會',         start: 0.5, end: 1.5,  color: '#38bdf8' },
+      { name: '1:1 跟 John',  start: 3,   end: 3.5,  color: '#a78bfa' },
+      { name: '午餐',         start: 5,   end: 6,    color: '#fbbf24' },
+      { name: 'Code Review',  start: 7,   end: 8.5,  color: '#38bdf8' },
+      { name: '專注時段',     start: 9,   end: 11.5, color: '#10b981' },
+      { name: '客戶 demo',    start: 13,  end: 14,   color: '#f472b6' },
+      { name: '設計 review',  start: 15,  end: 16,   color: '#38bdf8' },
+      { name: '社交活動',     start: 19,  end: 21,   color: '#f59e0b' },
+    ];
+
+    // 用 bar series：每個事件兩個 bar 疊出區間（base + length）
+    // 簡化做法：每事件 = 1 個 bar，data = [起, 終 - 起] 起 stack = 透明
+    const names = events.map(e => e.name);
+    const starts = events.map(e => e.start);
+    const lengths = events.map(e => e.end - e.start);
+    const colors = events.map(e => e.color);
+
+    const option = {
+      tooltip: {
+        formatter: (p) => {
+          const i = p.dataIndex;
+          const ev = events[i];
+          const h = Math.floor(ev.start), m = Math.round((ev.start - h) * 60);
+          const dur = Math.round((ev.end - ev.start) * 60);
+          return `<b>${ev.name}</b><br>${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')} 起 · ${dur} 分鐘`;
+        }
+      },
+      grid: { top: 20, left: 110, right: 30, bottom: 40 },
+      xAxis: {
+        type: 'value', min: 0, max: 24, interval: 2,
+        name: '未來小時', nameLocation: 'middle', nameGap: 25,
+        nameTextStyle: { color: '#94a3b8' },
+        axisLabel: { formatter: (v) => `+${v}h`, color: '#94a3b8' },
+        splitLine: { lineStyle: { color: '#334155', type: 'dashed' } },
+      },
+      yAxis: {
+        type: 'category', data: names,
+        axisLabel: { color: '#cbd5e1', fontSize: 12 },
+        axisLine: { show: false },
+        axisTick: { show: false },
+      },
+      series: [
+        // 透明墊底：把 bar 推到正確起點
+        {
+          name: '_pad', type: 'bar', stack: 'total',
+          data: starts,
+          itemStyle: { color: 'transparent' },
+          tooltip: { show: false },
+        },
+        // 實際可見的區間
+        {
+          name: '事件', type: 'bar', stack: 'total',
+          data: lengths.map((d, i) => ({ value: d, itemStyle: { color: colors[i], borderRadius: [3,3,3,3] } })),
+          label: {
+            show: true, position: 'inside',
+            formatter: (p) => {
+              const i = p.dataIndex;
+              const dur = Math.round((events[i].end - events[i].start) * 60);
+              return dur + '分';
+            },
+            color: '#0f172a', fontSize: 11, fontWeight: 600,
+          },
+          barWidth: 18,
+          animationDuration: 800,
+        },
+      ],
+    };
+    const chart = echarts.init(document.getElementById('timeline-chart'));
+    chart.setOption(option);
+    window.addEventListener('resize', () => chart.resize());
+  }
+
+  function initFlowChart() {
+    // 樹狀圖：展示「使用者收到提醒 → 三個選擇 → 後續」流程
+    const data = {
+      name: '收到提醒',
+      children: [
+        { name: '✅ 確認', children: [
+          { name: '標記 notified' },
+          { name: '不再打擾' },
+        ]},
+        { name: '⏰ 延後 5 分', children: [
+          { name: 'patch 行事曆' },
+          { name: '5 分鐘後再推' },
+        ]},
+        { name: '❌ 取消', children: [
+          { name: 'events.delete' },
+          { name: '回報訊息' },
+        ]},
+      ],
+    };
+    const option = {
+      tooltip: { trigger: 'item', triggerOn: 'mousemove' },
+      series: [{
+        type: 'tree',
+        data: [data],
+        top: '5%', left: '10%', bottom: '5%', right: '15%',
+        symbolSize: 8,
+        label: { position: 'left', verticalAlign: 'middle', align: 'right', color: '#cbd5e1' },
+        leaves: { label: { position: 'right', align: 'left', verticalAlign: 'middle', color: '#94a3b8' } },
+        expandAndCollapse: true,
+        animationDuration: 550,
+        animationDurationUpdate: 750,
+        initialTreeDepth: 2,
+        lineStyle: { color: '#475569', curveness: 0.5 },
+        itemStyle: { color: '#38bdf8', borderColor: '#0ea5e9' },
+      }],
+    };
+    echarts.init(document.getElementById('flow-chart')).setOption(option);
+  }
+
+  // ============================================================
+  //  Inline 互動 demo
+  // ============================================================
+  const output = document.getElementById('demo-output');
+  function log(cls, msg) {
+    const ts = new Date().toLocaleTimeString('zh-TW', { hour12: false });
+    output.insertAdjacentHTML('beforeend',
+      `<div><span class="ts">[${ts}]</span> <span class="${cls}">${msg}</span></div>`);
+    output.scrollTop = output.scrollHeight;
+  }
+  document.querySelectorAll('.demo-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const action = btn.dataset.action;
+      const fakeEventId = 'evt_demo_' + Math.random().toString(36).slice(2, 8);
+      if (action === 'ack') {
+        log('ok', `callback_data=ack:${fakeEventId} → state.json notified_event_ids append`);
+      } else if (action === 'snooze') {
+        log('warn', `callback_data=snooze:${fakeEventId} → events.patch(+5min) + state.snooze_until set`);
+      } else if (action === 'cancel') {
+        log('err', `callback_data=cancel:${fakeEventId} → events.delete → 訊息改為 🗑️`);
+      }
+    });
+  });
+</script>
+</body>
+</html>

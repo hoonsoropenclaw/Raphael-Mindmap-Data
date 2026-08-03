@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="zh-Hant" data-theme="aurora">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Glassmorphism 跨瀏覽器動態渲染實驗室 — Playwright Chromium / Firefox / WebKit 一致性驗證" />
+<title>Glassmorphism Lab · 跨瀏覽器動態渲染</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" />
+
+<!-- ============================================================
+     Tailwind runtime config — 讓 class 直接綁定 CSS 變數
+     重用: tailwind_dynamic_theme_switch 微技能
+     ============================================================ -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: ['class', '[data-theme="midnight"], [data-theme="noir"]'],
+    theme: {
+      extend: {
+        colors: {
+          surface:  'rgb(var(--c-surface)  / <alpha-value>)',
+          panel:    'rgb(var(--c-panel)    / <alpha-value>)',
+          fg:       'rgb(var(--c-fg)       / <alpha-value>)',
+          muted:    'rgb(var(--c-muted)    / <alpha-value>)',
+          line:     'rgb(var(--c-line)     / <alpha-value>)',
+          primary:  'rgb(var(--c-primary)  / <alpha-value>)',
+          accent:   'rgb(var(--c-accent)   / <alpha-value>)',
+          ok:       'rgb(var(--c-ok)       / <alpha-value>)',
+          warn:     'rgb(var(--c-warn)     / <alpha-value>)',
+          danger:   'rgb(var(--c-danger)   / <alpha-value>)',
+        },
+        fontFamily: {
+          sans: ['Inter', 'system-ui', '-apple-system', 'PingFang TC', 'Microsoft JhengHei', 'sans-serif'],
+          mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
+        },
+        borderRadius: { '2xl': '1.25rem', '3xl': '1.75rem' },
+        boxShadow: {
+          glow:   '0 0 0 1px rgb(var(--c-primary) / .4), 0 12px 40px rgb(var(--c-primary) / .28)',
+          panel:  '0 24px 80px rgb(var(--c-shadow) / .45)',
+          card:   '0 10px 40px -10px rgb(var(--c-shadow) / .5)',
+        },
+        transitionTimingFunction: { spring: 'cubic-bezier(0.34, 1.56, 0.64, 1)' },
+        animation: {
+          'fade-in-up':  'fadeInUp .55s cubic-bezier(.2,.7,.2,1) both',
+          'pulse-slow':  'pulseSlow 2.4s ease-in-out infinite',
+          'shimmer':     'shimmer 2.4s linear infinite',
+          'spin-slow':   'spin 18s linear infinite',
+        },
+        keyframes: {
+          fadeInUp: { '0%': { opacity: 0, transform: 'translateY(14px)' }, '100%': { opacity: 1, transform: 'translateY(0)' } },
+          pulseSlow: { '0%,100%': { opacity: 1 }, '50%': { opacity: .55 } },
+          shimmer: { '0%': { backgroundPosition: '-200% 0' }, '100%': { backgroundPosition: '200% 0' } },
+        },
+      },
+    },
+  };
+</script>
+
+<!-- ============================================================
+     設計系統 — 4 套主題 (AURORA / SUNSET / MIDNIGHT / NOIR)
+     每套都重新計算 glass 所需的 alpha / blur,確保 backdrop-filter
+     在不同亮度背景下都能產生正確的玻璃擬態對比
+     ============================================================ -->
+<style>
+  :root, [data-theme="aurora"] {
+    --c-surface: 255 255 255;
+    --c-panel:   255 255 255;
+    --c-fg:      15 23 42;
+    --c-muted:   71 85 105;
+    --c-line:    148 163 184;
+    --c-primary: 99 102 241;
+    --c-accent:  236 72 153;
+    --c-ok:      16 185 129;
+    --c-warn:    245 158 11;
+    --c-danger:  239 68 68;
+    --c-shadow:  15 23 42;
+    --glass-bg:   rgba(255, 255, 255, 0.40);
+    --glass-bg-2: rgba(255, 255, 255, 0.22);
+    --glass-border: rgba(255, 255, 255, 0.65);
+    --glass-shadow: 0 24px 80px rgba(15, 23, 42, .22);
+    --orb-a: #818cf8;
+    --orb-b: #f472b6;
+    --orb-c: #22d3ee;
+    --orb-d: #fbbf24;
+    --orb-opacity: 0.70;
+    --grid-color: rgba(15, 23, 42, .04);
+  }
+
+  [data-theme="sunset"] {
+    --c-surface: 255 251 235;
+    --c-panel:   255 247 237;
+    --c-fg:      69 26 3;
+    --c-muted:   124 45 18;
+    --c-line:    180 83 9;
+    --c-primary: 234 88 12;
+    --c-accent:  244 114 182;
+    --c-ok:      22 163 74;
+    --c-warn:    202 138 4;
+    --c-danger:  220 38 38;
+    --c-shadow:  124 45 18;
+    --glass-bg:   rgba(255, 247, 237, 0.40);
+    --glass-bg-2: rgba(255, 237, 213, 0.25);
+    --glass-border: rgba(255, 255, 255, 0.65);
+    --glass-shadow: 0 24px 80px rgba(124, 45, 18, .22);
+    --orb-a: #fb923c;
+    --orb-b: #f472b6;
+    --orb-c: #facc15;
+    --orb-d: #ef4444;
+    --orb-opacity: 0.70;
+    --grid-color: rgba(124, 45, 18, .05);
+  }
+
+  [data-theme="midnight"] {
+    --c-surface: 17 24 39;
+    --c-panel:   30 41 59;
+    --c-fg:      241 245 249;
+    --c-muted:   203 213 225;   /* 提高 muted 亮度,確保 glass 上的 label 對比足夠 */
+    --c-line:    71 85 105;
+    --c-primary: 129 140 248;
+    --c-accent:  244 114 182;
+    --c-ok:      52 211 153;
+    --c-warn:    251 191 36;
+    --c-danger:  248 113 113;
+    --c-shadow:  0 0 0;
+    --glass-bg:   rgba(30, 41, 59, 0.28);  /* 降低不透明度,讓 backdrop-filter blur 真正透出背景 */
+    --glass-bg-2: rgba(30, 41, 59, 0.18);
+    --glass-border: rgba(148, 163, 184, 0.30);
+    --glass-shadow: 0 24px 80px rgba(0, 0, 0, .55);
+    --orb-a: #6366f1;
+    --orb-b: #ec4899;
+    --orb-c: #06b6d4;
+    --orb-d: #a855f7;
+    --orb-opacity: 0.85;
+    --grid-color: rgba(148, 163, 184, .06);
+  }
+
+  [data-theme="noir"] {
+    --c-surface: 10 10 10;
+    --c-panel:   23 23 23;
+    --c-fg:      250 250 250;
+    --c-muted:   212 212 216;   /* 提高 muted 亮度 */
+    --c-line:    64 64 64;
+    --c-primary: 250 250 250;
+    --c-accent:  163 230 53;
+    --c-ok:      74 222 128;
+    --c-warn:    250 204 21;
+    --c-danger:  248 113 113;
+    --c-shadow:  0 0 0;
+    --glass-bg:   rgba(23, 23, 23, 0.30);
+    --glass-bg-2: rgba(23, 23, 23, 0.18);
+    --glass-border: rgba(250, 250, 250, 0.18);
+    --glass-shadow: 0 24px 80px rgba(0, 0, 0, .65);
+    --orb-a: #404040;
+    --orb-b: #a3e635;
+    --orb-c: #fafafa;
+    --orb-d: #71717a;
+    --orb-opacity: 0.55;
+    --grid-color: rgba(250, 250, 250, .05);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    font-family: 'Inter', system-ui, -apple-system, 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+    color: rgb(var(--c-fg));
+    background: rgb(var(--c-surface));
+    overflow-x: hidden;
+    transition: background-color .55s ease, color .55s ease;
+  }
+
+  /* ==========================================================
+     動態背景層 — 4 顆 blob orb 跟著 cursor / 時間緩慢漂浮
+     用 transform (compositor-only) 而非 top/left (layout)
+     ========================================================== */
+  .bg-canvas {
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    overflow: hidden;
+    isolation: isolate;
+    pointer-events: none;
+  }
+  .bg-canvas::before {
+    content: '';
+    position: absolute;
+    inset: -20%;
+    background:
+      radial-gradient(circle at 50% 50%, transparent 0%, rgb(var(--c-surface)) 80%);
+    z-index: 1;
+  }
+  .orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: var(--orb-opacity);
+    will-change: transform;
+    transform: translate3d(0,0,0);
+    transition: background-color .55s ease;
+  }
+  .orb[data-orb="a"] { width: 620px; height: 620px; left: -160px; top: -160px; background: var(--orb-a); }
+  .orb[data-orb="b"] { width: 560px; height: 560px; right: -120px; top: 12%; background: var(--orb-b); }
+  .orb[data-orb="c"] { width: 480px; height: 480px; left: 28%; bottom: -180px; background: var(--orb-c); }
+  .orb[data-orb="d"] { width: 420px; height: 420px; right: 8%; bottom: 4%; background: var(--orb-d); }
+
+  /* 細網格裝飾 */
+  .bg-grid {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image:
+      linear-gradient(var(--grid-color) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(circle at 50% 30%, black 30%, transparent 75%);
+    -webkit-mask-image: radial-gradient(circle at 50% 30%, black 30%, transparent 75%);
+  }
+
+  /* ==========================================================
+     Glass panel — 核心組件
+     -webkit- 前綴給 Safari
+     @supports fallback 給不支援的瀏覽器
+     ========================================================== */
+  .glass {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    border-radius: 1.5rem;
+    -webkit-backdrop-filter: blur(22px) saturate(150%);
+    backdrop-filter: blur(22px) saturate(150%);
+    transition: background-color .55s ease, border-color .55s ease, transform .35s cubic-bezier(.2,.7,.2,1);
+    will-change: transform;
+  }
+  .glass-soft {
+    background: var(--glass-bg-2);
+    border: 1px solid var(--glass-border);
+    border-radius: 1.25rem;
+    -webkit-backdrop-filter: blur(14px) saturate(135%);
+    backdrop-filter: blur(14px) saturate(135%);
+    transition: background-color .55s ease, border-color .55s ease;
+  }
+
+  @supports not ((backdrop-filter: blur(10px)) or (-webkit-backdrop-filter: blur(10px))) {
+    .glass { background: var(--glass-bg-2); }
+    .glass-soft { background: var(--glass-bg-2); }
+  }
+
+  /* hover micro-interaction */
+  .lift { transform: translateY(0); }
+  .lift:hover { transform: translateY(-3px); }
+
+  /* shimmer effect for KPI tiles */
+  .shimmer {
+    background-image: linear-gradient(110deg,
+      rgb(var(--c-surface) / 0) 30%,
+      rgb(var(--c-primary) / 0.18) 50%,
+      rgb(var(--c-surface) / 0) 70%);
+    background-size: 200% 100%;
+  }
+
+  /* ring focus for keyboard nav (Playwright keyboard.press('Tab')) */
+  :focus-visible { outline: 3px solid rgb(var(--c-primary)); outline-offset: 3px; border-radius: 6px; }
+
+  /* ==========================================================
+     主題切換 pill
+     ========================================================== */
+  .theme-chip {
+    cursor: pointer;
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--glass-border);
+    background: var(--glass-bg-2);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    color: rgb(var(--c-fg));
+    transition: transform .25s ease, background-color .25s ease;
+  }
+  .theme-chip[aria-pressed="true"] {
+    background: rgb(var(--c-primary));
+    color: white;
+    transform: scale(1.05);
+  }
+  .theme-chip:hover { transform: translateY(-1px); }
+
+  /* prefer-reduced-motion 友善 */
+  @media (prefers-reduced-motion: reduce) {
+    .orb, .glass { transition-duration: .01ms !important; animation: none !important; }
+  }
+</style>
+</head>
+
+<body>
+  <!-- 動態背景層 -->
+  <div class="bg-canvas" data-testid="bg-canvas">
+    <div class="orb" data-orb="a"></div>
+    <div class="orb" data-orb="b"></div>
+    <div class="orb" data-orb="c"></div>
+    <div class="orb" data-orb="d"></div>
+  </div>
+  <div class="bg-grid" aria-hidden="true"></div>
+
+  <main class="relative mx-auto px-6 py-12 md:py-16" style="max-width: 1180px;">
+    <!-- Header -->
+    <header class="flex flex-col md:flex-row md:items-end md:justify-between gap-6 mb-12">
+      <div class="animate-fade-in-up">
+        <div class="text-xs font-extrabold tracking-[.22em] uppercase text-primary mb-3">Cross-Browser Lab · 02</div>
+        <h1 class="font-extrabold leading-[.95] tracking-tight text-4xl md:text-6xl" data-testid="title">
+          Glassmorphism<br>動態渲染實驗室
+        </h1>
+        <p class="mt-4 max-w-xl text-base md:text-lg leading-relaxed" style="color: rgb(var(--c-muted));">
+          一個刻意設計成 <strong>高 backdrop-filter 負荷</strong> 的頁面，用來驗證 Chromium、Firefox 與 WebKit
+          三種引擎在玻璃擬態下的視覺一致、互動一致、以及 reduced-motion / prefers-color-scheme 的退路。
+        </p>
+      </div>
+
+      <div class="glass-soft p-5 md:p-6 animate-fade-in-up" data-testid="theme-switcher" role="group" aria-label="主題切換">
+        <div class="text-xs font-bold uppercase tracking-[.18em] mb-3" style="color: rgb(var(--c-muted));">Theme</div>
+        <div class="flex flex-wrap gap-2" id="theme-chips">
+          <button class="theme-chip" type="button" data-theme-value="aurora"   aria-pressed="true">Aurora</button>
+          <button class="theme-chip" type="button" data-theme-value="sunset"   aria-pressed="false">Sunset</button>
+          <button class="theme-chip" type="button" data-theme-value="midnight" aria-pressed="false">Midnight</button>
+          <button class="theme-chip" type="button" data-theme-value="noir"     aria-pressed="false">Noir</button>
+        </div>
+        <div class="mt-4 text-xs font-mono" style="color: rgb(var(--c-muted));" data-testid="active-theme">active: aurora</div>
+      </div>
+    </header>
+
+    <!-- KPI 區 -->
+    <section class="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-5 mb-8" aria-label="效能指標">
+      <article class="glass p-5 lift animate-fade-in-up" data-testid="kpi-fps" style="animation-delay: .05s">
+        <div class="text-xs font-bold uppercase tracking-wider" style="color: rgb(var(--c-muted));">Avg FPS</div>
+        <div class="mt-2 font-extrabold text-3xl tabular-nums" data-kpi="fps">—</div>
+        <div class="mt-1 text-xs" style="color: rgb(var(--c-muted));">60-frame rolling</div>
+      </article>
+      <article class="glass p-5 lift animate-fade-in-up" data-testid="kpi-blur" style="animation-delay: .1s">
+        <div class="text-xs font-bold uppercase tracking-wider" style="color: rgb(var(--c-muted));">Backdrop Blur</div>
+        <div class="mt-2 font-extrabold text-3xl tabular-nums" data-kpi="blur">22<span class="text-base font-bold ml-1">px</span></div>
+        <div class="mt-1 text-xs" style="color: rgb(var(--c-muted));">saturate(150%)</div>
+      </article>
+      <article class="glass p-5 lift animate-fade-in-up" data-testid="kpi-orb" style="animation-delay: .15s">
+        <div class="text-xs font-bold uppercase tracking-wider" style="color: rgb(var(--c-muted));">Live Orbs</div>
+        <div class="mt-2 font-extrabold text-3xl tabular-nums" data-kpi="orbs">4</div>
+        <div class="mt-1 text-xs" style="color: rgb(var(--c-muted));">cursor-following</div>
+      </article>
+      <article class="glass p-5 lift animate-fade-in-up relative overflow-hidden" data-testid="kpi-glass" style="animation-delay: .2s">
+        <div class="absolute inset-0 shimmer animate-shimmer pointer-events-none" aria-hidden="true"></div>
+        <div class="text-xs font-bold uppercase tracking-wider" style="color: rgb(var(--c-muted));">Glass Layers</div>
+        <div class="mt-2 font-extrabold text-3xl tabular-nums" data-kpi="layers">6</div>
+        <div class="mt-1 text-xs" style="color: rgb(var(--c-muted));">recursive backdrop-filter</div>
+      </article>
+    </section>
+
+    <!-- 主內容區 2 欄 -->
+    <section class="grid grid-cols-1 lg:grid-cols-5 gap-5">
+      <article class="glass p-6 md:p-8 lg:col-span-3 animate-fade-in-up" style="animation-delay: .25s" data-testid="panel-tasks">
+        <header class="flex items-start justify-between gap-4 mb-5">
+          <div>
+            <h2 class="text-2xl md:text-3xl font-extrabold tracking-tight m-0">Pending tasks</h2>
+            <p class="mt-1 text-sm" style="color: rgb(var(--c-muted));">Hover 任務以觸發 micro-interaction；點擊切換完成狀態。</p>
+          </div>
+          <span class="glass-soft px-3 py-1 text-xs font-bold uppercase tracking-wider" style="color: rgb(var(--c-muted));" data-testid="task-counter">0 / 4</span>
+        </header>
+
+        <ul class="flex flex-col gap-3 list-none p-0 m-0" id="task-list">
+          <li class="glass-soft px-4 py-3 flex items-center gap-3 cursor-pointer lift" data-task data-task-id="t1" tabindex="0">
+            <span class="check w-5 h-5 rounded-full border-2 inline-flex items-center justify-center text-xs font-extrabold" style="border-color: rgb(var(--c-primary)); color: rgb(var(--c-primary));" aria-hidden="true"></span>
+            <span class="flex-1 text-sm font-medium">驗證 Chromium 的 backdrop-filter 像素邊界</span>
+            <span class="text-xs font-mono" style="color: rgb(var(--c-muted));">rendering</span>
+          </li>
+          <li class="glass-soft px-4 py-3 flex items-center gap-3 cursor-pointer lift" data-task data-task-id="t2" tabindex="0">
+            <span class="check w-5 h-5 rounded-full border-2 inline-flex items-center justify-center text-xs font-extrabold" style="border-color: rgb(var(--c-primary)); color: rgb(var(--c-primary));" aria-hidden="true"></span>
+            <span class="flex-1 text-sm font-medium">驗證 Firefox 的 backdrop-filter 支援</span>
+            <span class="text-xs font-mono" style="color: rgb(var(--c-muted));">rendering</span>
+          </li>
+          <li class="glass-soft px-4 py-3 flex items-center gap-3 cursor-pointer lift" data-task data-task-id="t3" tabindex="0">
+            <span class="check w-5 h-5 rounded-full border-2 inline-flex items-center justify-center text-xs font-extrabold" style="border-color: rgb(var(--c-primary)); color: rgb(var(--c-primary));" aria-hidden="true"></span>
+            <span class="flex-1 text-sm font-medium">驗證 WebKit 的 -webkit-backdrop-filter</span>
+            <span class="text-xs font-mono" style="color: rgb(var(--c-muted));">rendering</span>
+          </li>
+          <li class="glass-soft px-4 py-3 flex items-center gap-3 cursor-pointer lift" data-task data-task-id="t4" tabindex="0">
+            <span class="check w-5 h-5 rounded-full border-2 inline-flex items-center justify-center text-xs font-extrabold" style="border-color: rgb(var(--c-primary)); color: rgb(var(--c-primary));" aria-hidden="true"></span>
+            <span class="flex-1 text-sm font-medium">驗證 @supports fallback 對舊引擎的退路</span>
+            <span class="text-xs font-mono" style="color: rgb(var(--c-muted));">resilience</span>
+          </li>
+        </ul>
+
+        <div class="mt-6 flex flex-wrap gap-3">
+          <button id="btn-complete-all" class="theme-chip" type="button" aria-pressed="false">Mark all done</button>
+          <button id="btn-reset"        class="theme-chip" type="button" aria-pressed="false">Reset</button>
+        </div>
+      </article>
+
+      <aside class="glass p-6 md:p-7 lg:col-span-2 animate-fade-in-up flex flex-col" style="animation-delay: .3s" data-testid="panel-engine">
+        <h2 class="text-xl font-extrabold tracking-tight m-0 mb-1">Browser engine</h2>
+        <p class="text-sm" style="color: rgb(var(--c-muted));">於 Playwright 啟動時由 navigator.userAgent 自動識別。</p>
+        <dl class="mt-5 grid grid-cols-[110px_1fr] gap-y-3 gap-x-4 text-sm">
+          <dt style="color: rgb(var(--c-muted));">Engine</dt><dd class="font-mono font-bold" data-testid="engine-name">detecting…</dd>
+          <dt style="color: rgb(var(--c-muted));">Vendor</dt><dd class="font-mono" data-testid="engine-vendor">—</dd>
+          <dt style="color: rgb(var(--c-muted));">UA token</dt><dd class="font-mono text-xs break-all" data-testid="engine-ua">—</dd>
+          <dt style="color: rgb(var(--c-muted));">backdrop-filter</dt><dd class="font-mono" data-testid="engine-backdrop">checking…</dd>
+          <dt style="color: rgb(var(--c-muted));">@supports fallback</dt><dd class="font-mono" data-testid="engine-supports">checking…</dd>
+          <dt style="color: rgb(var(--c-muted));">prefers-color-scheme</dt><dd class="font-mono" data-testid="engine-pcs">checking…</dd>
+        </dl>
+      </aside>
+    </section>
+
+    <footer class="mt-12 text-xs flex flex-wrap items-center justify-between gap-3" style="color: rgb(var(--c-muted));">
+      <span>Glassmorphism Lab · powered by Playwright (Chromium / Firefox / WebKit)</span>
+      <span class="font-mono" data-testid="footer-tick">tick: —</span>
+    </footer>
+  </main>
+
+  <script>
+  (() => {
+    'use strict';
+
+    // -----------------------------------------------------------
+    // 1) 主題切換
+    // -----------------------------------------------------------
+    const root = document.documentElement;
+    const chips = [...document.querySelectorAll('[data-theme-value]')];
+    const activeThemeLabel = document.querySelector('[data-testid="active-theme"]');
+
+    function setTheme(theme) {
+      root.setAttribute('data-theme', theme);
+      chips.forEach(c => c.setAttribute('aria-pressed', String(c.dataset.themeValue === theme)));
+      if (activeThemeLabel) activeThemeLabel.textContent = `active: ${theme}`;
+    }
+    chips.forEach(chip => chip.addEventListener('click', () => setTheme(chip.dataset.themeValue)));
+
+    // -----------------------------------------------------------
+    // 2) Engine 偵測 + 特性偵測 — Playwright 跨瀏覽器斷言用
+    // -----------------------------------------------------------
+    const ua = navigator.userAgent;
+    let engine = 'unknown';
+    if (/Firefox\/\d+/i.test(ua) && !/Seamonkey/i.test(ua)) engine = 'firefox';
+    else if (/AppleWebKit\/[\d.]+ \(KHTML, like Gecko\)/i.test(ua) && !/Chrome|CriOS|Chromium|Edg/i.test(ua)) engine = 'webkit';
+    else if (/Chrome|Chromium|CriOS|Edg/i.test(ua)) engine = 'chromium';
+
+    const supportsBackdrop = CSS.supports('backdrop-filter', 'blur(10px)')
+                          || CSS.supports('-webkit-backdrop-filter', 'blur(10px)');
+    const fallbackActive   = !(CSS.supports('backdrop-filter', 'blur(10px)'))
+                          && !CSS.supports('-webkit-backdrop-filter', 'blur(10px)');
+
+    document.querySelector('[data-testid="engine-name"]').textContent     = engine;
+    document.querySelector('[data-testid="engine-vendor"]').textContent   = navigator.vendor || '—';
+    document.querySelector('[data-testid="engine-ua"]').textContent       = ua;
+    document.querySelector('[data-testid="engine-backdrop"]').textContent = supportsBackdrop ? 'supported' : 'unsupported';
+    document.querySelector('[data-testid="engine-supports"]').textContent = fallbackActive ? 'fallback active' : 'modern path';
+    document.querySelector('[data-testid="engine-pcs"]').textContent      = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+
+    // 對外暴露 — Playwright 用 page.evaluate() 讀取
+    window.__lab = {
+      engine,
+      supportsBackdrop,
+      fallbackActive,
+      ua,
+      vendor: navigator.vendor || '',
+      prefersDark: window.matchMedia('(prefers-color-scheme: dark)').matches,
+    };
+
+    // -----------------------------------------------------------
+    // 3) 任務清單互動
+    // -----------------------------------------------------------
+    const tasks = [...document.querySelectorAll('[data-task]')];
+    const counter = document.querySelector('[data-testid="task-counter"]');
+    function updateCounter() {
+      const done = tasks.filter(t => t.dataset.done === '1').length;
+      counter.textContent = `${done} / ${tasks.length}`;
+      window.__lab.doneCount = done;
+    }
+    tasks.forEach(t => {
+      const toggle = () => {
+        const next = t.dataset.done === '1' ? '0' : '1';
+        t.dataset.done = next;
+        const check = t.querySelector('.check');
+        if (next === '1') {
+          check.textContent = '✓';
+          check.style.background = 'rgb(var(--c-primary))';
+          check.style.color = 'white';
+          t.style.opacity = '0.62';
+        } else {
+          check.textContent = '';
+          check.style.background = 'transparent';
+          check.style.color = 'rgb(var(--c-primary))';
+          t.style.opacity = '1';
+        }
+        updateCounter();
+      };
+      t.addEventListener('click', toggle);
+      t.addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(); } });
+    });
+    document.getElementById('btn-complete-all').addEventListener('click', () => {
+      tasks.forEach(t => { if (t.dataset.done !== '1') t.click(); });
+    });
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      tasks.forEach(t => { if (t.dataset.done === '1') t.click(); });
+    });
+    updateCounter();
+
+    // -----------------------------------------------------------
+    // 4) Cursor-following orbs — 用 transform 而非 top/left
+    //    配 rAF + terminate-on-hidden,避免 Performance pitfall
+    // -----------------------------------------------------------
+    const orbs = [...document.querySelectorAll('.orb')];
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    const targets = orbs.map(() => ({ x: 0, y: 0, tx: 0, ty: 0 }));
+    let pointer = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    let running = true;
+
+    window.addEventListener('pointermove', e => {
+      pointer.x = e.clientX; pointer.y = e.clientY;
+    }, { passive: true });
+
+    document.addEventListener('visibilitychange', () => {
+      running = !document.hidden;
+      if (running) tick();
+    });
+
+    let last = performance.now();
+    let fpsBuf = [];
+    const fpsEl = document.querySelector('[data-kpi="fps"]');
+    const tickEl = document.querySelector('[data-testid="footer-tick"]');
+    let tickCount = 0;
+
+    function tick(now) {
+      if (!running) return;
+      const dt = now - last;
+      last = now;
+      tickCount++;
+      tickEl.textContent = `tick: ${tickCount} · dt ${dt.toFixed(1)}ms`;
+
+      fpsBuf.push(1000 / Math.max(dt, 1));
+      if (fpsBuf.length > 60) fpsBuf.shift();
+      if (tickCount % 10 === 0 && fpsEl) {
+        const avg = fpsBuf.reduce((a, b) => a + b, 0) / fpsBuf.length;
+        fpsEl.textContent = avg.toFixed(0);
+      }
+
+      // 每顆 orb 跟著 pointer 但有時間差,產生漂浮感
+      orbs.forEach((orb, i) => {
+        const t = targets[i];
+        t.tx = (pointer.x - window.innerWidth / 2)  * (0.06 + i * 0.025);
+        t.ty = (pointer.y - window.innerHeight / 2) * (0.06 + i * 0.025);
+        t.x += (t.tx - t.x) * 0.06;
+        t.y += (t.ty - t.y) * 0.06;
+        orb.style.transform = `translate3d(${t.x.toFixed(2)}px, ${t.y.toFixed(2)}px, 0)`;
+      });
+
+      window.__lab.lastFps = fpsBuf.reduce((a, b) => a + b, 0) / Math.max(fpsBuf.length, 1);
+      window.__lab.tickCount = tickCount;
+      requestAnimationFrame(tick);
+    }
+    if (!reduced) requestAnimationFrame(tick);
+    else { fpsEl.textContent = '—'; }
+
+    // -----------------------------------------------------------
+    // 5) 主題持久化 (localStorage)
+    // -----------------------------------------------------------
+    try {
+      const saved = localStorage.getItem('glass-lab-theme');
+      if (saved) setTheme(saved);
+      chips.forEach(c => c.addEventListener('click', () => {
+        try { localStorage.setItem('glass-lab-theme', c.dataset.themeValue); } catch (_) {}
+      }));
+    } catch (_) {}
+  })();
+  </script>
+</body>
+</html>

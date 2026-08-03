@@ -1,0 +1,1080 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>DAG 執行引擎 — 互動式 Demo</title>
+<style>
+  /* ===== Reset + 基礎 ===== */
+  *,*::before,*::after { box-sizing: border-box; }
+  :root {
+    --bg: #0b0f1a;
+    --panel: #121826;
+    --panel-2: #1a2233;
+    --border: #283142;
+    --text: #d8e1f0;
+    --muted: #7c8aa3;
+    --accent: #4cb1ff;
+    --accent-2: #6ee7c7;
+    --pending: #4f5b75;
+    --ready: #4cb1ff;
+    --running: #fbbf24;
+    --completed: #34d399;
+    --failed: #ef4444;
+    --skipped: #94a3b8;
+    --edge: #4f5b75;
+    --edge-active: #fbbf24;
+    --warn: #f59e0b;
+    --shadow: 0 10px 30px rgba(0,0,0,0.35);
+  }
+  html,body { margin:0; padding:0; height:100%; background:var(--bg); color:var(--text); font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft JhengHei","PingFang TC",sans-serif; }
+
+  /* ===== Layout ===== */
+  .app { display:grid; grid-template-columns: 280px 1fr 360px; grid-template-rows: 56px 1fr; height:100vh; }
+  header.topbar { grid-column: 1 / -1; background:var(--panel); border-bottom:1px solid var(--border); display:flex; align-items:center; padding:0 18px; gap:14px; }
+  header.topbar h1 { font-size:15px; font-weight:600; margin:0; letter-spacing:.3px; }
+  header.topbar .tag { font-size:11px; padding:3px 8px; border-radius:999px; background:rgba(76,177,255,.15); color:var(--accent); border:1px solid rgba(76,177,255,.4); }
+  header.topbar .spacer { flex:1 }
+  header.topbar .badge { font-size:11px; padding:3px 8px; border-radius:6px; background:var(--panel-2); color:var(--muted); border:1px solid var(--border); font-variant-numeric: tabular-nums; }
+
+  /* ===== Sidebar ===== */
+  aside.sidebar { background:var(--panel); border-right:1px solid var(--border); overflow-y:auto; padding:14px; }
+  aside.sidebar h2 { font-size:12px; text-transform:uppercase; letter-spacing:1.5px; color:var(--muted); margin:6px 0 10px; }
+  .preset { display:flex; flex-direction:column; gap:8px; }
+  .preset button { width:100%; text-align:left; background:var(--panel-2); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:10px 12px; cursor:pointer; font:inherit; transition: border-color .15s, background .15s; }
+  .preset button:hover { border-color:var(--accent); background:#1f293a; }
+  .preset button .name { font-weight:600; display:block; margin-bottom:3px; }
+  .preset button .desc { font-size:11px; color:var(--muted); }
+  .controls { display:flex; flex-direction:column; gap:8px; margin-top:18px; }
+  .controls button { background:var(--accent); color:#001220; border:none; border-radius:8px; padding:10px; cursor:pointer; font:inherit; font-weight:600; transition: filter .15s; }
+  .controls button:hover { filter:brightness(1.1); }
+  .controls button:disabled { background:var(--pending); color:#666; cursor:not-allowed; }
+  .controls button.secondary { background:var(--panel-2); color:var(--text); border:1px solid var(--border); font-weight:500; }
+  .controls button.danger { background:#3a1c1c; color:#fca5a5; border:1px solid #5b2828; }
+  .legend { margin-top:18px; background:var(--panel-2); border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
+  .legend h3 { margin:0 0 8px; font-size:11px; text-transform:uppercase; letter-spacing:1.2px; color:var(--muted); }
+  .legend .row { display:flex; align-items:center; gap:8px; padding:2px 0; font-size:12px; }
+  .legend .dot { width:12px; height:12px; border-radius:50%; flex-shrink:0; }
+  .stats { margin-top:14px; background:var(--panel-2); border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:12px; }
+  .stats .row { display:flex; justify-content:space-between; padding:3px 0; }
+  .stats .row .k { color:var(--muted); }
+  .stats .row .v { font-variant-numeric: tabular-nums; }
+
+  /* ===== Canvas ===== */
+  main.canvas { background: radial-gradient(circle at 30% 20%, #15233b 0%, #0b0f1a 70%); overflow:hidden; position:relative; }
+  main.canvas .info { position:absolute; top:12px; left:14px; background:rgba(18,24,38,0.7); backdrop-filter: blur(6px); border:1px solid var(--border); padding:8px 12px; border-radius:8px; font-size:12px; color:var(--muted); max-width:380px; }
+  main.canvas .info b { color:var(--text); }
+  main.canvas .info code { background:var(--panel-2); padding:1px 5px; border-radius:3px; font-family:"SF Mono","Cascadia Code",Consolas,monospace; font-size:11px; color:var(--accent-2); }
+  main.canvas svg { width:100%; height:100%; display:block; }
+  main.canvas svg .edge { stroke:var(--edge); stroke-width:2; fill:none; transition:stroke .3s; marker-end:url(#arrow); }
+  main.canvas svg .edge.active { stroke:var(--edge-active); stroke-width:3; }
+  main.canvas svg .node-rect { stroke-width:2; fill:var(--panel-2); stroke:var(--border); transition: fill .25s, stroke .25s, transform .25s; rx:10; ry:10; }
+  main.canvas svg .node-rect.pending { fill:#1a2233; stroke:var(--pending); }
+  main.canvas svg .node-rect.ready { fill:#152840; stroke:var(--ready); }
+  main.canvas svg .node-rect.running { fill:#3a2c0f; stroke:var(--running); animation:pulse 1s infinite; }
+  main.canvas svg .node-rect.completed { fill:#0f2a20; stroke:var(--completed); }
+  main.canvas svg .node-rect.failed { fill:#3a1414; stroke:var(--failed); }
+  main.canvas svg .node-rect.skipped { fill:#1a2233; stroke:var(--skipped); opacity:.55; }
+  @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.55 } }
+  main.canvas svg .node-text { fill:var(--text); font:600 13px/1 -apple-system,sans-serif; text-anchor:middle; pointer-events:none; }
+  main.canvas svg .node-meta { fill:var(--muted); font:11px/1 -apple-system,sans-serif; text-anchor:middle; pointer-events:none; }
+  main.canvas svg .layer-band { fill:rgba(76,177,255,.04); }
+
+  /* ===== Right Panel — events ===== */
+  section.events { background:var(--panel); border-left:1px solid var(--border); display:flex; flex-direction:column; }
+  section.events .head { padding:12px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; }
+  section.events .head h2 { font-size:13px; margin:0; }
+  section.events .head .pill { font-size:10px; padding:2px 7px; border-radius:999px; background:var(--panel-2); color:var(--muted); border:1px solid var(--border); font-variant-numeric: tabular-nums; }
+  section.events .stream { flex:1; overflow-y:auto; padding:8px 12px; font:12px/1.45 "SF Mono","Cascadia Code",Consolas,monospace; }
+  section.events .stream .ev { padding:4px 8px; border-radius:5px; margin-bottom:3px; border-left:3px solid var(--border); background:var(--panel-2); animation:slideIn .2s; }
+  @keyframes slideIn { from { opacity:0; transform:translateX(-6px); } to { opacity:1; transform:translateX(0); } }
+  section.events .stream .ev .ts { color:var(--muted); margin-right:6px; }
+  section.events .stream .ev .t { font-weight:600; }
+  section.events .stream .ev .n { color:var(--accent-2); }
+  section.events .stream .ev .p { color:var(--muted); margin-left:6px; }
+  section.events .stream .ev.dag_started   { border-left-color:var(--accent); }
+  section.events .stream .ev.dag_completed { border-left-color:var(--completed); }
+  section.events .stream .ev.dag_failed    { border-left-color:var(--failed); }
+  section.events .stream .ev.node_started   { border-left-color:var(--running); }
+  section.events .stream .ev.node_completed { border-left-color:var(--completed); }
+  section.events .stream .ev.node_failed    { border-left-color:var(--failed); }
+  section.events .stream .ev.node_retrying  { border-left-color:var(--warn); }
+  section.events .stream .ev.node_skipped   { border-left-color:var(--skipped); }
+  section.events .stream .ev.node_queued    { border-left-color:var(--ready); }
+  section.events .stream .ev.layer_started  { border-left-color:#a78bfa; }
+
+  /* ===== Modal / 添加节点表单 ===== */
+  .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:center; justify-content:center; z-index:100; }
+  .modal-bg.open { display:flex; }
+  .modal { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:18px 20px; min-width:320px; max-width:90vw; box-shadow:var(--shadow); }
+  .modal h3 { margin:0 0 12px; font-size:14px; }
+  .modal label { display:block; font-size:11px; color:var(--muted); margin:8px 0 3px; text-transform:uppercase; letter-spacing:.8px; }
+  .modal input, .modal select { width:100%; background:var(--panel-2); border:1px solid var(--border); color:var(--text); padding:8px 10px; border-radius:6px; font:inherit; }
+  .modal .row { display:flex; gap:8px; justify-content:flex-end; margin-top:14px; }
+  .modal button { background:var(--accent); color:#001220; border:none; border-radius:6px; padding:8px 14px; cursor:pointer; font:inherit; font-weight:600; }
+  .modal button.ghost { background:transparent; color:var(--text); border:1px solid var(--border); }
+  .modal .helper { font-size:11px; color:var(--muted); margin-top:4px; }
+  .checkbox { display:flex; gap:6px; align-items:center; }
+  .checkbox input { width:auto; }
+
+  /* ===== Toast ===== */
+  .toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:var(--panel-2); border:1px solid var(--border); color:var(--text); padding:8px 14px; border-radius:8px; font-size:12px; box-shadow:var(--shadow); z-index:50; opacity:0; pointer-events:none; transition: opacity .25s, transform .25s; }
+  .toast.show { opacity:1; transform:translateX(-50%) translateY(-6px); }
+  .toast.error { border-color:var(--failed); color:#fca5a5; }
+
+  /* ===== Responsive ===== */
+  @media (max-width: 1100px) {
+    .app { grid-template-columns: 240px 1fr 280px; }
+  }
+  @media (max-width: 900px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: 56px auto 1fr 220px; }
+    aside.sidebar { max-height:200px; border-right:none; border-bottom:1px solid var(--border); }
+    section.events { border-left:none; border-top:1px solid var(--border); max-height:240px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <h1>DAG 執行引擎</h1>
+    <span class="tag">Topological Sort + Event-Driven</span>
+    <span class="spacer"></span>
+    <span class="badge" id="topoCount">拓撲層: 0</span>
+    <span class="badge" id="nodeCount">節點: 0</span>
+    <span class="badge" id="edgeCount">邊: 0</span>
+  </header>
+
+  <aside class="sidebar">
+    <h2>預設範例</h2>
+    <div class="preset" id="presets"></div>
+
+    <h2 style="margin-top:18px">節點編輯</h2>
+    <div class="controls">
+      <button class="secondary" id="btnAddNode">+ 新增節點</button>
+      <button class="secondary" id="btnAddEdge">+ 建立邊 (依賴)</button>
+      <button class="secondary" id="btnClearEdges">清除所有邊</button>
+      <button class="secondary" id="btnReset">重置圖形</button>
+    </div>
+
+    <h2 style="margin-top:18px">執行</h2>
+    <div class="controls">
+      <button id="btnRun" class="primary">▶ 執行 DAG</button>
+      <button class="secondary" id="btnStop" disabled>■ 停止</button>
+    </div>
+
+    <div class="stats" id="stats" hidden>
+      <div class="row"><span class="k">總節點</span><span class="v" id="statTotal">0</span></div>
+      <div class="row"><span class="k">完成</span><span class="v" id="statCompleted">0</span></div>
+      <div class="row"><span class="k">失敗</span><span class="v" id="statFailed">0</span></div>
+      <div class="row"><span class="k">跳過</span><span class="v" id="statSkipped">0</span></div>
+      <div class="row"><span class="k">重試</span><span class="v" id="statRetried">0</span></div>
+      <div class="row"><span class="k">耗時</span><span class="v" id="statDuration">0ms</span></div>
+    </div>
+
+    <div class="legend">
+      <h3>節點狀態</h3>
+      <div class="row"><span class="dot" style="background:var(--pending)"></span>PENDING</div>
+      <div class="row"><span class="dot" style="background:var(--ready)"></span>READY</div>
+      <div class="row"><span class="dot" style="background:var(--running)"></span>RUNNING</div>
+      <div class="row"><span class="dot" style="background:var(--completed)"></span>COMPLETED</div>
+      <div class="row"><span class="dot" style="background:var(--failed)"></span>FAILED</div>
+      <div class="row"><span class="dot" style="background:var(--skipped)"></span>SKIPPED</div>
+    </div>
+  </aside>
+
+  <main class="canvas">
+    <div class="info">
+      <b>DAG 互動式 Demo</b> — 點擊節點可查看資訊。新增節點用左側按鈕。
+      拓撲排序: <code>Kahn's algorithm</code> · 並發: 同層節點並行 · 事件: <code>EventBus</code> 9 種類型.
+    </div>
+    <svg id="svg" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--edge)" />
+        </marker>
+        <marker id="arrowActive" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--edge-active)" />
+        </marker>
+      </defs>
+      <g id="svgLayers"></g>
+      <g id="svgEdges"></g>
+      <g id="svgNodes"></g>
+    </svg>
+  </main>
+
+  <section class="events">
+    <div class="head">
+      <h2>事件流</h2>
+      <span class="pill" id="eventCount">0 events</span>
+      <span class="spacer" style="flex:1"></span>
+      <button class="secondary" id="btnClearEvents" style="background:transparent;border:1px solid var(--border);color:var(--muted);padding:4px 8px;border-radius:5px;font-size:11px;cursor:pointer">清空</button>
+    </div>
+    <div class="stream" id="eventStream"></div>
+  </section>
+</div>
+
+<!-- 新增节点模态框 -->
+<div class="modal-bg" id="modalNode">
+  <div class="modal">
+    <h3>新增節點</h3>
+    <label>節點 ID</label>
+    <input id="inpId" placeholder="例如: extract / transform / load" />
+    <label>節點類型</label>
+    <select id="inpType">
+      <option value="fast">快速 (10-50ms)</option>
+      <option value="slow">慢速 (300-700ms)</option>
+      <option value="flaky" selected>不穩定 (50% 失敗後重試)</option>
+      <option value="fails">必定失敗</option>
+      <option value="noop">無操作</option>
+    </select>
+    <label>最大重試次數</label>
+    <input id="inpRetries" type="number" value="2" min="0" max="5" />
+    <div class="helper">不穩定 / 失敗類型可以測試 retry 與 SKIPPED 傳播.</div>
+    <div class="row">
+      <button class="ghost" id="btnCancelNode">取消</button>
+      <button id="btnConfirmNode">新增</button>
+    </div>
+  </div>
+</div>
+
+<!-- 新增边模态框 -->
+<div class="modal-bg" id="modalEdge">
+  <div class="modal">
+    <h3>建立邊 (依賴)</h3>
+    <label>來源節點 (前驅)</label>
+    <select id="inpFrom"></select>
+    <label>目標節點 (後繼)</label>
+    <select id="inpTo"></select>
+    <div class="helper">邊方向: 來源 必須在 目標 之前執行. 等同於「目標依賴來源」.</div>
+    <div class="row">
+      <button class="ghost" id="btnCancelEdge">取消</button>
+      <button id="btnConfirmEdge">建立</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+
+/* ============================================================
+ *  DAG 引擎 — 純前端實作, mirror Python 版本行為.
+ *  - topology(): Kahn's algorithm + cycle detection
+ *  - engine.run(): layer-based 並發執行 + retry + SKIPPED propagation
+ *  - eventBus: 9 種 EventType
+ * ============================================================ */
+
+const NODE_W = 120, NODE_H = 56;
+const COL_GAP = 60, ROW_GAP = 28;
+const MARGIN = { top: 60, left: 60, right: 60, bottom: 60 };
+
+// —— Status 列舉 ——
+const STATUS = Object.freeze({
+  PENDING: "pending",
+  READY: "ready",
+  RUNNING: "running",
+  COMPLETED: "completed",
+  FAILED: "failed",
+  SKIPPED: "skipped",
+});
+
+// —— EventType 列舉 ——
+const ET = Object.freeze({
+  DAG_STARTED: "dag_started",
+  DAG_COMPLETED: "dag_completed",
+  DAG_FAILED: "dag_failed",
+  NODE_QUEUED: "node_queued",
+  NODE_STARTED: "node_started",
+  NODE_COMPLETED: "node_completed",
+  NODE_FAILED: "node_failed",
+  NODE_RETRYING: "node_retrying",
+  NODE_SKIPPED: "node_skipped",
+  LAYER_STARTED: "layer_started",
+});
+
+const ET_LABELS = {
+  dag_started: "DAG 啟動",
+  dag_completed: "DAG 完成",
+  dag_failed: "DAG 失敗",
+  node_queued: "排隊",
+  node_started: "開始",
+  node_completed: "完成",
+  node_failed: "失敗",
+  node_retrying: "重試",
+  node_skipped: "跳過",
+  layer_started: "層啟動",
+};
+
+/* ===== EventBus ===== */
+class EventBus {
+  constructor(historySize = 500) {
+    this._subs = new Set();
+    this._history = [];
+    this._historySize = historySize;
+  }
+  subscribe(fn) { this._subs.add(fn); return () => this._subs.delete(fn); }
+  publish(ev) {
+    this._history.push(ev);
+    if (this._history.length > this._historySize) this._history.shift();
+    this._subs.forEach(fn => { try { fn(ev); } catch(e) { console.error(e); } });
+  }
+  get history() { return this._history.slice(); }
+  filter(opts={}) {
+    return this._history.filter(e =>
+      (opts.type === undefined || e.type === opts.type) &&
+      (opts.nodeId === undefined || e.nodeId === opts.nodeId)
+    );
+  }
+}
+
+/* ===== 拓撲排序 (Kahn's algorithm) ===== */
+function topologicalSort(nodes) {
+  const inDeg = new Map();
+  const adj = new Map();
+  nodes.forEach(n => { inDeg.set(n.id, 0); adj.set(n.id, []); });
+  nodes.forEach(n => {
+    (n.depends_on || []).forEach(dep => {
+      if (!inDeg.has(dep)) throw new Error(`Node ${n.id} depends on unknown ${dep}`);
+      inDeg.set(n.id, inDeg.get(n.id) + 1);
+      adj.get(dep).push(n.id);
+    });
+  });
+  const queue = [];
+  [...inDeg.entries()].filter(([,d]) => d===0).sort((a,b)=>a[0].localeCompare(b[0])).forEach(([id]) => queue.push(id));
+  const sorted = [];
+  while (queue.length) {
+    const id = queue.shift();
+    sorted.push(id);
+    adj.get(id).forEach(succ => {
+      inDeg.set(succ, inDeg.get(succ) - 1);
+      if (inDeg.get(succ) === 0) queue.push(succ);
+    });
+  }
+  if (sorted.length !== nodes.length) {
+    const stuck = [...inDeg.entries()].filter(([,d]) => d > 0).map(([id]) => id);
+    const e = new Error("DAG contains cycle: " + stuck.join(", "));
+    e.cycleNodes = stuck;
+    throw e;
+  }
+  return sorted;
+}
+
+function topologicalLayers(nodes) {
+  const inDeg = new Map();
+  const adj = new Map();
+  nodes.forEach(n => { inDeg.set(n.id, 0); adj.set(n.id, []); });
+  nodes.forEach(n => {
+    (n.depends_on || []).forEach(dep => {
+      inDeg.set(n.id, inDeg.get(n.id) + 1);
+      adj.get(dep).push(n.id);
+    });
+  });
+  const layers = [];
+  const remaining = new Map(inDeg);
+  while (remaining.size) {
+    const layer = [...remaining.entries()].filter(([,d]) => d===0).map(([id]) => id).sort();
+    if (!layer.length) {
+      const stuck = [...remaining.keys()];
+      const e = new Error("DAG contains cycle: " + stuck.join(", "));
+      e.cycleNodes = stuck;
+      throw e;
+    }
+    layers.push(layer);
+    layer.forEach(id => {
+      adj.get(id).forEach(succ => {
+        if (remaining.has(succ)) remaining.set(succ, remaining.get(succ) - 1);
+      });
+      remaining.delete(id);
+    });
+  }
+  return layers;
+}
+
+/* ===== 模擬節點行為 ===== */
+const TYPE_BEHAVIORS = {
+  fast: async () => { await sleep(10 + Math.random()*40); },
+  slow: async () => { await sleep(300 + Math.random()*400); },
+  flaky: async () => {
+    await sleep(50 + Math.random()*100);
+    if (Math.random() < 0.5) throw new Error("flaky random failure");
+  },
+  fails: async () => { await sleep(30); throw new Error("intentional failure"); },
+  noop: async () => {},
+};
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+/* ===== Engine ===== */
+class DagEngine {
+  constructor(bus, opts={}) {
+    this.bus = bus;
+    this.failFast = !!opts.failFast;
+    this.maxConcurrency = opts.maxConcurrency || null;
+    this.dagId = "dag-" + Math.random().toString(36).slice(2, 10);
+    this.nodes = new Map(); // id -> {id, type, depends_on, max_retries, status, result}
+    this._cancel = false;
+  }
+
+  addNode(node) {
+    if (this.nodes.has(node.id)) throw new Error("Duplicate node id: " + node.id);
+    this.nodes.set(node.id, {
+      id: node.id,
+      type: node.type || "noop",
+      depends_on: Array.from(new Set(node.depends_on || [])),
+      max_retries: Math.max(0, node.max_retries | 0),
+      status: STATUS.PENDING,
+      result: null,
+      label: node.label || node.id,
+    });
+    this._validateDeps();
+    return this;
+  }
+
+  removeNode(id) {
+    if (!this.nodes.has(id)) return false;
+    this.nodes.delete(id);
+    this.nodes.forEach(n => { n.depends_on = n.depends_on.filter(d => d !== id); });
+    return true;
+  }
+
+  addEdge(from, to) {
+    const n = this.nodes.get(to);
+    if (!n) throw new Error("Unknown node: " + to);
+    if (n.depends_on.includes(from)) return false;
+    n.depends_on.push(from);
+    this._validateDeps();
+    return true;
+  }
+
+  clearEdges() {
+    this.nodes.forEach(n => { n.depends_on = []; });
+  }
+
+  reset() {
+    this.nodes.forEach(n => { n.status = STATUS.PENDING; n.result = null; });
+  }
+
+  _validateDeps() {
+    const ids = new Set(this.nodes.keys());
+    for (const n of this.nodes.values()) {
+      for (const d of n.depends_on) {
+        if (!ids.has(d)) throw new Error(`Node ${n.id} depends on unknown ${d}`);
+      }
+    }
+  }
+
+  graph() {
+    return {
+      nodes: [...this.nodes.values()].map(n => ({
+        id: n.id, depends_on: n.depends_on, status: n.status, type: n.type, label: n.label,
+      })),
+      edges: [...this.nodes.values()].flatMap(n => n.depends_on.map(d => ({from: d, to: n.id}))),
+    };
+  }
+
+  layers() {
+    const list = [...this.nodes.values()].map(n => ({id: n.id, depends_on: n.depends_on}));
+    return topologicalLayers(list);
+  }
+
+  async run() {
+    if (this.nodes.size === 0) return;
+    const list = [...this.nodes.values()].map(n => ({id: n.id, depends_on: n.depends_on}));
+    let order, layers;
+    try {
+      order = topologicalSort(list);
+      layers = topologicalLayers(list);
+    } catch (e) {
+      this.bus.publish({
+        type: ET.DAG_FAILED, dag_id: this.dagId, ts: Date.now(),
+        payload: {error: "cycle_detected", nodes: e.cycleNodes || []},
+      });
+      throw e;
+    }
+
+    this.reset();
+    const stats = { total: this.nodes.size, completed: 0, failed: 0, skipped: 0, retried: 0, duration_ms: 0 };
+    const t0 = performance.now();
+
+    this.bus.publish({
+      type: ET.DAG_STARTED, dag_id: this.dagId, ts: Date.now(),
+      payload: { node_count: this.nodes.size, layer_count: layers.length, topological_order: order },
+    });
+
+    const skipSet = new Set();
+    const failedNodes = [];
+
+    for (let li = 0; li < layers.length; li++) {
+      if (this._cancel) break;
+      const layer = layers[li];
+      if (this.failFast && failedNodes.length) {
+        for (const id of layer) {
+          if (!skipSet.has(id)) {
+            this._markSkipped(id, "fail_fast");
+            stats.skipped++;
+            skipSet.add(id);
+          }
+        }
+        continue;
+      }
+
+      this.bus.publish({
+        type: ET.LAYER_STARTED, dag_id: this.dagId, ts: Date.now(),
+        payload: { layer: li, nodes: [...layer] },
+      });
+
+      const ready = [];
+      for (const id of layer) {
+        const n = this.nodes.get(id);
+        if (skipSet.has(id)) {
+          this._markSkipped(id, "upstream_failed");
+          stats.skipped++;
+          continue;
+        }
+        const allDone = n.depends_on.every(d => this.nodes.get(d).status === STATUS.COMPLETED);
+        if (allDone) ready.push(id);
+        else {
+          this._markSkipped(id, "upstream_failed");
+          stats.skipped++;
+          skipSet.add(id);
+        }
+      }
+
+      // 並發執行
+      const results = await Promise.all(ready.map(id => this._execNode(id, stats)));
+      for (const [id, ok] of results) {
+        if (ok) stats.completed++;
+        else {
+          stats.failed++;
+          failedNodes.push(id);
+          this._downstream(id).forEach(d => skipSet.add(d));
+        }
+      }
+    }
+
+    stats.duration_ms = performance.now() - t0;
+    if (stats.failed === 0 && stats.skipped === 0) {
+      this.bus.publish({ type: ET.DAG_COMPLETED, dag_id: this.dagId, ts: Date.now(), payload: { stats } });
+    } else {
+      this.bus.publish({ type: ET.DAG_FAILED, dag_id: this.dagId, ts: Date.now(), payload: { stats, failed_nodes: failedNodes } });
+    }
+    return stats;
+  }
+
+  async _execNode(id, stats) {
+    const n = this.nodes.get(id);
+    let attempt = 0;
+    let lastErr = null;
+    const t0 = performance.now();
+    while (attempt <= n.max_retries) {
+      attempt++;
+      n.status = STATUS.RUNNING;
+      this.bus.publish({ type: ET.NODE_QUEUED, dag_id: this.dagId, ts: Date.now(), node_id: id });
+      this.bus.publish({ type: ET.NODE_STARTED, dag_id: this.dagId, ts: Date.now(), node_id: id, payload: { attempt } });
+      try {
+        const fn = TYPE_BEHAVIORS[n.type] || TYPE_BEHAVIORS.noop;
+        await fn();
+        const dur = performance.now() - t0;
+        n.status = STATUS.COMPLETED;
+        n.result = { attempts: attempt, duration_ms: dur, error: null };
+        this.bus.publish({
+          type: ET.NODE_COMPLETED, dag_id: this.dagId, ts: Date.now(), node_id: id,
+          payload: { attempt, duration_ms: dur },
+        });
+        return [id, true];
+      } catch (e) {
+        lastErr = e;
+        this.bus.publish({
+          type: ET.NODE_FAILED, dag_id: this.dagId, ts: Date.now(), node_id: id,
+          payload: { attempt, error: e.message, kind: e.name || "Error" },
+        });
+        if (attempt <= n.max_retries) {
+          stats.retried++;
+          this.bus.publish({
+            type: ET.NODE_RETRYING, dag_id: this.dagId, ts: Date.now(), node_id: id,
+            payload: { attempt: attempt + 1, after_error: e.message },
+          });
+          await sleep(Math.min(attempt * 300, 1000));
+        }
+      }
+    }
+    const dur = performance.now() - t0;
+    n.status = STATUS.FAILED;
+    n.result = { attempts: attempt, duration_ms: dur, error: lastErr };
+    return [id, false];
+  }
+
+  _markSkipped(id, reason) {
+    const n = this.nodes.get(id);
+    n.status = STATUS.SKIPPED;
+    n.result = { attempts: 0, duration_ms: 0, error: null };
+    this.bus.publish({
+      type: ET.NODE_SKIPPED, dag_id: this.dagId, ts: Date.now(), node_id: id, payload: { reason },
+    });
+  }
+
+  _downstream(id) {
+    const seen = new Set();
+    const queue = [id];
+    while (queue.length) {
+      const cur = queue.shift();
+      for (const n of this.nodes.values()) {
+        if (n.depends_on.includes(cur) && !seen.has(n.id)) {
+          seen.add(n.id);
+          queue.push(n.id);
+        }
+      }
+    }
+    return [...seen];
+  }
+}
+
+/* ============================================================
+ *  UI 邏輯
+ * ============================================================ */
+
+const bus = new EventBus();
+const engine = new DagEngine(bus, { failFast: false });
+let runningPromise = null;
+let viewState = { selected: null };
+
+// —— Toast helper ——
+function toast(msg, kind = "") {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.className = "toast show " + kind;
+  clearTimeout(toast._tid);
+  toast._tid = setTimeout(() => { t.className = "toast " + kind; }, 2200);
+}
+
+// —— 事件渲染 ——
+function renderEvent(ev) {
+  const stream = document.getElementById("eventStream");
+  const el = document.createElement("div");
+  el.className = "ev " + ev.type;
+  const ts = ev.ts ? new Date(ev.ts) : new Date();
+  const hh = String(ts.getHours()).padStart(2,"0");
+  const mm = String(ts.getMinutes()).padStart(2,"0");
+  const ss = String(ts.getSeconds()).padStart(2,"0");
+  const ms = String(ts.getMilliseconds()).padStart(3,"0");
+  const label = ET_LABELS[ev.type] || ev.type;
+  const nid = ev.node_id ? ` <span class="n">${ev.node_id}</span>` : "";
+  let extra = "";
+  if (ev.payload) {
+    const bits = [];
+    if (ev.payload.attempt != null) bits.push(`#${ev.payload.attempt}`);
+    if (ev.payload.duration_ms != null) bits.push(`${ev.payload.duration_ms.toFixed(1)}ms`);
+    if (ev.payload.error) bits.push(`err="${ev.payload.error}"`);
+    if (ev.payload.reason) bits.push(`reason=${ev.payload.reason}`);
+    if (ev.payload.layer != null) bits.push(`L${ev.payload.layer}`);
+    if (ev.payload.node_count != null) bits.push(`nodes=${ev.payload.node_count}`);
+    if (ev.payload.failed_nodes) bits.push(`failed=${ev.payload.failed_nodes.length}`);
+    if (ev.payload.cycle_nodes || ev.payload.nodes && ev.type === ET.DAG_FAILED) bits.push(`cycle=${(ev.payload.cycle_nodes||ev.payload.nodes).join(",")}`);
+    if (bits.length) extra = `<span class="p">[${bits.join(" ")}]</span>`;
+  }
+  el.innerHTML = `<span class="ts">${hh}:${mm}:${ss}.${ms}</span><span class="t">${label}</span>${nid}${extra}`;
+  stream.appendChild(el);
+  // 限流: 保留最近 200 條
+  while (stream.childElementCount > 200) stream.removeChild(stream.firstChild);
+  stream.scrollTop = stream.scrollHeight;
+  document.getElementById("eventCount").textContent = stream.childElementCount + " events";
+}
+bus.subscribe(renderEvent);
+
+// —— SVG 渲染 ——
+function renderSvg() {
+  const svg = document.getElementById("svg");
+  const gLayers = document.getElementById("svgLayers");
+  const gEdges = document.getElementById("svgEdges");
+  const gNodes = document.getElementById("svgNodes");
+
+  // 清除舊的
+  gLayers.innerHTML = "";
+  gEdges.innerHTML = "";
+  gNodes.innerHTML = "";
+
+  // 計算布局
+  const layout = computeLayout();
+  if (!layout) return;
+
+  const { layers, positions, width, height } = layout;
+
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+  // 畫層背景
+  layers.forEach((layer, i) => {
+    if (layer.length === 0) return;
+    const xs = layer.map(id => positions.get(id).x);
+    const ys = layer.map(id => positions.get(id).y);
+    const x = Math.min(...xs) - 20;
+    const y = Math.min(...ys) - 24;
+    const w = Math.max(...xs) - Math.min(...xs) + NODE_W + 40;
+    const h = Math.max(...ys) - Math.min(...ys) + NODE_H + 48;
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("x", x);
+    rect.setAttribute("y", y);
+    rect.setAttribute("width", w);
+    rect.setAttribute("height", h);
+    rect.setAttribute("rx", 12);
+    rect.setAttribute("class", "layer-band");
+    gLayers.appendChild(rect);
+
+    const lbl = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    lbl.setAttribute("x", x + 10);
+    lbl.setAttribute("y", y + 16);
+    lbl.setAttribute("fill", "#a78bfa");
+    lbl.setAttribute("font-size", "10");
+    lbl.setAttribute("font-weight", "600");
+    lbl.setAttribute("font-family", "-apple-system, sans-serif");
+    lbl.textContent = `Layer ${i}`;
+    gLayers.appendChild(lbl);
+  });
+
+  // 畫邊
+  const edges = engine.graph().edges;
+  edges.forEach(e => {
+    const from = positions.get(e.from);
+    const to = positions.get(e.to);
+    if (!from || !to) return;
+    const x1 = from.x + NODE_W / 2;
+    const y1 = from.y + NODE_H;
+    const x2 = to.x + NODE_W / 2;
+    const y2 = to.y;
+    // 簡單 S 曲線
+    const midY = (y1 + y2) / 2;
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", `M${x1},${y1} C${x1},${midY} ${x2},${midY} ${x2},${y2 - 4}`);
+    path.setAttribute("class", "edge");
+    path.setAttribute("data-from", e.from);
+    path.setAttribute("data-to", e.to);
+    gEdges.appendChild(path);
+  });
+
+  // 畫節點
+  engine.nodes.forEach(n => {
+    const pos = positions.get(n.id);
+    if (!pos) return;
+    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    g.setAttribute("transform", `translate(${pos.x},${pos.y})`);
+    g.setAttribute("data-id", n.id);
+    g.style.cursor = "pointer";
+
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("width", NODE_W);
+    rect.setAttribute("height", NODE_H);
+    rect.setAttribute("class", "node-rect " + n.status);
+    g.appendChild(rect);
+
+    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    text.setAttribute("x", NODE_W / 2);
+    text.setAttribute("y", 22);
+    text.setAttribute("class", "node-text");
+    text.textContent = n.label || n.id;
+    g.appendChild(text);
+
+    const meta = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    meta.setAttribute("x", NODE_W / 2);
+    meta.setAttribute("y", 42);
+    meta.setAttribute("class", "node-meta");
+    meta.textContent = n.type + (n.max_retries > 0 ? ` · retry×${n.max_retries}` : "");
+    g.appendChild(meta);
+
+    g.addEventListener("click", () => selectNode(n.id));
+    gNodes.appendChild(g);
+  });
+
+  // 更新頂部計數
+  document.getElementById("nodeCount").textContent = "節點: " + engine.nodes.size;
+  document.getElementById("edgeCount").textContent = "邊: " + edges.length;
+  document.getElementById("topoCount").textContent = "拓撲層: " + layers.length;
+}
+
+function computeLayout() {
+  if (engine.nodes.size === 0) {
+    document.getElementById("svg").setAttribute("viewBox", "0 0 800 400");
+    return null;
+  }
+  let layers;
+  try {
+    layers = engine.layers();
+  } catch (e) {
+    // cycle: 仍然嘗試佈局但用 depends_on as level (近似)
+    layers = [];
+    const placed = new Set();
+    while (placed.size < engine.nodes.size) {
+      const cur = [];
+      for (const n of engine.nodes.values()) {
+        if (placed.has(n.id)) continue;
+        if (n.depends_on.every(d => placed.has(d) || !engine.nodes.has(d))) {
+          cur.push(n.id);
+        }
+      }
+      if (!cur.length) { cur.push(...[...engine.nodes.keys()].filter(id => !placed.has(id))); }
+      layers.push(cur);
+      cur.forEach(id => placed.add(id));
+    }
+  }
+  const positions = new Map();
+  const widestLayer = Math.max(...layers.map(l => l.length));
+  const W = MARGIN.left + MARGIN.right + widestLayer * (NODE_W + COL_GAP);
+  layers.forEach((layer, i) => {
+    const x = MARGIN.left + i * (NODE_W + COL_GAP);
+    const totalH = layer.length * NODE_H + (layer.length - 1) * ROW_GAP;
+    const startY = MARGIN.top + 50;
+    layer.forEach((id, j) => {
+      positions.set(id, { x, y: startY + j * (NODE_H + ROW_GAP) });
+    });
+  });
+  // 计算 viewBox
+  const maxY = Math.max(...[...positions.values()].map(p => p.y)) + NODE_H + MARGIN.bottom;
+  const maxX = MARGIN.left + layers.length * (NODE_W + COL_GAP) + MARGIN.right;
+  return { layers, positions, width: Math.max(maxX, 600), height: Math.max(maxY, 300) };
+}
+
+function selectNode(id) {
+  viewState.selected = id;
+  const n = engine.nodes.get(id);
+  if (!n) return;
+  toast(`節點 ${id} — status=${n.status}, type=${n.type}, retries=${n.max_retries}, deps=[${n.depends_on.join(", ")}]`);
+}
+
+// —— Presets ——
+const PRESETS = [
+  {
+    name: "線性 Pipeline",
+    desc: "a → b → c 順序執行, b 依賴 a, c 依賴 b.",
+    build: (e) => {
+      e.addNode({id:"a", type:"fast", label:"extract"});
+      e.addNode({id:"b", type:"slow", label:"transform", depends_on:["a"]});
+      e.addNode({id:"c", type:"fast", label:"load", depends_on:["b"]});
+    },
+  },
+  {
+    name: "Diamond 鑽石",
+    desc: "a → {b, c} → d, 並發執行驗證拓撲層.",
+    build: (e) => {
+      e.addNode({id:"a", type:"fast", label:"fetch"});
+      e.addNode({id:"b", type:"slow", label:"transform-A", depends_on:["a"]});
+      e.addNode({id:"c", type:"slow", label:"transform-B", depends_on:["a"]});
+      e.addNode({id:"d", type:"fast", label:"merge", depends_on:["b","c"]});
+    },
+  },
+  {
+    name: "Fan-out (5節點)",
+    desc: "root → {a, b, c} → {d, e} → final, 4 層拓撲.",
+    build: (e) => {
+      e.addNode({id:"root", type:"fast", label:"seed"});
+      e.addNode({id:"a", type:"slow", label:"worker-A", depends_on:["root"]});
+      e.addNode({id:"b", type:"slow", label:"worker-B", depends_on:["root"]});
+      e.addNode({id:"c", type:"slow", label:"worker-C", depends_on:["root"]});
+      e.addNode({id:"d", type:"fast", label:"merge-AB", depends_on:["a","b"]});
+      e.addNode({id:"e", type:"fast", label:"merge-BC", depends_on:["b","c"]});
+      e.addNode({id:"final", type:"fast", label:"final", depends_on:["d","e"]});
+    },
+  },
+  {
+    name: "失敗 + 重試",
+    desc: "flaky 節點 50% 失敗, max_retries=3 會自癒.",
+    build: (e) => {
+      e.addNode({id:"prepare", type:"fast", label:"prepare"});
+      e.addNode({id:"unstable", type:"flaky", label:"unstable", depends_on:["prepare"], max_retries:3});
+      e.addNode({id:"finalize", type:"fast", label:"finalize", depends_on:["unstable"]});
+    },
+  },
+  {
+    name: "失敗 + 跳過傳播",
+    desc: "bad 失敗 → 其下遊 down1, down2 自動 SKIPPED, 但 ok 仍可執行.",
+    build: (e) => {
+      e.addNode({id:"bad", type:"fails", label:"bad", max_retries:0});
+      e.addNode({id:"down1", type:"fast", label:"down1", depends_on:["bad"]});
+      e.addNode({id:"down2", type:"fast", label:"down2", depends_on:["bad"]});
+      e.addNode({id:"ok", type:"fast", label:"independent"});
+    },
+  },
+  {
+    name: "ETL Pipeline",
+    desc: "真實場景: extract → transform → {validate, enrich} → persist → notify.",
+    build: (e) => {
+      e.addNode({id:"extract", type:"slow", label:"extract DB"});
+      e.addNode({id:"clean", type:"fast", label:"clean", depends_on:["extract"]});
+      e.addNode({id:"validate", type:"flaky", label:"validate", depends_on:["clean"], max_retries:2});
+      e.addNode({id:"enrich", type:"slow", label:"enrich", depends_on:["clean"]});
+      e.addNode({id:"persist", type:"slow", label:"persist DB", depends_on:["validate","enrich"]});
+      e.addNode({id:"notify", type:"fast", label:"notify Slack", depends_on:["persist"]});
+    },
+  },
+];
+
+function renderPresets() {
+  const container = document.getElementById("presets");
+  PRESETS.forEach((p, idx) => {
+    const btn = document.createElement("button");
+    btn.innerHTML = `<span class="name">${p.name}</span><span class="desc">${p.desc}</span>`;
+    btn.addEventListener("click", () => {
+      if (runningPromise) { toast("執行中, 請先停止", "error"); return; }
+      engine.nodes.clear();
+      try { p.build(engine); }
+      catch (err) { toast("預設載入失敗: " + err.message, "error"); return; }
+      bus._history.length = 0;
+      document.getElementById("eventStream").innerHTML = "";
+      document.getElementById("eventCount").textContent = "0 events";
+      hideStats();
+      renderSvg();
+      toast("已載入預設: " + p.name);
+    });
+    container.appendChild(btn);
+  });
+}
+
+// —— Stats 顯示 ——
+function showStats(s) {
+  const el = document.getElementById("stats");
+  el.hidden = false;
+  document.getElementById("statTotal").textContent = s.total;
+  document.getElementById("statCompleted").textContent = s.completed;
+  document.getElementById("statFailed").textContent = s.failed;
+  document.getElementById("statSkipped").textContent = s.skipped;
+  document.getElementById("statRetried").textContent = s.retried;
+  document.getElementById("statDuration").textContent = s.duration_ms.toFixed(1) + "ms";
+}
+function hideStats() { document.getElementById("stats").hidden = true; }
+
+// —— 控制 ——
+document.getElementById("btnRun").addEventListener("click", async () => {
+  if (engine.nodes.size === 0) { toast("請先新增節點或載入預設", "error"); return; }
+  if (runningPromise) { toast("已在執行中", "error"); return; }
+  engine._cancel = false;
+  hideStats();
+  document.getElementById("eventStream").innerHTML = "";
+  document.getElementById("eventCount").textContent = "0 events";
+  bus._history.length = 0;
+  document.getElementById("btnRun").disabled = true;
+  document.getElementById("btnStop").disabled = false;
+
+  // 訂閱狀態更新
+  const unsub = bus.subscribe(ev => {
+    if (ev.type === ET.NODE_STARTED || ev.type === ET.NODE_COMPLETED || ev.type === ET.NODE_FAILED || ev.type === ET.NODE_SKIPPED || ev.type === ET.NODE_QUEUED) {
+      renderSvg();
+    }
+  });
+
+  try {
+    const stats = await engine.run();
+    showStats(stats);
+    if (stats.failed === 0 && stats.skipped === 0) {
+      toast(`✓ DAG 完成 — ${stats.completed}/${stats.total} 節點, ${stats.duration_ms.toFixed(0)}ms`);
+    } else {
+      toast(`✗ DAG 失敗 — ${stats.failed} 失敗, ${stats.skipped} 跳過`, "error");
+    }
+  } catch (e) {
+    if (e.cycleNodes) {
+      toast("偵測到環: " + e.cycleNodes.join(", "), "error");
+    } else {
+      toast("執行錯誤: " + e.message, "error");
+    }
+  } finally {
+    unsub();
+    renderSvg();
+    document.getElementById("btnRun").disabled = false;
+    document.getElementById("btnStop").disabled = true;
+    runningPromise = null;
+  }
+});
+
+document.getElementById("btnStop").addEventListener("click", () => {
+  engine._cancel = true;
+  toast("已請求停止 (新節點將不再啟動)");
+});
+
+document.getElementById("btnReset").addEventListener("click", () => {
+  if (runningPromise) { toast("執行中, 無法重置", "error"); return; }
+  engine.nodes.clear();
+  bus._history.length = 0;
+  document.getElementById("eventStream").innerHTML = "";
+  document.getElementById("eventCount").textContent = "0 events";
+  hideStats();
+  renderSvg();
+  toast("已重置");
+});
+
+document.getElementById("btnClearEdges").addEventListener("click", () => {
+  if (runningPromise) { toast("執行中, 無法清除", "error"); return; }
+  engine.clearEdges();
+  renderSvg();
+  toast("已清除所有邊");
+});
+
+document.getElementById("btnClearEvents").addEventListener("click", () => {
+  bus._history.length = 0;
+  document.getElementById("eventStream").innerHTML = "";
+  document.getElementById("eventCount").textContent = "0 events";
+});
+
+// —— 新增節點模態框 ——
+const modalNode = document.getElementById("modalNode");
+document.getElementById("btnAddNode").addEventListener("click", () => {
+  if (runningPromise) { toast("執行中, 無法新增", "error"); return; }
+  document.getElementById("inpId").value = "";
+  document.getElementById("inpType").value = "fast";
+  document.getElementById("inpRetries").value = "0";
+  modalNode.classList.add("open");
+  setTimeout(() => document.getElementById("inpId").focus(), 50);
+});
+document.getElementById("btnCancelNode").addEventListener("click", () => modalNode.classList.remove("open"));
+document.getElementById("btnConfirmNode").addEventListener("click", () => {
+  const id = document.getElementById("inpId").value.trim();
+  const type = document.getElementById("inpType").value;
+  const retries = parseInt(document.getElementById("inpRetries").value) || 0;
+  if (!id) { toast("請輸入節點 ID", "error"); return; }
+  try {
+    engine.addNode({ id, type, max_retries: retries, label: id });
+    renderSvg();
+    modalNode.classList.remove("open");
+    toast("已新增節點: " + id);
+  } catch (e) { toast(e.message, "error"); }
+});
+
+// —— 新增邊模態框 ——
+const modalEdge = document.getElementById("modalEdge");
+function refreshEdgeOptions() {
+  const selFrom = document.getElementById("inpFrom");
+  const selTo = document.getElementById("inpTo");
+  const prevFrom = selFrom.value, prevTo = selTo.value;
+  selFrom.innerHTML = ""; selTo.innerHTML = "";
+  [...engine.nodes.keys()].forEach(id => {
+    const o1 = document.createElement("option"); o1.value = id; o1.textContent = id; selFrom.appendChild(o1);
+    const o2 = document.createElement("option"); o2.value = id; o2.textContent = id; selTo.appendChild(o2);
+  });
+  if (prevFrom && [...selFrom.options].some(o => o.value === prevFrom)) selFrom.value = prevFrom;
+  if (prevTo && [...selTo.options].some(o => o.value === prevTo)) selTo.value = prevTo;
+}
+document.getElementById("btnAddEdge").addEventListener("click", () => {
+  if (engine.nodes.size < 2) { toast("需要至少 2 個節點才能建立邊", "error"); return; }
+  refreshEdgeOptions();
+  modalEdge.classList.add("open");
+});
+document.getElementById("btnCancelEdge").addEventListener("click", () => modalEdge.classList.remove("open"));
+document.getElementById("btnConfirmEdge").addEventListener("click", () => {
+  const from = document.getElementById("inpFrom").value;
+  const to = document.getElementById("inpTo").value;
+  if (from === to) { toast("來源/目標不可相同", "error"); return; }
+  try {
+    if (!engine.addEdge(from, to)) toast("邊已存在");
+    else { renderSvg(); modalEdge.classList.remove("open"); toast(`已建立 ${from} → ${to}`); }
+  } catch (e) { toast(e.message, "error"); }
+});
+
+// —— 初始 ——
+renderPresets();
+renderSvg();
+// 預設載入一個: ETL pipeline
+setTimeout(() => {
+  PRESETS[5].build(engine);
+  renderSvg();
+  toast("預設載入: " + PRESETS[5].name);
+}, 100);
+
+</script>
+</body>
+</html>

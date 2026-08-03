@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DAG Workflow Editor · React Flow</title>
+
+<!-- React 18 UMD -->
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+
+<!-- React Flow 11.x UMD -->
+<link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css" />
+<script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+
+<!-- Babel Standalone for in-browser JSX transform -->
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+
+<style>
+  :root {
+    --bg: #0f1419;
+    --panel: #1a1f29;
+    --panel-2: #232a37;
+    --border: #2d3645;
+    --text: #e6e9ef;
+    --text-dim: #8b95a7;
+    --accent: #5b8def;
+    --accent-2: #7b61ff;
+    --ok: #22c55e;
+    --warn: #f59e0b;
+    --err: #ef4444;
+    --input: #06b6d4;
+    --process: #8b5cf6;
+    --output: #f59e0b;
+  }
+  * { box-sizing: border-box; }
+  html, body, #root { height: 100%; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+  }
+  .app { display: flex; height: 100vh; }
+
+  /* Sidebar */
+  .sidebar {
+    width: 260px;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .sidebar h1 {
+    font-size: 16px;
+    margin: 0;
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: white;
+    font-weight: 600;
+  }
+  .sidebar h1 small { display:block; font-size:11px; opacity:0.85; font-weight:400; margin-top:2px; }
+  .section { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .section h2 {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin: 0 0 10px;
+    letter-spacing: 1px;
+  }
+  .node-palette { display: flex; flex-direction: column; gap: 8px; }
+  .palette-item {
+    padding: 10px 12px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: grab;
+    font-size: 13px;
+    user-select: none;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .palette-item:hover { border-color: var(--accent); transform: translateX(2px); }
+  .palette-item:active { cursor: grabbing; }
+  .palette-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .dot-input { background: var(--input); }
+  .dot-process { background: var(--process); }
+  .dot-output { background: var(--output); }
+
+  /* Buttons */
+  .btn {
+    padding: 8px 12px;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: inherit;
+    transition: all 0.15s;
+    width: 100%;
+    text-align: left;
+  }
+  .btn:hover { border-color: var(--accent); background: #2a3140; }
+  .btn + .btn { margin-top: 6px; }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: white; text-align:center; }
+  .btn-primary:hover { background: #4a7ade; }
+  .btn-danger { background: transparent; border-color: var(--err); color: var(--err); text-align:center; }
+  .btn-danger:hover { background: rgba(239, 68, 68, 0.1); }
+
+  /* Canvas */
+  .canvas-wrap { flex: 1; position: relative; }
+  .react-flow { background: var(--bg); }
+  .react-flow__node {
+    font-family: inherit;
+    font-size: 13px;
+  }
+
+  /* Custom Node */
+  .dag-node {
+    background: var(--panel-2);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    min-width: 150px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    transition: all 0.15s;
+  }
+  .dag-node.selected { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(91,141,239,0.3); }
+  .dag-node.type-input { border-color: var(--input); }
+  .dag-node.type-output { border-color: var(--output); }
+  .dag-node.type-process { border-color: var(--process); }
+  .dag-node .node-label { font-weight: 600; }
+  .dag-node .node-type {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-top: 2px;
+    letter-spacing: 0.5px;
+  }
+  .dag-node .node-status {
+    font-size: 10px;
+    margin-top: 4px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    display: inline-block;
+  }
+  .status-idle { background: rgba(139,149,167,0.15); color: var(--text-dim); }
+  .status-running { background: rgba(91,141,239,0.2); color: var(--accent); }
+  .status-success { background: rgba(34,197,94,0.2); color: var(--ok); }
+  .status-error { background: rgba(239,68,68,0.2); color: var(--err); }
+
+  /* Right Panel */
+  .inspector {
+    width: 320px;
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .inspector h2 {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin: 0 0 10px;
+    letter-spacing: 1px;
+  }
+  .field { margin-bottom: 12px; }
+  .field label {
+    display: block;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .field input, .field textarea, .field select {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 7px 10px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 12px;
+  }
+  .field textarea { resize: vertical; min-height: 60px; font-family: 'Menlo', 'Consolas', monospace; }
+  .field input:focus, .field textarea:focus, .field select:focus { outline: none; border-color: var(--accent); }
+  .empty-state { color: var(--text-dim); font-size: 12px; font-style: italic; text-align: center; padding: 30px 16px; }
+
+  /* Validation Panel */
+  .validation-list { list-style: none; margin: 0; padding: 0; }
+  .validation-item {
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    margin-bottom: 4px;
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  .validation-item.error { background: rgba(239,68,68,0.1); color: #fca5a5; }
+  .validation-item.warn { background: rgba(245,158,11,0.1); color: #fcd34d; }
+  .validation-item.ok { background: rgba(34,197,94,0.1); color: #86efac; }
+  .validation-icon { flex-shrink: 0; font-weight: bold; }
+
+  /* Stats */
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat-box {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    text-align: center;
+  }
+  .stat-value { font-size: 18px; font-weight: 700; color: var(--accent); }
+  .stat-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; }
+
+  /* Toolbar */
+  .toolbar {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px;
+    display: flex;
+    gap: 4px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    z-index: 10;
+  }
+  .toolbar button {
+    background: transparent;
+    color: var(--text);
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: inherit;
+    transition: background 0.15s;
+  }
+  .toolbar button:hover { background: var(--panel-2); }
+  .toolbar button.active { background: var(--accent); color: white; }
+  .toolbar .sep { width: 1px; background: var(--border); margin: 4px 4px; }
+
+  /* React Flow overrides for dark theme */
+  .react-flow__controls {
+    background: var(--panel);
+    border: 1px solid var(--border);
+  }
+  .react-flow__controls button {
+    background: var(--panel);
+    color: var(--text);
+    border-bottom: 1px solid var(--border);
+  }
+  .react-flow__controls button:hover { background: var(--panel-2); }
+  .react-flow__controls button svg { fill: var(--text); }
+  .react-flow__minimap {
+    background: var(--panel);
+    border: 1px solid var(--border);
+  }
+  .react-flow__background { background: var(--bg); }
+  .react-flow__edge-path { stroke: #5b8def; stroke-width: 2; }
+  .react-flow__edge.selected .react-flow__edge-path { stroke: #7b61ff; stroke-width: 3; }
+  .react-flow__handle {
+    background: var(--accent);
+    border: 2px solid var(--panel);
+    width: 10px;
+    height: 10px;
+  }
+  .react-flow__attribution { background: transparent; color: var(--text-dim); }
+
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--panel);
+    border: 1px solid var(--accent);
+    color: var(--text);
+    padding: 10px 20px;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    z-index: 100;
+    font-size: 13px;
+  }
+  .toast.error { border-color: var(--err); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="env,react" data-type="module">
+/* =========================================================================
+   DAG TOPOLOGICAL SORT ENGINE (Kahn's Algorithm)
+   Reused pattern from skill: dag_topological_sort
+   ========================================================================= */
+const DAGEngine = {
+  /**
+   * Returns topological order. Throws on cycle.
+   * @param {Array<{id:string}>} nodes
+   * @param {Array<{source:string, target:string}>} edges
+   */
+  topologicalSort(nodes, edges) {
+    const indegree = new Map();
+    const adj = new Map();
+    nodes.forEach(n => { indegree.set(n.id, 0); adj.set(n.id, []); });
+    edges.forEach(e => {
+      if (!adj.has(e.source) || !indegree.has(e.target)) return;
+      adj.get(e.source).push(e.target);
+      indegree.set(e.target, (indegree.get(e.target) || 0) + 1);
+    });
+    const queue = nodes.filter(n => indegree.get(n.id) === 0).map(n => n.id);
+    const order = [];
+    while (queue.length) {
+      const id = queue.shift();
+      order.push(id);
+      for (const next of adj.get(id) || []) {
+        indegree.set(next, indegree.get(next) - 1);
+        if (indegree.get(next) === 0) queue.push(next);
+      }
+    }
+    if (order.length !== nodes.length) {
+      const remaining = nodes.filter(n => !order.includes(n.id)).map(n => n.id);
+      const err = new Error(`偵測到循環依賴（DAG 不允許循環），涉及節點：${remaining.join(', ')}`);
+      err.cycleNodes = remaining;
+      throw err;
+    }
+    return order;
+  },
+
+  /**
+   * Validate DAG and return array of issues.
+   */
+  validate(nodes, edges) {
+    const issues = [];
+    if (nodes.length === 0) {
+      issues.push({ level: 'warn', msg: '工作流為空 — 從左側拖曳節點開始' });
+      return issues;
+    }
+    const inputs = nodes.filter(n => n.data?.type === 'input');
+    const outputs = nodes.filter(n => n.data?.type === 'output');
+    if (inputs.length === 0) issues.push({ level: 'error', msg: '缺少輸入節點（Input）' });
+    if (outputs.length === 0) issues.push({ level: 'error', msg: '缺少輸出節點（Output）' });
+    try { this.topologicalSort(nodes, edges); }
+    catch (e) { issues.push({ level: 'error', msg: e.message }); }
+    const reachable = new Set();
+    if (inputs.length) {
+      const stack = [...inputs.map(n => n.id)];
+      while (stack.length) {
+        const id = stack.pop();
+        if (reachable.has(id)) continue;
+        reachable.add(id);
+        for (const e of edges) if (e.source === id) stack.push(e.target);
+      }
+    }
+    nodes.forEach(n => {
+      if (!reachable.has(n.id)) issues.push({ level: 'warn', msg: `節點「${n.data?.label || n.id}」與輸入端斷開` });
+    });
+    const indegree = new Map();
+    edges.forEach(e => indegree.set(e.target, (indegree.get(e.target) || 0) + 1));
+    outputs.forEach(o => {
+      if ((indegree.get(o.id) || 0) === 0) issues.push({ level: 'warn', msg: `輸出節點「${o.data?.label || o.id}」沒有上游連線` });
+    });
+    if (issues.length === 0) issues.push({ level: 'ok', msg: 'DAG 結構有效 ✓' });
+    return issues;
+  },
+
+  /**
+   * Simple hierarchical layout (Kahn-based levels).
+   */
+  autoLayout(nodes, edges) {
+    const indegree = new Map();
+    const adj = new Map();
+    nodes.forEach(n => { indegree.set(n.id, 0); adj.set(n.id, []); });
+    edges.forEach(e => {
+      adj.get(e.source).push(e.target);
+      indegree.set(e.target, (indegree.get(e.target) || 0) + 1);
+    });
+    const level = new Map();
+    const queue = nodes.filter(n => indegree.get(n.id) === 0).map(n => n.id);
+    queue.forEach(id => level.set(id, 0));
+    while (queue.length) {
+      const id = queue.shift();
+      const lv = level.get(id);
+      for (const next of adj.get(id) || []) {
+        if (!level.has(next) || level.get(next) < lv + 1) level.set(next, lv + 1);
+        indegree.set(next, indegree.get(next) - 1);
+        if (indegree.get(next) === 0) queue.push(next);
+      }
+    }
+    const byLevel = {};
+    level.forEach((lv, id) => { (byLevel[lv] = byLevel[lv] || []).push(id); });
+    const positioned = nodes.map(n => {
+      const lv = level.get(n.id) || 0;
+      const col = (byLevel[lv] || []).indexOf(n.id);
+      const cols = (byLevel[lv] || []).length;
+      const xSpacing = 220, ySpacing = 140;
+      const xOffset = -(cols - 1) * xSpacing / 2;
+      return {
+        ...n,
+        position: { x: 80 + lv * xSpacing + 250, y: 60 + (col + 0.5) * ySpacing + xOffset * 0.1 }
+      };
+    });
+    return positioned;
+  }
+};
+window.DAGEngine = DAGEngine;
+
+/* =========================================================================
+   REACT COMPONENTS
+   ========================================================================= */
+const { useState, useCallback, useEffect, useMemo, useRef } = React;
+const ReactFlow = window.ReactFlow.default || window.ReactFlow;
+const {
+  ReactFlowProvider, Background, Controls, MiniMap,
+  Handle, Position, applyNodeChanges, applyEdgeChanges,
+  addEdge: RFAddEdge, useNodesState, useEdgesState
+} = window.ReactFlow;
+
+/* Custom Node */
+function DagNode({ data, selected }) {
+  const status = data.status || 'idle';
+  return (
+    <div className={`dag-node type-${data.type} ${selected ? 'selected' : ''}`}>
+      <Handle type="target" position={Position.Left} />
+      <div className="node-label">{data.label || '未命名'}</div>
+      <div className="node-type">{data.type}</div>
+      {status !== 'idle' && <div className={`node-status status-${status}`}>{status}</div>}
+      <Handle type="source" position={Position.Right} />
+    </div>
+  );
+}
+const nodeTypes = { dagNode: DagNode };
+
+/* Main App */
+function App() {
+  const [rfInstance, setRfInstance] = useState(null);
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [rfReady, setRfReady] = useState(false);
+  const reactFlowWrapper = useRef(null);
+
+  // Verify ReactFlow loaded
+  useEffect(() => {
+    let attempts = 0;
+    const check = () => {
+      if (window.ReactFlow && document.querySelector('.react-flow__renderer')) {
+        setRfReady(true);
+      } else if (attempts < 50) {
+        attempts++;
+        setTimeout(check, 100);
+      }
+    };
+    check();
+  }, []);
+
+  // Show toast helper
+  const showToast = (msg, isError) => {
+    setToast({ msg, isError });
+    setTimeout(() => setToast(null), 2500);
+  };
+
+  /* Initial demo */
+  useEffect(() => {
+    const initialNodes = [
+      { id: '1', type: 'dagNode', data: { label: '用戶輸入', type: 'input' }, position: { x: 80, y: 100 } },
+      { id: '2', type: 'dagNode', data: { label: '驗證資料', type: 'process' }, position: { x: 320, y: 100 } },
+      { id: '3', type: 'dagNode', data: { label: '轉換格式', type: 'process' }, position: { x: 560, y: 100 } },
+      { id: '4', type: 'dagNode', data: { label: '寫入結果', type: 'output' }, position: { x: 800, y: 100 } }
+    ];
+    setNodes(initialNodes);
+    setEdges([
+      { id: 'e1-2', source: '1', target: '2' },
+      { id: 'e2-3', source: '2', target: '3' },
+      { id: 'e3-4', source: '3', target: '4' }
+    ]);
+  }, []);
+
+  // Expose state to window for headless tests / debugging
+  useEffect(() => { window.__nodes = nodes; window.__edges = edges; }, [nodes, edges]);
+
+  /* Connect handler — prevent cycles (DAG rule) */
+  const onConnect = useCallback(params => {
+    // Reject self-loop
+    if (params.source === params.target) {
+      showToast('不可連接自己', true); return;
+    }
+    // Reject if would create cycle
+    const testEdges = [...edges, { id: 'tmp', source: params.target, target: params.source }];
+    try {
+      DAGEngine.topologicalSort(nodes, testEdges);
+    } catch (e) {
+      showToast('連接會形成循環（DAG 不允許）', true); return;
+    }
+    setEdges(eds => RFAddEdge({ ...params, animated: true, style: { stroke: '#5b8def' } }, eds));
+  }, [nodes, edges]);
+
+  /* Drag from palette */
+  const onDragStart = (event, type) => {
+    event.dataTransfer.setData('application/reactflow', type);
+    event.dataTransfer.effectAllowed = 'move';
+  };
+  const onDragOver = useCallback(event => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
+  const onDrop = useCallback(event => {
+    event.preventDefault();
+    const type = event.dataTransfer.getData('application/reactflow');
+    if (!type || !rfInstance) return;
+    const position = rfInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+    const id = `n_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const labelMap = { input: '新輸入', process: '新處理', output: '新輸出' };
+    const newNode = {
+      id, type: 'dagNode',
+      position,
+      data: { label: labelMap[type], type }
+    };
+    setNodes(ns => ns.concat(newNode));
+  }, [rfInstance, setNodes]);
+
+  /* Selection */
+  const onSelectionChange = useCallback(({ nodes: sel }) => {
+    setSelectedNode(sel[0] || null);
+  }, []);
+
+  /* Update selected node data */
+  const updateNodeData = (key, value) => {
+    if (!selectedNode) return;
+    setNodes(ns => ns.map(n => n.id === selectedNode.id ? { ...n, data: { ...n.data, [key]: value } } : n));
+    setSelectedNode(sn => sn ? { ...sn, data: { ...sn.data, [key]: value } } : sn);
+  };
+
+  /* Delete selected */
+  const deleteSelected = () => {
+    if (!selectedNode) return;
+    setNodes(ns => ns.filter(n => n.id !== selectedNode.id));
+    setEdges(es => es.filter(e => e.source !== selectedNode.id && e.target !== selectedNode.id));
+    setSelectedNode(null);
+  };
+
+  /* Export JSON */
+  const exportJson = () => {
+    const data = { nodes, edges, exportedAt: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `dag-workflow-${Date.now()}.json`; a.click();
+    URL.revokeObjectURL(url);
+    showToast('已匯出 JSON');
+  };
+
+  /* Import JSON */
+  const importJson = () => {
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = '.json';
+    input.onchange = e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        try {
+          const data = JSON.parse(ev.target.result);
+          if (data.nodes && data.edges) {
+            setNodes(data.nodes);
+            setEdges(data.edges);
+            showToast('已載入 JSON');
+          } else throw new Error('格式錯誤');
+        } catch (err) { showToast('載入失敗：' + err.message, true); }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  };
+
+  /* Auto layout */
+  const autoLayout = () => {
+    const positioned = DAGEngine.autoLayout(nodes, edges);
+    setNodes(positioned);
+    showToast('已自動佈局');
+  };
+
+  /* Clear all */
+  const clearAll = () => {
+    if (!confirm('清空所有節點？')) return;
+    setNodes([]); setEdges([]); setSelectedNode(null);
+  };
+
+  /* Simulate execution */
+  const runSimulation = async () => {
+    try {
+      const order = DAGEngine.topologicalSort(nodes, edges);
+      showToast(`開始執行 ${order.length} 個節點`);
+      setNodes(ns => ns.map(n => ({ ...n, data: { ...n.data, status: 'idle' } })));
+      for (const id of order) {
+        setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, status: 'running' } } : n));
+        await new Promise(r => setTimeout(r, 600));
+        // Random success/failure (90% success)
+        const ok = Math.random() > 0.1;
+        setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, status: ok ? 'success' : 'error' } } : n));
+        if (!ok) { showToast(`節點 ${id} 執行失敗`, true); return; }
+      }
+      showToast('✓ 全部節點執行成功');
+    } catch (e) {
+      showToast('執行失敗：' + e.message, true);
+    }
+  };
+
+  /* Validation issues */
+  const issues = useMemo(() => DAGEngine.validate(nodes, edges), [nodes, edges]);
+
+  /* Stats */
+  const stats = useMemo(() => ({
+    nodes: nodes.length,
+    edges: edges.length,
+    inputs: nodes.filter(n => n.data?.type === 'input').length,
+    outputs: nodes.filter(n => n.data?.type === 'output').length
+  }), [nodes, edges]);
+
+  return (
+    <div className="app">
+      {/* SIDEBAR */}
+      <aside className="sidebar">
+        <h1>DAG Workflow Editor <small>React Flow + 拓撲引擎</small></h1>
+
+        <div className="section">
+          <h2>節點面板（拖曳至畫布）</h2>
+          <div className="node-palette">
+            <div className="palette-item" draggable onDragStart={e => onDragStart(e, 'input')}>
+              <span className="palette-dot dot-input"></span> Input 輸入節點
+            </div>
+            <div className="palette-item" draggable onDragStart={e => onDragStart(e, 'process')}>
+              <span className="palette-dot dot-process"></span> Process 處理節點
+            </div>
+            <div className="palette-item" draggable onDragStart={e => onDragStart(e, 'output')}>
+              <span className="palette-dot dot-output"></span> Output 輸出節點
+            </div>
+          </div>
+        </div>
+
+        <div className="section">
+          <h2>統計</h2>
+          <div className="stats">
+            <div className="stat-box"><div className="stat-value">{stats.nodes}</div><div className="stat-label">節點</div></div>
+            <div className="stat-box"><div className="stat-value">{stats.edges}</div><div className="stat-label">連線</div></div>
+            <div className="stat-box"><div className="stat-value">{stats.inputs}</div><div className="stat-label">輸入</div></div>
+            <div className="stat-box"><div className="stat-value">{stats.outputs}</div><div className="stat-label">輸出</div></div>
+          </div>
+        </div>
+
+        <div className="section">
+          <h2>DAG 驗證</h2>
+          <ul className="validation-list">
+            {issues.map((v, i) => (
+              <li key={i} className={`validation-item ${v.level}`}>
+                <span className="validation-icon">{v.level === 'error' ? '✕' : v.level === 'warn' ? '!' : '✓'}</span>
+                <span>{v.msg}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="section">
+          <h2>資料</h2>
+          <button className="btn" onClick={exportJson}>⬇ 匯出 JSON</button>
+          <button className="btn" onClick={importJson}>⬆ 載入 JSON</button>
+        </div>
+
+        <div className="section">
+          <h2>危險區</h2>
+          <button className="btn btn-danger" onClick={clearAll}>清空畫布</button>
+        </div>
+      </aside>
+
+      {/* CANVAS */}
+      <div className="canvas-wrap" ref={reactFlowWrapper}>
+        <div className="toolbar">
+          <button onClick={autoLayout}>⚡ 自動佈局</button>
+          <div className="sep"></div>
+          <button onClick={runSimulation}>▶ 模擬執行</button>
+        </div>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onInit={setRfInstance}
+          onDrop={onDrop}
+          onDragOver={onDragOver}
+          onSelectionChange={onSelectionChange}
+          nodeTypes={nodeTypes}
+          fitView
+          deleteKeyCode={['Backspace', 'Delete']}
+        >
+          <Background color="#2d3645" gap={20} size={1} />
+          <Controls />
+          <MiniMap nodeColor={n => {
+            if (n.data?.type === 'input') return '#06b6d4';
+            if (n.data?.type === 'output') return '#f59e0b';
+            return '#8b5cf6';
+          }} maskColor="rgba(15,20,25,0.7)" />
+        </ReactFlow>
+      </div>
+
+      {/* INSPECTOR */}
+      <aside className="inspector">
+        <div className="section">
+          <h2>節點屬性</h2>
+          {!selectedNode ? (
+            <div className="empty-state">選取節點以編輯屬性</div>
+          ) : (
+            <div>
+              <div className="field">
+                <label>ID</label>
+                <input value={selectedNode.id} disabled />
+              </div>
+              <div className="field">
+                <label>名稱</label>
+                <input
+                  value={selectedNode.data?.label || ''}
+                  onChange={e => updateNodeData('label', e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label>類型</label>
+                <select
+                  value={selectedNode.data?.type || 'process'}
+                  onChange={e => updateNodeData('type', e.target.value)}
+                >
+                  <option value="input">Input</option>
+                  <option value="process">Process</option>
+                  <option value="output">Output</option>
+                </select>
+              </div>
+              <div className="field">
+                <label>配置（JSON / 自由文字）</label>
+                <textarea
+                  value={selectedNode.data?.config || ''}
+                  onChange={e => updateNodeData('config', e.target.value)}
+                  placeholder='{"timeout": 5000}'
+                />
+              </div>
+              <div className="field">
+                <label>位置</label>
+                <input
+                  value={`x: ${Math.round(selectedNode.position.x)}, y: ${Math.round(selectedNode.position.y)}`}
+                  disabled
+                />
+              </div>
+              <button className="btn btn-danger" onClick={deleteSelected}>刪除節點</button>
+            </div>
+          )}
+        </div>
+        <div className="section">
+          <h2>使用說明</h2>
+          <div style={{ fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.7 }}>
+            • 拖曳左側節點至畫布<br/>
+            • 從節點右側圓點拖到下一個節點左側圓點建立連線<br/>
+            • 雙擊節點可重命名<br/>
+            • Backspace / Delete 刪除選取項目<br/>
+            • DAG 規則：不可形成循環、輸入必須連到輸出<br/>
+            • 點「自動佈局」按層次重排<br/>
+            • 點「模擬執行」沿拓撲順序執行
+          </div>
+        </div>
+      </aside>
+
+      {toast && <div className={`toast ${toast.isError ? 'error' : ''}`}>{toast.msg}</div>}
+    </div>
+  );
+}
+
+/* Mount */
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<ReactFlowProvider><App /></ReactFlowProvider>);
+// Expose test hooks for headless verification
+window.__dagTest = () => ({ nodes: window.__nodes || [], edges: window.__edges || [] });
+</script>
+</body>
+</html>

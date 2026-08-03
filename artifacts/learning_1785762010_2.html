@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Raphael | 即時統計面板 Mindmap</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+
+  :root {
+    --bg-color: #0b0e1a;
+    --glass-bg: rgba(20, 22, 35, 0.6);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --accent-1: #00f2fe;
+    --accent-2: #4facfe;
+    --accent-warn: #f59e0b;
+    --accent-ok: #10b981;
+    --accent-info: #3b82f6;
+    --accent-link: #ec4899;
+    --text-main: #e2e8f0;
+    --text-muted: #94a3b8;
+    --text-dim: #64748b;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; font-family:'Inter',-apple-system,sans-serif; }
+
+  body {
+    background-color: var(--bg-color);
+    background-image:
+      radial-gradient(circle at 15% 50%, rgba(79,172,254,0.15) 0%, transparent 50%),
+      radial-gradient(circle at 85% 30%, rgba(236,72,153,0.10) 0%, transparent 50%),
+      radial-gradient(circle at 50% 90%, rgba(0,242,254,0.10) 0%, transparent 50%);
+    color: var(--text-main);
+    height: 100vh;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+
+  /* ========== HEADER ========== */
+  header {
+    background: var(--glass-bg);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--glass-border);
+    padding: 1rem 1.5rem;
+    display: flex; justify-content: space-between; align-items: center;
+    z-index: 10; gap: 1rem; flex-shrink: 0;
+  }
+  .brand { display:flex; align-items:center; gap:0.75rem; }
+  .status-indicator {
+    width: 10px; height: 10px;
+    background: var(--accent-ok); border-radius: 50%;
+    box-shadow: 0 0 10px var(--accent-ok);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0% { box-shadow:0 0 0 0 rgba(16,185,129,0.7); }
+    70% { box-shadow:0 0 0 10px rgba(16,185,129,0); }
+    100% { box-shadow:0 0 0 0 rgba(16,185,129,0); }
+  }
+  h1 {
+    font-weight: 600; font-size: 1.05rem; letter-spacing: 0.5px;
+    background: linear-gradient(135deg, var(--accent-1), var(--accent-2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .meta-info { display:flex; gap:1.5rem; font-size: 0.78rem; color: var(--text-muted); }
+  .meta-item { display:flex; flex-direction:column; align-items:flex-end; }
+  .meta-value { color: var(--text-main); font-weight: 600; font-size: 0.95rem; margin-top:0.15rem; }
+
+  /* ========== LAYOUT: chart + side panel ========== */
+  main {
+    flex:1; display: grid;
+    grid-template-columns: 1fr 340px;
+    min-height: 0; position: relative;
+  }
+  #chart-container { position:relative; min-width:0; min-height:0; }
+
+  /* ========== STAT PANEL ========== */
+  .stat-panel {
+    background: var(--glass-bg);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border-left: 1px solid var(--glass-border);
+    overflow-y: auto;
+    padding: 1rem;
+    display: flex; flex-direction: column; gap: 0.75rem;
+    z-index: 5;
+  }
+  .stat-panel::-webkit-scrollbar { width: 6px; }
+  .stat-panel::-webkit-scrollbar-track { background: transparent; }
+  .stat-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+
+  .panel-title {
+    font-size: 0.7rem; font-weight: 600;
+    letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--text-muted);
+    display: flex; align-items: center; gap: 0.4rem;
+    padding-bottom: 0.4rem; border-bottom: 1px solid var(--glass-border);
+  }
+  .panel-title .live-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent-ok);
+    box-shadow: 0 0 6px var(--accent-ok);
+    animation: pulse 2s infinite;
+  }
+
+  /* KPI grid (4 cells) */
+  .kpi-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;
+  }
+  .kpi {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    padding: 0.65rem 0.7rem;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.2s;
+  }
+  .kpi:hover { border-color: rgba(0,242,254,0.3); transform: translateY(-1px); }
+  .kpi::before {
+    content: ''; position: absolute; top:0; left:0; right:0; height: 2px;
+    background: var(--accent-bar, var(--accent-1));
+    opacity: 0.7;
+  }
+  .kpi-label {
+    font-size: 0.65rem; color: var(--text-dim);
+    letter-spacing: 0.8px; text-transform: uppercase;
+    display:flex; align-items:center; gap:0.3rem;
+  }
+  .kpi-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.45rem; font-weight: 600;
+    color: var(--text-main); margin-top: 0.2rem;
+    line-height: 1.1;
+  }
+  .kpi-sub {
+    font-size: 0.7rem; color: var(--text-muted);
+    margin-top: 0.1rem;
+  }
+  .kpi-sub .delta-up { color: var(--accent-ok); }
+  .kpi-sub .delta-down { color: #ef4444; }
+
+  /* Section blocks */
+  .stat-section {
+    background: rgba(255,255,255,0.025);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    padding: 0.7rem 0.8rem;
+  }
+  .section-title {
+    font-size: 0.72rem; font-weight: 600;
+    color: var(--text-main);
+    margin-bottom: 0.5rem;
+    display:flex; justify-content: space-between; align-items: center;
+  }
+  .section-title .hint {
+    font-size: 0.62rem; color: var(--text-dim); font-weight: 400;
+  }
+
+  /* Status distribution bars */
+  .dist-row {
+    display: grid;
+    grid-template-columns: 60px 1fr 32px;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.72rem;
+    margin-bottom: 0.35rem;
+  }
+  .dist-row:last-child { margin-bottom: 0; }
+  .dist-label { display:flex; align-items:center; gap:0.3rem; color: var(--text-muted); }
+  .dist-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .dist-bar {
+    height: 6px; background: rgba(255,255,255,0.05);
+    border-radius: 3px; overflow: hidden;
+  }
+  .dist-fill {
+    height: 100%; border-radius: 3px;
+    transition: width 0.4s ease;
+  }
+  .dist-count {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    text-align: right; color: var(--text-main);
+    font-weight: 600;
+  }
+
+  /* Stacked progress */
+  .progress-stacked {
+    display: flex; height: 8px; border-radius: 4px; overflow: hidden;
+    background: rgba(255,255,255,0.05);
+    margin-bottom: 0.5rem;
+  }
+  .progress-stacked div {
+    height: 100%; transition: width 0.4s ease;
+  }
+
+  /* Depth gauge */
+  .depth-meter {
+    display: flex; gap: 4px; align-items: flex-end;
+    height: 32px; margin: 0.3rem 0;
+  }
+  .depth-cell {
+    flex: 1; background: rgba(255,255,255,0.06);
+    border-radius: 2px;
+    position: relative;
+    transition: background 0.3s;
+  }
+  .depth-cell.active {
+    background: linear-gradient(180deg, var(--accent-1), var(--accent-2));
+    box-shadow: 0 0 8px rgba(0,242,254,0.4);
+  }
+  .depth-cell::after {
+    content: attr(data-lvl);
+    position: absolute; bottom: -16px; left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.6rem; color: var(--text-dim);
+  }
+
+  /* Activity log */
+  .activity-list {
+    display: flex; flex-direction: column; gap: 0.3rem;
+    max-height: 140px; overflow-y: auto;
+    font-size: 0.7rem;
+  }
+  .activity-list::-webkit-scrollbar { width: 4px; }
+  .activity-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+  .activity-item {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 0.4rem;
+    padding: 0.3rem 0.5rem;
+    background: rgba(255,255,255,0.02);
+    border-radius: 4px;
+    border-left: 2px solid var(--activity-color, var(--accent-info));
+    animation: slideIn 0.3s ease;
+  }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(-8px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  .activity-time {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-dim);
+    font-size: 0.62rem;
+  }
+  .activity-text { color: var(--text-main); }
+  .activity-text .target { color: var(--accent-1); font-weight: 500; }
+
+  /* URL highlight */
+  .url-stat {
+    display: grid; grid-template-columns: auto 1fr auto; gap: 0.5rem;
+    align-items: center;
+  }
+  .url-icon {
+    width: 28px; height: 28px; border-radius: 6px;
+    background: rgba(236,72,153,0.15);
+    border: 1px solid rgba(236,72,153,0.4);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.8rem;
+    color: var(--accent-link);
+  }
+  .url-info .url-label { font-size: 0.68rem; color: var(--text-muted); }
+  .url-info .url-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.95rem; font-weight: 600;
+    color: var(--accent-link);
+  }
+
+  /* Toolbar in chart */
+  .toolbar {
+    position: absolute; top: 14px; right: 14px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    padding: 8px 12px; border-radius: 8px;
+    backdrop-filter: blur(8px); z-index: 50;
+    display: flex; gap: 14px; font-size: 0.78rem;
+    flex-wrap: wrap; max-width: 560px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+  }
+  .tool-group { display:flex; align-items:center; gap:6px; }
+  .toolbar button {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: var(--text-main);
+    padding: 4px 9px; border-radius: 4px;
+    cursor: pointer; transition: all 0.2s;
+    font-size: 0.75rem;
+  }
+  .toolbar button:hover { background: var(--accent-2); border-color: var(--accent-1); }
+  .toolbar button.active {
+    background: var(--accent-1); color: #0f111a; font-weight: 600;
+  }
+  .toolbar button.primary { background: var(--accent-1); color: #0f111a; font-weight: 600; }
+  .toolbar button.primary:hover { background: var(--accent-2); color: #fff; }
+
+  /* Legend */
+  .legend-box {
+    position: absolute; left: 14px; bottom: 14px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    padding: 10px 12px; border-radius: 8px;
+    backdrop-filter: blur(8px); z-index: 50;
+    font-size: 0.78rem;
+  }
+  .legend-item { display:flex; align-items:center; margin-bottom: 5px; gap: 8px; }
+  .legend-item:last-child { margin-bottom: 0; }
+  .legend-color {
+    width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0;
+  }
+
+  /* Detail card (popup on click) */
+  .detail-card {
+    position: absolute; right: 360px; top: 14px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(12px);
+    padding: 0.8rem 1rem;
+    border-radius: 10px;
+    z-index: 60; max-width: 280px;
+    font-size: 0.78rem;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+    animation: slideIn 0.25s ease;
+    display: none;
+  }
+  .detail-card.visible { display: block; }
+  .detail-card h4 {
+    color: var(--accent-1); font-size: 0.9rem;
+    margin-bottom: 0.4rem; word-break: break-word;
+  }
+  .detail-card .row {
+    display: flex; justify-content: space-between; gap: 0.5rem;
+    padding: 0.2rem 0; border-bottom: 1px dashed var(--glass-border);
+  }
+  .detail-card .row:last-child { border-bottom: none; }
+  .detail-card .row span:first-child { color: var(--text-muted); }
+  .detail-card .row span:last-child { color: var(--text-main); font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; }
+
+  .close-x {
+    position: absolute; top: 4px; right: 8px;
+    background: none; border: none; color: var(--text-muted);
+    cursor: pointer; font-size: 1.1rem; line-height: 1;
+  }
+  .close-x:hover { color: var(--accent-1); }
+
+  @media (max-width: 880px) {
+    main { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+    .stat-panel { border-left:none; border-top: 1px solid var(--glass-border); max-height: 50vh; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="status-indicator"></div>
+    <h1>RAPHAEL · 即時統計面板</h1>
+  </div>
+  <div class="meta-info">
+    <div class="meta-item">
+      <span>Last Updated</span>
+      <span class="meta-value" id="last-updated">—</span>
+    </div>
+    <div class="meta-item">
+      <span>Interaction</span>
+      <span class="meta-value" id="interaction-count">0</span>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div id="chart-container">
+    <div class="toolbar">
+      <div class="tool-group">
+        <span>展開層級：</span>
+        <button data-depth="1">1</button>
+        <button data-depth="2">2</button>
+        <button data-depth="3" class="active">3</button>
+        <button data-depth="99">全部</button>
+      </div>
+      <div class="tool-group">
+        <span>連接線：</span>
+        <button data-edge="curve" class="active">曲線</button>
+        <button data-edge="polyline">折線</button>
+      </div>
+      <div class="tool-group">
+        <button class="primary" id="btn-reset">重設視角</button>
+      </div>
+    </div>
+
+    <div class="legend-box">
+      <div class="legend-item"><div class="legend-color" style="background:#10b981;"></div><span>進行中 Ongoing</span></div>
+      <div class="legend-item"><div class="legend-color" style="background:#f59e0b;"></div><span>計畫中 Planned</span></div>
+      <div class="legend-item"><div class="legend-color" style="background:#3b82f6;"></div><span>已完成 Completed</span></div>
+      <div class="legend-item"><div class="legend-color" style="background:#ec4899; box-shadow:0 0 8px #ec4899;"></div><span>含實作報告連結</span></div>
+      <div class="legend-item"><div class="legend-color" style="background:transparent;border:1px solid #94a3b8;"></div><span>父節點 / 分支點</span></div>
+    </div>
+
+    <div class="detail-card" id="detail-card">
+      <button class="close-x" onclick="closeDetail()">×</button>
+      <h4 id="detail-name">—</h4>
+      <div class="row"><span>狀態</span><span id="detail-status">—</span></div>
+      <div class="row"><span>深度</span><span id="detail-depth">—</span></div>
+      <div class="row"><span>子節點</span><span id="detail-children">—</span></div>
+      <div class="row"><span>類型</span><span id="detail-type">—</span></div>
+      <div class="row" id="detail-url-row" style="display:none;"><span>報告</span><span id="detail-url">—</span></div>
+    </div>
+  </div>
+
+  <!-- ============ STAT PANEL ============ -->
+  <aside class="stat-panel">
+    <div class="panel-title">
+      <span class="live-dot"></span>
+      <span>REAL-TIME STATS</span>
+    </div>
+
+    <!-- KPI grid -->
+    <div class="kpi-grid">
+      <div class="kpi" style="--accent-bar: var(--accent-1);">
+        <div class="kpi-label">總節點</div>
+        <div class="kpi-value" id="kpi-total">0</div>
+        <div class="kpi-sub"><span id="kpi-total-sub">— 含葉節點</span></div>
+      </div>
+      <div class="kpi" style="--accent-bar: var(--accent-2);">
+        <div class="kpi-label">可見節點</div>
+        <div class="kpi-value" id="kpi-visible">0</div>
+        <div class="kpi-sub"><span id="kpi-visible-sub">— 當前展開</span></div>
+      </div>
+      <div class="kpi" style="--accent-bar: var(--accent-warn);">
+        <div class="kpi-label">展開群組</div>
+        <div class="kpi-value" id="kpi-expanded">0</div>
+        <div class="kpi-sub"><span id="kpi-expanded-sub">— / 0 可展開</span></div>
+      </div>
+      <div class="kpi" style="--accent-bar: var(--accent-ok);">
+        <div class="kpi-label">最大深度</div>
+        <div class="kpi-value" id="kpi-depth">0</div>
+        <div class="kpi-sub">層級</div>
+      </div>
+    </div>
+
+    <!-- Status distribution -->
+    <div class="stat-section">
+      <div class="section-title">
+        <span>狀態分佈</span>
+        <span class="hint" id="dist-hint">—</span>
+      </div>
+      <div class="progress-stacked" id="progress-stacked"></div>
+      <div id="dist-rows"></div>
+    </div>
+
+    <!-- Depth meter -->
+    <div class="stat-section">
+      <div class="section-title">
+        <span>深度可視化</span>
+        <span class="hint" id="depth-hint">L0 → L∞</span>
+      </div>
+      <div class="depth-meter" id="depth-meter"></div>
+    </div>
+
+    <!-- URL highlight -->
+    <div class="stat-section">
+      <div class="section-title">
+        <span>報告連結</span>
+        <span class="hint">已完成任務</span>
+      </div>
+      <div class="url-stat">
+        <div class="url-icon">↗</div>
+        <div class="url-info">
+          <div class="url-label">含實作報告 URL 的節點</div>
+          <div class="url-value" id="url-value">0</div>
+        </div>
+        <div style="text-align:right;">
+          <div class="kpi-label" style="font-size:0.6rem;">佔比</div>
+          <div class="kpi-value" id="url-ratio" style="font-size:1rem;color:var(--accent-link);">0%</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Activity log -->
+    <div class="stat-section" style="flex:1; min-height:0;">
+      <div class="section-title">
+        <span>互動日誌</span>
+        <span class="hint" id="log-count">0 事件</span>
+      </div>
+      <div class="activity-list" id="activity-list"></div>
+    </div>
+  </aside>
+</main>
+
+<script>
+/* ============================================================
+   Raphael 即時統計面板 — 完整實作
+   模組：
+     1. State：原始 data + 樣式樹 + 展開狀態
+     2. StatsEngine：計算總/可見/展開/類型/URL/深度分佈
+     3. PanelRenderer：DOM 寫入(增量更新)
+     4. EventHook：綁定 echarts 事件(mouseover/click/expand)
+     5. SampleData：fallback 資料(當 fetch 失敗)
+   ============================================================ */
+
+const SAMPLE_DATA = {
+  last_updated: '2026-08-03 (local fallback)',
+  mindmap: {
+    name: '拉斐爾技能樹 (Raphael Skills)',
+    children: [
+      { name:'人工智慧代理 (AI Agents)', children: [
+        { name:'多智能體協作', status:'completed', url:'https://example.com/a' },
+        { name:'MCP 工具整合', status:'planned' },
+        { name:'知識庫檢索 (RAG)', status:'ongoing' },
+        { name:'LLM 提示工程', status:'ongoing' },
+        { name:'分散式追蹤 (FastAPI)', status:'completed', url:'https://example.com/b' },
+      ]},
+      { name:'雲原生與 DevOps', children: [
+        { name:'Kubernetes CD Pipeline', status:'ongoing', url:'https://example.com/c' },
+        { name:'混沌工程實踐', status:'ongoing' },
+        { name:'GitOps / ArgoCD', status:'planned' },
+      ]},
+      { name:'前端工程', children: [
+        { name:'Glassmorphism 設計', status:'completed', url:'https://example.com/d' },
+        { name:'echarts 樹狀圖', status:'completed' },
+        { name:'即時統計面板', status:'ongoing' },
+      ]},
+      { name:'自我改進', children: [
+        { name:'三層試誤沉澱', status:'completed', url:'https://example.com/e' },
+        { name:'記憶膨脹控制', status:'planned' },
+      ]}
+    ]
+  }
+};
+
+/* ---------- STATE ---------- */
+let currentDepth = 3;
+let currentEdge = 'curve';
+let baseOption = null;
+let rawMindmap = null;
+let styledRoot = null;
+let interactionCount = 0;
+const activityLog = [];
+
+/* ---------- DOM refs ---------- */
+const $ = id => document.getElementById(id);
+const refs = {
+  total: $('kpi-total'),
+  visible: $('kpi-visible'),
+  expanded: $('kpi-expanded'),
+  depth: $('kpi-depth'),
+  totalSub: $('kpi-total-sub'),
+  visibleSub: $('kpi-visible-sub'),
+  expandedSub: $('kpi-expanded-sub'),
+  distRows: $('dist-rows'),
+  progressStacked: $('progress-stacked'),
+  distHint: $('dist-hint'),
+  depthMeter: $('depth-meter'),
+  depthHint: $('depth-hint'),
+  urlValue: $('url-value'),
+  urlRatio: $('url-ratio'),
+  activityList: $('activity-list'),
+  logCount: $('log-count'),
+  interactionCount: $('interaction-count'),
+  lastUpdated: $('last-updated'),
+  detailCard: $('detail-card'),
+  detailName: $('detail-name'),
+  detailStatus: $('detail-status'),
+  detailDepth: $('detail-depth'),
+  detailChildren: $('detail-children'),
+  detailType: $('detail-type'),
+  detailUrl: $('detail-url'),
+  detailUrlRow: $('detail-url-row'),
+};
+
+/* ---------- TOAST/LOG helpers ---------- */
+function pushActivity(kind, text, color) {
+  const now = new Date();
+  const time = now.toLocaleTimeString('zh-TW', { hour12: false });
+  activityLog.unshift({ time, kind, text, color: color || '#3b82f6' });
+  if (activityLog.length > 40) activityLog.pop();
+  refs.logCount.textContent = `${activityLog.length} 事件`;
+  renderActivity();
+}
+function renderActivity() {
+  refs.activityList.innerHTML = activityLog.map(a =>
+    `<div class="activity-item" style="--activity-color: ${a.color};">
+       <span class="activity-time">${a.time}</span>
+       <span class="activity-text">${a.text}</span>
+       <span class="activity-time">${a.kind}</span>
+     </div>`
+  ).join('');
+}
+
+/* ---------- STATS ENGINE ----------
+   計算：
+     - totalNodes: 所有節點數(含父節點)
+     - totalLeaves: 葉節點數
+     - visibleNodes: 根據 currentDepth 可見的節點數
+     - expandedGroups: 已被展開(collapsible 且當前顯示子節點)的群組數
+     - maxDepth: 樹的最大深度
+     - statusDist: { ongoing, planned, completed, unspec }
+     - urlCount: 含 url 的節點數
+     - depthLevels: 各層級節點數(用於深度 gauge)
+   --------------------------------- */
+function classifyNode(node) {
+  if (node.children && node.children.length > 0) return 'parent';
+  if (node.status === 'ongoing') return 'ongoing';
+  if (node.status === 'planned') return 'planned';
+  if (node.status === 'completed') return 'completed';
+  return 'unspec';
+}
+
+function computeStats(root) {
+  const stats = {
+    total: 0, totalLeaves: 0,
+    visible: 0, expandedGroups: 0, expandableGroups: 0,
+    maxDepth: 0, urlCount: 0,
+    statusDist: { ongoing: 0, planned: 0, completed: 0, unspec: 0, parent: 0 },
+    depthLevels: {},   // level -> count
+  };
+
+  // 計算 maxDepth + 各類型總體分佈
+  (function walk(n, lvl) {
+    stats.total++;
+    stats.maxDepth = Math.max(stats.maxDepth, lvl);
+    stats.depthLevels[lvl] = (stats.depthLevels[lvl] || 0) + 1;
+    const cls = classifyNode(n);
+    stats.statusDist[cls]++;
+    if (n.url) stats.urlCount++;
+    if (!n.children || n.children.length === 0) stats.totalLeaves++;
+    if (n.children) n.children.forEach(c => walk(c, lvl + 1));
+  })(root, 1);
+
+  // 計算可見節點 + 展開群組(根據 currentDepth)
+  function walkVisible(n, lvl) {
+    stats.visible++;
+    if (n.children && n.children.length > 0) {
+      stats.expandableGroups++;
+      // 該群組被視為「已展開」,當前深度 < 子層顯示深度
+      if (lvl < currentDepth) {
+        stats.expandedGroups++;
+        n.children.forEach(c => walkVisible(c, lvl + 1));
+      }
+    }
+  }
+  walkVisible(root, 1);
+
+  return stats;
+}
+
+/* ---------- STYLE / ENRICH NODES ----------
+   加上 _depth/_cls 等 meta 給後續查詢
+   -------------------------------------- */
+function styleNodes(node, lvl = 1) {
+  node._depth = lvl;
+  node._cls = classifyNode(node);
+  node.itemStyle = {};
+
+  if (node.children && node.children.length > 0) {
+    node.symbol = 'emptyCircle';
+    node.symbolSize = 14;
+    node.itemStyle.borderColor = '#94a3b8';
+    node.itemStyle.borderWidth = 2;
+    node.itemStyle.shadowBlur = 10;
+    node.itemStyle.shadowColor = 'rgba(255,255,255,0.2)';
+    node.children.forEach(c => styleNodes(c, lvl + 1));
+  } else {
+    node.symbol = 'roundRect';
+    node.symbolSize = [140, 36];
+    let bg = '#3b82f6';
+    if (node.status === 'ongoing') bg = '#10b981';
+    if (node.status === 'planned') bg = '#f59e0b';
+    node.itemStyle = { color: bg, borderRadius: 6 };
+    if (node.url) {
+      node.itemStyle.color = '#ec4899';
+      node.itemStyle.shadowBlur = 15;
+      node.itemStyle.shadowColor = '#ec4899';
+    }
+    node.label = {
+      position: 'inside',
+      color: '#ffffff',
+      fontSize: 12,
+      formatter: p => {
+        let t = p.name;
+        if (t.length > 15 && t.includes(' (')) t = t.replace(' (', '\n(');
+        return t;
+      }
+    };
+  }
+  return node;
+}
+
+/* ---------- RENDER: STAT PANEL ---------- */
+function renderPanel(stats) {
+  refs.total.textContent = stats.total;
+  refs.totalSub.innerHTML = `<span class="delta-up">${stats.totalLeaves}</span> 葉節點 · ${stats.statusDist.parent} 父節點`;
+
+  refs.visible.textContent = stats.visible;
+  const visPct = stats.total ? Math.round(stats.visible / stats.total * 100) : 0;
+  refs.visibleSub.innerHTML = `<span class="delta-up">${visPct}%</span> 總節點可見`;
+
+  refs.expanded.textContent = stats.expandedGroups;
+  refs.expandedSub.innerHTML = `/ <span>${stats.expandableGroups}</span> 可展開`;
+
+  refs.depth.textContent = stats.maxDepth;
+  refs.distHint.textContent = `總 ${stats.totalLeaves} 葉`;
+
+  // Stacked bar
+  const colors = {
+    ongoing: '#10b981', planned: '#f59e0b',
+    completed: '#3b82f6', unspec: '#475569', parent: '#94a3b8'
+  };
+  const labels = {
+    ongoing: '進行中', planned: '計畫中',
+    completed: '已完成', unspec: '未標記', parent: '父節點'
+  };
+  const order = ['completed', 'ongoing', 'planned', 'unspec', 'parent'];
+  refs.progressStacked.innerHTML = order.map(k => {
+    const v = stats.statusDist[k] || 0;
+    const pct = stats.total ? (v / stats.total * 100) : 0;
+    return `<div style="width:${pct}%; background:${colors[k]};" title="${labels[k]}: ${v}"></div>`;
+  }).join('');
+
+  refs.distRows.innerHTML = order.filter(k => stats.statusDist[k] > 0).map(k => {
+    const v = stats.statusDist[k];
+    const pct = stats.total ? (v / stats.total * 100) : 0;
+    return `<div class="dist-row">
+      <div class="dist-label"><span class="dist-dot" style="background:${colors[k]};"></span>${labels[k]}</div>
+      <div class="dist-bar"><div class="dist-fill" style="width:${pct}%; background:${colors[k]};"></div></div>
+      <div class="dist-count">${v}</div>
+    </div>`;
+  }).join('');
+
+  // Depth meter (顯示每層節點數,當前展開到的層高亮)
+  const maxLvl = stats.maxDepth;
+  const cells = [];
+  for (let i = 1; i <= Math.max(maxLvl, 6); i++) {
+    const count = stats.depthLevels[i] || 0;
+    const active = i <= currentDepth;
+    const h = Math.min(100, 20 + count * 8);
+    cells.push(`<div class="depth-cell ${active ? 'active' : ''}" data-lvl="L${i}" style="height:${h}%;" title="L${i}: ${count} 節點"></div>`);
+  }
+  refs.depthMeter.innerHTML = cells.join('');
+  refs.depthHint.textContent = `L1 → L${maxLvl}`;
+
+  // URL
+  refs.urlValue.textContent = stats.urlCount;
+  const urlPct = stats.totalLeaves ? Math.round(stats.urlCount / stats.totalLeaves * 100) : 0;
+  refs.urlRatio.textContent = `${urlPct}%`;
+
+  refs.interactionCount.textContent = interactionCount;
+}
+
+/* ---------- CHART INIT ---------- */
+const chartDom = document.getElementById('chart-container');
+const myChart = echarts.init(chartDom, 'dark');
+myChart.setOption({ backgroundColor: 'transparent' });
+
+myChart.showLoading({
+  text: 'Loading Neural Pathways...',
+  color: '#00f2fe', textColor: '#fff',
+  maskColor: 'rgba(15, 17, 26, 0.8)', zlevel: 0
+});
+
+/* ---------- DATA LOAD ---------- */
+async function loadData() {
+  // 優先用 fetch,但若 data.json 不存在或 CORS 失敗,fallback 到 SAMPLE_DATA
+  let data;
+  try {
+    const r = await fetch('data.json?t=' + Date.now());
+    if (r.ok) {
+      data = await r.json();
+    } else throw new Error('fetch not ok');
+  } catch (e) {
+    console.warn('使用 fallback 樣本資料:', e.message);
+    data = SAMPLE_DATA;
+  }
+  return data;
+}
+
+/* ---------- BUILD CHART OPTION ---------- */
+function buildOption(styledRoot) {
+  return {
+    tooltip: {
+      trigger: 'item', triggerOn: 'mousemove',
+      backgroundColor: 'rgba(20, 22, 35, 0.9)',
+      borderColor: 'rgba(255, 255, 255, 0.2)',
+      textStyle: { color: '#e2e8f0' },
+      formatter: p => {
+        let r = `<b>${p.name}</b>`;
+        if (p.data.status) r += `<br/>狀態: ${p.data.status}`;
+        if (p.data.url) r += `<br/><span style="color:#ec4899;">[點擊開啟實作報告]</span>`;
+        r += `<br/>深度: L${p.data._depth}`;
+        return r;
+      }
+    },
+    series: [{
+      type: 'tree',
+      data: [styledRoot],
+      top: '3%', left: '8%', bottom: '3%', right: '5%',
+      layout: 'orthogonal',
+      edgeShape: currentEdge,
+      initialTreeDepth: currentDepth,
+      roam: true,
+      nodePadding: 18,
+      layerPadding: 60,
+      label: { position: 'left', verticalAlign: 'middle', align: 'right', fontSize: 13, color: '#e2e8f0' },
+      expandAndCollapse: true,
+      animationDuration: 450,
+      animationDurationUpdate: 600,
+      lineStyle: { color: 'source', width: 2, curveness: 0.5 }
+    }]
+  };
+}
+
+/* ---------- REFRESH STATS (called whenever state changes) ---------- */
+function refreshAll(triggerSource = 'init') {
+  if (!rawMindmap) return;
+  const stats = computeStats(rawMindmap);
+  renderPanel(stats);
+  if (triggerSource !== 'silent') {
+    pushActivity('STAT', `面板更新 — 可見 ${stats.visible}/${stats.total}, 展開 ${stats.expandedGroups}/${stats.expandableGroups}`, '#4facfe');
+  }
+}
+
+/* ---------- TOOLBAR HANDLERS ---------- */
+document.querySelectorAll('[data-depth]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('[data-depth]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentDepth = parseInt(btn.dataset.depth, 10);
+    if (baseOption) {
+      baseOption.series[0].initialTreeDepth = currentDepth;
+      myChart.clear();
+      myChart.setOption(baseOption);
+    }
+    interactionCount++;
+    refreshAll('toolbar');
+    pushActivity('TOOL', `展開層級 → ${currentDepth === 99 ? '全部' : currentDepth}`, '#f59e0b');
+  });
+});
+document.querySelectorAll('[data-edge]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('[data-edge]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentEdge = btn.dataset.edge;
+    if (baseOption) {
+      baseOption.series[0].edgeShape = currentEdge;
+      myChart.setOption(baseOption);
+    }
+    interactionCount++;
+    pushActivity('TOOL', `連接線 → ${currentEdge === 'curve' ? '曲線' : '折線'}`, '#f59e0b');
+  });
+});
+$('btn-reset').addEventListener('click', () => {
+  myChart.dispatchAction({ type: 'restore' });
+  interactionCount++;
+  pushActivity('TOOL', '重設視角與縮放', '#f59e0b');
+});
+
+/* ---------- DETAIL CARD ---------- */
+function showDetail(node) {
+  refs.detailName.textContent = node.name;
+  refs.detailStatus.textContent = node.status || (node.children ? '父節點' : '未標記');
+  refs.detailDepth.textContent = 'L' + (node._depth || '?');
+  refs.detailChildren.textContent = (node.children || []).length;
+  refs.detailType.textContent = node._cls || classifyNode(node);
+  if (node.url) {
+    refs.detailUrl.textContent = node.url.length > 30 ? node.url.slice(0, 30) + '…' : node.url;
+    refs.detailUrlRow.style.display = 'flex';
+  } else {
+    refs.detailUrlRow.style.display = 'none';
+  }
+  refs.detailCard.classList.add('visible');
+}
+function closeDetail() {
+  refs.detailCard.classList.remove('visible');
+}
+window.closeDetail = closeDetail;
+
+/* ---------- BOOT ---------- */
+(async () => {
+  const data = await loadData();
+  rawMindmap = data.mindmap;
+  styledRoot = styleNodes(JSON.parse(JSON.stringify(rawMindmap)));
+
+  refs.lastUpdated.textContent = data.last_updated || new Date().toLocaleString('zh-TW');
+
+  baseOption = buildOption(styledRoot);
+  myChart.hideLoading();
+  myChart.setOption(baseOption);
+
+  // 初始面板 + log
+  refreshAll('init');
+  pushActivity('INIT', '面板初始化完成', '#10b981');
+
+  /* ===== 即時事件 hook ===== */
+  // 滑鼠移入 → 顯示該節點詳細資訊
+  myChart.on('mouseover', { seriesType: 'tree' }, params => {
+    if (params.data) {
+      showDetail(params.data);
+      interactionCount++;
+      pushActivity('HOVER', `滑入 → <span class="target">${params.name}</span>`, '#3b82f6');
+      refreshAll('silent');
+    }
+  });
+  myChart.on('mouseout', { seriesType: 'tree' }, () => {
+    closeDetail();
+  });
+
+  // 點擊 → 若有 URL 開啟報告,否則刷新 stats
+  myChart.on('click', params => {
+    interactionCount++;
+    if (params.data?.url) {
+      pushActivity('CLICK', `開啟報告 → <span class="target">${params.name}</span>`, '#ec4899');
+      // window.open(params.data.url, '_blank'); // 安全起見,註解掉
+    } else {
+      pushActivity('CLICK', `選取 → <span class="target">${params.name}</span>`, '#3b82f6');
+    }
+    refreshAll('silent');
+  });
+
+  // 展開/收合動畫結束後 refresh(echarts 在 tree 觸發 'click' 時已記錄)
+  // 用 dblclick 觸發 expand/collapse
+  myChart.on('dblclick', params => {
+    if (params.data?.children) {
+      // toggle 展開狀態
+      const node = params.data;
+      node._collapsed = !node._collapsed;
+      // 透過更新 data 觸發圖表重繪
+      baseOption.series[0].data = [styledRoot];
+      myChart.setOption(baseOption, true);
+      interactionCount++;
+      pushActivity('TOGGLE', `${node._collapsed ? '收合' : '展開'} → <span class="target">${params.name}</span>`, '#10b981');
+      refreshAll('dblclick');
+    }
+  });
+
+  // resize
+  window.addEventListener('resize', () => {
+    if (window._rt) clearTimeout(window._rt);
+    window._rt = setTimeout(() => myChart.resize(), 200);
+  });
+
+  // 週期性「心跳」:即使沒互動,也每 8 秒刷新面板(模擬即時感)
+  setInterval(() => {
+    if (!document.hidden) {
+      refreshAll('heartbeat');
+    }
+  }, 8000);
+})();
+</script>
+</body>
+</html>

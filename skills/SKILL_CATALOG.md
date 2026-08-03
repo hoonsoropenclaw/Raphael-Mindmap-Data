@@ -3,68 +3,83 @@
 
 # SKILL_CATALOG.md
 
-1. **Advanced React Application with Design System** - Develop sophisticated React applications integrated with design systems for enhanced UI/UX.
-2. **Trial and Error** - Implement systematic trial and error methodologies for problem-solving and experimentation.
-3. **Event-Driven Programming Anti-Patterns** - Identify and avoid common pitfalls in event-driven programming paradigms.
-4. **FastAPI API Development** - Build high-performance APIs using FastAPI for efficient web service development.
-5. **Comprehensive Anti-Patterns Identification** - Detect and understand various anti-patterns across different domains of software development.
-6. **Headless Browser Verification** - Utilize headless browsers for automated verification and testing of web applications.
-7. **Data Export and Schema-Driven Extraction** - Export data and perform schema-driven extraction for structured data handling.
-8. **Browser Navigate** - Implement navigation functionalities in browsers for automated browsing tasks.
-9. **APT Package Installer** - Automate the installation of APT packages for system setup and configuration.
-10. **Browser Console** - Interact with the browser console for debugging and logging purposes.
-11. **Advanced Browser Automation and Testing** - Perform sophisticated automation and testing of web applications using browsers.
-12. **Robust Security and Attack Mitigation** - Develop strategies for robust security and mitigation of potential attacks.
-13. **Modular Component Library** - Create a modular library of reusable components for scalable application development.
-14. **Integrated Workflow and Task Management** - Manage workflows and tasks seamlessly with integrated systems and tools.
-15. **Anti-Patterns in Event-Driven Systems** - Recognize and prevent anti-patterns in the design and implementation of event-driven systems.
-16. **Write File** - Handle file writing operations for data storage and manipulation.
-17. **SQLite3 Thread Safe** - Ensure thread safety when using SQLite3 for concurrent database operations.
-18. **Progressive Reveal Animation** - Design animations that progressively reveal content for engaging user experiences.
-19. **Form Management and Testing** - Manage and test forms for efficient data collection and validation.
-20. **Comprehensive Software Quality and Performance Assurance** - Ensure high-quality and performant software through comprehensive testing and optimization.
-21. **Performance Optimization Anti-Patterns** - Identify and avoid common mistakes in performance optimization efforts.
-22. **Multilingual Media Processing and Transcription** - Process and transcribe media content in multiple languages for broader accessibility.
-23. **UMD Dependency Management** - Manage dependencies using UMD (Universal Module Definition) for versatile module loading.
-24. **Comprehensive Performance Optimization** - Apply holistic strategies for optimizing software performance across various metrics.
-25. **Advanced Browser Automation and Testing Framework** - Utilize advanced frameworks for automating and testing browser-based applications.
-26. **Real-Time Audio Transcription Application** - Develop applications that transcribe audio in real-time for immediate text conversion.
-27. **Automated Testing and Scraping** - Automate the process of testing applications and scraping data from websites.
-28. **Domain Expansion Proposal** - Propose strategies for expanding application domains and functionalities.
-29. **Secure Authentication and Attack Mitigation** - Implement secure authentication methods and strategies to mitigate potential attacks.
-30. **Automated Browser Testing** - Automate the testing of web applications across different browsers and platforms.
-31. **Advanced UI Design Systems** - Create advanced design systems for consistent and scalable UI development.
-32. **Smart Contract with Rule Engine** - Develop smart contracts integrated with rule engines for dynamic and flexible contract execution.
-33. **Modular Game Application Design** - Design game applications using modular architecture for easier maintenance and scalability.
-34. **Browser Snapshot** - Capture snapshots of browser states for testing and debugging purposes.
-35. **Strategic Smart Contract and Domain Expansion** - Strategically expand domains and functionalities with smart contracts.
-36. **Babel JSX Standalone Setup** - Set up Babel for standalone JSX processing in JavaScript projects.
-37. **Comprehensive Anti-Patterns Management** - Manage and mitigate anti-patterns across all aspects of software development.
-38. **Visual Regression with Pillow** - Use Pillow for visual regression testing to detect changes in UI appearance.
-39. **Modular Application with Modern UI** - Build modular applications featuring modern and responsive user interfaces.
-40. **Lazy Browser Launch** - Launch browsers lazily to optimize resource usage and improve performance.
-41. **Robust HTTP Server Configuration** - Configure HTTP servers for high performance, security, and reliability.
-42. **Performance Optimization Mode** - Enable modes for optimizing software performance based on specific criteria.
-43. **Tailwind CSS Integration** - Integrate Tailwind CSS for utility-first styling and responsive design.
-44. **Responsive UI Development** - Develop user interfaces that adapt to different screen sizes and devices.
-45. **Browser Click** - Simulate browser clicks for automated interaction and testing.
-46. **Event-Driven File and Crawler Management** - Manage files and web crawlers using event-driven architectures.
-47. **Responsive Dynamic Form Generation** - Generate dynamic forms that respond to user input and device characteristics.
-48. **Read File** - Handle file reading operations for data retrieval and processing.
-49. **Next.js UI Integration** - Integrate Next.js for server-side rendered React applications with optimized UI.
-50. **Regression Testing** - Perform regression testing to ensure new changes do not break existing functionalities.
-51. **Server and Package Management** - Manage servers and packages for efficient system administration and deployment.
-52. **Security and Attack Mitigation** - Implement security measures and strategies to mitigate potential attacks.
-53. **Game Application Development and Testing** - Develop and test game applications for quality assurance and performance optimization.
-54. **Anti-Patterns Identification and Avoidance** - Identify and avoid anti-patterns in software design and development.
-55. **Playwright Cross-Browser Automation** - Use Playwright for automating browser tasks across multiple browsers.
-56. **Event-Driven Systems Management** - Manage and maintain event-driven systems for efficient and scalable operations.
-57. **File and Browser Monitoring System** - Monitor files and browser activities for security, debugging, and performance tracking.
-58. **Systematic Trial and Error** - Apply systematic approaches to trial and error processes for more effective problem-solving.- **tailwind_css_integration**: 將 Tailwind CSS 整合到前端專案中，配置主題、字體、顏色等擴展功能。
-- **progressive_reveal_animation**: 實現漸進式顯示動畫效果，使用 CSS keyframes 和變量控制延遲和動畫屬性。
-- **glassmorphism_design**: 應用 Glassmorphism 設計風格，實現具有景深和模糊效果的 UI 元素。
-- **anti_pattern_infinite_loop**: 識別並修復因無限循環導致的程序掛起問題。
-- **anti_pattern_blocking_io**: 識別並修復因阻塞 I/O 操作導致的程序掛起問題。
-- **html_table_builder**: 生成 HTML 表格並根據數據動態填充內容
-- **visual_diff_engine**: 實現視覺回歸測試的差異比較引擎
-- **path_resolution_fix**: 修正 HTML 文件中資源的路徑解析問題
+1. **Modular Application and Component Development** - Techniques for building scalable and maintainable applications through modular components.
+2. **mock_testing_framework_integration** - Integrating mock testing frameworks for efficient and reliable software testing.
+3. **echarts_data_visualization** - Utilizing ECharts for creating interactive and dynamic data visualizations.
+4. **Responsive Web Layout Design** - Designing web layouts that adapt seamlessly to different screen sizes and devices.
+5. **html_template_renderer** - Rendering HTML templates for dynamic and flexible web page generation.
+6. **dynamic_ui_component_integration** - Integrating dynamic UI components to enhance user interface interactivity and responsiveness.
+7. **event_driven_architecture_integration** - Implementing event-driven architecture for scalable and responsive applications.
+8. **Advanced Security and Attack Mitigation** - Advanced strategies for securing applications and mitigating potential attacks.
+9. **apt_package_installer** - Installing APT packages for managing software dependencies in Linux environments.
+10. **advanced_browser_automation_and_testing** - Automating browser tasks and conducting advanced testing for web applications.
+11. **telegram_bot_development_and_testing** - Developing and testing Telegram bots for automated messaging and interaction.
+12. **data_persistence_strategies** - Strategies for persisting and managing data effectively in applications.
+13. **integrated_workflow_and_task_management** - Integrating workflows and managing tasks for streamlined project management.
+14. **UMD Module Management** - Managing Universal Module Definition (UMD) modules for versatile JavaScript code.
+15. **dag_based_application_integration** - Integrating applications using Directed Acyclic Graph (DAG) structures for efficient processing.
+16. **sqlite3_thread_safe** - Ensuring thread-safe operations with SQLite3 for concurrent database access.
+17. **advanced_ui_design_integration** - Advanced integration of UI design principles for enhanced user experience.
+18. **Advanced Responsive UI Development with Tailwind CSS** - Developing responsive user interfaces using Tailwind CSS for modern web applications.
+19. **intent_classification** - Classifying user intents for better understanding and processing of user interactions.
+20. **real_time_media_transcription** - Transcribing media in real-time for applications like live captioning and transcription services.
+21. **modular_application_development** - Developing applications using modular architecture for improved scalability and maintenance.
+22. **interactive_web_animation_and_simulation** - Creating interactive animations and simulations for engaging web experiences.
+23. **advanced_retry_and_caching_strategies** - Implementing advanced retry and caching strategies for robust and efficient applications.
+24. **Performance Optimization Strategies** - Strategies for optimizing application performance and responsiveness.
+25. **Visual Regression and Automated Testing** - Automated testing for detecting visual regressions in web applications.
+26. **dynamic_form_management** - Managing dynamic forms for flexible and interactive user input.
+27. **report_generator_with_base64_images** - Generating reports with embedded Base64 images for comprehensive documentation.
+28. **FastAPI REST API Development** - Developing RESTful APIs using FastAPI for high-performance web services.
+29. **Advanced Browser Automation and Testing Framework** - Utilizing advanced frameworks for browser automation and testing.
+30. **comprehensive_security_and_access_control** - Implementing comprehensive security measures and access control for applications.
+31. **Standardized Decision-Making Solutions** - Solutions for standardizing decision-making processes in applications.
+32. **prompt_injection_detection** - Detecting prompt injections to enhance application security and integrity.
+33. **Advanced Form Management and Automation** - Advanced management and automation of forms for efficient data handling.
+34. **jsx_in_browser** - Using JSX in the browser for dynamic and interactive web development.
+35. **api_integration_and_authentication** - Integrating APIs and implementing authentication for secure data exchange.
+36. **xdotool_subprocess_integration** - Integrating xdotool subprocesses for automating GUI interactions in Linux.
+37. **Interactive JSX Live Playground** - A live environment for experimenting with JSX and interactive web development.
+38. **web_ui_single_page_application** - Developing single-page applications for seamless and responsive web user interfaces.
+39. **anti_patterns_comprehensive_management** - Comprehensive management of anti-patterns to avoid common development pitfalls.
+40. **Real-Time Audio Processing and Transcription** - Processing and transcribing audio in real-time for applications like voice assistants and transcription services.
+41. **multimedia_capture_and_effects** - Capturing multimedia and applying effects for dynamic and engaging content.
+42. **message_router** - Routing messages for efficient and organized communication in applications.
+43. **Advanced Access Control and Logging** - Implementing advanced access control and logging for enhanced security and monitoring.
+44. **advanced_ocr_integration** - Integrating advanced Optical Character Recognition (OCR) for text extraction and processing.
+45. **React Flow Integration and Setup** - Integrating and setting up React Flow for visualizing data flows and processes.
+46. **system_monitoring_and_performance_optimization** - Monitoring system performance and optimizing for efficiency and reliability.
+47. **schema_driven_application_development** - Developing applications using schema-driven approaches for structured and consistent data management.
+48. **software_quality_assurance** - Ensuring software quality through rigorous testing and validation processes.
+49. **Babel JSX Standalone Integration** - Integrating Babel for standalone JSX processing in web development.
+50. **Local Storage Integration for Workflow Data** - Integrating local storage for managing workflow data efficiently.
+51. **Domain Expansion Strategies** - Strategies for expanding application domains and functionalities.
+52. **game_development_and_testing** - Developing and testing games for engaging and interactive experiences.
+53. **scheduler_with_ap_scheduler** - Implementing schedulers using AP Scheduler for task automation and management.
+54. **advanced_browser_automation_with_playwright** - Automating browser tasks using Playwright for advanced testing and automation.
+55. **system_security_and_monitoring** - Ensuring system security and monitoring for robust and reliable applications.
+56. **advanced_browser_testing_and_automation** - Advanced techniques for testing and automating browser-based applications.
+57. **tailwind_css_advanced_integration** - Advanced integration of Tailwind CSS for modern and responsive web design.
+58. **Comprehensive Dependency and Package Management** - Managing dependencies and packages comprehensively for stable and maintainable applications.
+59. **responsive_ui_development_with_tailwind_css** - Developing responsive user interfaces using Tailwind CSS for adaptable and user-friendly designs.
+60. **advanced_ui_animation_and_effects** - Implementing advanced animations and effects for dynamic and engaging user interfaces.
+61. **nextjs_ui_integration** - Integrating Next.js for server-side rendered and dynamic user interfaces.
+62. **Comprehensive Event-Driven Anti-Patterns Management** - Managing event-driven anti-patterns comprehensively to avoid common pitfalls.
+63. **Advanced Tailwind CSS Integration for Responsive UI Development** - Advanced integration of Tailwind CSS for responsive and modern web design.
+64. **Smart Contract Development with Rule Engines** - Developing smart contracts using rule engines for automated and efficient contract management.
+65. **anti_pattern_detection_and_mitigation** - Detecting and mitigating anti-patterns to improve application quality and reliability.
+66. **google_calendar_api_integration** - Integrating Google Calendar API for scheduling and event management.
+67. **Advanced Frontend Development and Modular UI Design** - Advanced development of frontend applications with modular UI design for scalable and maintainable interfaces.
+68. **DAG-Based Workflow Management and Execution** - Managing and executing workflows using DAG structures for efficient and organized task processing.
+69. **Comprehensive Anti-Patterns Identification and Mitigation** - Identifying and mitigating anti-patterns comprehensively to enhance application quality.
+70. **error_handling_with_logging** - Implementing error handling with logging for robust and maintainable applications.- **tailwind_dynamic_theme_switch**: 使用 Tailwind CSS 實現動態主題切換
+- **visual_regression_with_ignored_regions**: 實現帶有忽略區域的視覺回歸測試
+- **glasmorphism_integration**: 在組件中集成玻璃擬態效果
+- **playwright_cross_browser_testing**: 使用 Playwright 進行跨瀏覽器自動化測試
+- **glassmorphism_visual_verification**: 驗證 Glassmorphism 視覺效果
+- **dynamic_form_interaction**: 動態表單的自動化交互
+- **local_storage_persistence_testing**: 測試本地存儲的持久化功能
+- **responsive_layout_verification**: 驗證響應式佈局的正確性
+- **anti_pattern_infinite_loop**: 識別並修復無限循環問題
+- **anti_pattern_blocking_io**: 識別並修復阻塞 I/O 問題
+- **wait_for_animations**: 等待動畫完成以避免元素不可交互

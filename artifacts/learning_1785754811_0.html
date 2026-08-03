@@ -1,0 +1,805 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="React Flow UMD single-file integration demo" />
+  <title>Flowboard — React Flow UMD</title>
+
+  <!--
+    UMD dependency order is intentional:
+    React -> ReactDOM -> React Flow -> Babel Standalone -> application JSX.
+    React Flow 11.11.4 exports its UMD namespace as window.ReactFlow.
+  -->
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css" />
+  <script src="https://unpkg.com/@babel/standalone@7.25.7/babel.min.js"></script>
+
+  <style>
+    :root {
+      --ink-950: #141715;
+      --ink-900: #1b211d;
+      --ink-800: #29312b;
+      --ink-700: #455149;
+      --ink-600: #647168;
+      --ink-500: #849188;
+      --paper: #f4f6f0;
+      --paper-strong: #fbfcf8;
+      --line: #dce3d8;
+      --line-dark: rgba(228, 237, 225, 0.14);
+      --accent: #d6a85a;
+      --accent-strong: #bd8741;
+      --mint: #7da88b;
+      --mint-soft: #dcebe0;
+      --coral: #c97662;
+      --shadow: 0 20px 55px rgba(24, 33, 26, 0.13);
+      --radius-lg: 22px;
+      --radius-md: 14px;
+      --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html, body, #root { margin: 0; min-height: 100%; }
+    body {
+      min-width: 320px;
+      background: var(--paper);
+      color: var(--ink-950);
+      font-family: var(--font-sans);
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input, textarea { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: 0.55; }
+    :focus-visible { outline: 3px solid rgba(189, 135, 65, 0.55); outline-offset: 3px; }
+
+    .boot-status {
+      position: fixed;
+      inset: 18px 18px auto auto;
+      z-index: 1000;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 11px;
+      border: 1px solid rgba(20, 23, 21, 0.12);
+      border-radius: 999px;
+      background: rgba(251, 252, 248, 0.94);
+      color: var(--ink-700);
+      font: 11px var(--font-mono);
+      box-shadow: 0 8px 25px rgba(24, 33, 26, 0.08);
+      transition: opacity 180ms ease, transform 180ms ease;
+    }
+    .boot-status.ready { color: #3d7351; }
+    .boot-status.ready::before, .boot-status.error::before {
+      content: "";
+      display: block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .boot-status.error { color: #a24f42; max-width: min(560px, calc(100vw - 36px)); border-radius: 12px; }
+    .boot-status.hidden { opacity: 0; transform: translateY(-5px); pointer-events: none; }
+
+    .app-shell { min-height: 100vh; display: flex; flex-direction: column; }
+    .topbar {
+      min-height: 78px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 22px;
+      padding: 14px 24px;
+      background: var(--ink-950);
+      color: var(--paper-strong);
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+    }
+    .brand-lockup { display: flex; align-items: center; gap: 13px; min-width: 0; }
+    .brand-mark {
+      width: 37px;
+      height: 37px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border: 1px solid rgba(214,168,90,0.8);
+      border-radius: 11px;
+      color: var(--accent);
+      font-weight: 800;
+      letter-spacing: -0.08em;
+    }
+    .brand-name { margin: 0; font-size: 16px; letter-spacing: -0.03em; }
+    .brand-subtitle { margin: 3px 0 0; color: #9ca99e; font-size: 11px; letter-spacing: 0.04em; }
+    .topbar-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+    .runtime-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 10px;
+      border: 1px solid rgba(125,168,139,0.36);
+      border-radius: 999px;
+      color: #b9d7c0;
+      font: 10px var(--font-mono);
+      letter-spacing: 0.04em;
+    }
+    .runtime-dot { width: 7px; height: 7px; border-radius: 50%; background: #8cc69a; box-shadow: 0 0 0 4px rgba(140,198,154,0.12); }
+    .topbar-button, .action-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      min-height: 35px;
+      padding: 8px 12px;
+      border: 1px solid transparent;
+      border-radius: 9px;
+      transition: background 150ms ease, border-color 150ms ease, transform 150ms ease;
+    }
+    .topbar-button {
+      background: rgba(255,255,255,0.06);
+      border-color: rgba(255,255,255,0.1);
+      color: #e8eee7;
+      font-size: 12px;
+    }
+    .topbar-button:hover { background: rgba(255,255,255,0.12); }
+    .action-button {
+      background: var(--paper-strong);
+      border-color: var(--line);
+      color: var(--ink-800);
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .action-button:hover { border-color: #b7c6b8; transform: translateY(-1px); }
+    .action-button.primary { background: var(--accent); border-color: var(--accent); color: #2b2115; }
+    .action-button.primary:hover { background: #e1b76d; border-color: #e1b76d; }
+    .action-button.ghost { background: transparent; border-color: transparent; color: var(--ink-600); }
+    .action-button.danger { color: #a65448; }
+
+    .workspace {
+      width: 100%;
+      flex: 1;
+      display: grid;
+      grid-template-columns: 218px minmax(0, 1fr) 308px;
+      gap: 14px;
+      padding: 14px;
+      min-height: calc(100vh - 78px);
+    }
+    .panel {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      background: rgba(251, 252, 248, 0.9);
+      box-shadow: 0 10px 34px rgba(24, 33, 26, 0.055);
+    }
+    .side-panel { display: flex; flex-direction: column; overflow: hidden; }
+    .panel-heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 18px 17px 14px;
+      border-bottom: 1px solid var(--line);
+    }
+    .eyebrow { margin: 0 0 5px; color: var(--ink-500); font: 10px var(--font-mono); letter-spacing: 0.13em; text-transform: uppercase; }
+    .panel-title { margin: 0; color: var(--ink-900); font-size: 14px; letter-spacing: -0.02em; }
+    .panel-count { color: var(--ink-500); font: 11px var(--font-mono); }
+    .panel-scroll { flex: 1; overflow: auto; padding: 14px; }
+
+    .palette-list { display: grid; gap: 8px; }
+    .palette-item {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--paper-strong);
+      color: var(--ink-800);
+      text-align: left;
+      transition: border-color 150ms ease, transform 150ms ease, box-shadow 150ms ease;
+    }
+    .palette-item:hover { border-color: #b5c6b5; transform: translateX(2px); box-shadow: 0 8px 20px rgba(26, 44, 29, 0.07); }
+    .palette-glyph {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border-radius: 9px;
+      color: var(--ink-900);
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .palette-copy { min-width: 0; }
+    .palette-name { display: block; font-size: 12px; font-weight: 700; }
+    .palette-desc { display: block; margin-top: 2px; color: var(--ink-500); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .side-note {
+      margin: 14px;
+      padding: 12px;
+      border: 1px solid #e6d9bb;
+      border-radius: 12px;
+      background: #fcf7eb;
+      color: #756548;
+      font-size: 10px;
+      line-height: 1.55;
+    }
+    .side-note strong { color: #574627; }
+
+    .center-column { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+    .canvas-panel { flex: 1; min-height: 540px; overflow: hidden; position: relative; }
+    .canvas-meta {
+      position: absolute;
+      top: 15px;
+      left: 17px;
+      z-index: 5;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      pointer-events: none;
+    }
+    .canvas-meta-label { color: var(--ink-500); font: 10px var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; }
+    .canvas-meta-divider { width: 1px; height: 13px; background: var(--line); }
+    .canvas-meta-value { color: var(--ink-700); font-size: 11px; font-weight: 650; }
+    .flow-host { width: 100%; height: 100%; min-height: 540px; background: #eef2eb; }
+    .react-flow { background: #eef2eb; }
+    .react-flow__attribution { display: none !important; }
+    .react-flow__controls {
+      overflow: hidden;
+      border: 1px solid #cbd7cb !important;
+      border-radius: 10px !important;
+      box-shadow: 0 8px 18px rgba(26, 44, 29, 0.1) !important;
+    }
+    .react-flow__controls-button {
+      width: 29px !important;
+      height: 29px !important;
+      border-bottom: 1px solid #d5dfd4 !important;
+      background: #fbfcf8 !important;
+      fill: #536259 !important;
+    }
+    .react-flow__controls-button:last-child { border-bottom: 0 !important; }
+    .react-flow__controls-button:hover { background: #eaf0e9 !important; }
+    .react-flow__minimap {
+      width: 132px !important;
+      height: 88px !important;
+      right: 14px !important;
+      bottom: 14px !important;
+      overflow: hidden !important;
+      border: 1px solid #cbd7cb !important;
+      border-radius: 10px !important;
+      background: rgba(251,252,248,0.92) !important;
+      box-shadow: 0 8px 18px rgba(26, 44, 29, 0.1) !important;
+    }
+    .react-flow__panel { margin: 0 !important; }
+    .flow-overlay {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 9px;
+      border: 1px solid #d2ddd1;
+      border-radius: 9px;
+      background: rgba(251,252,248,0.9);
+      color: var(--ink-600);
+      font: 10px var(--font-mono);
+      box-shadow: 0 6px 15px rgba(26, 44, 29, 0.06);
+    }
+    .flow-overlay-key { color: var(--accent-strong); }
+
+    .flow-node {
+      width: 218px;
+      min-height: 106px;
+      overflow: hidden;
+      border: 1px solid #cfdace;
+      border-top: 3px solid var(--node-accent, var(--mint));
+      border-radius: 13px;
+      background: #fbfcf8;
+      box-shadow: 0 10px 22px rgba(27, 47, 30, 0.09);
+      transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+    }
+    .flow-node.selected { border-color: var(--accent-strong); box-shadow: 0 0 0 3px rgba(189,135,65,0.18), 0 12px 25px rgba(27,47,30,0.12); }
+    .flow-node.running { animation: nodePulse 1.25s ease-in-out infinite; }
+    .flow-node.success { border-top-color: #5e9b70; }
+    .flow-node.error { border-top-color: var(--coral); }
+    @keyframes nodePulse { 0%, 100% { box-shadow: 0 10px 22px rgba(27,47,30,0.09); } 50% { box-shadow: 0 0 0 5px rgba(214,168,90,0.18), 0 12px 25px rgba(27,47,30,0.13); } }
+    .node-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 11px 5px; }
+    .node-kind { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-500); font: 9px var(--font-mono); letter-spacing: 0.1em; }
+    .node-kind-mark { width: 7px; height: 7px; border-radius: 2px; background: var(--node-accent, var(--mint)); }
+    .node-status { padding: 3px 6px; border-radius: 999px; background: #edf1eb; color: var(--ink-600); font: 9px var(--font-mono); letter-spacing: 0.04em; }
+    .node-status.running { background: #fbf1d9; color: #8d6733; }
+    .node-status.success { background: var(--mint-soft); color: #4d805b; }
+    .node-status.error { background: #f7e4df; color: #9d5144; }
+    .node-body { padding: 2px 11px 11px; }
+    .node-title { margin: 0; color: var(--ink-900); font-size: 13px; font-weight: 760; letter-spacing: -0.02em; }
+    .node-detail { margin: 5px 0 0; color: var(--ink-500); font-size: 10px; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .node-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 9px; color: var(--ink-500); font: 9px var(--font-mono); }
+    .node-footer strong { color: var(--ink-700); font-weight: 600; }
+    .react-flow__handle { width: 9px !important; height: 9px !important; border: 2px solid #fbfcf8 !important; background: var(--node-accent, var(--mint)) !important; }
+
+    .event-panel { height: 185px; flex: 0 0 auto; display: flex; flex-direction: column; overflow: hidden; }
+    .event-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 15px 10px; border-bottom: 1px solid var(--line); }
+    .event-title { display: flex; align-items: baseline; gap: 8px; }
+    .event-title h2 { margin: 0; color: var(--ink-900); font-size: 13px; }
+    .event-title span { color: var(--ink-500); font: 10px var(--font-mono); }
+    .event-body { flex: 1; overflow: auto; padding: 5px 15px 9px; background: #f7f9f4; }
+    .event-row { display: grid; grid-template-columns: 58px 112px minmax(0, 1fr); gap: 9px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid rgba(220,227,216,0.65); font: 10px var(--font-mono); }
+    .event-time { color: var(--ink-500); }
+    .event-type { color: var(--accent-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .event-message { color: var(--ink-700); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .event-empty { padding: 18px 0; color: var(--ink-500); font-size: 11px; }
+
+    .inspector-body { flex: 1; overflow: auto; padding: 17px; }
+    .inspector-empty { display: grid; place-items: center; min-height: 210px; padding: 15px; border: 1px dashed #cbd7cb; border-radius: 13px; color: var(--ink-500); text-align: center; font-size: 11px; line-height: 1.55; }
+    .inspector-empty-mark { display: grid; place-items: center; width: 38px; height: 38px; margin-bottom: 10px; border: 1px solid #cbd7cb; border-radius: 50%; color: var(--accent-strong); font: 18px var(--font-mono); }
+    .inspector-label { display: block; margin: 17px 0 7px; color: var(--ink-500); font: 10px var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; }
+    .inspector-label:first-child { margin-top: 0; }
+    .inspector-value { width: 100%; padding: 10px 11px; border: 1px solid var(--line); border-radius: 10px; background: #f7f9f4; color: var(--ink-800); font-size: 12px; }
+    .inspector-value.mono { font-family: var(--font-mono); font-size: 11px; }
+    textarea.inspector-value { min-height: 78px; resize: vertical; line-height: 1.45; }
+    .inspector-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .inspector-stat { padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: #f7f9f4; }
+    .inspector-stat span { display: block; color: var(--ink-500); font: 9px var(--font-mono); }
+    .inspector-stat strong { display: block; margin-top: 4px; color: var(--ink-800); font-size: 12px; }
+    .inspector-actions { display: flex; gap: 8px; margin-top: 18px; }
+    .inspector-actions .action-button { flex: 1; }
+
+    .footer-note { padding: 0 18px 14px; color: var(--ink-500); font: 10px var(--font-mono); text-align: right; }
+    .error-card { max-width: 720px; margin: 40px auto; padding: 24px; border: 1px solid #e7bdb5; border-radius: 16px; background: #fff8f6; color: #783e36; box-shadow: var(--shadow); }
+    .error-card h1 { margin: 0 0 9px; font-size: 18px; }
+    .error-card p { margin: 7px 0; line-height: 1.6; }
+    .error-card code { font-family: var(--font-mono); font-size: 12px; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: 0.001ms !important; }
+    }
+    @media (max-width: 1180px) {
+      .workspace { grid-template-columns: 190px minmax(0, 1fr); }
+      .inspector-panel { grid-column: 1 / -1; min-height: 245px; }
+      .inspector-panel .inspector-body { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 14px; }
+      .inspector-panel .inspector-empty { min-height: 120px; }
+      .inspector-panel .inspector-actions { grid-column: 1 / -1; }
+    }
+    @media (max-width: 780px) {
+      .topbar { align-items: flex-start; flex-direction: column; gap: 13px; padding: 14px 16px; }
+      .topbar-actions { width: 100%; justify-content: flex-start; }
+      .workspace { display: flex; flex-direction: column; padding: 10px; gap: 10px; min-height: auto; }
+      .palette-panel { min-height: 165px; }
+      .palette-panel .panel-heading { padding-bottom: 10px; }
+      .palette-panel .panel-scroll { overflow-x: auto; overflow-y: hidden; }
+      .palette-list { display: flex; width: max-content; }
+      .palette-item { width: 168px; }
+      .side-note { display: none; }
+      .canvas-panel, .flow-host { min-height: 490px; height: 490px; }
+      .event-panel { height: 170px; }
+      .inspector-panel { min-height: 0; }
+      .inspector-panel .inspector-body { display: block; }
+      .footer-note { padding-bottom: 10px; text-align: left; }
+    }
+    @media (max-width: 460px) {
+      .topbar-button { flex: 1 1 auto; }
+      .runtime-pill { order: -1; }
+      .topbar-actions { gap: 6px; }
+      .flow-overlay { display: none; }
+      .react-flow__minimap { display: none !important; }
+      .event-row { grid-template-columns: 52px 92px minmax(0, 1fr); gap: 6px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="boot-status" class="boot-status">Checking UMD dependencies…</div>
+  <div id="root"></div>
+
+  <script>
+    (function () {
+      // React Flow 11.x UMD exposes its API on window.ReactFlow, but components
+      // such as ReactFlow and Background are forwardRef/memo objects rather
+      // than plain functions, so we test renderability via React's internal
+      // $$typeof symbols (the same approach React Devtools uses).
+      var forwardRefType = (typeof Symbol === "function" && Symbol.for) ? Symbol.for("react.forward_ref") : null;
+      var memoType = (typeof Symbol === "function" && Symbol.for) ? Symbol.for("react.memo") : null;
+      var providerType = (typeof Symbol === "function" && Symbol.for) ? Symbol.for("react.provider") : null;
+      function describe(value) {
+        if (!value) return String(value);
+        if (typeof value === "function") return "function";
+        if (typeof value !== "object") return typeof value;
+        if (value.$$typeof === forwardRefType) return "forwardRef";
+        if (value.$$typeof === memoType) return "memo";
+        if (value.$$typeof === providerType) return "context.Provider";
+        if (value.$$typeof !== undefined) return "react-element(" + String(value.$$typeof) + ")";
+        if (value.render || value.displayName) return "component(" + (value.displayName || "anonymous") + ")";
+        return "object";
+      }
+      function isRenderable(value) {
+        if (!value) return false;
+        if (typeof value === "function") return true;
+        if (typeof value !== "object") return false;
+        if (value.$$typeof === forwardRefType) return true;
+        if (value.$$typeof === memoType) return true;
+        if (value.$$typeof === providerType) return true;
+        if (typeof value.render === "function") return true;
+        return false;
+      }
+      var requiredGlobals = ["React", "ReactDOM", "ReactFlow", "Babel"];
+      var requiredFlowExports = [
+        { key: "ReactFlow", kind: "component" },
+        { key: "ReactFlowProvider", kind: "component" },
+        { key: "Background", kind: "component" },
+        { key: "Controls", kind: "component" },
+        { key: "MiniMap", kind: "component" },
+        { key: "Handle", kind: "component" },
+        { key: "addEdge", kind: "function" },
+        { key: "useNodesState", kind: "hook" },
+        { key: "useEdgesState", kind: "hook" }
+      ];
+      var missing = [];
+      var index;
+      for (index = 0; index < requiredGlobals.length; index += 1) {
+        if (!window[requiredGlobals[index]]) missing.push("window." + requiredGlobals[index]);
+      }
+      if (window.ReactFlow) {
+        for (index = 0; index < requiredFlowExports.length; index += 1) {
+          var entry = requiredFlowExports[index];
+          var value = window.ReactFlow[entry.key];
+          if (!value) { missing.push("ReactFlow." + entry.key); continue; }
+          if (entry.kind === "component") {
+            if (!isRenderable(value)) missing.push("ReactFlow." + entry.key + " (" + describe(value) + ")");
+          } else {
+            if (typeof value !== "function") missing.push("ReactFlow." + entry.key + " (" + describe(value) + ")");
+          }
+        }
+      }
+      window.__umdDiagnostics = {
+        react: Boolean(window.React),
+        reactDom: Boolean(window.ReactDOM),
+        reactFlow: Boolean(window.ReactFlow),
+        babel: Boolean(window.Babel),
+        reactFlowType: describe(window.ReactFlow && window.ReactFlow.ReactFlow),
+        reactFlowDisplayName: window.ReactFlow && window.ReactFlow.ReactFlow && window.ReactFlow.ReactFlow.displayName,
+        missing: missing
+      };
+      var statusNode = document.getElementById("boot-status");
+      if (missing.length) {
+        statusNode.className = "boot-status error";
+        statusNode.textContent = "UMD load failure: " + missing.join(", ");
+      } else {
+        statusNode.className = "boot-status ready";
+        statusNode.textContent = "UMD dependencies ready";
+      }
+      window.addEventListener("error", function (event) {
+        if (window.__flowAppReady) return;
+        var message = event && event.message ? event.message : "Unknown application error";
+        statusNode.className = "boot-status error";
+        statusNode.textContent = "Application load failure: " + message;
+      });
+    }());
+  </script>
+
+  <script type="text/babel" data-presets="react">
+    (function () {
+      var ReactLib = window.React;
+      var ReactDOMLib = window.ReactDOM;
+      var FlowLib = window.ReactFlow;
+      var rootNode = document.getElementById("root");
+      var statusNode = document.getElementById("boot-status");
+      var hasCreateRoot = ReactDOMLib && typeof ReactDOMLib.createRoot === "function";
+      function isRenderable(value) {
+        if (!value) return false;
+        if (typeof value === "function") return true;
+        if (typeof value !== "object") return false;
+        if (value.$$typeof && (Symbol.for && (value.$$typeof === Symbol.for("react.forward_ref") || value.$$typeof === Symbol.for("react.memo") || value.$$typeof === Symbol.for("react.provider")))) return true;
+        if (typeof value.render === "function") return true;
+        return false;
+      }
+      var flowExportsReady = FlowLib && isRenderable(FlowLib.ReactFlow) && isRenderable(FlowLib.ReactFlowProvider) && isRenderable(FlowLib.Background);
+
+      if (!ReactLib || !hasCreateRoot || !flowExportsReady) {
+        rootNode.innerHTML = '<div class="error-card"><h1>React Flow UMD 無法啟動</h1><p>請檢查 CDN 是否可連線，以及 script 載入順序是否為 React → ReactDOM → React Flow → Babel。</p><p><code>' + (window.__umdDiagnostics ? window.__umdDiagnostics.missing.join(", ") : "missing dependency diagnostics") + '</code></p></div>';
+        return;
+      }
+
+      var ReactFlowCanvas = FlowLib.ReactFlow;
+      var ReactFlowProvider = FlowLib.ReactFlowProvider;
+      var Background = FlowLib.Background;
+      var Controls = FlowLib.Controls;
+      var MiniMap = FlowLib.MiniMap;
+      var Panel = FlowLib.Panel;
+      var Handle = FlowLib.Handle;
+      var Position = FlowLib.Position;
+      var addEdge = FlowLib.addEdge;
+      var useNodesState = FlowLib.useNodesState;
+      var useEdgesState = FlowLib.useEdgesState;
+
+      var paletteItems = [
+        { kind: "trigger", label: "Trigger", description: "開始一個流程", glyph: "↗", color: "#d6a85a" },
+        { kind: "request", label: "Request", description: "呼叫外部服務", glyph: "↔", color: "#8aa7a1" },
+        { kind: "transform", label: "Transform", description: "整理與轉換資料", glyph: "≋", color: "#9c8eb5" },
+        { kind: "review", label: "Review", description: "加入人工決策點", glyph: "?", color: "#c58a79" },
+        { kind: "delay", label: "Delay", description: "等待指定時間", glyph: "◷", color: "#7894ad" },
+        { kind: "output", label: "Output", description: "輸出流程結果", glyph: "↘", color: "#7da88b" }
+      ];
+
+      function makeNodes() {
+        return [
+          { id: "start", type: "service", position: { x: 70, y: 175 }, data: { kind: "TRIGGER", title: "Inbound event", detail: "webhook.received", owner: "system", status: "ready", accent: "#d6a85a", latency: "0 ms" } },
+          { id: "request", type: "service", position: { x: 355, y: 175 }, data: { kind: "REQUEST", title: "Fetch payload", detail: "GET /events/latest", owner: "connector", status: "ready", accent: "#8aa7a1", latency: "120 ms" } },
+          { id: "transform", type: "service", position: { x: 640, y: 175 }, data: { kind: "TRANSFORM", title: "Normalize data", detail: "map → validate → enrich", owner: "worker", status: "ready", accent: "#9c8eb5", latency: "48 ms" } },
+          { id: "review", type: "service", position: { x: 640, y: 365 }, data: { kind: "REVIEW", title: "Human review", detail: "approval.required", owner: "ops-team", status: "ready", accent: "#c58a79", latency: "manual" } },
+          { id: "output", type: "service", position: { x: 925, y: 270 }, data: { kind: "OUTPUT", title: "Publish result", detail: "event.completed", owner: "delivery", status: "ready", accent: "#7da88b", latency: "35 ms" } }
+        ];
+      }
+
+      function makeEdges() {
+        return [
+          { id: "edge-start-request", source: "start", target: "request", type: "smoothstep", animated: true },
+          { id: "edge-request-transform", source: "request", target: "transform", type: "smoothstep", animated: true },
+          { id: "edge-transform-review", source: "transform", target: "review", type: "smoothstep", animated: true },
+          { id: "edge-review-output", source: "review", target: "output", type: "smoothstep", animated: true },
+          { id: "edge-transform-output", source: "transform", target: "output", type: "smoothstep", animated: false }
+        ];
+      }
+
+      function nowTime() {
+        var date = new Date();
+        return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      }
+
+      function statusLabel(status) {
+        if (status === "running") return "RUNNING";
+        if (status === "success") return "SUCCESS";
+        if (status === "error") return "ERROR";
+        return "READY";
+      }
+
+      function ServiceNode(props) {
+        var data = props.data || {};
+        var status = data.status || "ready";
+        var nodeClass = "flow-node " + status + (props.selected ? " selected" : "");
+        return (
+          <div className={nodeClass} style={{ "--node-accent": data.accent || "#7da88b" }} data-testid={"flow-node-" + props.id}>
+            <Handle type="target" position={Position.Left} />
+            <div className="node-head">
+              <span className="node-kind"><span className="node-kind-mark"></span>{data.kind || "STEP"}</span>
+              <span className={"node-status " + status}>{statusLabel(status)}</span>
+            </div>
+            <div className="node-body">
+              <p className="node-title">{data.title || "Untitled step"}</p>
+              <p className="node-detail">{data.detail || "No description"}</p>
+              <div className="node-footer"><span>{data.owner || "unassigned"}</span><strong>{data.latency || "—"}</strong></div>
+            </div>
+            <Handle type="source" position={Position.Right} />
+          </div>
+        );
+      }
+
+      var nodeTypes = { service: ServiceNode };
+
+      function updateNodeStatus(setNodes, nodeId, status) {
+        setNodes(function (currentNodes) {
+          return currentNodes.map(function (node) {
+            if (node.id !== nodeId) return node;
+            return Object.assign({}, node, { data: Object.assign({}, node.data, { status: status }) });
+          });
+        });
+      }
+
+      function Palette(props) {
+        return (
+          <aside className="panel side-panel palette-panel" aria-label="Node palette">
+            <div className="panel-heading">
+              <div><p className="eyebrow">Building blocks</p><h2 className="panel-title">Node palette</h2></div>
+              <span className="panel-count">{paletteItems.length} types</span>
+            </div>
+            <div className="panel-scroll">
+              <div className="palette-list">
+                {paletteItems.map(function (item) {
+                  return (
+                    <button className="palette-item" key={item.kind} type="button" onClick={function () { props.onAdd(item); }} data-testid={"palette-" + item.kind}>
+                      <span className="palette-glyph" style={{ background: item.color }}>{item.glyph}</span>
+                      <span className="palette-copy"><span className="palette-name">{item.label}</span><span className="palette-desc">{item.description}</span></span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="side-note"><strong>Tip</strong><br />Click a block to place it on the canvas. Drag from a handle to create a connection.</div>
+          </aside>
+        );
+      }
+
+      function Inspector(props) {
+        var node = props.node;
+        return (
+          <aside className="panel side-panel inspector-panel" aria-label="Node inspector">
+            <div className="panel-heading">
+              <div><p className="eyebrow">Selected object</p><h2 className="panel-title">Inspector</h2></div>
+              <span className="panel-count">{node ? node.id : "—"}</span>
+            </div>
+            <div className="inspector-body">
+              {!node ? (
+                <div className="inspector-empty"><div><div className="inspector-empty-mark">+</div><div>Select a node to inspect its configuration and runtime state.</div></div></div>
+              ) : (
+                <div>
+                  <label className="inspector-label" htmlFor="node-title">Title</label>
+                  <input id="node-title" className="inspector-value" value={node.data.title || ""} onChange={function (event) { props.onUpdate(node.id, "title", event.target.value); }} />
+                  <label className="inspector-label" htmlFor="node-detail">Description</label>
+                  <textarea id="node-detail" className="inspector-value" value={node.data.detail || ""} onChange={function (event) { props.onUpdate(node.id, "detail", event.target.value); }}></textarea>
+                  <label className="inspector-label">Runtime</label>
+                  <div className="inspector-grid"><div className="inspector-stat"><span>STATUS</span><strong>{statusLabel(node.data.status)}</strong></div><div className="inspector-stat"><span>OWNER</span><strong>{node.data.owner || "—"}</strong></div></div>
+                  <label className="inspector-label">Coordinates</label>
+                  <div className="inspector-value mono">x: {Math.round(node.position.x)} · y: {Math.round(node.position.y)}</div>
+                  <div className="inspector-actions"><button className="action-button danger" type="button" onClick={function () { props.onDelete(node.id); }}>Remove</button><button className="action-button" type="button" onClick={props.onClear}>Clear</button></div>
+                </div>
+              )}
+            </div>
+          </aside>
+        );
+      }
+
+      function EventLog(props) {
+        return (
+          <section className="panel event-panel" aria-label="Event log">
+            <div className="event-toolbar"><div className="event-title"><h2>Event stream</h2><span>{props.events.length} records</span></div><button className="action-button ghost" type="button" onClick={props.onClear}>Clear log</button></div>
+            <div className="event-body" data-testid="event-log">
+              {props.events.length === 0 ? <div className="event-empty">No events yet. Run the preview or connect a new node.</div> : props.events.map(function (event, index) {
+                return <div className="event-row" key={event.id || index}><span className="event-time">{event.time}</span><span className="event-type">{event.type}</span><span className="event-message">{event.message}</span></div>;
+              })}
+            </div>
+          </section>
+        );
+      }
+
+      function App() {
+        var nodesState = useNodesState(makeNodes());
+        var nodes = nodesState[0];
+        var setNodes = nodesState[1];
+        var onNodesChange = nodesState[2];
+        var edgesState = useEdgesState(makeEdges());
+        var edges = edgesState[0];
+        var setEdges = edgesState[1];
+        var onEdgesChange = edgesState[2];
+        var selectedState = ReactLib.useState(null);
+        var selectedId = selectedState[0];
+        var setSelectedId = selectedState[1];
+        var eventsState = ReactLib.useState([{ id: "boot", time: nowTime(), type: "canvas.ready", message: "UMD canvas initialized" }]);
+        var events = eventsState[0];
+        var setEvents = eventsState[1];
+        var runningState = ReactLib.useState(false);
+        var running = runningState[0];
+        var setRunning = runningState[1];
+        var instanceState = ReactLib.useState(null);
+        var flowInstance = instanceState[0];
+        var setFlowInstance = instanceState[1];
+        var runRef = ReactLib.useRef(0);
+        var selectedNode = null;
+        var index;
+
+        for (index = 0; index < nodes.length; index += 1) {
+          if (nodes[index].id === selectedId) selectedNode = nodes[index];
+        }
+
+        function pushEvent(type, message) {
+          setEvents(function (current) { return current.concat([{ id: String(Date.now()) + String(current.length), time: nowTime(), type: type, message: message }]); });
+        }
+
+        function handleConnect(connection) {
+          setEdges(function (currentEdges) {
+            var nextEdge = Object.assign({}, connection, { type: "smoothstep", animated: true });
+            return addEdge(nextEdge, currentEdges);
+          });
+          pushEvent("edge.created", (connection.source || "node") + " → " + (connection.target || "node"));
+        }
+
+        function handleAdd(item) {
+          var newId = item.kind + "-" + String(Date.now()).slice(-5);
+          var offset = nodes.length * 18;
+          var newNode = { id: newId, type: "service", position: { x: 140 + (offset % 320), y: 470 + (Math.floor(offset / 320) * 120) }, data: { kind: item.label.toUpperCase(), title: item.label + " step", detail: item.description, owner: "new step", status: "ready", accent: item.color, latency: "—" } };
+          setNodes(function (currentNodes) { return currentNodes.concat([newNode]); });
+          setSelectedId(newId);
+          pushEvent("node.created", "Added " + item.label + " to canvas");
+        }
+
+        function handleUpdate(nodeId, key, value) {
+          setNodes(function (currentNodes) {
+            return currentNodes.map(function (node) {
+              if (node.id !== nodeId) return node;
+              return Object.assign({}, node, { data: Object.assign({}, node.data, (function () { var update = {}; update[key] = value; return update; }())) });
+            });
+          });
+        }
+
+        function handleDelete(nodeId) {
+          setNodes(function (currentNodes) { return currentNodes.filter(function (node) { return node.id !== nodeId; }); });
+          setEdges(function (currentEdges) { return currentEdges.filter(function (edge) { return edge.source !== nodeId && edge.target !== nodeId; }); });
+          setSelectedId(null);
+          pushEvent("node.removed", "Removed " + nodeId + " and attached edges");
+        }
+
+        function resetCanvas() {
+          runRef.current += 1;
+          setRunning(false);
+          setNodes(makeNodes());
+          setEdges(makeEdges());
+          setSelectedId(null);
+          setEvents([{ id: "reset-" + String(Date.now()), time: nowTime(), type: "canvas.reset", message: "Restored the starter workflow" }]);
+          window.setTimeout(function () { if (flowInstance && typeof flowInstance.fitView === "function") flowInstance.fitView({ padding: 0.22, duration: 350 }); }, 40);
+        }
+
+        function fitCanvas() {
+          if (flowInstance && typeof flowInstance.fitView === "function") {
+            flowInstance.fitView({ padding: 0.22, duration: 450 });
+            pushEvent("canvas.fit", "Viewport fitted to visible nodes");
+          }
+        }
+
+        function runPreview() {
+          if (running) return;
+          runRef.current += 1;
+          var token = runRef.current;
+          var sequence = ["start", "request", "transform", "review", "output"];
+          setRunning(true);
+          setNodes(function (currentNodes) { return currentNodes.map(function (node) { return Object.assign({}, node, { data: Object.assign({}, node.data, { status: "ready" }) }); }); });
+          setEvents([{ id: "run-" + String(Date.now()), time: nowTime(), type: "run.started", message: "Preview execution started" }]);
+          sequence.forEach(function (nodeId, position) {
+            window.setTimeout(function () {
+              if (runRef.current !== token) return;
+              updateNodeStatus(setNodes, nodeId, "running");
+              pushEvent("node.running", nodeId + " entered execution");
+              window.setTimeout(function () {
+                if (runRef.current !== token) return;
+                updateNodeStatus(setNodes, nodeId, "success");
+                pushEvent("node.success", nodeId + " completed successfully");
+                if (position === sequence.length - 1) {
+                  setRunning(false);
+                  pushEvent("run.completed", "All " + sequence.length + " workflow nodes completed");
+                }
+              }, 260);
+            }, position * 410);
+          });
+        }
+
+        return (
+          <div className="app-shell">
+            <header className="topbar">
+              <div className="brand-lockup"><div className="brand-mark" aria-hidden="true">F/</div><div><h1 className="brand-name">Flowboard</h1><p className="brand-subtitle">SINGLE-FILE NODE EDITOR · UMD EDITION</p></div></div>
+              <div className="topbar-actions"><span className="runtime-pill"><span className="runtime-dot"></span>REACT FLOW UMD READY</span><button className="topbar-button" type="button" onClick={fitCanvas} data-testid="fit-view">Fit view</button><button className="topbar-button" type="button" onClick={resetCanvas} data-testid="reset-canvas">Reset</button><button className="action-button primary" type="button" onClick={runPreview} disabled={running} data-testid="run-preview">{running ? "Running…" : "Run preview"}</button></div>
+            </header>
+            <main className="workspace">
+              <Palette onAdd={handleAdd} />
+              <section className="center-column">
+                <section className="panel canvas-panel" data-testid="flow-canvas">
+                  <div className="canvas-meta"><span className="canvas-meta-label">Workflow canvas</span><span className="canvas-meta-divider"></span><span className="canvas-meta-value">{nodes.length} nodes · {edges.length} edges</span></div>
+                  <div className="flow-host">
+                    <ReactFlowCanvas nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={handleConnect} onNodeClick={function (event, node) { setSelectedId(node.id); pushEvent("node.selected", node.id + " selected"); }} onPaneClick={function () { setSelectedId(null); }} nodeTypes={nodeTypes} fitView defaultEdgeOptions={{ type: "smoothstep", animated: false, style: { stroke: "#8ca08d", strokeWidth: 1.6 } }} minZoom={0.35} maxZoom={1.65} onInit={function (instance) { setFlowInstance(instance); }}>
+                      <Background gap={20} size={1} color="#c7d3c6" />
+                      <Controls showInteractive={false} />
+                      <MiniMap nodeColor={function (node) { return node && node.data && node.data.accent ? node.data.accent : "#7da88b"; }} maskColor="rgba(238,242,235,0.72)" />
+                      <Panel position="top-right"><div className="flow-overlay"><span className="flow-overlay-key">DRAG</span> nodes · <span className="flow-overlay-key">CONNECT</span> handles</div></Panel>
+                    </ReactFlowCanvas>
+                  </div>
+                </section>
+                <EventLog events={events} onClear={function () { setEvents([]); }} />
+              </section>
+              <Inspector node={selectedNode} onUpdate={handleUpdate} onDelete={handleDelete} onClear={function () { setSelectedId(null); }} />
+            </main>
+            <div className="footer-note">React 18 · ReactDOM 18 · React Flow 11.11.4 · Babel Standalone · no bundler required</div>
+          </div>
+        );
+      }
+
+      function RootApp() {
+        return <ReactFlowProvider><App /></ReactFlowProvider>;
+      }
+
+      try {
+        var appRoot = ReactDOMLib.createRoot(rootNode);
+        appRoot.render(<RootApp />);
+        window.__flowAppReady = true;
+        statusNode.className = "boot-status ready hidden";
+        statusNode.textContent = "Flowboard ready";
+      } catch (mountError) {
+        rootNode.innerHTML = '<div class="error-card"><h1>React Flow mount error</h1><p>' + String(mountError && mountError.message ? mountError.message : mountError) + '</p><p>確認 React Flow UMD 與 React/ReactDOM 的版本及載入順序。</p></div>';
+        statusNode.className = "boot-status error";
+        statusNode.textContent = "Mount failure";
+      }
+    }());
+  </script>
+</body>
+</html>

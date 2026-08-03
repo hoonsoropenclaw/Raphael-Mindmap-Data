@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Aurora Glass · 動態 Glassmorphism UI 組件庫</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          glass: {
+            50:  'rgba(255,255,255,0.65)',
+            100: 'rgba(255,255,255,0.45)',
+            200: 'rgba(255,255,255,0.28)',
+            300: 'rgba(255,255,255,0.14)',
+          },
+          line: 'rgba(255,255,255,0.35)',
+          ink:  '#0b1020',
+        },
+        fontFamily: {
+          sans: ['Inter', 'PingFang TC', 'Noto Sans TC', 'system-ui', 'sans-serif'],
+          mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+        },
+        boxShadow: {
+          glass: '0 24px 80px rgba(7, 12, 36, 0.28)',
+          'glass-sm': '0 8px 28px rgba(7, 12, 36, 0.18)',
+          'glass-lg': '0 32px 120px rgba(7, 12, 36, 0.35)',
+        },
+        animation: {
+          'aurora-pan': 'auroraPan 18s ease-in-out infinite',
+          'blob-drift': 'blobDrift 22s ease-in-out infinite',
+          'fade-up': 'fadeUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) both',
+          'shimmer': 'shimmer 2.4s linear infinite',
+        },
+        keyframes: {
+          auroraPan: {
+            '0%,100%': { transform: 'translate3d(0,0,0) scale(1)' },
+            '50%':     { transform: 'translate3d(2%, -2%, 0) scale(1.06)' },
+          },
+          blobDrift: {
+            '0%,100%': { transform: 'translate3d(0,0,0) scale(1)' },
+            '33%':     { transform: 'translate3d(30px, -40px, 0) scale(1.08)' },
+            '66%':     { transform: 'translate3d(-20px, 25px, 0) scale(0.96)' },
+          },
+          fadeUp: {
+            '0%':   { opacity: '0', transform: 'translateY(24px)' },
+            '100%': { opacity: '1', transform: 'translateY(0)' },
+          },
+          shimmer: {
+            '0%':   { backgroundPosition: '-200% 0' },
+            '100%': { backgroundPosition: '200% 0' },
+          },
+        },
+      },
+    },
+  };
+</script>
+<style>
+  /* ============================================================
+     Aurora Glass · 動態 Glassmorphism UI 組件庫
+     設計哲學:
+       1. 用最少 backdrop-filter 數量換取最佳視覺效果
+       2. 動畫只用 transform + opacity（GPU 加速）
+       3. 永遠提供 @supports fallback
+       4. prefers-reduced-motion 強制降級
+     ============================================================ */
+
+  :root {
+    --bg-grad-1: #1b1340;
+    --bg-grad-2: #2a1f6b;
+    --bg-grad-3: #0a1a4f;
+    --bg-grad-4: #3d1860;
+    --aurora-1:  rgba(124, 92, 255, 0.55);
+    --aurora-2:  rgba(255, 104, 196, 0.45);
+    --aurora-3:  rgba(72, 199, 255, 0.55);
+    --aurora-4:  rgba(255, 188, 92, 0.35);
+    --ink:       #0b1020;
+    --line:      rgba(255, 255, 255, 0.35);
+    --glass:     rgba(255, 255, 255, 0.18);
+    --glass-strong: rgba(255, 255, 255, 0.32);
+    --text:      #f5f7ff;
+    --text-mute: rgba(245, 247, 255, 0.72);
+  }
+
+  * { -webkit-font-smoothing: antialiased; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    color: var(--text);
+    background: #0a0a1a;
+    font-family: 'Inter', 'PingFang TC', 'Noto Sans TC', system-ui, sans-serif;
+    overflow-x: hidden;
+  }
+  /* 背景層包成一個獨立容器,鋪滿整個頁面高度 */
+  #bg-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    min-height: 100vh;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  #bg-layer > * { position: absolute; }
+  /* 真正的內容包在 #app 裡,確保 z-index 高於背景 */
+  #app { position: relative; z-index: 1; }
+  body { position: relative; min-height: 100vh; }
+
+  /* ---- 動態 Aurora 背景層 (純 CSS + 動畫, 不依賴 JS) ---- */
+  .bg-aurora {
+    inset: 0;
+    background:
+      radial-gradient(120% 80% at 20% 10%, var(--bg-grad-1) 0%, transparent 60%),
+      radial-gradient(110% 90% at 80% 20%, var(--bg-grad-2) 0%, transparent 55%),
+      radial-gradient(120% 100% at 50% 90%, var(--bg-grad-3) 0%, transparent 60%),
+      var(--bg-grad-4);
+    animation: auroraPan 18s ease-in-out infinite;
+  }
+  .bg-grain {
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.10;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.6'/></svg>");
+  }
+  .blob {
+    border-radius: 9999px;
+    filter: blur(80px);
+    opacity: 0.85;
+    pointer-events: none;
+    will-change: transform;
+  }
+  .blob.b1 { background: var(--aurora-1); width: 480px; height: 480px; top: -120px; left: -120px; animation: blobDrift 22s ease-in-out infinite; }
+  .blob.b2 { background: var(--aurora-2); width: 420px; height: 420px; top: 35%; right: -100px; animation: blobDrift 28s ease-in-out infinite reverse; }
+  .blob.b3 { background: var(--aurora-3); width: 540px; height: 540px; bottom: -180px; left: 30%; animation: blobDrift 24s ease-in-out infinite; }
+
+  /* ---- 核心 Glassmorphism 工具類 ---- */
+  .glass {
+    background: var(--glass);
+    border: 1px solid var(--line);
+    box-shadow: 0 24px 80px rgba(7, 12, 36, 0.28);
+    -webkit-backdrop-filter: blur(22px) saturate(140%);
+    backdrop-filter: blur(22px) saturate(140%);
+  }
+  .glass-strong {
+    background: var(--glass-strong);
+    border: 1px solid var(--line);
+    box-shadow: 0 32px 120px rgba(7, 12, 36, 0.35);
+    -webkit-backdrop-filter: blur(28px) saturate(160%);
+    backdrop-filter: blur(28px) saturate(160%);
+  }
+  .glass-sm {
+    background: var(--glass);
+    border: 1px solid var(--line);
+    box-shadow: 0 8px 28px rgba(7, 12, 36, 0.18);
+    -webkit-backdrop-filter: blur(14px) saturate(130%);
+    backdrop-filter: blur(14px) saturate(130%);
+  }
+  /* 瀏覽器不支援 backdrop-filter 時的純色 fallback */
+  @supports not ((backdrop-filter: blur(10px)) or (-webkit-backdrop-filter: blur(10px))) {
+    .glass, .glass-strong, .glass-sm {
+      background: rgba(30, 28, 70, 0.85);
+    }
+  }
+
+  /* ---- 漸層文字 ---- */
+  .text-gradient {
+    background: linear-gradient(120deg, #ffe5b4 0%, #ff8ad6 35%, #8ab4ff 75%, #b4ffea 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* ---- 進場 reveal (IntersectionObserver 控制) ---- */
+  .reveal {
+    opacity: 0;
+    transform: translateY(24px);
+    transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity, transform;
+  }
+  .reveal.visible { opacity: 1; transform: translateY(0); }
+
+  /* ---- 按鈕波紋效果 ---- */
+  .btn-ripple { position: relative; overflow: hidden; isolation: isolate; }
+  .btn-ripple::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at var(--rx,50%) var(--ry,50%), rgba(255,255,255,0.35) 0%, transparent 60%);
+    opacity: 0;
+    transition: opacity 0.5s;
+    pointer-events: none;
+  }
+  .btn-ripple:active::after { opacity: 1; transition: opacity 0s; }
+
+  /* ---- 進度條 Shimmer ---- */
+  .progress-shimmer {
+    background: linear-gradient(90deg,
+      rgba(255,255,255,0.0) 0%,
+      rgba(255,255,255,0.5) 50%,
+      rgba(255,255,255,0.0) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 2.4s linear infinite;
+  }
+
+  /* ---- 進度條動態寬度 (CSS variable --pct 控制) ---- */
+  .progress-bar {
+    width: calc(var(--pct, 0) * 1%);
+    transition: width 1.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* ---- Toggle Switch ---- */
+  .toggle input:checked + .toggle-track {
+    background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%);
+  }
+  .toggle input:checked + .toggle-track .toggle-thumb {
+    transform: translateX(24px);
+  }
+  .toggle-track {
+    transition: background 0.3s ease;
+  }
+  .toggle-thumb {
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* ---- Checkbox 自訂樣式 ---- */
+  .check-box {
+    transition: all 0.2s ease;
+  }
+  .check-input:checked + .check-box {
+    background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%);
+    border-color: transparent;
+  }
+  .check-input:checked + .check-box .check-icon {
+    opacity: 1;
+    transform: scale(1);
+  }
+  .check-icon {
+    opacity: 0;
+    transform: scale(0.5);
+    transition: all 0.2s ease;
+  }
+
+  /* ---- Tooltip ---- */
+  .tooltip-wrap:hover .tooltip,
+  .tooltip-wrap:focus-within .tooltip {
+    opacity: 1;
+    transform: translate(-50%, -8px);
+    pointer-events: auto;
+  }
+  .tooltip {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translate(-50%, 4px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    white-space: nowrap;
+  }
+
+  /* ---- Modal ---- */
+  .modal-backdrop {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+  .modal-backdrop.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .modal-backdrop.open .modal-panel {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  .modal-panel {
+    transform: translateY(20px) scale(0.96);
+    opacity: 0;
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+  }
+
+  /* ---- Toast 滑入 ---- */
+  .toast {
+    transform: translateX(120%);
+    opacity: 0;
+    transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+  }
+  .toast.show {
+    transform: translateX(0);
+    opacity: 1;
+  }
+
+  /* ---- Focus 可訪問性 ---- */
+  button:focus-visible, a:focus-visible, input:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.7);
+    outline-offset: 2px;
+    border-radius: 8px;
+  }
+
+  /* ---- 為 reduced-motion 用戶降級 ---- */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+    .reveal { opacity: 1; transform: none; }
+    .blob { animation: none; }
+    .bg-aurora { animation: none; }
+  }
+
+  /* ---- 響應式調整 ---- */
+  @media (max-width: 768px) {
+    .blob { filter: blur(60px); opacity: 0.45; }
+    .blob.b1 { width: 320px; height: 320px; }
+    .blob.b2 { width: 280px; height: 280px; }
+    .blob.b3 { width: 360px; height: 360px; }
+  }
+</style>
+</head>
+<body class="relative min-h-screen">
+
+  <!-- 動態背景層 -->
+  <div id="bg-layer">
+    <div class="bg-aurora"></div>
+    <div class="bg-grain"></div>
+    <div class="blob b1"></div>
+    <div class="blob b2"></div>
+    <div class="blob b3"></div>
+  </div>
+
+  <!-- 應用內容 -->
+  <div id="app">
+
+  <!-- 頂部導覽列 -->
+  <header class="sticky top-0 z-40">
+    <nav class="glass mx-4 mt-4 rounded-2xl px-5 py-3 flex items-center justify-between reveal" id="nav">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-400 via-pink-400 to-cyan-400 flex items-center justify-center font-bold text-white shadow-glass-sm">A</div>
+        <div>
+          <div class="text-sm font-semibold tracking-wide">Aurora Glass</div>
+          <div class="text-[11px] text-white/60">v1.0 · Dynamic UI Kit</div>
+        </div>
+      </div>
+      <div class="hidden md:flex items-center gap-1 text-sm">
+        <a href="#components" class="px-3 py-1.5 rounded-lg hover:bg-white/10 transition">Components</a>
+        <a href="#showcase" class="px-3 py-1.5 rounded-lg hover:bg-white/10 transition">Showcase</a>
+        <a href="#playground" class="px-3 py-1.5 rounded-lg hover:bg-white/10 transition">Playground</a>
+      </div>
+      <button class="btn-ripple glass-sm px-4 py-2 rounded-xl text-sm font-medium hover:bg-white/30 transition" onclick="showToast('歡迎來到 Aurora Glass！')">
+        Get Started →
+      </button>
+    </nav>
+  </header>
+
+  <!-- Hero -->
+  <section class="px-6 pt-16 pb-12 md:pt-24 md:pb-20 max-w-6xl mx-auto text-center">
+    <div class="reveal inline-flex items-center gap-2 glass-sm px-4 py-1.5 rounded-full text-xs font-medium mb-6">
+      <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+      <span class="text-white/80">效能最佳化 · 6 個 backdrop-filter 而非 20 個</span>
+    </div>
+    <h1 class="reveal text-5xl md:text-7xl font-bold tracking-tight leading-[1.05] mb-6">
+      為 <span class="text-gradient">現代網頁</span><br />
+      而生的 <span class="text-gradient">玻璃光感</span>
+    </h1>
+    <p class="reveal text-base md:text-lg text-white/70 max-w-2xl mx-auto mb-8 leading-relaxed">
+      一個基於 Tailwind CSS 的動態 Glassmorphism 組件庫。<br class="hidden md:block" />
+      兼顧視覺美學、GPU 加速效能與無障礙設計 — 全部可離線使用。
+    </p>
+    <div class="reveal flex flex-wrap items-center justify-center gap-3">
+      <button class="btn-ripple glass-strong px-6 py-3 rounded-xl font-semibold hover:scale-105 transition" onclick="document.getElementById('components').scrollIntoView({behavior:'smooth'})">
+        查看 12 個組件
+      </button>
+      <button class="btn-ripple glass-sm px-6 py-3 rounded-xl font-medium hover:bg-white/30 transition" onclick="openModal()">
+        看 Demo
+      </button>
+    </div>
+  </section>
+
+  <!-- 統計卡 -->
+  <section class="px-6 max-w-6xl mx-auto pb-12">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="reveal glass rounded-2xl p-5">
+        <div class="text-3xl font-bold text-gradient" data-counter="12">0</div>
+        <div class="text-xs text-white/60 mt-1">核心組件</div>
+      </div>
+      <div class="reveal glass rounded-2xl p-5" style="transition-delay: 60ms">
+        <div class="text-3xl font-bold text-gradient" data-counter="6">0</div>
+        <div class="text-xs text-white/60 mt-1">backdrop-filter 使用點</div>
+      </div>
+      <div class="reveal glass rounded-2xl p-5" style="transition-delay: 120ms">
+        <div class="text-3xl font-bold text-gradient" data-counter="0">0</div>
+        <div class="text-xs text-white/60 mt-1">外部 JS 依賴</div>
+      </div>
+      <div class="reveal glass rounded-2xl p-5" style="transition-delay: 180ms">
+        <div class="text-3xl font-bold text-gradient">100%</div>
+        <div class="text-xs text-white/60 mt-1">無障礙設計</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 組件庫主區 -->
+  <section id="components" class="px-6 max-w-6xl mx-auto pb-20">
+    <h2 class="reveal text-3xl md:text-4xl font-bold mb-10 text-center">
+      <span class="text-gradient">12 個動態組件</span>
+    </h2>
+
+    <!-- 1. 玻璃卡片 -->
+    <div class="reveal mb-6">
+      <div class="glass rounded-3xl p-8 md:p-10 relative overflow-hidden">
+        <div class="absolute -top-20 -right-20 w-60 h-60 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 opacity-30 blur-3xl"></div>
+        <span class="text-xs text-white/50 font-mono">01 · glass-card</span>
+        <h3 class="text-2xl md:text-3xl font-bold mt-1 mb-2">玻璃卡片</h3>
+        <p class="text-white/70 text-sm mb-6 max-w-md">最常用的 Glassmorphism 容器,適合任何內容場景。內建動態漸層裝飾。</p>
+        <div class="grid sm:grid-cols-3 gap-4">
+          <div class="glass-sm rounded-xl p-4">
+            <div class="text-2xl mb-2">🚀</div>
+            <div class="font-semibold text-sm">效能優先</div>
+            <div class="text-xs text-white/60 mt-1">只 6 個 backdrop-filter</div>
+          </div>
+          <div class="glass-sm rounded-xl p-4">
+            <div class="text-2xl mb-2">🎨</div>
+            <div class="font-semibold text-sm">美學優先</div>
+            <div class="text-xs text-white/60 mt-1">漸層 + 模糊 + 飽和度</div>
+          </div>
+          <div class="glass-sm rounded-xl p-4">
+            <div class="text-2xl mb-2">♿</div>
+            <div class="font-semibold text-sm">無障礙</div>
+            <div class="text-xs text-white/60 mt-1">@supports + reduced-motion</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. 按鈕家族 -->
+    <div class="reveal mb-6">
+      <div class="glass rounded-3xl p-8 md:p-10">
+        <span class="text-xs text-white/50 font-mono">02 · buttons</span>
+        <h3 class="text-2xl md:text-3xl font-bold mt-1 mb-2">按鈕家族</h3>
+        <p class="text-white/70 text-sm mb-6">三種樣式變體,支援波紋點擊效果。整合 Tailwind 的 hover scale 與 focus ring。</p>
+        <div class="flex flex-wrap gap-3">
+          <button class="btn-ripple glass-strong px-6 py-3 rounded-xl font-semibold hover:scale-105 transition" onclick="showToast('Primary 按鈕被點擊')">
+            Primary
+          </button>
+          <button class="btn-ripple glass-sm px-6 py-3 rounded-xl font-semibold hover:bg-white/30 transition" onclick="showToast('Outline 按鈕被點擊')">
+            Outline
+          </button>
+          <button class="btn-ripple px-6 py-3 rounded-xl font-semibold text-white/70 hover:text-white transition" onclick="showToast('Ghost 按鈕被點擊')">
+            Ghost
+          </button>
+          <button class="btn-ripple glass-sm px-6 py-3 rounded-xl font-semibold" disabled>
+            Disabled
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. 標籤 Chips -->
+    <div class="reveal mb-6">
+      <div class="glass rounded-3xl p-8 md:p-10">
+        <span class="text-xs text-white/50 font-mono">03 · chips</span>
+        <h3 class="text-2xl md:text-3xl font-bold mt-1 mb-2">標籤 Chips</h3>
+        <p class="text-white/70 text-sm mb-6">用於狀態、分類、可移除標籤。</p>
+        <div class="flex flex-wrap gap-2">
+          <span class="glass-sm px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Active
+          </span>
+          <span class="glass-sm px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span> Pending
+          </span>
+          <span class="glass-sm px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span> Failed
+          </span>
+          <span class="glass-sm px-3 py-1 rounded-full text-xs font-medium">Tailwind</span>
+          <span class="glass-sm px-3 py-1 rounded-full text-xs font-medium">Glassmorphism</span>
+          <span class="glass-sm px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1">
+            可移除 ×
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. 輸入框 + 5. Toggle + 6. Checkbox -->
+    <div class="grid md:grid-cols-2 gap-6 mb-6">
+      <div class="reveal glass rounded-3xl p-8">
+        <span class="text-xs text-white/50 font-mono">04 · input</span>
+        <h3 class="text-xl md:text-2xl font-bold mt-1 mb-2">輸入框</h3>
+        <p class="text-white/70 text-sm mb-5">聚焦時自動強化玻璃感與發光邊框。</p>
+        <div class="space-y-3">
+          <input type="text" placeholder="你的名字" class="w-full glass-sm px-4 py-3 rounded-xl text-sm placeholder-white/40 focus:bg-white/30 focus:outline-none focus:ring-2 focus:ring-purple-400/60 transition" />
+          <input type="email" placeholder="email@example.com" class="w-full glass-sm px-4 py-3 rounded-xl text-sm placeholder-white/40 focus:bg-white/30 focus:outline-none focus:ring-2 focus:ring-pink-400/60 transition" />
+        </div>
+      </div>
+
+      <div class="reveal glass rounded-3xl p-8" style="transition-delay: 80ms">
+        <span class="text-xs text-white/50 font-mono">05 · 06 · toggle & checkbox</span>
+        <h3 class="text-xl md:text-2xl font-bold mt-1 mb-2">切換控件</h3>
+        <p class="text-white/70 text-sm mb-5">純 CSS 動畫,無 JS 依賴。</p>
+
+        <div class="space-y-4">
+          <label class="toggle flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" class="sr-only" checked onchange="showToast('Toggle: ' + (this.checked ? '開' : '關'))">
+            <div class="toggle-track w-12 h-7 rounded-full relative bg-white/20">
+              <div class="toggle-thumb absolute top-1 left-1 w-5 h-5 rounded-full bg-white shadow-md"></div>
+            </div>
+            <span class="text-sm">啟用通知</span>
+          </label>
+
+          <label class="toggle flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" class="sr-only" onchange="showToast('Toggle: ' + (this.checked ? '開' : '關'))">
+            <div class="toggle-track w-12 h-7 rounded-full relative bg-white/20">
+              <div class="toggle-thumb absolute top-1 left-1 w-5 h-5 rounded-full bg-white shadow-md"></div>
+            </div>
+            <span class="text-sm text-white/70">夜間模式</span>
+          </label>
+
+          <div class="pt-2 border-t border-white/10">
+            <label class="flex items-center gap-3 cursor-pointer mb-3">
+              <input type="checkbox" class="check-input sr-only" checked>
+              <div class="check-box w-5 h-5 rounded-md border-2 border-white/40 flex items-center justify-center">
+                <svg class="check-icon w-3 h-3 text-white" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+              </div>
+              <span class="text-sm">我同意服務條款</span>
+            </label>
+            <label class="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" class="check-input sr-only">
+              <div class="check-box w-5 h-5 rounded-md border-2 border-white/40 flex items-center justify-center">
+                <svg class="check-icon w-3 h-3 text-white" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+              </div>
+              <span class="text-sm text-white/70">訂閱電子報</span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7. 進度條 + 8. Tooltip -->
+    <div class="grid md:grid-cols-2 gap-6 mb-6">
+      <div class="reveal glass rounded-3xl p-8">
+        <span class="text-xs text-white/50 font-mono">07 · progress</span>
+        <h3 class="text-xl md:text-2xl font-bold mt-1 mb-2">動態進度條</h3>
+        <p class="text-white/70 text-sm mb-5">動畫填滿 + Shimmer 流光效果。</p>
+        <div class="space-y-4">
+          <div>
+            <div class="flex justify-between text-xs mb-1.5">
+              <span>渲染效能</span><span class="font-mono">87%</span>
+            </div>
+            <div class="h-2.5 rounded-full bg-white/10 overflow-hidden">
+              <div class="progress-bar h-full rounded-full bg-gradient-to-r from-purple-400 to-pink-400" style="--pct: 87">
+                <div class="progress-shimmer h-full w-full"></div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <div class="flex justify-between text-xs mb-1.5">
+              <span>可訪問性</span><span class="font-mono">95%</span>
+            </div>
+            <div class="h-2.5 rounded-full bg-white/10 overflow-hidden">
+              <div class="progress-bar h-full rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400" style="--pct: 95">
+                <div class="progress-shimmer h-full w-full"></div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <div class="flex justify-between text-xs mb-1.5">
+              <span>響應式適配</span><span class="font-mono">72%</span>
+            </div>
+            <div class="h-2.5 rounded-full bg-white/10 overflow-hidden">
+              <div class="progress-bar h-full rounded-full bg-gradient-to-r from-amber-400 to-rose-400" style="--pct: 72">
+                <div class="progress-shimmer h-full w-full"></div>
+              </div>
+            </div>
+          </div>
+          <button class="btn-ripple text-xs glass-sm px-3 py-1.5 rounded-lg mt-2" onclick="rerunProgress()">重新執行動畫</button>
+        </div>
+      </div>
+
+      <div class="reveal glass rounded-3xl p-8" style="transition-delay: 80ms">
+        <span class="text-xs text-white/50 font-mono">08 · tooltip</span>
+        <h3 class="text-xl md:text-2xl font-bold mt-1 mb-2">Tooltip 提示</h3>
+        <p class="text-white/70 text-sm mb-5">純 CSS hover 觸發,支援鍵盤 focus。</p>
+        <div class="flex flex-wrap gap-4">
+          <div class="tooltip-wrap relative">
+            <button class="btn-ripple glass-sm px-4 py-2 rounded-xl text-sm">Hover 我 ↑</button>
+            <div class="tooltip glass-strong px-3 py-1.5 rounded-lg text-xs font-medium">這是 Tooltip 提示</div>
+          </div>
+          <div class="tooltip-wrap relative">
+            <button class="btn-ripple glass-sm px-4 py-2 rounded-xl text-sm">Focus 也行 ↑</button>
+            <div class="tooltip glass-strong px-3 py-1.5 rounded-lg text-xs font-medium">鍵盤可訪問</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 9. Avatar 群組 + 10. Modal 觸發 -->
+    <div class="grid md:grid-cols-2 gap-6 mb-6">
+      <div class="reveal glass rounded-3xl p-8">
+        <span class="text-xs text-white/50 font-mono">09 · avatars</span>
+        <h3 class="text-xl md:text-2xl font-bold mt-1 mb-2">頭像群組</h3>
+        <p class="text-white/70 text-sm mb-5">重疊式頭像,適合團隊展示。</p>
+        <div class="flex -space-x-3">
+          <div class="w-12 h-12 rounded-full border-2 border-white/30 bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-sm font-bold">A</div>
+          <div class="w-12 h-12 rounded-full border-2 border-white/30 bg-gradient-to-br from-cyan-400 to-blue-400 flex items-center justify-center text-sm font-bold">B</div>
+          <div class="w-12 h-12 rounded-full border-2 border-white/30 bg-gradient-to-br from-amber-400 to-rose-400 flex items-center justify-center text-sm font-bold">C</div>
+          <div class="w-12 h-12 rounded-full border-2 border-white/30 bg-gradient-to-br from-emerald-400 to-teal-400 flex items-center justify-center text-sm font-bold">D</div>
+          <div class="w-12 h-12 rounded-full border-2 border-white/30 bg-white/20 flex items-center justify-center text-xs font-bold backdrop-blur">+5</div>
+        </div>
+      </div>
+
+      <div class="reveal glass rounded-3xl p-8" style="transition-delay: 80ms" id="showcase">
+        <span class="text-xs text-white/50 font-mono">10 · modal</span>
+        <h3 class="text-xl md:text-2xl font-bold mt-1 mb-2">Modal 彈窗</h3>
+        <p class="text-white/70 text-sm mb-5">點擊按鈕展示全螢幕 Modal。</p>
+        <button class="btn-ripple glass-strong px-6 py-3 rounded-xl font-semibold hover:scale-105 transition" onclick="openModal()">
+          開啟 Modal
+        </button>
+      </div>
+    </div>
+
+    <!-- 11. Toast 觸發 + 12. Tag 卡片 -->
+    <div class="grid md:grid-cols-2 gap-6 mb-6">
+      <div class="reveal glass rounded-3xl p-8">
+        <span class="text-xs text-white/50 font-mono">11 · toast</span>
+        <h3 class="text-xl md:text-2xl font-bold mt-1 mb-2">Toast 通知</h3>
+        <p class="text-white/70 text-sm mb-5">從右上角滑入,3 秒後自動消失。</p>
+        <div class="flex flex-wrap gap-2">
+          <button class="btn-ripple glass-sm px-4 py-2 rounded-xl text-sm" onclick="showToast('✅ 成功訊息')">Success</button>
+          <button class="btn-ripple glass-sm px-4 py-2 rounded-xl text-sm" onclick="showToast('⚠️ 警告訊息')">Warning</button>
+          <button class="btn-ripple glass-sm px-4 py-2 rounded-xl text-sm" onclick="showToast('❌ 錯誤訊息')">Error</button>
+        </div>
+      </div>
+
+      <div class="reveal glass rounded-3xl p-8" style="transition-delay: 80ms">
+        <span class="text-xs text-white/50 font-mono">12 · article-card</span>
+        <h3 class="text-xl md:text-2xl font-bold mt-1 mb-2">文章卡片</h3>
+        <p class="text-white/70 text-sm mb-5">內容展示型卡片,支援圖示 + 標籤 + CTA。</p>
+        <div class="glass-sm rounded-2xl p-5">
+          <div class="flex items-center gap-2 mb-3">
+            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-400 to-pink-400"></div>
+            <span class="text-xs text-white/60">5 分鐘閱讀</span>
+          </div>
+          <h4 class="font-semibold mb-2">為什麼 Glassmorphism 是 2026 的 UI 趨勢</h4>
+          <p class="text-xs text-white/60 mb-3">深度探討 backdrop-filter 的效能平衡與設計哲學。</p>
+          <div class="flex items-center justify-between">
+            <span class="text-xs glass-sm px-2 py-0.5 rounded-full">Design</span>
+            <a href="#" class="text-xs text-purple-300 hover:text-purple-200 transition">閱讀更多 →</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Playground: 即時自訂面板 -->
+  <section id="playground" class="px-6 max-w-6xl mx-auto pb-20">
+    <h2 class="reveal text-3xl md:text-4xl font-bold mb-3 text-center">
+      <span class="text-gradient">Playground</span>
+    </h2>
+    <p class="reveal text-center text-white/60 text-sm mb-8">即時調整 Glassmorphism 參數,看 CSS 變化效果。</p>
+
+    <div class="reveal glass rounded-3xl p-8">
+      <div class="grid md:grid-cols-2 gap-8">
+        <!-- 控制面板 -->
+        <div>
+          <span class="text-xs text-white/50 font-mono">controls</span>
+          <h3 class="text-xl font-bold mt-1 mb-5">參數控制</h3>
+
+          <div class="space-y-5">
+            <div>
+              <label class="text-xs text-white/70 flex justify-between mb-2">
+                <span>模糊強度 (blur)</span>
+                <span class="font-mono" id="valBlur">22px</span>
+              </label>
+              <input type="range" min="0" max="50" value="22" class="w-full accent-purple-400" oninput="setVar('--glass-blur', this.value + 'px'); document.getElementById('valBlur').textContent = this.value + 'px'" />
+            </div>
+
+            <div>
+              <label class="text-xs text-white/70 flex justify-between mb-2">
+                <span>飽和度 (saturate)</span>
+                <span class="font-mono" id="valSat">140%</span>
+              </label>
+              <input type="range" min="100" max="250" value="140" class="w-full accent-pink-400" oninput="setVar('--glass-sat', this.value + '%'); document.getElementById('valSat').textContent = this.value + '%'" />
+            </div>
+
+            <div>
+              <label class="text-xs text-white/70 flex justify-between mb-2">
+                <span>玻璃透明度</span>
+                <span class="font-mono" id="valAlpha">0.18</span>
+              </label>
+              <input type="range" min="0" max="60" value="18" class="w-full accent-cyan-400" oninput="setVar('--glass', 'rgba(255,255,255,' + (this.value/100).toFixed(2) + ')'); document.getElementById('valAlpha').textContent = (this.value/100).toFixed(2)" />
+            </div>
+
+            <div>
+              <label class="text-xs text-white/70 flex justify-between mb-2">
+                <span>邊框透明度</span>
+                <span class="font-mono" id="valBorder">0.35</span>
+              </label>
+              <input type="range" min="0" max="80" value="35" class="w-full accent-amber-400" oninput="setVar('--line', 'rgba(255,255,255,' + (this.value/100).toFixed(2) + ')'); document.getElementById('valBorder').textContent = (this.value/100).toFixed(2)" />
+            </div>
+
+            <button class="btn-ripple glass-sm px-4 py-2 rounded-xl text-sm w-full" onclick="resetVars()">
+              重置為預設值
+            </button>
+          </div>
+        </div>
+
+        <!-- 預覽區 -->
+        <div>
+          <span class="text-xs text-white/50 font-mono">preview</span>
+          <h3 class="text-xl font-bold mt-1 mb-5">即時預覽</h3>
+          <div id="previewCard" class="glass rounded-2xl p-6 h-64 flex flex-col justify-between">
+            <div>
+              <div class="text-3xl mb-2">✨</div>
+              <h4 class="text-lg font-bold">動態玻璃卡片</h4>
+              <p class="text-xs text-white/60 mt-1">調整左側參數看效果</p>
+            </div>
+            <div class="flex gap-2">
+              <span class="glass-sm px-2 py-0.5 rounded-full text-xs">Live</span>
+              <span class="glass-sm px-2 py-0.5 rounded-full text-xs">CSS Vars</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 頁尾 -->
+  <footer class="reveal px-6 py-10 text-center text-xs text-white/40 border-t border-white/10 mx-6 mb-6">
+    <p>Aurora Glass · 基於 Tailwind CSS · 零外部 JS 依賴 · 構建於 2026-08-03</p>
+    <p class="mt-1">backdrop-filter: blur(22px) saturate(140%) · @supports fallback · prefers-reduced-motion</p>
+  </footer>
+
+  <!-- Modal -->
+  <div id="modal" class="modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+    <div class="modal-panel glass-strong rounded-3xl p-8 max-w-md w-full" role="dialog" aria-modal="true">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-xl font-bold">Modal 標題</h3>
+        <button class="btn-ripple w-8 h-8 rounded-full glass-sm flex items-center justify-center hover:bg-white/30 transition" onclick="closeModal()" aria-label="關閉">✕</button>
+      </div>
+      <p class="text-white/70 text-sm mb-6">這是 Glassmorphism 風格的 Modal。同樣使用 backdrop-filter 與 GPU 加速動畫,確保開啟流暢。</p>
+      <div class="flex gap-3 justify-end">
+        <button class="btn-ripple glass-sm px-4 py-2 rounded-xl text-sm" onclick="closeModal()">取消</button>
+        <button class="btn-ripple glass-strong px-4 py-2 rounded-xl text-sm font-semibold" onclick="closeModal(); showToast('確認成功')">確認</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast 容器 -->
+  <div id="toastContainer" class="fixed top-6 right-6 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  </div><!-- /#app -->
+
+<script>
+  /* ============================================================
+     Aurora Glass · 互動邏輯
+     ============================================================ */
+
+  // 1) 進場 reveal (IntersectionObserver - 一次)
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((e) => {
+      if (e.isIntersecting) {
+        e.target.classList.add('visible');
+        observer.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+
+  document.querySelectorAll('.reveal').forEach((el) => observer.observe(el));
+
+  // 2) 數字計數動畫
+  const counters = document.querySelectorAll('[data-counter]');
+  const counterObserver = new IntersectionObserver((entries) => {
+    entries.forEach((e) => {
+      if (e.isIntersecting) {
+        const target = parseInt(e.target.dataset.counter, 10);
+        const duration = 1200;
+        const start = performance.now();
+        const animate = (now) => {
+          const t = Math.min(1, (now - start) / duration);
+          const eased = 1 - Math.pow(1 - t, 3);
+          e.target.textContent = Math.round(target * eased);
+          if (t < 1) requestAnimationFrame(animate);
+        };
+        requestAnimationFrame(animate);
+        counterObserver.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.5 });
+  counters.forEach((c) => counterObserver.observe(c));
+
+  // 3) 按鈕波紋座標
+  document.querySelectorAll('.btn-ripple').forEach((btn) => {
+    btn.addEventListener('pointermove', (e) => {
+      const rect = btn.getBoundingClientRect();
+      btn.style.setProperty('--rx', ((e.clientX - rect.left) / rect.width * 100) + '%');
+      btn.style.setProperty('--ry', ((e.clientY - rect.top) / rect.height * 100) + '%');
+    });
+  });
+
+  // 4) Modal 控制
+  function openModal() {
+    document.getElementById('modal').classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeModal() {
+    document.getElementById('modal').classList.remove('open');
+    document.body.style.overflow = '';
+  }
+  document.getElementById('modal').addEventListener('click', (e) => {
+    if (e.target.id === 'modal') closeModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeModal();
+  });
+
+  // 5) Toast 通知
+  function showToast(msg) {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = 'toast glass-strong px-4 py-3 rounded-xl text-sm font-medium shadow-glass pointer-events-auto';
+    toast.textContent = msg;
+    container.appendChild(toast);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => toast.classList.add('show'));
+    });
+    setTimeout(() => {
+      toast.classList.remove('show');
+      setTimeout(() => toast.remove(), 500);
+    }, 2800);
+  }
+
+  // 6) 進度條重跑動畫
+  function rerunProgress() {
+    document.querySelectorAll('.progress-bar').forEach((bar) => {
+      const pct = bar.style.getPropertyValue('--pct');
+      bar.style.setProperty('--pct', '0');
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => bar.style.setProperty('--pct', pct));
+      });
+    });
+  }
+
+  // 7) Playground CSS 變數控制
+  function setVar(name, value) {
+    document.documentElement.style.setProperty(name, value);
+    // 同步更新 previewCard 的動態特效
+    const card = document.getElementById('previewCard');
+    const blur = getComputedStyle(document.documentElement).getPropertyValue('--glass-blur').trim() || '22px';
+    const sat = getComputedStyle(document.documentElement).getPropertyValue('--glass-sat').trim() || '140%';
+    if (card) {
+      card.style.backdropFilter = `blur(${blur}) saturate(${sat})`;
+      card.style.webkitBackdropFilter = `blur(${blur}) saturate(${sat})`;
+    }
+  }
+  function resetVars() {
+    document.documentElement.style.removeProperty('--glass-blur');
+    document.documentElement.style.removeProperty('--glass-sat');
+    document.documentElement.style.removeProperty('--glass');
+    document.documentElement.style.removeProperty('--line');
+    document.getElementById('valBlur').textContent = '22px';
+    document.getElementById('valSat').textContent = '140%';
+    document.getElementById('valAlpha').textContent = '0.18';
+    document.getElementById('valBorder').textContent = '0.35';
+    document.querySelectorAll('input[type=range]').forEach((r) => {
+      if (r.previousElementSibling?.textContent?.includes('blur')) r.value = 22;
+      else if (r.previousElementSibling?.textContent?.includes('saturate')) r.value = 140;
+      else if (r.previousElementSibling?.textContent?.includes('透明度')) r.value = 18;
+      else if (r.previousElementSibling?.textContent?.includes('邊框')) r.value = 35;
+    });
+    const card = document.getElementById('previewCard');
+    if (card) {
+      card.style.backdropFilter = '';
+      card.style.webkitBackdropFilter = '';
+    }
+  }
+
+  // 8) 平滑錨點捲動
+  document.querySelectorAll('a[href^="#"]').forEach((a) => {
+    a.addEventListener('click', (e) => {
+      const id = a.getAttribute('href');
+      if (id.length > 1) {
+        const target = document.querySelector(id);
+        if (target) {
+          e.preventDefault();
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }
+    });
+  });
+
+  // 9) 啟動時自動歡迎 Toast
+  setTimeout(() => showToast('👋 歡迎來到 Aurora Glass'), 800);
+</script>
+</body>
+</html>

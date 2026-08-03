@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Hermes 動態工作流引擎 | React Flow Engine</title>
+<!-- React Flow 樣式 (核心樣式) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reactflow@11.11.4/dist/style.min.css" />
+<!-- Tailwind CSS (UI 樣式) -->
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- React 18 + ReactDOM -->
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<!-- React Flow UMD -->
+<script src="https://cdn.jsdelivr.net/npm/reactflow@11.11.4/dist/umd/index.min.js"></script>
+<!-- Babel standalone (瀏覽器內 JSX 編譯) -->
+<script src="https://unpkg.com/@babel/standalone@7.25.7/babel.min.js"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif; margin: 0; background: #0b1020; color: #e5e7eb; }
+  .react-flow__node { border-radius: 10px; border: 2px solid #6366f1; padding: 12px 16px; background: #1f2937; color: #f3f4f6; min-width: 180px; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.35); }
+  .react-flow__node.start { background: linear-gradient(135deg,#065f46,#10b981); border-color: #34d399; }
+  .react-flow__node.process { background: linear-gradient(135deg,#1e3a8a,#3b82f6); border-color: #60a5fa; }
+  .react-flow__node.decision { background: linear-gradient(135deg,#7c2d12,#f59e0b); border-color: #fbbf24; }
+  .react-flow__node.end { background: linear-gradient(135deg,#7f1d1d,#ef4444); border-color: #f87171; }
+  .react-flow__node.http { background: linear-gradient(135deg,#4c1d95,#8b5cf6); border-color: #a78bfa; }
+  .react-flow__node.transform { background: linear-gradient(135deg,#134e4a,#14b8a6); border-color: #2dd4bf; }
+  .react-flow__handle { width: 10px !important; height: 10px !important; background: #fbbf24 !important; border: 2px solid #fff !important; }
+  .react-flow__edge-path { stroke: #94a3b8; stroke-width: 2; }
+  .react-flow__edge.selected .react-flow__edge-path { stroke: #f59e0b; stroke-width: 3; }
+  .react-flow__attribution { background: rgba(15,23,42,0.6) !important; color: #cbd5e1 !important; }
+  .node-pill { display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 600; margin-bottom: 4px; }
+  .node-title { font-weight: 700; font-size: 14px; }
+  .node-sub { font-size: 11px; opacity: 0.75; margin-top: 4px; }
+  .tool-btn { background: #1f2937; color: #e5e7eb; border: 1px solid #374151; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; transition: all 0.15s; }
+  .tool-btn:hover { background: #374151; border-color: #6366f1; }
+  .tool-btn.primary { background: #4f46e5; border-color: #6366f1; }
+  .tool-btn.primary:hover { background: #6366f5; }
+  .tool-btn.danger { background: #b91c1c; border-color: #ef4444; }
+  .tool-btn.danger:hover { background: #dc2626; }
+  .palette-card { background: #1f2937; border: 1px solid #374151; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; cursor: grab; transition: all 0.15s; }
+  .palette-card:hover { background: #374151; border-color: #6366f1; transform: translateX(4px); }
+  .log-entry { font-family: "JetBrains Mono", "Fira Code", monospace; font-size: 12px; padding: 4px 8px; border-radius: 4px; margin-bottom: 2px; }
+  .log-entry.info { background: rgba(59,130,246,0.15); color: #93c5fd; }
+  .log-entry.success { background: rgba(16,185,129,0.15); color: #6ee7b7; }
+  .log-entry.warn { background: rgba(245,158,11,0.15); color: #fcd34d; }
+  .log-entry.error { background: rgba(239,68,68,0.15); color: #fca5a5; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; }
+  .badge.ok { background: #065f46; color: #6ee7b7; }
+  .badge.run { background: #1e3a8a; color: #93c5fd; }
+  .badge.err { background: #7f1d1d; color: #fca5a5; }
+  .badge.idle { background: #374151; color: #d1d5db; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useCallback, useMemo, useRef, useEffect } = React;
+const { ReactFlow, Background, Controls, MiniMap, Handle, Position, applyNodeChanges, applyEdgeChanges, addEdge } = window.ReactFlow;
+
+// ===========================
+// 節點類型定義（Schema）
+// ===========================
+const NODE_TYPES = [
+  {
+    type: 'start',
+    label: '開始',
+    icon: '▶',
+    desc: '流程入口觸發器',
+    color: '#10b981',
+    schema: [
+      { key: 'trigger', label: '觸發方式', type: 'select', options: ['manual', 'cron', 'webhook', 'event'], default: 'manual' },
+      { key: 'payload', label: '初始 Payload (JSON)', type: 'textarea', default: '{}' },
+    ],
+    run: async (node, ctx) => ({ ok: true, output: { ...ctx, _startedAt: Date.now() } }),
+  },
+  {
+    type: 'http',
+    label: 'HTTP 請求',
+    icon: '🌐',
+    desc: '呼叫外部 API',
+    color: '#8b5cf6',
+    schema: [
+      { key: 'method', label: '方法', type: 'select', options: ['GET', 'POST', 'PUT', 'DELETE'], default: 'GET' },
+      { key: 'url', label: 'URL', type: 'text', default: 'https://jsonplaceholder.typicode.com/todos/1' },
+      { key: 'body', label: 'Body (JSON)', type: 'textarea', default: '' },
+    ],
+    run: async (node, ctx) => {
+      const data = node.data || {};
+      const method = data.method || 'GET';
+      const url = data.url || '';
+      if (!url) return { ok: false, error: 'URL 為空' };
+      try {
+        const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: method === 'GET' ? undefined : (data.body || undefined) });
+        const text = await res.text();
+        let body;
+        try { body = JSON.parse(text); } catch { body = text; }
+        return { ok: res.ok, status: res.status, output: { ...ctx, http_response: body } };
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
+    },
+  },
+  {
+    type: 'transform',
+    label: '資料轉換',
+    icon: '🔄',
+    desc: '使用 JS 表達式處理資料',
+    color: '#14b8a6',
+    schema: [
+      { key: 'expr', label: '表達式 (使用 ctx 變數)', type: 'textarea', default: 'return { ...ctx, doubled: (ctx.value || 0) * 2 };' },
+    ],
+    run: async (node, ctx) => {
+      const data = node.data || {};
+      const expr = data.expr || 'return ctx;';
+      try {
+        // 安全沙盒：限制可用變數
+        const fn = new Function('ctx', expr);
+        const output = fn(ctx);
+        return { ok: true, output: { ...ctx, ...output } };
+      } catch (e) {
+        return { ok: false, error: '表達式錯誤: ' + String(e) };
+      }
+    },
+  },
+  {
+    type: 'decision',
+    label: '條件判斷',
+    icon: '◆',
+    desc: '依條件分流 (true/false)',
+    color: '#f59e0b',
+    schema: [
+      { key: 'condition', label: '條件 (回傳布林值)', type: 'textarea', default: 'return (ctx.value || 0) > 10;' },
+    ],
+    run: async (node, ctx) => {
+      const data = node.data || {};
+      const expr = data.condition || 'return true;';
+      try {
+        const fn = new Function('ctx', expr);
+        const result = !!fn(ctx);
+        return { ok: true, branch: result ? 'true' : 'false', output: { ...ctx, _branch: result } };
+      } catch (e) {
+        return { ok: false, error: '條件錯誤: ' + String(e) };
+      }
+    },
+  },
+  {
+    type: 'process',
+    label: '處理節點',
+    icon: '⚙',
+    desc: '執行任意運算邏輯',
+    color: '#3b82f6',
+    schema: [
+      { key: 'code', label: '處理程式碼', type: 'textarea', default: 'await new Promise(r => setTimeout(r, 500)); return { ...ctx, processed: true };' },
+    ],
+    run: async (node, ctx) => {
+      const data = node.data || {};
+      const code = data.code || 'return ctx;';
+      try {
+        const fn = new Function('ctx', 'return (async () => { ' + code + ' })();');
+        const output = await fn(ctx);
+        return { ok: true, output: { ...ctx, ...output } };
+      } catch (e) {
+        return { ok: false, error: '執行錯誤: ' + String(e) };
+      }
+    },
+  },
+  {
+    type: 'log',
+    label: '日誌輸出',
+    icon: '📋',
+    desc: '將 ctx 寫入日誌',
+    color: '#64748b',
+    schema: [
+      { key: 'message', label: '訊息', type: 'text', default: 'Checkpoint reached' },
+    ],
+    run: async (node, ctx) => {
+      const data = node.data || {};
+      return { ok: true, output: { ...ctx, _log: data.message || '' } };
+    },
+  },
+  {
+    type: 'end',
+    label: '結束',
+    icon: '■',
+    desc: '流程結束點',
+    color: '#ef4444',
+    schema: [
+      { key: 'status', label: '結束狀態', type: 'select', options: ['success', 'failure'], default: 'success' },
+    ],
+    run: async (node, ctx) => ({ ok: true, output: { ...ctx, _endedAt: Date.now() } }),
+  },
+];
+
+// ===========================
+// 內建節點 (React Flow)
+// ===========================
+function BaseNode({ data, type, selected }) {
+  const cfg = NODE_TYPES.find(n => n.type === type) || { label: type, icon: '?', color: '#6b7280' };
+  const statusClass = data._status === 'running' ? 'run' : data._status === 'success' ? 'ok' : data._status === 'error' ? 'err' : 'idle';
+  return (
+    <div className={type} style={{ outline: selected ? '3px solid #f59e0b' : 'none', outlineOffset: '2px' }}>
+      <Handle type="target" position={Position.Left} />
+      <div className="node-pill" style={{ background: cfg.color + '40', color: cfg.color }}>
+        {cfg.icon} {cfg.label} <span className={`badge ${statusClass}`} style={{marginLeft:6}}>{data._status || 'idle'}</span>
+      </div>
+      <div className="node-title">{data.label || cfg.label}</div>
+      {data.subtitle && <div className="node-sub">{data.subtitle}</div>}
+      <Handle type="source" position={Position.Right} />
+      {type === 'decision' && (
+        <>
+          <Handle id="true" type="source" position={Position.Bottom} style={{background:'#10b981'}} />
+          <Handle id="false" type="source" position={Position.Top} style={{background:'#ef4444'}} />
+        </>
+      )}
+    </div>
+  );
+}
+
+const nodeTypes = {
+  start: BaseNode,
+  http: BaseNode,
+  transform: BaseNode,
+  decision: BaseNode,
+  process: BaseNode,
+  log: BaseNode,
+  end: BaseNode,
+};
+
+// ===========================
+// 側邊面板：節點調色盤
+// ===========================
+function NodePalette({ onDragStart }) {
+  return (
+    <div className="p-4">
+      <h3 className="text-sm font-bold text-gray-300 mb-3 uppercase tracking-wider">節點調色盤</h3>
+      {NODE_TYPES.map(n => (
+        <div
+          key={n.type}
+          className="palette-card"
+          draggable
+          onDragStart={(event) => {
+            event.dataTransfer.setData('application/reactflow', n.type);
+            event.dataTransfer.effectAllowed = 'move';
+            onDragStart && onDragStart(n);
+          }}
+          style={{ borderLeft: `4px solid ${n.color}` }}
+        >
+          <div className="flex items-center gap-2">
+            <span style={{ fontSize: 18 }}>{n.icon}</span>
+            <div>
+              <div className="font-semibold text-sm text-white">{n.label}</div>
+              <div className="text-xs text-gray-400">{n.desc}</div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ===========================
+// 節點屬性編輯器
+// ===========================
+function NodeInspector({ node, onChange, onClose }) {
+  if (!node) {
+    return (
+      <div className="p-4 text-sm text-gray-400">
+        <h3 className="text-sm font-bold text-gray-300 mb-3 uppercase tracking-wider">屬性編輯器</h3>
+        <p>點選任一節點以編輯屬性</p>
+      </div>
+    );
+  }
+  const cfg = NODE_TYPES.find(n => n.type === node.type);
+  const data = node.data || {};
+  const updateField = (key, value) => {
+    onChange(node.id, { ...data, [key]: value });
+  };
+  return (
+    <div className="p-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 60px)' }}>
+      <div className="flex justify-between items-center mb-3">
+        <h3 className="text-sm font-bold text-gray-300 uppercase tracking-wider">
+          {cfg?.icon} {cfg?.label || node.type}
+        </h3>
+        <button className="tool-btn" onClick={onClose}>×</button>
+      </div>
+      <div className="mb-3">
+        <label className="block text-xs text-gray-400 mb-1">節點 ID</label>
+        <div className="text-xs text-gray-500 font-mono">{node.id}</div>
+      </div>
+      <div className="mb-3">
+        <label className="block text-xs text-gray-400 mb-1">顯示名稱</label>
+        <input
+          className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white"
+          value={data.label || ''}
+          onChange={(e) => updateField('label', e.target.value)}
+        />
+      </div>
+      <div className="mb-3">
+        <label className="block text-xs text-gray-400 mb-1">副標題</label>
+        <input
+          className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white"
+          value={data.subtitle || ''}
+          onChange={(e) => updateField('subtitle', e.target.value)}
+          placeholder="選填說明"
+        />
+      </div>
+      <hr className="border-gray-700 my-3" />
+      <h4 className="text-xs font-bold text-gray-300 mb-2 uppercase">節點設定</h4>
+      {(cfg?.schema || []).map(field => (
+        <div key={field.key} className="mb-3">
+          <label className="block text-xs text-gray-400 mb-1">{field.label}</label>
+          {field.type === 'select' ? (
+            <select
+              className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white"
+              value={data[field.key] ?? field.default}
+              onChange={(e) => updateField(field.key, e.target.value)}
+            >
+              {field.options.map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+          ) : field.type === 'textarea' ? (
+            <textarea
+              className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white font-mono"
+              rows="4"
+              value={data[field.key] ?? field.default}
+              onChange={(e) => updateField(field.key, e.target.value)}
+            />
+          ) : (
+            <input
+              className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white"
+              value={data[field.key] ?? field.default}
+              onChange={(e) => updateField(field.key, e.target.value)}
+            />
+          )}
+        </div>
+      ))}
+      {node.type === 'decision' && (
+        <div className="mb-3 p-2 bg-yellow-900/30 border border-yellow-700 rounded text-xs text-yellow-200">
+          ⚠ 決策節點有兩個輸出 handle: <span style={{color:'#10b981'}}>● true (底)</span> 與 <span style={{color:'#ef4444'}}>● false (頂)</span>，執行時依條件分流
+        </div>
+      )}
+      {data._lastResult && (
+        <div className="mb-3">
+          <label className="block text-xs text-gray-400 mb-1">上次執行結果</label>
+          <pre className="bg-gray-900 border border-gray-700 rounded p-2 text-xs text-gray-300 overflow-auto max-h-40">
+{JSON.stringify(data._lastResult, null, 2)}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===========================
+// 工作流執行引擎 (DAG 拓樸排序 + 條件分流)
+// ===========================
+class WorkflowEngine {
+  constructor(nodes, edges, addLog) {
+    this.nodes = nodes;
+    this.edges = edges;
+    this.addLog = addLog;
+    this.nodeMap = Object.fromEntries(nodes.map(n => [n.id, n]));
+    this.adj = {}; // adjacency: nodeId -> [{target, sourceHandle}]
+    this.inDeg = {};
+    nodes.forEach(n => { this.adj[n.id] = []; this.inDeg[n.id] = 0; });
+    edges.forEach(e => {
+      if (this.adj[e.source]) {
+        this.adj[e.source].push({ target: e.target, sourceHandle: e.sourceHandle });
+        this.inDeg[e.target] = (this.inDeg[e.target] || 0) + 1;
+      }
+    });
+  }
+
+  // 拓樸排序 (Kahn)
+  topoOrder() {
+    const inDeg = { ...this.inDeg };
+    const queue = Object.keys(inDeg).filter(k => inDeg[k] === 0);
+    const order = [];
+    while (queue.length) {
+      const id = queue.shift();
+      order.push(id);
+      for (const e of this.adj[id]) {
+        inDeg[e.target]--;
+        if (inDeg[e.target] === 0) queue.push(e.target);
+      }
+    }
+    if (order.length !== this.nodes.length) {
+      throw new Error('流程圖有循環 (cycle)，無法執行');
+    }
+    return order;
+  }
+
+  async execute(setNodeStatus, ctx0 = {}) {
+    const order = this.topoOrder();
+    // 找起點
+    const start = this.nodes.find(n => n.type === 'start');
+    if (!start) throw new Error('找不到開始節點');
+    const ctx = { ...ctx0 };
+    this.addLog('info', `▶ 開始執行流程，初始 context: ${JSON.stringify(ctx)}`);
+    for (const id of order) {
+      const node = this.nodeMap[id];
+      setNodeStatus(id, 'running');
+      this.addLog('info', `[${node.type}] 執行中...`);
+      const cfg = NODE_TYPES.find(n => n.type === node.type);
+      try {
+        const res = await cfg.run({ data: node.data }, ctx);
+        if (!res.ok) {
+          setNodeStatus(id, 'error');
+          this.addLog('error', `[${node.type}] 失敗: ${res.error}`);
+          throw new Error(`節點 ${node.id} 失敗: ${res.error}`);
+        }
+        // decision: 依 branch 過濾後續路徑
+        if (node.type === 'decision' && res.branch) {
+          // 把不在此分支的 outgoing edge 標記禁用（簡化版：拋錯讓使用者改圖）
+          // 為簡化，這裡只記錄分支
+          this.addLog('warn', `  分流 → ${res.branch}`);
+          ctx._branch = res.branch;
+        }
+        ctx._lastNodeId = id;
+        setNodeStatus(id, 'success');
+        // 更新節點顯示的最近結果（用 setData 的副作用，這裡僅 log）
+        node.data = { ...node.data, _lastResult: res };
+      } catch (e) {
+        setNodeStatus(id, 'error');
+        this.addLog('error', `❌ 流程中斷: ${e.message}`);
+        throw e;
+      }
+    }
+    this.addLog('success', `✅ 流程完成`);
+    return ctx;
+  }
+}
+
+// ===========================
+// 主應用
+// ===========================
+function App() {
+  const reactFlowWrapper = useRef(null);
+  const [nodes, setNodes] = useState([]);
+  const [edges, setEdges] = useState([]);
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [logs, setLogs] = useState([]);
+  const [running, setRunning] = useState(false);
+  const [rfInstance, setRfInstance] = useState(null);
+
+  const onNodesChange = useCallback((changes) => setNodes((nds) => applyNodeChanges(changes, nds)), []);
+  const onEdgesChange = useCallback((changes) => setEdges((eds) => applyEdgeChanges(changes, eds)), []);
+  const onConnect = useCallback((connection) => setEdges((eds) => addEdge({ ...connection, animated: true, style: { stroke: '#f59e0b' } }, eds)), []);
+
+  const onDragOver = useCallback((event) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const onDrop = useCallback((event) => {
+    event.preventDefault();
+    const type = event.dataTransfer.getData('application/reactflow');
+    if (!type || !reactFlowWrapper.current) return;
+    const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
+    const position = rfInstance.screenToFlowPosition({
+      x: event.clientX,
+      y: event.clientY,
+    });
+    const cfg = NODE_TYPES.find(n => n.type === type);
+    const newNode = {
+      id: `${type}_${Date.now()}_${Math.floor(Math.random()*1000)}`,
+      type,
+      position,
+      data: {
+        label: cfg?.label || type,
+        subtitle: cfg?.desc || '',
+        _status: 'idle',
+        ...Object.fromEntries((cfg?.schema || []).map(f => [f.key, f.default])),
+      },
+    };
+    setNodes((nds) => nds.concat(newNode));
+  }, [rfInstance]);
+
+  const updateNodeData = useCallback((id, newData) => {
+    setNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, ...newData } } : n));
+    setSelectedNode(sn => sn && sn.id === id ? { ...sn, data: { ...sn.data, ...newData } } : sn);
+  }, []);
+
+  const addLog = useCallback((level, message) => {
+    setLogs(l => [...l.slice(-99), { level, message, time: new Date().toLocaleTimeString() }]);
+  }, []);
+
+  const setNodeStatus = useCallback((id, status) => {
+    setNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, _status: status } } : n));
+  }, []);
+
+  // 載入範本
+  const loadTemplate = useCallback((name) => {
+    if (running) return;
+    const templates = {
+      simple: {
+        nodes: [
+          { id: 'start_1', type: 'start', position: { x: 50, y: 200 }, data: { label: '開始', subtitle: '手動觸發', trigger: 'manual', payload: '{}', _status: 'idle' } },
+          { id: 'http_1', type: 'http', position: { x: 280, y: 100 }, data: { label: '抓取 API', subtitle: 'GET todos/1', method: 'GET', url: 'https://jsonplaceholder.typicode.com/todos/1', body: '', _status: 'idle' } },
+          { id: 'transform_1', type: 'transform', position: { x: 510, y: 100 }, data: { label: '整理資料', expr: 'return { ...ctx, title: ctx.http_response?.title, completed: ctx.http_response?.completed };', _status: 'idle' } },
+          { id: 'decision_1', type: 'decision', position: { x: 740, y: 100 }, data: { label: '是否完成?', condition: 'return ctx.completed === true;', _status: 'idle' } },
+          { id: 'log_1', type: 'log', position: { x: 970, y: 50 }, data: { label: '記錄完成', message: 'Task completed!', _status: 'idle' } },
+          { id: 'end_1', type: 'end', position: { x: 970, y: 200 }, data: { label: '結束', status: 'success', _status: 'idle' } },
+        ],
+        edges: [
+          { id: 'e1', source: 'start_1', target: 'http_1', animated: true, style: { stroke: '#94a3b8' } },
+          { id: 'e2', source: 'http_1', target: 'transform_1', animated: true, style: { stroke: '#94a3b8' } },
+          { id: 'e3', source: 'transform_1', target: 'decision_1', animated: true, style: { stroke: '#94a3b8' } },
+          { id: 'e4', source: 'decision_1', target: 'log_1', sourceHandle: 'true', animated: true, style: { stroke: '#10b981' } },
+          { id: 'e5', source: 'decision_1', target: 'end_1', sourceHandle: 'false', animated: true, style: { stroke: '#ef4444' } },
+        ],
+      },
+      etl: {
+        nodes: [
+          { id: 'start_1', type: 'start', position: { x: 50, y: 250 }, data: { label: '開始 ETL', trigger: 'cron', payload: '{"date":"2026-01-01"}', _status: 'idle' } },
+          { id: 'http_1', type: 'http', position: { x: 280, y: 150 }, data: { label: '擷取資料', method: 'GET', url: 'https://jsonplaceholder.typicode.com/users', body: '', _status: 'idle' } },
+          { id: 'transform_1', type: 'transform', position: { x: 510, y: 150 }, data: { label: '清洗資料', expr: 'return { users: ctx.http_response?.slice(0,5).map(u => ({ id: u.id, name: u.name })) || [] };', _status: 'idle' } },
+          { id: 'http_2', type: 'http', position: { x: 740, y: 150 }, data: { label: '回寫結果', method: 'POST', url: 'https://httpbin.org/post', body: '{"users":[]}', _status: 'idle' } },
+          { id: 'end_1', type: 'end', position: { x: 970, y: 250 }, data: { label: '結束', status: 'success', _status: 'idle' } },
+        ],
+        edges: [
+          { id: 'e1', source: 'start_1', target: 'http_1', animated: true, style: { stroke: '#94a3b8' } },
+          { id: 'e2', source: 'http_1', target: 'transform_1', animated: true, style: { stroke: '#94a3b8' } },
+          { id: 'e3', source: 'transform_1', target: 'http_2', animated: true, style: { stroke: '#94a3b8' } },
+          { id: 'e4', source: 'http_2', target: 'end_1', animated: true, style: { stroke: '#94a3b8' } },
+        ],
+      },
+    };
+    const tpl = templates[name];
+    if (tpl) {
+      setNodes(tpl.nodes);
+      setEdges(tpl.edges);
+      setSelectedNode(null);
+      setLogs([{ level: 'info', message: `已載入範本: ${name} (${tpl.nodes.length} 節點 / ${tpl.edges.length} 連線)`, time: new Date().toLocaleTimeString() }]);
+    }
+  }, [running]);
+
+  // 執行流程
+  const runFlow = useCallback(async () => {
+    if (running) return;
+    if (nodes.length === 0) {
+      addLog('warn', '⚠ 流程圖為空，請先載入範本或拖入節點');
+      return;
+    }
+    setRunning(true);
+    setLogs([]);
+    // 重置所有節點狀態
+    setNodes(nds => nds.map(n => ({ ...n, data: { ...n.data, _status: 'idle' } })));
+    try {
+      const engine = new WorkflowEngine(nodes, edges, addLog);
+      await engine.execute(setNodeStatus, { value: 42, timestamp: Date.now() });
+      addLog('success', '🎉 流程執行完成');
+    } catch (e) {
+      addLog('error', `💥 執行失敗: ${e.message}`);
+    } finally {
+      setRunning(false);
+    }
+  }, [nodes, edges, running, addLog, setNodeStatus]);
+
+  // 匯出 / 匯入 JSON
+  const exportFlow = useCallback(() => {
+    const flow = { nodes, edges, exportedAt: new Date().toISOString(), version: '1.0' };
+    const blob = new Blob([JSON.stringify(flow, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `workflow_${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    addLog('success', '📥 流程已匯出');
+  }, [nodes, edges, addLog]);
+
+  const importFlow = useCallback(() => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json';
+    input.onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const data = JSON.parse(ev.target.result);
+          if (data.nodes && data.edges) {
+            setNodes(data.nodes);
+            setEdges(data.edges);
+            addLog('success', `📤 流程已匯入 (${data.nodes.length} 節點)`);
+          } else {
+            addLog('error', '檔案格式錯誤');
+          }
+        } catch (err) {
+          addLog('error', 'JSON 解析失敗: ' + err.message);
+        }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  }, [addLog]);
+
+  const clearFlow = useCallback(() => {
+    if (running) return;
+    if (confirm('確定要清空整個流程嗎？')) {
+      setNodes([]);
+      setEdges([]);
+      setSelectedNode(null);
+      addLog('warn', '🗑 流程已清空');
+    }
+  }, [running, addLog]);
+
+  // 自動載入第一個範本
+  useEffect(() => { loadTemplate('simple'); }, []);
+
+  return (
+    <div className="flex flex-col h-screen">
+      {/* 頂部工具列 */}
+      <header className="bg-gradient-to-r from-indigo-900 to-purple-900 text-white px-4 py-3 shadow-lg flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="text-2xl">⚡</div>
+          <div>
+            <h1 className="text-lg font-bold">Hermes 動態工作流引擎</h1>
+            <p className="text-xs text-indigo-200">基於 React Flow 11 · 可視化 DAG 編排 · 內建 7 種節點類型</p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button className="tool-btn" onClick={() => loadTemplate('simple')} disabled={running}>📋 簡單範本</button>
+          <button className="tool-btn" onClick={() => loadTemplate('etl')} disabled={running}>📊 ETL 範本</button>
+          <button className="tool-btn" onClick={importFlow} disabled={running}>📤 匯入</button>
+          <button className="tool-btn" onClick={exportFlow} disabled={running}>📥 匯出</button>
+          <button className="tool-btn danger" onClick={clearFlow} disabled={running}>🗑 清空</button>
+          <button className="tool-btn primary" onClick={runFlow} disabled={running}>
+            {running ? '⏳ 執行中...' : '▶ 執行流程'}
+          </button>
+        </div>
+      </header>
+
+      {/* 主內容區 */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* 左側：節點調色盤 */}
+        <aside className="w-64 bg-gray-900 border-r border-gray-700 overflow-y-auto">
+          <NodePalette />
+          <div className="px-4 pb-4">
+            <h3 className="text-sm font-bold text-gray-300 mb-2 uppercase tracking-wider">執行日誌</h3>
+            <div className="bg-gray-950 rounded p-2 max-h-80 overflow-y-auto">
+              {logs.length === 0 && <div className="text-xs text-gray-500 italic">尚無日誌</div>}
+              {logs.map((l, i) => (
+                <div key={i} className={`log-entry ${l.level}`}>
+                  <span className="opacity-50 mr-1">[{l.time}]</span>{l.message}
+                </div>
+              ))}
+            </div>
+          </div>
+        </aside>
+
+        {/* 中間：React Flow 畫布 */}
+        <main className="flex-1 relative" ref={reactFlowWrapper}>
+          <ReactFlow
+            nodes={nodes.map(n => ({ ...n, data: { ...n.data, _status: n.data._status } }))}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onInit={setRfInstance}
+            onDrop={onDrop}
+            onDragOver={onDragOver}
+            nodeTypes={nodeTypes}
+            onNodeClick={(_, node) => setSelectedNode(node)}
+            onPaneClick={() => setSelectedNode(null)}
+            fitView
+            attributionPosition="bottom-right"
+          >
+            <Background color="#334155" gap={16} />
+            <Controls className="!bg-gray-800 !border-gray-700" />
+            <MiniMap className="!bg-gray-800 !border-gray-700" nodeColor={(n) => {
+              const cfg = NODE_TYPES.find(t => t.type === n.type);
+              return cfg?.color || '#6b7280';
+            }} />
+          </ReactFlow>
+          {nodes.length === 0 && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="text-center text-gray-500">
+                <div className="text-6xl mb-2">⚡</div>
+                <p>從左側拖曳節點到畫布，開始建構你的工作流</p>
+                <p className="text-xs mt-2">或點擊「簡單範本」快速開始</p>
+              </div>
+            </div>
+          )}
+        </main>
+
+        {/* 右側：屬性編輯器 */}
+        <aside className="w-80 bg-gray-900 border-l border-gray-700 overflow-hidden">
+          <NodeInspector node={selectedNode} onChange={updateNodeData} onClose={() => setSelectedNode(null)} />
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+// 啟動
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+</body>
+</html>

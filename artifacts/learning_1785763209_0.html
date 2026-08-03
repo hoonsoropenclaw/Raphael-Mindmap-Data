@@ -1,0 +1,1271 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Glassmorphism Dynamic Form — 跨瀏覽器自動化測試標的</title>
+  <style>
+    /* =========================================================
+       全域設計 token
+       ========================================================= */
+    :root {
+      --bg-grad-1: #1a0b3d;
+      --bg-grad-2: #4f1e8c;
+      --bg-grad-3: #ff5fa2;
+      --bg-grad-4: #00d4ff;
+
+      --glass-bg: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
+      --glass-border: 1px solid rgba(255, 255, 255, 0.14);
+      --glass-shadow: 0 24px 80px rgba(0, 10, 28, .35);
+      --glass-blur: blur(22px) saturate(135%);
+
+      --text-primary: #ffffff;
+      --text-secondary: rgba(255, 255, 255, 0.78);
+      --text-muted: rgba(255, 255, 255, 0.55);
+      --accent: #ff7eb6;
+      --accent-2: #6ee2ff;
+      --success: #4ade80;
+      --danger: #ff6b6b;
+      --warning: #fbbf24;
+
+      --radius-lg: 22px;
+      --radius-md: 14px;
+      --radius-sm: 8px;
+
+      --space-1: 6px;
+      --space-2: 12px;
+      --space-3: 18px;
+      --space-4: 28px;
+      --space-5: 44px;
+
+      --font-stack: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang TC',
+                    'Microsoft JhengHei', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      font-family: var(--font-stack);
+      color: var(--text-primary);
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    body {
+      background:
+        radial-gradient(60% 80% at 15% 10%, var(--bg-grad-4) 0%, transparent 60%),
+        radial-gradient(50% 70% at 85% 0%, var(--bg-grad-3) 0%, transparent 60%),
+        radial-gradient(70% 90% at 50% 100%, var(--bg-grad-2) 0%, transparent 65%),
+        linear-gradient(135deg, var(--bg-grad-1) 0%, #0a0420 100%);
+      background-attachment: fixed;
+      padding: var(--space-4) var(--space-3);
+      overflow-x: hidden;
+    }
+
+    /* 背景動畫粒子裝飾（純 CSS、無 JS 依賴） */
+    body::before, body::after {
+      content: "";
+      position: fixed;
+      width: 600px;
+      height: 600px;
+      border-radius: 50%;
+      filter: blur(80px);
+      opacity: 0.35;
+      pointer-events: none;
+      z-index: 0;
+      animation: floatBlob 18s ease-in-out infinite;
+    }
+    body::before {
+      background: var(--accent);
+      top: -200px; left: -200px;
+    }
+    body::after {
+      background: var(--accent-2);
+      bottom: -250px; right: -200px;
+      animation-delay: -9s;
+    }
+
+    @keyframes floatBlob {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      50%      { transform: translate(60px, 80px) scale(1.15); }
+    }
+
+    /* prefers-reduced-motion 友善 */
+    @media (prefers-reduced-motion: reduce) {
+      body::before, body::after { animation: none; }
+      *, *::before, *::after { transition-duration: 0.01ms !important; }
+    }
+
+    /* =========================================================
+       Glassmorphism 主面板
+       ========================================================= */
+    .glass {
+      background: var(--glass-bg);
+      border: var(--glass-border);
+      box-shadow: var(--glass-shadow);
+      -webkit-backdrop-filter: var(--glass-blur);
+      backdrop-filter: var(--glass-blur);
+      border-radius: var(--radius-lg);
+    }
+
+    /* 不支援 backdrop-filter 時的 fallback */
+    @supports not ((backdrop-filter: blur(10px)) or (-webkit-backdrop-filter: blur(10px))) {
+      .glass {
+        background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.06));
+      }
+    }
+
+    .app-shell {
+      position: relative;
+      z-index: 1;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: var(--space-3);
+    }
+
+    .app-header {
+      text-align: center;
+      margin-bottom: var(--space-4);
+    }
+    .app-header h1 {
+      font-size: clamp(1.6rem, 3vw, 2.4rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      background: linear-gradient(120deg, var(--accent-2), var(--accent));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      margin-bottom: var(--space-1);
+    }
+    .app-header p {
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+    }
+
+    /* =========================================================
+       兩欄佈局：左邊 schema 編輯 + 右邊即時表單
+       ========================================================= */
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 1.4fr;
+      gap: var(--space-4);
+    }
+    @media (max-width: 880px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      padding: var(--space-4);
+      min-height: 460px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .panel-title {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-muted);
+      margin-bottom: var(--space-2);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .panel-title .badge {
+      font-size: 0.68rem;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: rgba(110, 226, 255, 0.18);
+      color: var(--accent-2);
+      letter-spacing: 0.05em;
+    }
+
+    /* =========================================================
+       Schema 編輯器（左欄）
+       ========================================================= */
+    .schema-editor {
+      width: 100%;
+      flex: 1;
+      min-height: 320px;
+      padding: var(--space-2) var(--space-3);
+      background: rgba(0,0,0,0.28);
+      color: var(--text-primary);
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: var(--radius-md);
+      font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace;
+      font-size: 0.84rem;
+      line-height: 1.55;
+      resize: vertical;
+      outline: none;
+      transition: border-color 0.18s ease, box-shadow 0.18s ease;
+    }
+    .schema-editor:focus {
+      border-color: var(--accent-2);
+      box-shadow: 0 0 0 3px rgba(110, 226, 255, 0.22);
+    }
+
+    .schema-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-1);
+      margin-top: var(--space-2);
+    }
+
+    /* =========================================================
+       按鈕
+       ========================================================= */
+    .btn {
+      cursor: pointer;
+      padding: 9px 16px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(255,255,255,0.18);
+      background: rgba(255,255,255,0.06);
+      color: var(--text-primary);
+      font-size: 0.86rem;
+      font-weight: 500;
+      transition: transform 0.15s ease, background 0.18s ease, box-shadow 0.18s ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn:hover { background: rgba(255,255,255,0.12); transform: translateY(-1px); }
+    .btn:active { transform: translateY(0); }
+    .btn:focus-visible {
+      outline: 2px solid var(--accent-2);
+      outline-offset: 2px;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      border: none;
+      color: #0a0420;
+      font-weight: 600;
+    }
+    .btn-primary:hover { box-shadow: 0 8px 22px rgba(255, 126, 182, 0.4); }
+    .btn-ghost { background: transparent; }
+    .btn-danger { background: rgba(255, 107, 107, 0.18); border-color: rgba(255,107,107,0.4); }
+
+    /* =========================================================
+       表單（右欄）
+       ========================================================= */
+    .form-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .stepper {
+      display: flex;
+      gap: var(--space-1);
+      margin-bottom: var(--space-3);
+    }
+    .step {
+      flex: 1;
+      height: 6px;
+      background: rgba(255,255,255,0.12);
+      border-radius: 999px;
+      overflow: hidden;
+      position: relative;
+    }
+    .step.active::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      animation: fillStep 0.4s ease;
+    }
+    .step.done { background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+
+    @keyframes fillStep {
+      from { transform: scaleX(0); transform-origin: left; }
+      to   { transform: scaleX(1); transform-origin: left; }
+    }
+
+    .field-group {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: var(--space-2);
+      margin-bottom: var(--space-3);
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      animation: fadeUp 0.32s ease both;
+    }
+    .field.full { grid-column: 1 / -1; }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .field-label {
+      font-size: 0.84rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .field-label .req { color: var(--danger); margin-left: 4px; }
+    .field-help {
+      font-size: 0.74rem;
+      color: var(--text-muted);
+    }
+    .field-error {
+      font-size: 0.78rem;
+      color: var(--danger);
+      min-height: 1em;
+    }
+
+    /* 輸入元件 */
+    .input,
+    .textarea,
+    .select {
+      width: 100%;
+      padding: 11px 14px;
+      background: rgba(0,0,0,0.32);
+      color: var(--text-primary);
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: var(--radius-md);
+      font-size: 0.94rem;
+      font-family: inherit;
+      transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+      outline: none;
+    }
+    .input::placeholder, .textarea::placeholder { color: var(--text-muted); }
+    .input:hover, .textarea:hover, .select:hover { background: rgba(0,0,0,0.4); }
+    .input:focus, .textarea:focus, .select:focus {
+      border-color: var(--accent-2);
+      box-shadow: 0 0 0 3px rgba(110, 226, 255, 0.22);
+      background: rgba(0,0,0,0.45);
+    }
+    .input.invalid, .textarea.invalid, .select.invalid {
+      border-color: var(--danger);
+      box-shadow: 0 0 0 3px rgba(255, 107, 107, 0.18);
+    }
+    .textarea { min-height: 90px; resize: vertical; }
+
+    /* radio / checkbox card */
+    .option-card {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      transition: background 0.18s ease, border-color 0.18s ease;
+    }
+    .option-card:hover { background: rgba(255,255,255,0.10); }
+    .option-card input { accent-color: var(--accent-2); }
+    .option-card.selected {
+      background: rgba(110,226,255,0.14);
+      border-color: var(--accent-2);
+    }
+
+    /* switch */
+    .switch {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      background: rgba(255,255,255,0.18);
+      border-radius: 999px;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+    .switch::after {
+      content: "";
+      position: absolute;
+      top: 3px; left: 3px;
+      width: 18px; height: 18px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.2s ease;
+    }
+    .switch.on { background: var(--accent); }
+    .switch.on::after { transform: translateX(20px); }
+
+    /* range */
+    .range {
+      width: 100%;
+      -webkit-appearance: none;
+      appearance: none;
+      height: 6px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 999px;
+      outline: none;
+    }
+    .range::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px; height: 18px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 0 0 4px rgba(110,226,255,0.18);
+    }
+    .range::-moz-range-thumb {
+      width: 18px; height: 18px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      border-radius: 50%;
+      cursor: pointer;
+      border: none;
+    }
+
+    /* 導航列 */
+    .form-nav {
+      display: flex;
+      justify-content: space-between;
+      gap: var(--space-2);
+      margin-top: auto;
+      padding-top: var(--space-3);
+    }
+    .form-nav .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* 成功畫面 */
+    .success-card {
+      text-align: center;
+      padding: var(--space-5) var(--space-3);
+      animation: fadeUp 0.4s ease both;
+    }
+    .success-icon {
+      width: 84px; height: 84px;
+      margin: 0 auto var(--space-2);
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--success), var(--accent-2));
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 14px 40px rgba(74, 222, 128, 0.4);
+    }
+    .success-icon svg { width: 42px; height: 42px; }
+    .success-card h2 { font-size: 1.6rem; margin-bottom: var(--space-1); }
+    .success-card p  { color: var(--text-secondary); margin-bottom: var(--space-3); }
+
+    /* =========================================================
+       Test Hook 區（給 Playwright 抓取資料用）
+       ========================================================= */
+    .test-hooks {
+      position: fixed;
+      right: 16px;
+      bottom: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 10;
+    }
+    .hook-btn {
+      width: 44px; height: 44px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.5);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #fff;
+      font-size: 0.78rem;
+      cursor: pointer;
+      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(8px);
+    }
+    .hook-btn:hover { background: rgba(110,226,255,0.25); }
+
+    /* 隱藏元素 */
+    .sr-only {
+      position: absolute;
+      width: 1px; height: 1px;
+      padding: 0; margin: -1px;
+      overflow: hidden;
+      clip: rect(0,0,0,0);
+      white-space: nowrap;
+      border: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <h1>Glassmorphism Dynamic Form</h1>
+      <p>跨瀏覽器自動化測試標的 · 即時表單生成 + localStorage 狀態保存 + 多步 wizard</p>
+    </header>
+
+    <main class="layout">
+      <!-- 左：Schema 編輯器 -->
+      <section class="panel glass" aria-labelledby="schema-title">
+        <h2 id="schema-title" class="panel-title">
+          <span>Form Schema (JSON)</span>
+          <span class="badge" data-testid="schema-status">已載入</span>
+        </h2>
+        <label for="schema-input" class="sr-only">表單 schema</label>
+        <textarea
+          id="schema-input"
+          class="schema-editor"
+          data-testid="schema-editor"
+          spellcheck="false"
+          aria-describedby="schema-help"
+        ></textarea>
+        <p id="schema-help" class="field-help" style="margin-top:6px">
+          編輯 JSON 後按「套用」即時重建表單。支援欄位類型：text / email / number / tel / date / textarea / select / radio / checkbox / switch / range。
+        </p>
+        <div class="schema-actions">
+          <button class="btn btn-primary" data-testid="btn-apply-schema" type="button">套用 Schema</button>
+          <button class="btn" data-testid="btn-reset-schema" type="button">重置預設</button>
+          <button class="btn" data-testid="btn-load-preset-2" type="button">載入員工報到</button>
+          <button class="btn btn-danger" data-testid="btn-clear-storage" type="button">清除 localStorage</button>
+        </div>
+      </section>
+
+      <!-- 右：動態表單 -->
+      <section class="panel glass" aria-labelledby="form-title">
+        <h2 id="form-title" class="panel-title">
+          <span>Live Form Preview</span>
+          <span class="badge" data-testid="step-indicator">步驟 1 / 1</span>
+        </h2>
+
+        <div class="stepper" data-testid="stepper" aria-hidden="true">
+          <div class="step active" data-step-bar="0"></div>
+        </div>
+
+        <div class="form-area" data-testid="form-area">
+          <!-- 動態欄位會注入這裡 -->
+        </div>
+
+        <div class="form-nav">
+          <button class="btn btn-ghost" data-testid="btn-prev" type="button" disabled>← 上一步</button>
+          <div style="display:flex; gap:8px">
+            <button class="btn" data-testid="btn-save-draft" type="button">儲存草稿</button>
+            <button class="btn btn-primary" data-testid="btn-next" type="button">下一步 →</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Test Hook 區（給自動化測試掛載用） -->
+  <div class="test-hooks" aria-label="測試輔助按鈕">
+    <button class="hook-btn" data-testid="hook-get-state" type="button" title="取得目前表單 state">S</button>
+    <button class="hook-btn" data-testid="hook-fire-submit" type="button" title="觸發提交">✓</button>
+    <button class="hook-btn" data-testid="hook-fire-error" type="button" title="注入錯誤">!</button>
+  </div>
+
+  <script>
+    'use strict';
+
+    // =========================================================
+    // 預設 Schema：使用者註冊表單
+    // =========================================================
+    const SAMPLE_SCHEMA = {
+      title: '使用者註冊表單',
+      steps: [
+        {
+          id: 'account',
+          title: '帳號資訊',
+          fields: [
+            { name: 'username', label: '使用者名稱', type: 'text', required: true, minLength: 3, maxLength: 24, placeholder: '3-24 字元', help: '用於登入的唯一識別' },
+            { name: 'email',    label: 'Email',        type: 'email', required: true, placeholder: 'you@example.com' },
+            { name: 'password', label: '密碼',         type: 'text', required: true, minLength: 8, help: '至少 8 個字元' },
+          ],
+        },
+        {
+          id: 'profile',
+          title: '個人資料',
+          fields: [
+            { name: 'fullName', label: '姓名', type: 'text', required: true, full: true },
+            { name: 'birthday', label: '生日', type: 'date', required: true },
+            { name: 'phone',    label: '電話', type: 'tel', placeholder: '0912-345-678', help: '格式：數字與 -' },
+            { name: 'gender',   label: '性別', type: 'radio', options: [
+              { value: 'female', label: '女性' },
+              { value: 'male',   label: '男性' },
+              { value: 'other',  label: '其他' },
+            ]},
+          ],
+        },
+        {
+          id: 'preferences',
+          title: '偏好設定',
+          fields: [
+            { name: 'plan',     label: '方案', type: 'select', options: [
+              { value: 'free',    label: '免費版' },
+              { value: 'pro',     label: '專業版' },
+              { value: 'team',    label: '團隊版' },
+            ]},
+            { name: 'bio',         label: '自我介紹',   type: 'textarea', full: true, maxLength: 200 },
+            { name: 'newsletter',  label: '訂閱電子報', type: 'switch' },
+            { name: 'experience',  label: '經驗年數',   type: 'range', min: 0, max: 20, step: 1, default: 3 },
+            { name: 'interests',   label: '興趣',       type: 'checkbox', options: [
+              { value: 'tech',   label: '科技' },
+              { value: 'music',  label: '音樂' },
+              { value: 'sport',  label: '運動' },
+              { value: 'art',    label: '藝術' },
+            ], full: true },
+            { name: 'agree',       label: '我同意服務條款', type: 'checkbox', required: true, full: true,
+              options: [{ value: 'yes', label: '我已閱讀並同意' }] },
+          ],
+        },
+      ],
+    };
+
+    const PRESET_2 = {
+      title: '員工報到表單',
+      steps: [
+        {
+          id: 'personal',
+          title: '基本資料',
+          fields: [
+            { name: 'employeeId', label: '員工編號', type: 'text', required: true, placeholder: 'EMP-XXXX' },
+            { name: 'department', label: '部門', type: 'select', required: true, options: [
+              { value: 'eng', label: '工程部' },
+              { value: 'ops', label: '營運部' },
+              { value: 'hr',  label: '人資部' },
+            ]},
+            { name: 'startDate',  label: '到職日', type: 'date', required: true },
+            { name: 'laptop',     label: '需要筆電', type: 'switch', default: true },
+          ],
+        },
+      ],
+    };
+
+    // =========================================================
+    // localStorage 狀態管理（防崩壞 + 防呆）
+    // =========================================================
+    const STORAGE_KEY = 'glassFormState_v1';
+
+    function loadState() {
+      try {
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        if (!raw) return { answers: {}, step: 0, schema: null, submitted: false };
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') throw new Error('invalid state');
+        return {
+          answers: parsed.answers && typeof parsed.answers === 'object' ? parsed.answers : {},
+          step: Number.isInteger(parsed.step) ? Math.max(0, parsed.step) : 0,
+          schema: parsed.schema || null,
+          submitted: !!parsed.submitted,
+        };
+      } catch (e) {
+        console.warn('localStorage state invalid, clearing:', e);
+        window.localStorage.removeItem(STORAGE_KEY);
+        return { answers: {}, step: 0, schema: null, submitted: false };
+      }
+    }
+
+    function saveState(state) {
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      } catch (e) {
+        console.error('localStorage save failed:', e);
+      }
+    }
+
+    // =========================================================
+    // 驗證
+    // =========================================================
+    function validateField(field, value) {
+      if (field.required) {
+        if (field.type === 'checkbox') {
+          if (!value || (Array.isArray(value) && value.length === 0)) return '此欄位為必填';
+        } else if (field.type === 'switch') {
+          // switch 必填 → 必須為 true
+          if (value !== true) return '請啟用此選項';
+        } else if (value === undefined || value === null || value === '') {
+          return '此欄位為必填';
+        }
+      }
+      if (typeof value === 'string' && value.length > 0) {
+        if (field.minLength && value.length < field.minLength) return `至少需要 ${field.minLength} 字元`;
+        if (field.maxLength && value.length > field.maxLength) return `最多 ${field.maxLength} 字元`;
+      }
+      if (field.type === 'email' && value) {
+        const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+        if (!ok) return 'Email 格式不正確';
+      }
+      if (field.type === 'tel' && value) {
+        const ok = /^[\d\s\-()+]{6,20}$/.test(value);
+        if (!ok) return '電話格式不正確';
+      }
+      return null;
+    }
+
+    // =========================================================
+    // 渲染
+    // =========================================================
+    let currentSchema = null;
+    let state = loadState();
+    let submittedOnce = state.submitted || false;
+
+    const $ = (sel, root = document) => root.querySelector(sel);
+    const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+
+    function setStepIndicator(stepIdx, totalSteps) {
+      const el = $('[data-testid="step-indicator"]');
+      el.textContent = `步驟 ${stepIdx + 1} / ${totalSteps}`;
+
+      const stepper = $('[data-testid="stepper"]');
+      stepper.innerHTML = '';
+      for (let i = 0; i < totalSteps; i++) {
+        const s = document.createElement('div');
+        s.className = 'step';
+        if (i < stepIdx) s.classList.add('done');
+        else if (i === stepIdx) s.classList.add('active');
+        s.setAttribute('data-step-bar', String(i));
+        stepper.appendChild(s);
+      }
+    }
+
+    function updateNavButtons(stepIdx, totalSteps) {
+      const prev = $('[data-testid="btn-prev"]');
+      const next = $('[data-testid="btn-next"]');
+      const last = stepIdx === totalSteps - 1;
+
+      prev.disabled = stepIdx === 0;
+      next.textContent = last ? '送出 ✓' : '下一步 →';
+      next.dataset.intent = last ? 'submit' : 'next';
+    }
+
+    function getStepFields() {
+      if (!currentSchema) return [];
+      const step = currentSchema.steps[state.step];
+      return step ? step.fields : [];
+    }
+
+    function renderField(field) {
+      const wrap = document.createElement('div');
+      wrap.className = 'field';
+      if (field.full) wrap.classList.add('full');
+      wrap.dataset.fieldName = field.name;
+      wrap.dataset.fieldType = field.type;
+
+      const label = document.createElement('label');
+      label.className = 'field-label';
+      const labelText = document.createElement('span');
+      labelText.textContent = field.label;
+      label.appendChild(labelText);
+      if (field.required) {
+        const req = document.createElement('span');
+        req.className = 'req';
+        req.textContent = '*';
+        req.setAttribute('aria-label', '必填');
+        label.appendChild(req);
+      }
+      wrap.appendChild(label);
+
+      const value = state.answers[field.name] !== undefined ? state.answers[field.name] :
+                    (field.default !== undefined ? field.default : (field.type === 'switch' ? false :
+                     field.type === 'checkbox' ? [] : ''));
+
+      let input;
+      switch (field.type) {
+        case 'textarea': {
+          input = document.createElement('textarea');
+          input.className = 'textarea';
+          input.value = value;
+          if (field.placeholder) input.placeholder = field.placeholder;
+          if (field.maxLength) input.maxLength = field.maxLength;
+          input.addEventListener('input', () => {
+            state.answers[field.name] = input.value;
+            persist();
+            if (input.classList.contains('invalid')) {
+              input.classList.remove('invalid');
+              const errEl = wrap.querySelector('.field-error');
+              if (errEl) errEl.textContent = '';
+            }
+          });
+          break;
+        }
+        case 'select': {
+          input = document.createElement('select');
+          input.className = 'select';
+          const def = document.createElement('option');
+          def.value = ''; def.textContent = '請選擇...';
+          input.appendChild(def);
+          (field.options || []).forEach(opt => {
+            const o = document.createElement('option');
+            o.value = opt.value;
+            o.textContent = opt.label;
+            if (value === opt.value) o.selected = true;
+            input.appendChild(o);
+          });
+          if (value && !input.value) input.value = value;
+          input.addEventListener('change', () => {
+            state.answers[field.name] = input.value;
+            persist();
+            if (input.classList.contains('invalid')) {
+              input.classList.remove('invalid');
+              const errEl = wrap.querySelector('.field-error');
+              if (errEl) errEl.textContent = '';
+            }
+          });
+          break;
+        }
+        case 'radio': {
+          input = document.createElement('div');
+          input.className = 'radio-group';
+          input.style.display = 'flex';
+          input.style.flexWrap = 'wrap';
+          input.style.gap = '8px';
+          (field.options || []).forEach(opt => {
+            const card = document.createElement('label');
+            card.className = 'option-card';
+            card.dataset.radioValue = opt.value;
+            const r = document.createElement('input');
+            r.type = 'radio';
+            r.name = field.name;
+            r.value = opt.value;
+            r.checked = value === opt.value;
+            const span = document.createElement('span');
+            span.textContent = opt.label;
+            card.appendChild(r);
+            card.appendChild(span);
+            if (r.checked) card.classList.add('selected');
+            r.addEventListener('change', () => {
+              $$('.option-card', input).forEach(c => c.classList.remove('selected'));
+              card.classList.add('selected');
+              state.answers[field.name] = opt.value;
+              persist();
+            });
+            input.appendChild(card);
+          });
+          break;
+        }
+        case 'checkbox': {
+          input = document.createElement('div');
+          input.className = 'checkbox-group';
+          input.style.display = 'flex';
+          input.style.flexWrap = 'wrap';
+          input.style.gap = '8px';
+          const arr = Array.isArray(value) ? value : [];
+          (field.options || []).forEach(opt => {
+            const card = document.createElement('label');
+            card.className = 'option-card';
+            card.dataset.checkValue = opt.value;
+            const c = document.createElement('input');
+            c.type = 'checkbox';
+            c.value = opt.value;
+            c.checked = arr.includes(opt.value);
+            const span = document.createElement('span');
+            span.textContent = opt.label;
+            card.appendChild(c);
+            card.appendChild(span);
+            if (c.checked) card.classList.add('selected');
+            const handler = () => {
+              const current = new Set(state.answers[field.name] || []);
+              if (c.checked) current.add(opt.value); else current.delete(opt.value);
+              state.answers[field.name] = Array.from(current);
+              card.classList.toggle('selected', c.checked);
+              persist();
+            };
+            c.addEventListener('change', handler);
+            input.appendChild(card);
+          });
+          break;
+        }
+        case 'switch': {
+          input = document.createElement('div');
+          input.className = 'switch';
+          input.setAttribute('role', 'switch');
+          input.setAttribute('tabindex', '0');
+          input.setAttribute('aria-checked', String(!!value));
+          if (value) input.classList.add('on');
+          input.dataset.switchValue = String(!!value);
+          const toggle = () => {
+            const next = !input.classList.contains('on');
+            input.classList.toggle('on', next);
+            input.setAttribute('aria-checked', String(next));
+            input.dataset.switchValue = String(next);
+            state.answers[field.name] = next;
+            persist();
+          };
+          input.addEventListener('click', toggle);
+          input.addEventListener('keydown', e => {
+            if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(); }
+          });
+          break;
+        }
+        case 'range': {
+          input = document.createElement('div');
+          const range = document.createElement('input');
+          range.type = 'range';
+          range.className = 'range';
+          range.min = field.min ?? 0;
+          range.max = field.max ?? 100;
+          range.step = field.step ?? 1;
+          range.value = value;
+          range.dataset.rangeValue = value;
+          const out = document.createElement('span');
+          out.style.cssText = 'margin-left:12px;font-variant-numeric:tabular-nums;color:var(--accent-2)';
+          out.textContent = `${value}${field.unit || ''}`;
+          range.addEventListener('input', () => {
+            out.textContent = `${range.value}${field.unit || ''}`;
+            range.dataset.rangeValue = range.value;
+            state.answers[field.name] = Number(range.value);
+            persist();
+          });
+          input.appendChild(range);
+          input.appendChild(out);
+          break;
+        }
+        default: {
+          input = document.createElement('input');
+          input.className = 'input';
+          input.type = field.type || 'text';
+          input.value = value;
+          if (field.placeholder) input.placeholder = field.placeholder;
+          if (field.minLength != null) input.minLength = field.minLength;
+          if (field.maxLength != null) input.maxLength = field.maxLength;
+          input.addEventListener('input', () => {
+            state.answers[field.name] = input.value;
+            persist();
+            if (input.classList.contains('invalid')) {
+              input.classList.remove('invalid');
+              const errEl = wrap.querySelector('.field-error');
+              if (errEl) errEl.textContent = '';
+            }
+          });
+        }
+      }
+
+      wrap.appendChild(input);
+
+      if (field.help) {
+        const help = document.createElement('div');
+        help.className = 'field-help';
+        help.textContent = field.help;
+        wrap.appendChild(help);
+      }
+      const err = document.createElement('div');
+      err.className = 'field-error';
+      err.dataset.errorFor = field.name;
+      err.setAttribute('role', 'alert');
+      wrap.appendChild(err);
+
+      return wrap;
+    }
+
+    function renderForm() {
+      const area = $('[data-testid="form-area"]');
+      area.innerHTML = '';
+
+      if (!currentSchema || !currentSchema.steps || currentSchema.steps.length === 0) {
+        const msg = document.createElement('p');
+        msg.textContent = '沒有可顯示的步驟。請檢查 Schema。';
+        msg.style.color = 'var(--text-muted)';
+        area.appendChild(msg);
+        return;
+      }
+
+      const total = currentSchema.steps.length;
+      // 如果已提交（state.step == total），保留不要 clamp
+      if (!submittedOnce && state.step >= total) state.step = total - 1;
+
+      // 渲染成功畫面
+      if (state.step === total && submittedOnce) {
+        renderSuccess();
+        return;
+      }
+
+      setStepIndicator(state.step, total);
+      updateNavButtons(state.step, total);
+
+      const fields = getStepFields();
+      const group = document.createElement('div');
+      group.className = 'field-group';
+      fields.forEach((f, idx) => {
+        const node = renderField(f);
+        node.style.animationDelay = `${idx * 35}ms`;
+        group.appendChild(node);
+      });
+      area.appendChild(group);
+
+      // 步驟標題（視覺輔助）
+      const stepTitle = document.createElement('div');
+      stepTitle.style.cssText = 'font-size:1.05rem;font-weight:600;margin-bottom:6px;color:var(--text-secondary)';
+      stepTitle.textContent = currentSchema.steps[state.step].title || '';
+      area.insertBefore(stepTitle, area.firstChild);
+    }
+
+    function renderSuccess() {
+      const area = $('[data-testid="form-area"]');
+      area.innerHTML = '';
+      const card = document.createElement('div');
+      card.className = 'success-card';
+      card.dataset.testid = 'success-card';
+      card.innerHTML = `
+        <div class="success-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+        </div>
+        <h2>提交成功！</h2>
+        <p>感謝您完成表單「${escapeHtml(currentSchema.title || '')}」</p>
+      `;
+      const payload = document.createElement('pre');
+      payload.dataset.testid = 'success-payload';
+      payload.style.cssText = 'background:rgba(0,0,0,.4);padding:14px;border-radius:12px;text-align:left;font-size:0.78rem;overflow:auto;max-height:200px;color:var(--accent-2)';
+      payload.textContent = JSON.stringify(state.answers, null, 2);
+      card.appendChild(payload);
+
+      const resetBtn = document.createElement('button');
+      resetBtn.className = 'btn btn-primary';
+      resetBtn.type = 'button';
+      resetBtn.dataset.testid = 'btn-restart';
+      resetBtn.textContent = '重新填寫';
+      resetBtn.addEventListener('click', () => {
+        state.answers = {};
+        state.step = 0;
+        submittedOnce = false;
+        persist();
+        renderForm();
+      });
+      card.appendChild(resetBtn);
+
+      area.appendChild(card);
+
+      // 隱藏導航
+      $('.form-nav').style.display = 'none';
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      }[c]));
+    }
+
+    function persist() {
+      saveState({ answers: state.answers, step: state.step, schema: currentSchema, submitted: submittedOnce });
+    }
+
+    // =========================================================
+    // Step 切換 + 驗證
+    // =========================================================
+    function validateStep() {
+      const fields = getStepFields();
+      let allOk = true;
+      let firstInvalid = null;
+
+      fields.forEach(f => {
+        const wrap = document.querySelector(`[data-field-name="${f.name}"]`);
+        if (!wrap) return;
+        const val = state.answers[f.name];
+        const err = validateField(f, val);
+        const errEl = wrap.querySelector('.field-error');
+        if (err) {
+          allOk = false;
+          if (!firstInvalid) firstInvalid = wrap;
+          if (errEl) errEl.textContent = err;
+          const ctrl = wrap.querySelector('input, textarea, select');
+          if (ctrl && ctrl.classList) ctrl.classList.add('invalid');
+        } else {
+          if (errEl) errEl.textContent = '';
+          const ctrl = wrap.querySelector('input, textarea, select');
+          if (ctrl && ctrl.classList) ctrl.classList.remove('invalid');
+        }
+      });
+
+      return { ok: allOk, firstInvalid };
+    }
+
+    function goNext() {
+      const total = currentSchema.steps.length;
+      const isLast = state.step === total - 1;
+
+      const { ok, firstInvalid } = validateStep();
+      if (!ok) {
+        if (firstInvalid) {
+          firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          const focusable = firstInvalid.querySelector('input, textarea, select, .switch');
+          if (focusable) focusable.focus({ preventScroll: true });
+        }
+        announce('步驟內有錯誤，請修正後再繼續');
+        return;
+      }
+
+      if (isLast) {
+        submitForm();
+        return;
+      }
+
+      state.step += 1;
+      $('.form-nav').style.display = '';
+      persist();
+      renderForm();
+    }
+
+    function goPrev() {
+      if (state.step > 0) {
+        state.step -= 1;
+        $('.form-nav').style.display = '';
+        persist();
+        renderForm();
+      }
+    }
+
+    function submitForm() {
+      submittedOnce = true;
+      state.step = currentSchema.steps.length;
+      persist();
+      renderForm();
+      announce('表單已成功送出');
+    }
+
+    function announce(msg) {
+      const live = $('[data-testid="aria-live"]') || (() => {
+        const el = document.createElement('div');
+        el.dataset.testid = 'aria-live';
+        el.setAttribute('aria-live', 'polite');
+        el.style.cssText = 'position:absolute;left:-9999px';
+        document.body.appendChild(el);
+        return el;
+      })();
+      live.textContent = msg;
+    }
+
+    // =========================================================
+    // Schema 載入
+    // =========================================================
+    function loadSchema(schema, opts = {}) {
+      try {
+        if (!schema || !Array.isArray(schema.steps)) throw new Error('schema.steps 必須是陣列');
+        currentSchema = JSON.parse(JSON.stringify(schema));
+        if (!opts.skipReset) {
+          state.answers = {};
+          state.step = 0;
+        }
+        submittedOnce = false;
+        $('.form-nav').style.display = '';
+        persist();
+        renderForm();
+        $('[data-testid="schema-status"]').textContent = '已載入';
+      } catch (e) {
+        $('[data-testid="schema-status"]').textContent = '解析失敗';
+        alert('Schema 解析失敗：' + e.message);
+      }
+    }
+
+    function applySchemaFromTextarea() {
+      const text = $('[data-testid="schema-editor"]').value.trim();
+      if (!text) return;
+      let parsed;
+      try { parsed = JSON.parse(text); }
+      catch (e) { alert('JSON 解析失敗：' + e.message); return; }
+      loadSchema(parsed);
+    }
+
+    function resetToDefault() {
+      $('[data-testid="schema-editor"]').value = JSON.stringify(SAMPLE_SCHEMA, null, 2);
+      loadSchema(SAMPLE_SCHEMA);
+    }
+
+    function loadPreset2() {
+      $('[data-testid="schema-editor"]').value = JSON.stringify(PRESET_2, null, 2);
+      loadSchema(PRESET_2);
+    }
+
+    function clearStorage() {
+      window.localStorage.removeItem(STORAGE_KEY);
+      state = { answers: {}, step: 0, schema: null };
+      submittedOnce = false;
+      $('.form-nav').style.display = '';
+      renderForm();
+    }
+
+    // =========================================================
+    // Test Hooks（給 Playwright 用）
+    // =========================================================
+    function getFormState() {
+      return {
+        schema: currentSchema,
+        step: state.step,
+        totalSteps: currentSchema ? currentSchema.steps.length : 0,
+        answers: { ...state.answers },
+        submitted: submittedOnce,
+      };
+    }
+
+    function injectError(fieldName, message) {
+      const wrap = document.querySelector(`[data-field-name="${fieldName}"]`);
+      if (!wrap) return false;
+      const err = wrap.querySelector('.field-error');
+      if (err) err.textContent = message || '測試注入的錯誤';
+      const ctrl = wrap.querySelector('input, textarea, select');
+      if (ctrl && ctrl.classList) ctrl.classList.add('invalid');
+      return true;
+    }
+
+    // 暴露給 Playwright / DevTools 用
+    window.__GLASS_FORM__ = {
+      getState: getFormState,
+      goNext, goPrev, submitForm,
+      validateStep,
+      injectError,
+      loadSchema,
+      SAMPLE_SCHEMA, PRESET_2,
+    };
+
+    // =========================================================
+    // 綁定
+    // =========================================================
+    document.addEventListener('DOMContentLoaded', () => {
+      // 初始化 textarea
+      const ta = $('[data-testid="schema-editor"]');
+      ta.value = JSON.stringify(SAMPLE_SCHEMA, null, 2);
+
+      // 優先用 localStorage 的 schema（如果存在且有效）
+      const loaded = loadState();
+      if (loaded.schema) {
+        try {
+          currentSchema = loaded.schema;
+          state.answers = loaded.answers || {};
+          state.step = loaded.step || 0;
+          submittedOnce = !!loaded.submitted;
+          renderForm();
+        } catch (e) {
+          loadSchema(SAMPLE_SCHEMA);
+        }
+      } else {
+        loadSchema(SAMPLE_SCHEMA);
+      }
+
+      // 事件
+      $('[data-testid="btn-apply-schema"]').addEventListener('click', applySchemaFromTextarea);
+      $('[data-testid="btn-reset-schema"]').addEventListener('click', resetToDefault);
+      $('[data-testid="btn-load-preset-2"]').addEventListener('click', loadPreset2);
+      $('[data-testid="btn-clear-storage"]').addEventListener('click', clearStorage);
+      $('[data-testid="btn-prev"]').addEventListener('click', goPrev);
+      $('[data-testid="btn-next"]').addEventListener('click', goNext);
+      $('[data-testid="btn-save-draft"]').addEventListener('click', () => {
+        persist();
+        announce('草稿已儲存');
+        const btn = $('[data-testid="btn-save-draft"]');
+        const original = btn.textContent;
+        btn.textContent = '✓ 已存';
+        setTimeout(() => { btn.textContent = original; }, 900);
+      });
+
+      // Test hooks
+      $('[data-testid="hook-get-state"]').addEventListener('click', () => {
+        console.log('[TEST HOOK] state =', JSON.stringify(getFormState(), null, 2));
+      });
+      $('[data-testid="hook-fire-submit"]').addEventListener('click', () => {
+        console.log('[TEST HOOK] submitting...');
+        submitForm();
+      });
+      $('[data-testid="hook-fire-error"]').addEventListener('click', () => {
+        const first = getStepFields()[0];
+        if (first) {
+          injectError(first.name, '測試注入的錯誤訊息');
+          console.log('[TEST HOOK] error injected into', first.name);
+        }
+      });
+
+      // 鍵盤快捷鍵：Cmd/Ctrl+Enter → 下一步
+      document.addEventListener('keydown', e => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+          e.preventDefault();
+          goNext();
+        }
+      });
+    });
+  </script>
+</body>
+</html>

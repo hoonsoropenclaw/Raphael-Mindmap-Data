@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Kinetik UI — 基於 Framer Motion 的動畫驅動 UI 組件庫，並優化渲染性能" />
+  <title>Kinetik UI · Framer Motion 動畫驅動組件庫</title>
+
+  <!-- Tailwind CSS via Play CDN (JIT) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Tailwind 設計令牌 -->
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            display: ['"Inter"', '"Noto Sans TC"', 'system-ui', 'sans-serif'],
+          },
+          colors: {
+            ink: { 950: '#05080f', 900: '#0b0f1a', 800: '#1a1f33', 700: '#272c47' },
+            aurora: {
+              pink:   '#ff7eb6',
+              violet: '#a78bfa',
+              indigo: '#6366f1',
+              sky:    '#38bdf8',
+              teal:   '#2dd4bf',
+              amber:  '#f49f33',
+              lime:   '#a3e635',
+              rose:   '#fb7185',
+            },
+          },
+          boxShadow: {
+            glowPink:  '0 0 32px rgba(255, 126, 182, 0.45)',
+            glowCool:  '0 0 32px rgba(127, 181, 244, 0.35)',
+            glowAmber: '0 0 24px rgba(244, 159, 51, 0.50)',
+            glassLg:   '0 12px 40px rgba(0,0,0,0.45)',
+          },
+          keyframes: {
+            float: {
+              '0%,100%': { transform: 'translate3d(0,0,0)' },
+              '50%':     { transform: 'translate3d(0,-12px,0)' },
+            },
+            pulseSoft: {
+              '0%,100%': { opacity: '1' },
+              '50%':     { opacity: '0.55' },
+            },
+          },
+          animation: {
+            float: 'float 6s ease-in-out infinite',
+            pulseSoft: 'pulseSoft 2.4s ease-in-out infinite',
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- 字型 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <!-- React 18 + Framer Motion 11 + Babel -->
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/framer-motion@11.3.19/dist/framer-motion.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+    html, body {
+      margin: 0;
+      background: radial-gradient(ellipse at 20% 0%, #0c1330 0%, #05080f 60%) fixed;
+      color: #f5f6fa;
+      font-family: 'Inter', 'Noto Sans TC', system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(circle at 70% 10%, rgba(167, 139, 250, 0.18), transparent 40%),
+        radial-gradient(circle at 10% 70%, rgba(56, 189, 248, 0.18), transparent 40%);
+      pointer-events: none;
+      z-index: 0;
+    }
+    .glass {
+      background: rgba(255, 255, 255, 0.04);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .glass-strong {
+      background: rgba(11, 15, 26, 0.55);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border: 1px solid rgba(255, 255, 255, 0.10);
+    }
+    .font-mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+    .scrollbar-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 999px; }
+    .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
+    /* Reduced motion: 全域關閉 transform / 動畫 */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+  </style>
+</head>
+<body class="min-h-screen">
+  <div id="root"></div>
+
+  <!-- ============================================ -->
+  <!-- 📦 Kinetik UI · Framer Motion 組件庫         -->
+  <!-- ============================================ -->
+  <script type="text/babel" data-presets="env,react">
+  /* === Imports === */
+  const { useState, useEffect, useRef, useMemo, useCallback, memo } = React;
+  /* Framer Motion 11 UMD exposes itself as window.Motion
+     (see framer-motion.js: `e((t=...).Motion={},t.React)`) */
+  const FM = window.Motion || window["framer-motion"] || {};
+  const {
+    motion, AnimatePresence, LazyMotion, domAnimation,
+    useReducedMotion, useScroll, useTransform, useSpring,
+    useMotionValue, useMotionTemplate, MotionConfig, animate,
+  } = FM;
+
+  /* ============================================ */
+  /* 🚀 性能優化 1：全域 MotionConfig           */
+  /* 統一過渡策略、尊重 reduced-motion         */
+  /* ============================================ */
+  function KinetikProvider({ children, reducedMotion }) {
+    return (
+      <LazyMotion features={domAnimation} strict>
+        <MotionConfig
+          reducedMotion={reducedMotion ? 'always' : 'never'}
+          transition={{ type: 'spring', stiffness: 260, damping: 28, mass: 0.8 }}
+        >
+          {children}
+        </MotionConfig>
+      </LazyMotion>
+    );
+  }
+
+  /* ============================================ */
+  /* 🚀 性能優化 2：FPS 監控器                 */
+  /* 即時反映動畫幀率，證明 GPU 加速生效       */
+  /* ============================================ */
+  function FpsMonitor({ enabled, label }) {
+    const [fps, setFps] = useState(60);
+    const frames = useRef(0);
+    const lastTime = useRef(performance.now());
+
+    useEffect(() => {
+      if (!enabled) { setFps(60); return; }
+      let raf;
+      const tick = (now) => {
+        frames.current += 1;
+        const delta = now - lastTime.current;
+        if (delta >= 1000) {
+          setFps(Math.round((frames.current * 1000) / delta));
+          frames.current = 0;
+          lastTime.current = now;
+        }
+        raf = requestAnimationFrame(tick);
+      };
+      raf = requestAnimationFrame(tick);
+      return () => cancelAnimationFrame(raf);
+    }, [enabled]);
+
+    const color = fps >= 55 ? 'text-aurora-lime' : fps >= 30 ? 'text-aurora-amber' : 'text-aurora-rose';
+    return (
+      <div className="flex items-center gap-2 text-xs font-mono">
+        <span className={"h-2 w-2 rounded-full " + (fps >= 55 ? 'bg-aurora-lime' : fps >= 30 ? 'bg-aurora-amber' : 'bg-aurora-rose') + " animate-pulseSoft"} />
+        <span className="text-white/60">{label}</span>
+        <span className={color + " font-bold tabular-nums"}>{fps} FPS</span>
+      </div>
+    );
+  }
+
+  /* ============================================ */
+  /* 1️⃣ <FadeIn /> — viewport 進場動畫        */
+  /* 使用 whileInView + once，僅觸發一次        */
+  /* ============================================ */
+  const FadeIn = memo(function FadeIn({
+    children, delay = 0, y = 24, duration = 0.6, className = '',
+  }) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, margin: '0px 0px -80px 0px' }}
+        transition={{ duration, delay, ease: [0.2, 0.7, 0.2, 1] }}
+        className={className}
+        style={{ willChange: 'opacity, transform' }}
+      >
+        {children}
+      </motion.div>
+    );
+  });
+
+  /* ============================================ */
+  /* 2️⃣ <StaggerGroup /> — 父子交錯動畫       */
+  /* variants 模式，一次控制所有子元素          */
+  /* ============================================ */
+  const staggerContainer = {
+    hidden: { opacity: 1 },
+    show:   { opacity: 1, transition: { staggerChildren: 0.08, delayChildren: 0.1 } },
+  };
+  const staggerItem = {
+    hidden: { opacity: 0, y: 18, filter: 'blur(6px)' },
+    show:   { opacity: 1, y: 0, filter: 'blur(0px)', transition: { duration: 0.5, ease: 'easeOut' } },
+  };
+  function StaggerGroup({ children, className = '' }) {
+    return (
+      <motion.div variants={staggerContainer} initial="hidden" whileInView="show"
+        viewport={{ once: true, margin: '0px 0px -60px 0px' }} className={className}>
+        {children}
+      </motion.div>
+    );
+  }
+  function StaggerItem({ children, className = '' }) {
+    return <motion.div variants={staggerItem} className={className}>{children}</motion.div>;
+  }
+
+  /* ============================================ */
+  /* 3️⃣ <MagneticButton /> — 磁吸按鈕         */
+  /* useMotionValue + useTransform，GPU only   */
+  /* ============================================ */
+  function MagneticButton({ children, strength = 0.35, className = '', onClick }) {
+    const ref = useRef(null);
+    const x = useMotionValue(0);
+    const y = useMotionValue(0);
+    const sx = useSpring(x, { stiffness: 300, damping: 20, mass: 0.4 });
+    const sy = useSpring(y, { stiffness: 300, damping: 20, mass: 0.4 });
+
+    const handleMove = useCallback((e) => {
+      const rect = ref.current?.getBoundingClientRect();
+      if (!rect) return;
+      const relX = e.clientX - (rect.left + rect.width / 2);
+      const relY = e.clientY - (rect.top + rect.height / 2);
+      x.set(relX * strength);
+      y.set(relY * strength);
+    }, [strength, x, y]);
+
+    const handleLeave = useCallback(() => { x.set(0); y.set(0); }, [x, y]);
+
+    return (
+      <motion.button
+        ref={ref}
+        onMouseMove={handleMove}
+        onMouseLeave={handleLeave}
+        onClick={onClick}
+        style={{ x: sx, y: sy, willChange: 'transform' }}
+        whileTap={{ scale: 0.96 }}
+        className={className}
+      >
+        {children}
+      </motion.button>
+    );
+  }
+
+  /* ============================================ */
+  /* 4️⃣ <MorphCard /> — 3D 傾斜 + 光斑追蹤   */
+  /* 使用 rotateX/rotateY + radial-gradient    */
+  /* ============================================ */
+  function MorphCard({ children, className = '', gradient = 'from-aurora-violet to-aurora-sky' }) {
+    const ref = useRef(null);
+    const rx = useMotionValue(0);
+    const ry = useMotionValue(0);
+    const glareX = useMotionValue(50);
+    const glareY = useMotionValue(50);
+
+    const handleMove = useCallback((e) => {
+      const rect = ref.current?.getBoundingClientRect();
+      if (!rect) return;
+      const px = (e.clientX - rect.left) / rect.width;
+      const py = (e.clientY - rect.top) / rect.height;
+      ry.set((px - 0.5) * 16);   // rotateY
+      rx.set(-(py - 0.5) * 16);  // rotateX
+      glareX.set(px * 100);
+      glareY.set(py * 100);
+    }, [rx, ry, glareX, glareY]);
+
+    const handleLeave = useCallback(() => {
+      rx.set(0); ry.set(0); glareX.set(50); glareY.set(50);
+    }, [rx, ry, glareX, glareY]);
+
+    const transform = useMotionTemplate`perspective(900px) rotateX(${rx}deg) rotateY(${ry}deg)`;
+    const bgPos = useMotionTemplate`radial-gradient(circle at ${glareX}% ${glareY}%, rgba(255,255,255,0.18), transparent 60%)`;
+
+    return (
+      <motion.div
+        ref={ref}
+        onMouseMove={handleMove}
+        onMouseLeave={handleLeave}
+        style={{ transform, willChange: 'transform' }}
+        className={"relative glass-strong rounded-2xl p-6 overflow-hidden " + className}
+      >
+        <motion.div className="absolute inset-0 pointer-events-none" style={{ background: bgPos }} />
+        <div className="relative z-10">{children}</div>
+      </motion.div>
+    );
+  }
+
+  /* ============================================ */
+  /* 5️⃣ <AnimatedNumber /> — 數字補間         */
+  /* ============================================ */
+  function AnimatedNumber({ value, duration = 1.2, format = (v) => v.toFixed(0), className = '' }) {
+    const count = useMotionValue(0);
+    const rounded = useTransform(count, (v) => format(v));
+    useEffect(() => {
+      const controls = animate(count, value, { duration, ease: [0.2, 0.7, 0.2, 1] });
+      return controls.stop;
+    }, [value, duration, count, animate]);
+    return <motion.span className={className + " tabular-nums"}>{rounded}</motion.span>;
+  }
+
+  /* ============================================ */
+  /* 6️⃣ <ScrollProgressBar /> — 進度條       */
+  /* useScroll + useSpring                      */
+  /* ============================================ */
+  function ScrollProgressBar() {
+    const { scrollYProgress } = useScroll();
+    const sx = useSpring(scrollYProgress, { stiffness: 120, damping: 24, restDelta: 0.001 });
+    return (
+      <motion.div
+        style={{ scaleX: sx, transformOrigin: '0% 50%', willChange: 'transform' }}
+        className="fixed top-0 left-0 right-0 h-[3px] z-50 bg-gradient-to-r from-aurora-pink via-aurora-violet to-aurora-sky"
+      />
+    );
+  }
+
+  /* ============================================ */
+  /* 7️⃣ <ToggleSwitch /> — 彈簧開關          */
+  /* ============================================ */
+  function ToggleSwitch({ checked, onChange, label }) {
+    return (
+      <button
+        onClick={() => onChange(!checked)}
+        aria-pressed={checked}
+        className="flex items-center gap-3 text-sm"
+      >
+        <span className="relative inline-block w-12 h-7">
+          <motion.span
+            animate={{ backgroundColor: checked ? 'rgba(45, 212, 191, 0.5)' : 'rgba(255,255,255,0.12)' }}
+            className="absolute inset-0 rounded-full"
+          />
+          <motion.span
+            layout
+            transition={{ type: 'spring', stiffness: 700, damping: 30 }}
+            animate={{ x: checked ? 22 : 2 }}
+            className="absolute top-1 h-5 w-5 rounded-full bg-white shadow-md"
+            style={{ willChange: 'transform' }}
+          />
+        </span>
+        <span className="text-white/80">{label}</span>
+      </button>
+    );
+  }
+
+  /* ============================================ */
+  /* 8️⃣ <ToastStack /> — Toast 進出場         */
+  /* AnimatePresence + layoutId               */
+  /* ============================================ */
+  function ToastStack({ toasts, onDismiss }) {
+    return (
+      <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-3 max-w-sm">
+        <AnimatePresence>
+          {toasts.map((t) => (
+            <motion.div
+              key={t.id}
+              layout
+              initial={{ opacity: 0, x: 60, scale: 0.9 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, x: 60, scale: 0.9, transition: { duration: 0.2 } }}
+              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+              className="glass-strong rounded-xl p-4 flex items-start gap-3 shadow-glowCool"
+            >
+              <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-aurora-violet to-aurora-sky grid place-items-center text-white text-sm font-bold shrink-0">
+                {t.icon || '✦'}
+              </div>
+              <div className="flex-1">
+                <div className="text-sm font-semibold">{t.title}</div>
+                {t.body && <div className="text-xs text-white/60 mt-0.5">{t.body}</div>}
+              </div>
+              <button onClick={() => onDismiss(t.id)} className="text-white/40 hover:text-white text-sm">✕</button>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+    );
+  }
+
+  /* ============================================ */
+  /* 9️⃣ <DragDeck /> — 拖拽重排              */
+  /* Reorder.Group + 拖曳手勢                  */
+  /* ============================================ */
+  function DragDeck({ items, setItems }) {
+    const Reorder = FM.Reorder;
+    return (
+      <Reorder.Group axis="y" values={items} onReorder={setItems} className="space-y-2">
+        {items.map((item) => (
+          <Reorder.Item
+            key={item.id}
+            value={item}
+            whileDrag={{ scale: 1.04, boxShadow: '0 12px 40px rgba(0,0,0,0.45)' }}
+            className="glass rounded-xl p-4 flex items-center gap-3 cursor-grab active:cursor-grabbing select-none"
+            style={{ willChange: 'transform' }}
+          >
+            <span className="text-white/40 font-mono text-xs">⋮⋮</span>
+            <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-aurora-pink to-aurora-violet grid place-items-center font-bold text-sm">
+              {item.label.charAt(0)}
+            </div>
+            <div className="flex-1">
+              <div className="text-sm font-semibold">{item.label}</div>
+              <div className="text-xs text-white/50">{item.sub}</div>
+            </div>
+            <span className="text-xs text-white/40 font-mono">拖曳</span>
+          </Reorder.Item>
+        ))}
+      </Reorder.Group>
+    );
+  }
+
+  /* ============================================ */
+  /* 🔟 <OrbitingMenu /> — 軌道選單           */
+  /* ============================================ */
+  function OrbitingMenu({ items, onSelect }) {
+    const [open, setOpen] = useState(false);
+    return (
+      <div className="relative h-56 w-56 mx-auto">
+        <AnimatePresence>
+          {open && items.map((item, i) => {
+            const angle = (Math.PI * 2 / items.length) * i - Math.PI / 2;
+            const radius = 90;
+            const x = Math.cos(angle) * radius;
+            const y = Math.sin(angle) * radius;
+            return (
+              <motion.button
+                key={item.label}
+                initial={{ opacity: 0, scale: 0.4, x: 0, y: 0 }}
+                animate={{ opacity: 1, scale: 1, x, y }}
+                exit={{ opacity: 0, scale: 0.4, x: 0, y: 0 }}
+                transition={{ type: 'spring', stiffness: 320, damping: 22, delay: i * 0.04 }}
+                whileHover={{ scale: 1.18 }}
+                onClick={() => onSelect(item.label)}
+                className={"absolute left-1/2 top-1/2 h-12 w-12 rounded-full grid place-items-center text-white text-xs font-bold shadow-glassLg " + item.color}
+                style={{ willChange: 'transform', transform: 'translate(-50%, -50%)' }}
+                aria-label={item.label}
+              >
+                {item.label.charAt(0)}
+              </motion.button>
+            );
+          })}
+        </AnimatePresence>
+        <motion.button
+          onClick={() => setOpen((v) => !v)}
+          whileTap={{ scale: 0.9 }}
+          whileHover={{ rotate: open ? 45 : 0 }}
+          animate={{ rotate: open ? 45 : 0 }}
+          transition={{ type: 'spring', stiffness: 280, damping: 18 }}
+          className="absolute left-1/2 top-1/2 h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full bg-gradient-to-br from-aurora-pink to-aurora-violet shadow-glowPink grid place-items-center text-white text-xl font-bold z-10"
+        >
+          {open ? '×' : '+'}
+        </motion.button>
+      </div>
+    );
+  }
+
+  /* ============================================ */
+  /* 🧪 性能基準元件：N 顆動畫方塊             */
+  /* 用於證明 GPU 加速下仍保持高 FPS           */
+  /* ============================================ */
+  function StressTest({ count = 36 }) {
+    const blocks = useMemo(
+      () => Array.from({ length: count }, (_, i) => ({
+        id: i,
+        x: Math.random() * 100,
+        y: Math.random() * 100,
+        delay: Math.random() * 2,
+        hue: Math.floor(Math.random() * 360),
+      })), [count]
+    );
+    return (
+      <div className="relative h-64 overflow-hidden rounded-xl glass-strong">
+        {blocks.map((b) => (
+          <motion.div
+            key={b.id}
+            className="absolute h-4 w-4 rounded-md"
+            style={{
+              left: b.x + '%',
+              top: b.y + '%',
+              background: 'hsl(' + b.hue + ' 80% 60%)',
+              willChange: 'transform',
+            }}
+            animate={{
+              y: [0, -20, 0],
+              opacity: [0.55, 1, 0.55],
+            }}
+            transition={{
+              duration: 3 + Math.random() * 2,
+              delay: b.delay,
+              repeat: Infinity,
+              ease: 'easeInOut',
+            }}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  /* ============================================ */
+  /* 📘 主應用：展示所有組件                   */
+  /* ============================================ */
+  function App() {
+    const prefersReduced = useReducedMotion();
+    const [respectMotion, setRespectMotion] = useState(true);
+    const reducedMotion = respectMotion && prefersReduced;
+
+    const [toasts, setToasts] = useState([]);
+    const pushToast = useCallback((t) => {
+      const id = Date.now() + Math.random();
+      setToasts((prev) => [...prev, { id, icon: '✦', ...t }]);
+      setTimeout(() => setToasts((prev) => prev.filter((x) => x.id !== id)), 4200);
+    }, []);
+    const dismissToast = useCallback((id) => setToasts((prev) => prev.filter((x) => x.id !== id)), []);
+
+    const [deck, setDeck] = useState([
+      { id: 'a', label: 'Aria',  sub: '資深前端工程師' },
+      { id: 'b', label: 'Boris', sub: '全端工程師'     },
+      { id: 'c', label: 'Clara', sub: '產品設計師'     },
+      { id: 'd', label: 'Damon', sub: '資料工程師'     },
+    ]);
+
+    const orbitItems = [
+      { label: 'Home',     color: 'bg-aurora-sky'    },
+      { label: 'Docs',     color: 'bg-aurora-teal'   },
+      { label: 'Charts',   color: 'bg-aurora-violet' },
+      { label: 'Settings', color: 'bg-aurora-amber'  },
+      { label: 'Profile',  color: 'bg-aurora-pink'   },
+      { label: 'Inbox',    color: 'bg-aurora-lime'   },
+    ];
+
+    return (
+      <KinetikProvider reducedMotion={reducedMotion}>
+        <ScrollProgressBar />
+
+        {/* 頂部導航 */}
+        <header className="sticky top-0 z-30 glass-strong border-b border-white/10">
+          <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-aurora-pink to-aurora-violet shadow-glowPink grid place-items-center font-extrabold">
+                K
+              </div>
+              <div>
+                <div className="font-display font-extrabold tracking-tight">Kinetik UI</div>
+                <div className="text-[10px] text-white/50 font-mono">v0.1 · Framer Motion 11 · React 18</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <FpsMonitor enabled={true} label="全域 FPS" />
+              <ToggleSwitch
+                checked={respectMotion}
+                onChange={setRespectMotion}
+                label="尊重 reduced-motion"
+              />
+            </div>
+          </div>
+        </header>
+
+        {/* Hero */}
+        <section className="relative z-10 max-w-7xl mx-auto px-6 pt-16 pb-12">
+          <FadeIn>
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full glass text-xs font-mono text-aurora-sky">
+              <span className="h-1.5 w-1.5 rounded-full bg-aurora-sky animate-pulseSoft" />
+              性能優化版 · GPU-only transform/opacity
+            </div>
+          </FadeIn>
+          <FadeIn delay={0.1} y={36}>
+            <h1 className="font-display text-5xl md:text-7xl font-extrabold tracking-tight mt-5 leading-[1.05]">
+              動畫驅動 <br />
+              <span className="bg-gradient-to-r from-aurora-pink via-aurora-violet to-aurora-sky bg-clip-text text-transparent">
+                UI 組件庫
+              </span>
+            </h1>
+          </FadeIn>
+          <FadeIn delay={0.2}>
+            <p className="text-white/60 mt-5 max-w-2xl text-lg leading-relaxed">
+              Kinetik UI 以 Framer Motion 為核心，提供 10 個生產級別的動畫組件。
+              所有組件遵循「transform / opacity only」原則，
+              搭配 <code className="px-1.5 py-0.5 rounded bg-white/10 text-aurora-teal text-sm">LazyMotion</code>、
+              <code className="px-1.5 py-0.5 rounded bg-white/10 text-aurora-amber text-sm">useReducedMotion</code>、
+              <code className="px-1.5 py-0.5 rounded bg-white/10 text-aurora-pink text-sm">willChange</code>，
+              在 60 FPS 下維持穩定表現。
+            </p>
+          </FadeIn>
+          <FadeIn delay={0.3}>
+            <div className="flex flex-wrap items-center gap-4 mt-7">
+              <MagneticButton
+                strength={0.4}
+                onClick={() => pushToast({ title: '🚀 Demo 已觸發', body: 'MagneticButton 點擊事件' })}
+                className="px-6 py-3 rounded-xl bg-gradient-to-r from-aurora-pink to-aurora-violet text-white font-semibold shadow-glowPink"
+              >
+                點我試試（磁吸）✦
+              </MagneticButton>
+              <MagneticButton
+                strength={0.4}
+                onClick={() => pushToast({ title: '👋 歡迎', body: 'Kinetik UI · v0.1' })}
+                className="px-6 py-3 rounded-xl glass text-white font-semibold"
+              >
+                次要動作
+              </MagneticButton>
+              <span className="text-xs text-white/40 font-mono">滑鼠移近即可看到磁吸效果</span>
+            </div>
+          </FadeIn>
+
+          <FadeIn delay={0.4}>
+            <div className="mt-12">
+              <FpsMonitor enabled={true} label="壓力測試區即時 FPS（36 顆動畫方塊同時運行）" />
+              <div className="mt-2">
+                <StressTest count={36} />
+              </div>
+            </div>
+          </FadeIn>
+        </section>
+
+        {/* 組件展示網格 */}
+        <section className="relative z-10 max-w-7xl mx-auto px-6 pb-24">
+          <FadeIn>
+            <h2 className="text-2xl font-display font-extrabold mb-1">組件清單</h2>
+            <p className="text-white/50 text-sm mb-8">10 個動畫組件 · 每個組件皆可單獨引入使用</p>
+          </FadeIn>
+
+          <StaggerGroup className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {/* 1. FadeIn demo */}
+            <StaggerItem className="glass rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="font-mono text-xs text-aurora-teal">01 / FadeIn</div>
+                <span className="text-[10px] text-white/40">whileInView</span>
+              </div>
+              <h3 className="font-display font-bold text-lg">進場淡入</h3>
+              <p className="text-sm text-white/60 mt-1">viewport 偵測 + 僅觸發一次 + 緩動曲線。</p>
+              <div className="mt-4 h-20 rounded-lg bg-gradient-to-br from-aurora-teal/20 to-aurora-sky/10 border border-white/10 grid place-items-center text-aurora-teal text-xs font-mono">
+                滾動進入可視區觸發
+              </div>
+            </StaggerItem>
+
+            {/* 2. StaggerGroup demo */}
+            <StaggerItem className="glass rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="font-mono text-xs text-aurora-violet">02 / Stagger</div>
+                <span className="text-[10px] text-white/40">variants</span>
+              </div>
+              <h3 className="font-display font-bold text-lg">交錯動畫</h3>
+              <p className="text-sm text-white/60 mt-1">父層控制全部子元素的進場時間。</p>
+              <StaggerGroup className="mt-4 grid grid-cols-3 gap-2">
+                {[1, 2, 3, 4, 5, 6].map((i) => (
+                  <StaggerItem key={i} className="aspect-square rounded-md bg-gradient-to-br from-aurora-violet/40 to-aurora-indigo/30 grid place-items-center font-mono text-sm">
+                    {i}
+                  </StaggerItem>
+                ))}
+              </StaggerGroup>
+            </StaggerItem>
+
+            {/* 3. MagneticButton demo (real one) */}
+            <StaggerItem className="glass rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="font-mono text-xs text-aurora-pink">03 / Magnetic</div>
+                <span className="text-[10px] text-white/40">useSpring</span>
+              </div>
+              <h3 className="font-display font-bold text-lg">磁吸按鈕</h3>
+              <p className="text-sm text-white/60 mt-1">游標靠近時被「磁吸」，放開後彈回。</p>
+              <div className="mt-4 grid place-items-center h-20">
+                <MagneticButton
+                  strength={0.5}
+                  onClick={() => pushToast({ title: '⚡ Magnetic 已觸發' })}
+                  className="px-5 py-2 rounded-lg bg-gradient-to-br from-aurora-pink to-aurora-violet text-white font-semibold shadow-glowPink"
+                >
+                  Hover Me
+                </MagneticButton>
+              </div>
+            </StaggerItem>
+
+            {/* 4. MorphCard demo (real one) */}
+            <StaggerItem className="rounded-2xl p-[1px] bg-gradient-to-br from-white/10 to-white/0">
+              <MorphCard className="rounded-2xl">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="font-mono text-xs text-aurora-sky">04 / MorphCard</div>
+                  <span className="text-[10px] text-white/40">3D tilt + glare</span>
+                </div>
+                <h3 className="font-display font-bold text-lg">變形卡片</h3>
+                <p className="text-sm text-white/60 mt-1">滑鼠位置驅動 3D 傾斜與光斑。</p>
+                <div className="grid grid-cols-3 gap-2 mt-4">
+                  <div className="rounded-md bg-white/5 border border-white/10 p-2 text-center">
+                    <div className="text-[10px] text-white/50">CSS</div>
+                    <div className="font-mono text-aurora-sky text-lg">GPU</div>
+                  </div>
+                  <div className="rounded-md bg-white/5 border border-white/10 p-2 text-center">
+                    <div className="text-[10px] text-white/50">FPS</div>
+                    <div className="font-mono text-aurora-lime text-lg">60</div>
+                  </div>
+                  <div className="rounded-md bg-white/5 border border-white/10 p-2 text-center">
+                    <div className="text-[10px] text-white/50">能耗</div>
+                    <div className="font-mono text-aurora-amber text-lg">低</div>
+                  </div>
+                </div>
+              </MorphCard>
+            </StaggerItem>
+
+            {/* 5. AnimatedNumber demo (real one) */}
+            <StaggerItem className="glass rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="font-mono text-xs text-aurora-amber">05 / AnimatedNumber</div>
+                <span className="text-[10px] text-white/40">useTransform</span>
+              </div>
+              <h3 className="font-display font-bold text-lg">數字補間</h3>
+              <div className="mt-3 flex items-end gap-2">
+                <AnimatedNumber value={1284} className="text-4xl font-display font-extrabold text-aurora-amber" />
+                <span className="text-white/50 text-sm pb-1">筆交易</span>
+              </div>
+              <div className="mt-2 flex items-end gap-2">
+                <AnimatedNumber value={97.42} format={(v) => v.toFixed(2) + '%'} className="text-3xl font-display font-extrabold text-aurora-lime" />
+                <span className="text-white/50 text-sm pb-1">完成率</span>
+              </div>
+            </StaggerItem>
+
+            {/* 6. ScrollProgressBar — fixed top, just label here */}
+            <StaggerItem className="glass rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="font-mono text-xs text-aurora-indigo">06 / ScrollProgress</div>
+                <span className="text-[10px] text-white/40">useScroll</span>
+              </div>
+              <h3 className="font-display font-bold text-lg">滾動進度</h3>
+              <p className="text-sm text-white/60 mt-1">頁面頂端彩色進度條（你已看到 ↑）。</p>
+              <div className="mt-4 h-2 rounded-full bg-white/5 overflow-hidden">
+                <motion.div
+                  initial={{ width: '0%' }}
+                  whileInView={{ width: '85%' }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 1.2, ease: 'easeOut' }}
+                  className="h-full bg-gradient-to-r from-aurora-indigo to-aurora-sky"
+                />
+              </div>
+              <div className="mt-1 text-right text-[10px] text-white/40 font-mono">示意：85%</div>
+            </StaggerItem>
+
+            {/* 7. ToggleSwitch (real) */}
+            <StaggerItem className="glass rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="font-mono text-xs text-aurora-teal">07 / Toggle</div>
+                <span className="text-[10px] text-white/40">layoutId</span>
+              </div>
+              <h3 className="font-display font-bold text-lg">彈簧開關</h3>
+              <p className="text-sm text-white/60 mt-1">stiffness 700 / damping 30。</p>
+              <div className="mt-4 space-y-3">
+                <ToggleSwitch checked={respectMotion} onChange={setRespectMotion} label="尊重 reduced-motion" />
+                <ToggleSwitch
+                  checked={toasts.length > 0}
+                  onChange={(v) => v
+                    ? pushToast({ title: '通知已啟用', body: '將出現 Toast 訊息' })
+                    : setToasts([])
+                  }
+                  label="推送通知"
+                />
+              </div>
+            </StaggerItem>
+
+            {/* 8. ToastStack — triggered by buttons */}
+            <StaggerItem className="glass rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="font-mono text-xs text-aurora-pink">08 / Toast</div>
+                <span className="text-[10px] text-white/40">AnimatePresence</span>
+              </div>
+              <h3 className="font-display font-bold text-lg">通知棧</h3>
+              <p className="text-sm text-white/60 mt-1">進場、退場、layout shift 平滑處理。</p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {[
+                  { icon: '✓', title: '儲存成功', body: '設定已寫入' },
+                  { icon: '⚠', title: '網路延遲', body: '正在重試...' },
+                  { icon: '✦', title: '新功能上線', body: 'Kinetik UI v0.1' },
+                ].map((t, i) => (
+                  <button key={i}
+                    onClick={() => pushToast(t)}
+                    className="text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-colors">
+                    {t.icon} {t.title}
+                  </button>
+                ))}
+              </div>
+            </StaggerItem>
+
+            {/* 9. DragDeck (real) */}
+            <StaggerItem className="glass rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="font-mono text-xs text-aurora-violet">09 / DragDeck</div>
+                <span className="text-[10px] text-white/40">Reorder</span>
+              </div>
+              <h3 className="font-display font-bold text-lg">拖曳重排</h3>
+              <p className="text-sm text-white/60 mt-1">按住 ⋮⋮ 拖拽改變順序。</p>
+              <div className="mt-4">
+                <DragDeck items={deck} setItems={setDeck} />
+              </div>
+            </StaggerItem>
+
+            {/* 10. OrbitingMenu (real) */}
+            <StaggerItem className="glass rounded-2xl p-5 lg:col-span-1 md:col-span-2">
+              <div className="flex items-center justify-between mb-3">
+                <div className="font-mono text-xs text-aurora-amber">10 / Orbiting</div>
+                <span className="text-[10px] text-white/40">radial layout</span>
+              </div>
+              <h3 className="font-display font-bold text-lg">軌道選單</h3>
+              <p className="text-sm text-white/60 mt-1">展開後 6 顆按鈕沿圓周散開。</p>
+              <div className="mt-4">
+                <OrbitingMenu
+                  items={orbitItems}
+                  onSelect={(label) => pushToast({ title: '🛰️ 已選擇 ' + label })}
+                />
+              </div>
+            </StaggerItem>
+          </StaggerGroup>
+        </section>
+
+        {/* 性能優化總結 */}
+        <section className="relative z-10 max-w-7xl mx-auto px-6 pb-24">
+          <FadeIn>
+            <h2 className="text-2xl font-display font-extrabold mb-1">性能優化策略</h2>
+            <p className="text-white/50 text-sm mb-8">以下 6 項讓動畫維持 60 FPS</p>
+          </FadeIn>
+          <StaggerGroup className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {[
+              { t: 'GPU-only 屬性', d: '只動 transform / opacity，避免 layout / paint。', tag: 'transform', color: 'text-aurora-teal' },
+              { t: 'LazyMotion 載入', d: 'domAnimation features，按需加載動畫能力。', tag: 'bundle ↓ 16kb', color: 'text-aurora-violet' },
+              { t: 'useReducedMotion', d: '尊重系統動畫偏好，尊重使用者。', tag: 'a11y', color: 'text-aurora-amber' },
+              { t: 'willChange 提示', d: '在重 GPU 屬性上預告，瀏覽器提早分層。', tag: 'compositor', color: 'text-aurora-pink' },
+              { t: 'once + viewport', d: 'whileInView + once: true，避免重複觸發。', tag: 'idle', color: 'text-aurora-sky' },
+              { t: 'spring stiffness', d: '動量更自然、能量衰減快，視覺上更流暢。', tag: 'physics', color: 'text-aurora-lime' },
+            ].map((s, i) => (
+              <StaggerItem key={i} className="glass rounded-2xl p-5">
+                <div className={"font-mono text-xs mb-3 " + s.color}>{s.tag}</div>
+                <h3 className="font-display font-bold text-lg">{s.t}</h3>
+                <p className="text-sm text-white/60 mt-1">{s.d}</p>
+              </StaggerItem>
+            ))}
+          </StaggerGroup>
+        </section>
+
+        <footer className="relative z-10 max-w-7xl mx-auto px-6 py-10 border-t border-white/5 text-xs text-white/40 font-mono flex items-center justify-between">
+          <span>Kinetik UI · v0.1 · 2026</span>
+          <span>Framer Motion 11 · React 18 · Tailwind CDN</span>
+        </footer>
+
+        <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      </KinetikProvider>
+    );
+  }
+
+  /* === Mount === */
+  const root = ReactDOM.createRoot(document.getElementById('root'));
+  root.render(<App />);
+  </script>
+</body>
+</html>

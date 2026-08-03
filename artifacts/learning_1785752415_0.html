@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>WorkForge · Dynamic Workflow Engine (React Flow + Tailwind)</title>
+
+<!-- 1. React 17 UMD -->
+<script crossorigin src="https://unpkg.com/react@17/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js"></script>
+
+<!-- 2. React Flow 11 UMD -->
+<link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css" />
+<script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+
+<!-- 3. Babel Standalone for JSX -->
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+
+<!-- 4. Tailwind v3 Play CDN (live JIT compiler in browser) -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  // 自訂 Tailwind theme 對齊既有 dark glassmorphism
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] },
+        colors: {
+          ink:    { 950: '#07090f', 900: '#0b0e17', 800: '#0f111a', 700: '#161a28' },
+          glass:  { DEFAULT: 'rgba(20,22,35,0.6)', border: 'rgba(255,255,255,0.08)' },
+          cyan1:  '#22d3ee',
+          cyan2:  '#4facfe',
+          accent: { pink: '#ec4899', green: '#10b981', amber: '#f59e0b', red:  '#ef4444', violet: '#8b5cf6' },
+        },
+        boxShadow: { glow: '0 0 24px rgba(34,211,238,0.35)' },
+      },
+    },
+  };
+</script>
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  html, body, #root { height: 100%; margin: 0; }
+  body {
+    background-color: #07090f;
+    background-image:
+      radial-gradient(circle at 12% 18%, rgba(79,172,254,0.18) 0%, transparent 50%),
+      radial-gradient(circle at 88% 78%, rgba(34,211,238,0.16) 0%, transparent 55%),
+      radial-gradient(circle at 50% 50%, rgba(139,92,246,0.10) 0%, transparent 60%);
+    color: #e2e8f0;
+    font-family: 'Inter', -apple-system, sans-serif;
+    overflow: hidden;
+  }
+
+  /* React Flow: 重染色以融入 dark glass */
+  .react-flow__background { background: transparent; }
+  .react-flow__edge-path  { stroke: rgba(34,211,238,0.55); stroke-width: 1.5; }
+  .react-flow__edge.selected .react-flow__edge-path,
+  .react-flow__edge:focus .react-flow__edge-path { stroke: #22d3ee; stroke-width: 2.2; }
+  .react-flow__edge.running .react-flow__edge-path {
+    stroke: #ec4899; stroke-width: 2.5;
+    animation: dash 0.6s linear infinite;
+    stroke-dasharray: 6 4;
+  }
+  @keyframes dash { to { stroke-dashoffset: -20; } }
+  .react-flow__handle { width:10px; height:10px; background:#22d3ee; border:2px solid #0f111a; }
+  .react-flow__handle.target { background:#94a3b8; }
+  .react-flow__controls { background: rgba(20,22,35,0.7); border:1px solid rgba(255,255,255,0.08); backdrop-filter: blur(8px); }
+  .react-flow__controls-button { background:transparent; color:#e2e8f0; border-bottom:1px solid rgba(255,255,255,0.06); }
+  .react-flow__controls-button:hover { background: rgba(34,211,238,0.18); }
+  .react-flow__minimap { background: rgba(15,17,26,0.85); border:1px solid rgba(255,255,255,0.08); border-radius: 8px; }
+  .react-flow__attribution { display: none; }
+  .react-flow__node { font-family: 'Inter', sans-serif; }
+
+  /* 自訂節點：玻璃質感卡 */
+  .wf-node {
+    border-radius: 12px;
+    padding: 10px 14px;
+    min-width: 168px;
+    background: rgba(20,22,35,0.78);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.10);
+    box-shadow: 0 6px 24px rgba(0,0,0,0.35);
+    color: #e2e8f0;
+    position: relative;
+    transition: box-shadow .2s, transform .15s, border-color .2s;
+  }
+  .wf-node:hover { border-color: rgba(34,211,238,0.55); }
+  .wf-node.selected { box-shadow: 0 0 0 2px #22d3ee, 0 8px 28px rgba(34,211,238,0.45); }
+  .wf-node.running   { border-color: #ec4899; box-shadow: 0 0 0 2px rgba(236,72,153,0.6), 0 8px 28px rgba(236,72,153,0.45); }
+  .wf-node.done      { border-color: rgba(16,185,129,0.7); }
+  .wf-node.failed    { border-color: rgba(239,68,68,0.85); }
+
+  .wf-node .kind {
+    display:inline-flex; align-items:center; gap:6px;
+    font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 2px 8px; border-radius: 9999px;
+    font-weight: 600;
+  }
+  .wf-node .title { font-size: 14px; font-weight: 600; margin-top: 6px; line-height: 1.25; }
+  .wf-node .meta  { font-size: 11px; color: #94a3b8; margin-top: 4px; font-family: 'JetBrains Mono', monospace; }
+
+  .wf-node .accent-bar {
+    position:absolute; left:0; top:10px; bottom:10px; width:3px; border-radius:0 3px 3px 0;
+  }
+
+  /* 滾動條 (log panel) */
+  .log-scroll::-webkit-scrollbar { width: 6px; }
+  .log-scroll::-webkit-scrollbar-track { background: transparent; }
+  .log-scroll::-webkit-scrollbar-thumb { background: rgba(34,211,238,0.35); border-radius: 4px; }
+
+  /* pulse 動畫 */
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.45} }
+  .pulse { animation: pulse 1.6s ease-in-out infinite; }
+
+  @keyframes pop { from{transform:scale(.95);opacity:0} to{transform:scale(1);opacity:1} }
+  .pop { animation: pop .18s ease-out; }
+
+  /* 防止 Tailwind preflight 干擾 React Flow 文字選取 */
+  .react-flow__node * { user-select: none; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useRef, useCallback, useLayoutEffect } = React;
+const RF = window.ReactFlow || ReactFlow; // 防 TDZ: 命名別名後從 window 取
+const {
+  ReactFlow,
+  ReactFlowProvider,
+  Background,
+  Controls,
+  MiniMap,
+  Handle,
+  Position,
+  MarkerType,
+  applyNodeChanges,
+  applyEdgeChanges,
+  addEdge,
+  useNodesState,
+  useEdgesState,
+} = RF;
+
+/* ====================================================================
+   1. CONFIG: 工作流節點型別定義
+   ==================================================================== */
+const NODE_KINDS = {
+  trigger: {
+    label: 'Trigger',
+    color: '#4facfe',
+    accent: 'from-cyan-500/30 to-cyan-500/10',
+    bg:    'bg-cyan-500/15 text-cyan-300 ring-1 ring-cyan-400/30',
+    desc:  '流程入口 — 無輸入、多輸出',
+    handles: { source: true, target: false },
+  },
+  action: {
+    label: 'Action',
+    color: '#10b981',
+    accent: 'from-emerald-500/30 to-emerald-500/10',
+    bg:    'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-400/30',
+    desc:  '原子動作 — 1入1出',
+    handles: { source: true, target: true },
+  },
+  decision: {
+    label: 'Decision',
+    color: '#f59e0b',
+    accent: 'from-amber-500/30 to-amber-500/10',
+    bg:    'bg-amber-500/15 text-amber-300 ring-1 ring-amber-400/30',
+    desc:  '條件分支 — 1入、true/false 雙輸出',
+    handles: { source: true, target: true, multi: true },
+  },
+  output: {
+    label: 'Output',
+    color: '#8b5cf6',
+    accent: 'from-violet-500/30 to-violet-500/10',
+    bg:    'bg-violet-500/15 text-violet-300 ring-1 ring-violet-400/30',
+    desc:  '流程終點 — 1入、無輸出',
+    handles: { source: false, target: true },
+  },
+};
+
+/* ====================================================================
+   2. 自訂節點 (Custom Node)
+   ==================================================================== */
+function WorkflowNode({ data, selected }) {
+  const cfg = NODE_KINDS[data.kind] || NODE_KINDS.action;
+  const status = data.status || 'idle'; // idle | running | done | failed
+  const stateClass = status === 'running' ? 'running' : status === 'done' ? 'done' : status === 'failed' ? 'failed' : '';
+  return (
+    <div className={`wf-node pop ${stateClass} ${selected ? 'selected' : ''}`}>
+      <div className="accent-bar" style={{ background: cfg.color }} />
+      {cfg.handles.target && (
+        <Handle type="target" position={Position.Left} className="target" />
+      )}
+      {cfg.handles.source && !cfg.handles.multi && (
+        <Handle type="source" position={Position.Right} />
+      )}
+      {cfg.handles.source && cfg.handles.multi && (
+        <>
+          <Handle type="source" position={Position.Right} id="true"  style={{ top: '35%', background: '#10b981' }} />
+          <Handle type="source" position={Position.Right} id="false" style={{ top: '65%', background: '#ef4444' }} />
+        </>
+      )}
+      <span className={`kind ${cfg.bg}`}>
+        <span className="w-1.5 h-1.5 rounded-full pulse" style={{ background: cfg.color }} />
+        {cfg.label}
+      </span>
+      <div className="title">{data.label}</div>
+      {data.note && <div className="meta">{data.note}</div>}
+      {status !== 'idle' && (
+        <div className="mt-2 text-[10px] font-mono">
+          {status === 'running' && <span className="text-accent-pink">⏳ running…</span>}
+          {status === 'done'    && <span className="text-accent-green">✓ done @ {data.finishedAt}</span>}
+          {status === 'failed'  && <span className="text-accent-red">✗ failed</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+const nodeTypes = { workflow: WorkflowNode };
+
+/* ====================================================================
+   3. DAG 拓樸排序 + 執行模擬
+   ==================================================================== */
+function topoSort(nodes, edges) {
+  const adj = new Map();
+  const indeg = new Map();
+  nodes.forEach(n => { adj.set(n.id, []); indeg.set(n.id, 0); });
+  edges.forEach(e => {
+    if (!adj.has(e.source) || !indeg.has(e.target)) return;
+    adj.get(e.source).push(e.target);
+    indeg.set(e.target, indeg.get(e.target) + 1);
+  });
+  const q = [];
+  indeg.forEach((d, id) => { if (d === 0) q.push(id); });
+  const out = [];
+  while (q.length) {
+    const id = q.shift();
+    out.push(id);
+    for (const next of adj.get(id) || []) {
+      indeg.set(next, indeg.get(next) - 1);
+      if (indeg.get(next) === 0) q.push(next);
+    }
+  }
+  return out.length === nodes.length ? out : null; // null = 有循環
+}
+
+async function executeWorkflow(nodesIn, edgesIn, setNodes, setEdges, setLogs, speed = 700) {
+  // 清狀態
+  setNodes(ns => ns.map(n => ({ ...n, data: { ...n.data, status: 'idle', finishedAt: undefined } })));
+  setEdges(es => es.map(e => ({ ...e, className: '' })));
+  setLogs([]);
+
+  const order = topoSort(nodesIn, edgesIn);
+  if (!order) {
+    setLogs(L => [...L, { t: nowStr(), level:'err', msg:'⛔ 偵測到循環依賴，無法執行' }]);
+    return;
+  }
+  const nodeMap = new Map(nodesIn.map(n => [n.id, n]));
+  const edgeMap = new Map(); // from -> edge
+  edgesIn.forEach(e => edgeMap.set(`${e.source}->${e.sourceHandle||'out'}`, e));
+
+  setLogs(L => [...L, { t: nowStr(), level:'info', msg:`▶ 開始執行 | ${nodesIn.length} 節點、${edgesIn.length} 連線` }]);
+
+  for (let step = 0; step < order.length; step++) {
+    const id = order[step];
+    const n = nodeMap.get(id);
+    if (!n) continue;
+    if (n.data.kind === 'trigger') {
+      setLogs(L => [...L, { t: nowStr(), level:'info', msg:`▶ 觸發: ${n.data.label}` }]);
+      setNodes(ns => ns.map(x => x.id === id ? { ...x, data: { ...x.data, status: 'running' } } : x));
+      await wait(speed);
+      setNodes(ns => ns.map(x => x.id === id ? { ...x, data: { ...x.data, status:'done', finishedAt: nowStr() } } : x));
+      continue;
+    }
+    if (n.data.kind === 'output') {
+      setNodes(ns => ns.map(x => x.id === id ? { ...x, data: { ...x.data, status: 'running' } } : x));
+      setLogs(L => [...L, { t: nowStr(), level:'done', msg:`◉ 輸出: ${n.data.label}` }]);
+      await wait(speed);
+      setNodes(ns => ns.map(x => x.id === id ? { ...x, data: { ...x.data, status:'done', finishedAt: nowStr() } } : x));
+      continue;
+    }
+    if (n.data.kind === 'decision') {
+      // 模擬隨機決策 (這裡固定 70% true 讓 demo 可預期)
+      const pickTrue = Math.random() < 0.7;
+      setLogs(L => [...L, { t: nowStr(), level:'info', msg:`◆ 分支決策: ${n.data.label} → ${pickTrue ? 'TRUE' : 'FALSE'}` }]);
+      setNodes(ns => ns.map(x => x.id === id ? { ...x, data: { ...x.data, status: 'running' } } : x));
+      await wait(speed);
+      setNodes(ns => ns.map(x => x.id === id ? { ...x, data: { ...x.data, status:'done', finishedAt: nowStr() } } : x));
+      // 標示走哪條 (符合的邊亮 running / 否則收回)
+      setEdges(es => es.map(e => {
+        if (e.source !== id) return e;
+        const onPath = (pickTrue && (e.sourceHandle === 'true' || e.sourceHandle == null)) || (!pickTrue && e.sourceHandle === 'false');
+        return { ...e, className: onPath ? 'running' : '' };
+      }));
+      continue;
+    }
+    // action
+    setNodes(ns => ns.map(x => x.id === id ? { ...x, data: { ...x.data, status: 'running' } } : x));
+    // 入邊亮起
+    setEdges(es => es.map(e => e.target === id ? { ...e, className: 'running' } : e));
+    setLogs(L => [...L, { t: nowStr(), level:'info', msg:`▷ 執行: ${n.data.label}` }]);
+    await wait(speed);
+    setNodes(ns => ns.map(x => x.id === id ? { ...x, data: { ...x.data, status:'done', finishedAt: nowStr() } } : x));
+    setEdges(es => es.map(e => e.source === id ? { ...e, className: 'running' } : e));
+  }
+  setLogs(L => [...L, { t: nowStr(), level:'done', msg:`✅ 工作流執行完畢` }]);
+}
+
+function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
+function nowStr() { return new Date().toLocaleTimeString('zh-TW', { hour12: false }); }
+
+/* ====================================================================
+   4. 主應用
+   ==================================================================== */
+function App() {
+  const [rfInstance, setRfInstance] = useState(null);
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [logs, setLogs] = useState([]);
+  const [speed, setSpeed] = useState(700);
+  const [history, setHistory] = useState([]); // undo stack
+  const [redoStack, setRedoStack] = useState([]);
+
+  // 初始 demo workflow
+  useEffect(() => {
+    const initial = {
+      nodes: [
+        { id: 't1', type:'workflow', position:{x:40,y:120},  data:{ kind:'trigger', label:'收到訂單', note:'webhook:order.created' } },
+        { id: 'a1', type:'workflow', position:{x:280,y:60},  data:{ kind:'action',   label:'驗證庫存',  note:'POST /inventory/check' } },
+        { id: 'd1', type:'workflow', position:{x:520,y:60},  data:{ kind:'decision', label:'庫存足夠?', note:'condition: stock >= qty' } },
+        { id: 'a2', type:'workflow', position:{x:760,y:0},   data:{ kind:'action',   label:'扣減庫存',  note:'UPDATE stock SET…' } },
+        { id: 'a3', type:'workflow', position:{x:760,y:160}, data:{ kind:'action',   label:'通知缺貨',  note:'POST slack#ops' } },
+        { id: 'o1', type:'workflow', position:{x:1020,y:60}, data:{ kind:'output',   label:'確認出貨',  note:'emit OrderConfirmed' } },
+        { id: 'o2', type:'workflow', position:{x:1020,y:160},data:{ kind:'output',   label:'Backorder', note:'emit OrderBackordered' } },
+      ],
+      edges: [
+        { id:'e1', source:'t1', target:'a1', markerEnd:{type:MarkerType.ArrowClosed} },
+        { id:'e2', source:'a1', target:'d1', markerEnd:{type:MarkerType.ArrowClosed} },
+        { id:'e3', source:'d1', sourceHandle:'true',  target:'a2', label:'是', markerEnd:{type:MarkerType.ArrowClosed} },
+        { id:'e4', source:'d1', sourceHandle:'false', target:'a3', label:'否', markerEnd:{type:MarkerType.ArrowClosed} },
+        { id:'e5', source:'a2', target:'o1', markerEnd:{type:MarkerType.ArrowClosed} },
+        { id:'e6', source:'a3', target:'o2', markerEnd:{type:MarkerType.ArrowClosed} },
+      ],
+    };
+    setNodes(initial.nodes);
+    setEdges(initial.edges);
+  }, [setNodes, setEdges]);
+
+  // 選取追蹤
+  const onSelectionChange = useCallback((sel) => {
+    const n = sel?.nodes?.[0];
+    setSelectedNodeId(n ? n.id : null);
+  }, []);
+
+  // 新增節點
+  const addNode = useCallback((kind) => {
+    pushHistory();
+    const id = `n${nodes.length + 1}_${Math.random().toString(36).slice(2,6)}`;
+    const position = rfInstance
+      ? rfInstance.screenToFlowPosition({ x: window.innerWidth/2 - 220, y: window.innerHeight/2 - 100 })
+      : { x: 200 + nodes.length * 20, y: 200 };
+    setNodes(ns => ns.concat({
+      id, type:'workflow', position,
+      data:{ kind, label:`新${NODE_KINDS[kind].label}`, note:'' },
+    }));
+    setSelectedNodeId(id);
+  }, [nodes.length, rfInstance, setNodes]);
+
+  // 刪除節點
+  const deleteSelected = useCallback(() => {
+    if (!selectedNodeId) return;
+    pushHistory();
+    setNodes(ns => ns.filter(n => n.id !== selectedNodeId));
+    setEdges(es => es.filter(e => e.source !== selectedNodeId && e.target !== selectedNodeId));
+    setSelectedNodeId(null);
+  }, [selectedNodeId, setNodes, setEdges]);
+
+  // 更新節點資料
+  const updateNodeData = useCallback((id, patch) => {
+    pushHistory();
+    setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, ...patch } } : n));
+  }, [setNodes]);
+
+  // undo / redo
+  const pushHistory = useCallback(() => {
+    setHistory(h => [...h.slice(-30), JSON.stringify({ nodes, edges })]);
+    setRedoStack([]);
+  }, [nodes, edges]);
+  const undo = useCallback(() => {
+    setHistory(h => {
+      if (!h.length) return h;
+      const prev = h[h.length-1];
+      setRedoStack(r => [...r, JSON.stringify({ nodes, edges })]);
+      const snap = JSON.parse(prev);
+      setNodes(snap.nodes); setEdges(snap.edges);
+      return h.slice(0,-1);
+    });
+  }, [nodes, edges, setNodes, setEdges]);
+  const redo = useCallback(() => {
+    setRedoStack(r => {
+      if (!r.length) return r;
+      const next = r[r.length-1];
+      setHistory(h => [...h, JSON.stringify({ nodes, edges })]);
+      const snap = JSON.parse(next);
+      setNodes(snap.nodes); setEdges(snap.edges);
+      return r.slice(0,-1);
+    });
+  }, [nodes, edges, setNodes, setEdges]);
+
+  // 連線
+  const onConnect = useCallback((params) => {
+    pushHistory();
+    setEdges(es => addEdge({ ...params, markerEnd:{type:MarkerType.ArrowClosed} }, es));
+  }, [setEdges, pushHistory]);
+
+  // 鍵盤快捷鍵
+  useEffect(() => {
+    const h = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      if (e.key === 'Delete' || e.key === 'Backspace') { deleteSelected(); }
+      if ((e.ctrlKey||e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+      if ((e.ctrlKey||e.metaKey) && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) { e.preventDefault(); redo(); }
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [deleteSelected, undo, redo]);
+
+  // 匯出 / 匯入
+  const exportJSON = () => {
+    const blob = new Blob([JSON.stringify({ nodes, edges, exportedAt: new Date().toISOString() }, null, 2)], { type:'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `workflow-${Date.now()}.json`; a.click();
+    URL.revokeObjectURL(url);
+  };
+  const importJSON = (e) => {
+    const f = e.target.files?.[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (data.nodes && data.edges) {
+          pushHistory();
+          setNodes(data.nodes); setEdges(data.edges);
+          setLogs(L => [...L, { t: nowStr(), level:'info', msg:`⬇ 匯入 ${data.nodes.length} 節點 / ${data.edges.length} 連線` }]);
+        }
+      } catch (err) {
+        setLogs(L => [...L, { t: nowStr(), level:'err', msg:`❌ 匯入失敗: ${err.message}` }]);
+      }
+    };
+    r.readAsText(f);
+  };
+
+  const selectedNode = nodes.find(n => n.id === selectedNodeId);
+  const cycleDetected = useMemo(() => !topoSort(nodes, edges), [nodes, edges]);
+
+  return (
+    <ReactFlowProvider>
+      <div className="h-screen w-screen flex flex-col">
+        {/* ===== Header ===== */}
+        <header className="flex items-center justify-between px-6 py-3 border-b border-white/10 bg-glass backdrop-blur-md z-20">
+          <div className="flex items-center gap-3">
+            <div className="w-2.5 h-2.5 rounded-full bg-accent-green pulse shadow-glow"></div>
+            <h1 className="text-base font-semibold tracking-wide bg-gradient-to-r from-cyan1 to-cyan2 bg-clip-text text-transparent">
+              WORKFORGE
+            </h1>
+            <span className="text-xs text-slate-400 ml-2">動態工作流引擎 · React Flow + Tailwind</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="text-xs text-slate-400 flex items-center gap-3 mr-2">
+              <span>節點 <b className="text-slate-200">{nodes.length}</b></span>
+              <span>連線 <b className="text-slate-200">{edges.length}</b></span>
+              <span>Undo <b className="text-slate-200">{history.length}</b></span>
+            </div>
+            <button onClick={()=>executeWorkflow(nodes,edges,setNodes,setEdges,setLogs,speed)} className="px-3 py-1.5 rounded-md bg-cyan-500 text-ink-950 text-sm font-semibold hover:brightness-110 transition">
+              ▶ 執行
+            </button>
+            <button onClick={undo} className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-sm" title="Ctrl+Z">↶</button>
+            <button onClick={redo} className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-sm" title="Ctrl+Y">↷</button>
+            <button onClick={exportJSON} className="px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-sm">⬇ JSON</button>
+            <label className="px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-sm cursor-pointer">
+              ⬆ 載入
+              <input type="file" accept="application/json" className="hidden" onChange={importJSON} />
+            </label>
+          </div>
+        </header>
+
+        <div className="flex-1 flex overflow-hidden">
+          {/* ===== 左側：節點面板 ===== */}
+          <aside className="w-56 border-r border-white/10 bg-glass backdrop-blur-md p-3 flex flex-col gap-2">
+            <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-1">新增節點</div>
+            {Object.entries(NODE_KINDS).map(([kind, cfg]) => (
+              <button key={kind} onClick={()=>addNode(kind)}
+                className={`group text-left px-3 py-2 rounded-md ${cfg.bg} hover:brightness-125 transition`}>
+                <div className="text-xs font-semibold">+ {cfg.label}</div>
+                <div className="text-[10px] opacity-70 mt-0.5">{cfg.desc}</div>
+              </button>
+            ))}
+            <div className="mt-3 text-[10px] uppercase tracking-widest text-slate-400">執行速度</div>
+            <input type="range" min="150" max="2000" step="50" value={2200-speed+150}
+              onChange={e=>setSpeed(2200-+e.target.value+150)}
+              className="w-full accent-cyan-400" />
+            <div className="text-xs text-slate-400 text-center">{speed}ms / step</div>
+
+            <div className="mt-3 text-[10px] uppercase tracking-widest text-slate-400">圖例</div>
+            {Object.entries(NODE_KINDS).map(([kind, cfg]) => (
+              <div key={`l-${kind}`} className="flex items-center gap-2 text-xs">
+                <div className="w-2 h-2 rounded-full" style={{ background: cfg.color }}></div>
+                <span className="text-slate-300">{cfg.label}</span>
+              </div>
+            ))}
+            {cycleDetected && (
+              <div className="mt-3 p-2 rounded-md bg-red-500/15 border border-red-500/40 text-[11px] text-red-300">
+                ⛔ DAG 偵測到循環依賴
+              </div>
+            )}
+          </aside>
+
+          {/* ===== 中央：畫布 ===== */}
+          <main className="flex-1 relative">
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
+              onInit={setRfInstance}
+              onSelectionChange={onSelectionChange}
+              nodeTypes={nodeTypes}
+              fitView
+              proOptions={{ hideAttribution: true }}
+              defaultEdgeOptions={{ animated: false }}
+            >
+              <Background variant="dots" gap={16} size={1.2} color="rgba(255,255,255,0.06)" />
+              <Controls position="bottom-right" />
+              <MiniMap
+                position="bottom-left"
+                nodeColor={(n)=>NODE_KINDS[n.data?.kind]?.color || '#888'}
+                maskColor="rgba(7,9,15,0.7)"
+                style={{ background: 'rgba(15,17,26,0.7)' }}
+              />
+            </ReactFlow>
+          </main>
+
+          {/* ===== 右側：節點編輯 + 執行日誌 ===== */}
+          <aside className="w-80 border-l border-white/10 bg-glass backdrop-blur-md flex flex-col">
+            <div className="p-3 border-b border-white/10">
+              <div className="text-[10px] uppercase tracking-widest text-slate-400 mb-2">節點屬性</div>
+              {selectedNode ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className={`px-2 py-0.5 rounded-full ${NODE_KINDS[selectedNode.data.kind].bg}`}>
+                      {NODE_KINDS[selectedNode.data.kind].label}
+                    </span>
+                    <span className="text-slate-400 font-mono text-[10px]">{selectedNode.id}</span>
+                  </div>
+                  <label className="block">
+                    <span className="text-[10px] text-slate-400">名稱</span>
+                    <input value={selectedNode.data.label} onChange={e=>updateNodeData(selectedNode.id,{label:e.target.value})}
+                      className="w-full mt-1 px-2 py-1.5 rounded bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-cyan-400"/>
+                  </label>
+                  <label className="block">
+                    <span className="text-[10px] text-slate-400">備註 / 設定</span>
+                    <textarea value={selectedNode.data.note||''} rows={2}
+                      onChange={e=>updateNodeData(selectedNode.id,{note:e.target.value})}
+                      className="w-full mt-1 px-2 py-1.5 rounded bg-white/5 border border-white/10 text-xs font-mono focus:outline-none focus:border-cyan-400 resize-none"/>
+                  </label>
+                  <label className="block">
+                    <span className="text-[10px] text-slate-400">型別 (變更後連線將被重新評估)</span>
+                    <select value={selectedNode.data.kind}
+                      onChange={e=>updateNodeData(selectedNode.id,{kind:e.target.value})}
+                      className="w-full mt-1 px-2 py-1.5 rounded bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-cyan-400">
+                      {Object.entries(NODE_KINDS).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+                    </select>
+                  </label>
+                  <div className="flex gap-2 pt-1">
+                    <button onClick={deleteSelected} className="flex-1 px-2 py-1.5 rounded-md bg-red-500/15 hover:bg-red-500/25 text-red-300 text-xs border border-red-500/30">
+                      🗑 刪除 (Del)
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-xs text-slate-500 py-4 text-center">
+                  點選任一節點以編輯屬性
+                </div>
+              )}
+            </div>
+            <div className="flex-1 flex flex-col min-h-0">
+              <div className="px-3 py-2 border-b border-white/10 flex items-center justify-between">
+                <div className="text-[10px] uppercase tracking-widest text-slate-400">執行日誌</div>
+                <button onClick={()=>setLogs([])} className="text-[10px] text-slate-500 hover:text-slate-300">清空</button>
+              </div>
+              <div className="flex-1 overflow-y-auto log-scroll p-3 space-y-1 text-[11px] font-mono">
+                {logs.length === 0 && <div className="text-slate-500 text-center mt-4">尚無日誌 — 點 ▶ 執行開始模擬</div>}
+                {logs.map((l,i) => (
+                  <div key={i} className={`leading-snug ${
+                    l.level==='err'  ? 'text-red-300' :
+                    l.level==='done' ? 'text-emerald-300' :
+                                       'text-slate-300'
+                  }`}>
+                    <span className="text-slate-500">[{l.t}]</span> {l.msg}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </ReactFlowProvider>
+  );
+}
+
+ReactDOM.render(<App />, document.getElementById('root'));
+</script>
+</body>
+</html>

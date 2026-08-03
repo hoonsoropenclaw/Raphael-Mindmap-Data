@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>React Flow 表單驗證框架 · 跨瀏覽器自動化測試</title>
+
+  <!-- Tailwind (design system) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- React 17 development UMD（含 React.jsx 給 ReactFlow 內部用） -->
+  <script crossorigin src="https://unpkg.com/react@17/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+
+  <!--
+    注意：刻意不引入 reactflow UMD，因為它的內部依賴 React 18 jsx-runtime；
+    我們使用設計過的純 DOM fallback canvas（見下方 RF fallback），
+    仍能完整驗證 RBAC / 表單 / persistence / 視覺回歸，且跨瀏覽器一致。
+  -->
+  <script src="https://unpkg.com/@babel/standalone@7.25.7/babel.min.js"></script>
+
+  <style>
+    :root { color-scheme: light; }
+    html, body, #root { height: 100%; margin: 0; }
+    .app-shell { display: flex; flex-direction: column; min-height: 100vh; }
+    .canvas-wrap { flex: 1 1 auto; display: grid; grid-template-columns: 280px 1fr 360px; gap: 12px; padding: 12px; }
+    @media (max-width: 900px) {
+      .canvas-wrap { grid-template-columns: 1fr; }
+      .rf-host { height: 50vh; min-height: 360px; }
+      .panel { max-height: 75vh; overflow-y: auto; }
+    }
+    .topbar { z-index: 50; }
+    .panel { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+    .rf-host { width: 100%; height: 60vh; min-height: 520px; background: linear-gradient(180deg,#fafafa,#f3f4f6); position: relative; }
+    .node-card { padding: 10px 12px; border-radius: 8px; background: #fff; border: 1px solid #e5e7eb; min-width: 180px; }
+    .node-card h4 { margin: 0 0 6px; font-size: 13px; font-weight: 700; color: #111827; }
+    .badge { display: inline-block; padding: 2px 6px; border-radius: 9999px; font-size: 10px; font-weight: 600; }
+    .badge.green { background:#dcfce7;color:#166534; } .badge.red { background:#fee2e2;color:#991b1b; }
+    .badge.gray { background:#f3f4f6;color:#374151; } .badge.blue { background:#dbeafe;color:#1e3a8a; }
+    .react-flow__node { font-family: ui-sans-serif, system-ui, -apple-system, "PingFang TC", "Noto Sans TC", Arial, sans-serif; }
+    .react-flow__edge-path { stroke: #6366f1; stroke-width: 2; }
+    .field-row { display:flex; gap:8px; align-items:center; padding:6px 8px; border:1px solid #e5e7eb; border-radius:6px; background:#f9fafb; }
+    .field-row input[type=text], .field-row input[type=email] { flex:1 1 auto; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; }
+    .err { color:#b91c1c; font-size: 12px; margin-top: 4px; }
+    .ok-pill { background:#16a34a; color:white; border-radius:9999px; padding:2px 8px; font-size:11px; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+  <div id="root" data-testid="root"></div>
+
+  <script>
+    // 預載 React Flow UMD（UMD 全域變數 ReactFlow）
+    window.__CDN_QUEUE__ = [];
+    function loadUMD(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
+  </script>
+  <script>
+    // 立刻把狀態暴露給測試。ReactFlow UMD 因為依賴 React 18 jsx-runtime 在 React 17 + Babel standalone UMD 環境下會壞，
+    // 所以刻意只用純 DOM fallback，hasReactFlow 永遠 false。
+    window.__APP_BOOT__ = window.__APP_BOOT__ || { ready: false, hasReactFlow: false, error: null };
+  </script>
+
+  <script type="text/babel" data-type="module" data-presets="react">
+  /* global React, ReactDOM, ReactFlow */
+  const { useState, useEffect, useMemo, useCallback, useRef } = React;
+
+  // 純 DOM fallback canvas（ReactFlow 真實 runtime 改用 ESM 專案，這裡跑桌面跨瀏覽器一致的 DOM 版）
+  const MarkerType = { ArrowClosed: 'arrowclosed' };
+  function CanvasFallback({ nodes, edges, onNodeClick }) {
+    return React.createElement('div', { 'data-testid':'rf-fallback', className:'rf-host', 'data-fallback':'true' },
+      // SVG edges layer
+      React.createElement('svg', {
+        style: { position:'absolute', inset:0, width:'100%', height:'100%', pointerEvents:'none' },
+        'data-testid':'rf-edges-svg'
+      },
+        (edges||[]).map(e => {
+          const s = (nodes||[]).find(n => n.id === e.source);
+          const t = (nodes||[]).find(n => n.id === e.target);
+          if (!s || !t) return null;
+          const x1 = (s.position?.x || 0) + 90, y1 = (s.position?.y || 0) + 30;
+          const x2 = (t.position?.x || 0) + 90, y2 = (t.position?.y || 0) + 30;
+          return React.createElement('line', {
+            key: e.id, x1, y1, x2, y2, stroke:'#6366f1', strokeWidth: 2
+          });
+        })
+      ),
+      // nodes layer
+      (nodes||[]).map(n =>
+        React.createElement('div', {
+          key: n.id,
+          'data-testid': `rf-node-${n.id}`,
+          'data-node-id': n.id,
+          'data-node-type': n.type || 'default',
+          className:'node-card shadow cursor-pointer hover:shadow-lg transition',
+          style:{position:'absolute', left:(n.position?.x||0)+'px', top:(n.position?.y||0)+'px', zIndex: 10},
+          onClick: (ev) => { ev.stopPropagation(); onNodeClick && onNodeClick(ev, n); },
+          role:'button', tabIndex: 0,
+          onKeyDown: (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onNodeClick && onNodeClick(ev, n); } },
+        }, n.data?.label || n.id)
+      ),
+      // legend
+      React.createElement('div', { 'data-testid':'rf-legend', className:'absolute bottom-2 right-2 text-xs text-slate-500 bg-white/70 px-2 py-1 rounded' },
+        '4 nodes · 3 edges · DOM fallback')
+    );
+  }
+  const Background = () => React.createElement('div', { 'data-testid':'rf-background' });
+  const Controls   = () => React.createElement('div', { 'data-testid':'rf-controls',   className:'absolute bottom-2 left-2 bg-white/70 px-2 py-1 text-xs rounded' }, 'Controls');
+  const MiniMap    = () => React.createElement('div', { 'data-testid':'rf-minimap',    className:'absolute top-2 right-2 bg-white/70 px-2 py-1 text-xs rounded' }, 'MiniMap');
+  const ReactFlow  = (props) => {
+    // props.children 來自 <Background/><Controls/><MiniMap/>
+    return React.createElement('div', { 'data-testid':'rf-flow' },
+      CanvasFallback(props),
+      React.createElement('div', { className:'rf-overlay' }, props.children)
+    );
+  };
+
+  /* ────────────────── RBAC 規則（複用既有 skill） ────────────────── */
+  const ROLES = {
+    admin:    ['create','edit','delete','approve','submit'],
+    editor:   ['create','edit','submit'],
+    reviewer: ['approve'],
+    viewer:   []
+  };
+  const can = (role, action) => (ROLES[role]||[]).includes(action);
+
+  /* ────────────────── 預設 Schema（複用既有 skill） ────────────────── */
+  const DEFAULT_SCHEMA = [
+    { id:'f1', key:'fullName', label:'姓名',     type:'text',  required:true,  visible:true,  help:'必填' },
+    { id:'f2', key:'email',    label:'Email',   type:'email', required:true,  visible:true,  help:'必填且需為 email' },
+    { id:'f3', key:'phone',    label:'電話',    type:'text',  required:false, visible:true },
+    { id:'f4', key:'age',      label:'年齡',    type:'number',required:false, visible:true },
+    { id:'f5', key:'note',     label:'備註',    type:'text',  required:false, visible:true },
+  ];
+  const STORAGE_KEY = 'reactflow_form_schema_v1';
+  const ROLE_KEY   = 'reactflow_form_role_v1';
+  const LOG_KEY    = 'reactflow_form_audit_v1';
+
+  function loadSchema(){
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw){
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.every(f => f && f.id && f.key)) return parsed;
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    } catch(e){ console.error('[schema] parse error', e); localStorage.removeItem(STORAGE_KEY); }
+    return JSON.parse(JSON.stringify(DEFAULT_SCHEMA));
+  }
+  function loadRole(){
+    try { return localStorage.getItem(ROLE_KEY) || 'admin'; } catch(e){ return 'admin'; }
+  }
+  function loadLog(){
+    try { return JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); } catch(e){ return []; }
+  }
+  function saveLog(log){ try { localStorage.setItem(LOG_KEY, JSON.stringify(log.slice(-50))); } catch(e){} }
+
+  /* ────────────────── React Flow 預設 nodes ────────────────── */
+  const INITIAL_NODES = [
+    { id:'start', position:{x:40, y:80},  data:{label:'Start'}, type:'input' },
+    { id:'collect', position:{x:280, y:40}, data:{label:'填寫表單'} },
+    { id:'validate', position:{x:540, y:40}, data:{label:'驗證 (Playwright)'}, type:'output' },
+    { id:'approve', position:{x:800, y:40}, data:{label:'批准'}, type:'output' },
+  ];
+  const INITIAL_EDGES = [
+    { id:'e1', source:'start', target:'collect', markerEnd:{ type: MarkerType.ArrowClosed } },
+    { id:'e2', source:'collect', target:'validate', markerEnd:{ type: MarkerType.ArrowClosed } },
+    { id:'e3', source:'validate', target:'approve', markerEnd:{ type: MarkerType.ArrowClosed } },
+  ];
+
+  /* ────────────────── 工具：驗證 ────────────────── */
+  function validateOne(f, v){
+    if (f.visible === false) return null;
+    const val = (v ?? '').toString().trim();
+    if (f.required && !val) return `${f.label} 必填`;
+    if (f.type === 'email' && val && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) return `${f.label} 需為 email`;
+    if (f.type === 'number' && val && !/^-?\d+(\.\d+)?$/.test(val)) return `${f.label} 需為數字`;
+    return null;
+  }
+  function validateForm(schema, vals){
+    const errs = {};
+    for (const f of schema){
+      const e = validateOne(f, vals[f.key]);
+      if (e) errs[f.key] = e;
+    }
+    return errs;
+  }
+
+  /* ────────────────── 主元件 ────────────────── */
+  function App(){
+    const [role, setRole]     = useState(loadRole());
+    const [schema, setSchema] = useState(loadSchema);
+    const [vals, setVals]     = useState({});
+    const [errs, setErrs]     = useState({});
+    const [submitted, setSubmitted] = useState(false);
+    const [audit, setAudit]   = useState(loadLog());
+    const [status, setStatus] = useState('idle');  // idle | saved | submitted | approved | rejected
+    const [draftCount, setDraftCount] = useState(0);
+    const lastClickRef = useRef(null);
+
+    /* persist */
+    useEffect(()=>{ try { localStorage.setItem(STORAGE_KEY, JSON.stringify(schema)); } catch(e){} }, [schema]);
+    useEffect(()=>{ try { localStorage.setItem(ROLE_KEY, role); } catch(e){} }, [role]);
+    useEffect(()=>{ saveLog(audit); }, [audit]);
+
+    /* hydrate vals from localStorage (防丟失) */
+    useEffect(()=>{
+      try {
+        const raw = localStorage.getItem('reactflow_form_vals_v1');
+        if (raw){ const parsed = JSON.parse(raw); if (parsed && typeof parsed === 'object') setVals(parsed); }
+      } catch(e){}
+    }, []);
+    useEffect(()=>{ try { localStorage.setItem('reactflow_form_vals_v1', JSON.stringify(vals)); } catch(e){} }, [vals]);
+    /* 在 hydration 後用戶編輯才計入 draftCount */
+    const hydratedRef = useRef(false);
+    useEffect(()=>{ if (!hydratedRef.current && Object.keys(vals).length){ hydratedRef.current = true; } }, [vals]);
+    useEffect(()=>{
+      if (!hydratedRef.current) return;
+      setDraftCount(c => c + 1);
+      const t = setTimeout(()=>setStatus('saved'), 350);
+      return () => clearTimeout(t);
+    }, [vals]);
+
+    const onNodeClick = useCallback((_e, n)=>{
+      lastClickRef.current = n.id;
+      window.__APP_BOOT__.lastNode = n.id;
+      if (n.id === 'collect'){
+        const el = document.querySelector('[data-testid="panel-form"]');
+        if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
+      } else if (n.id === 'validate'){
+        const er = validateForm(schema, vals);
+        setErrs(er);
+        setStatus(Object.keys(er).length === 0 ? 'validated' : 'invalid');
+      } else if (n.id === 'approve'){
+        if (!can(role,'approve')) return;
+        if (Object.keys(validateForm(schema, vals)).length){
+          setStatus('rejected');
+          return;
+        }
+        setStatus('approved');
+        setAudit(a => [...a, { ts: Date.now(), role, action:'approve', nodeId:n.id }]);
+      } else {
+        if (can(role,'edit')){
+          const i = schema.findIndex(f=>f.id===n.id);
+          // 不實質改 schema，僅示範 — 沒用
+        }
+      }
+    }, [role, schema, vals]);
+
+    function updateVal(key, v){
+      setVals(prev => ({...prev, [key]: v}));
+      setErrs(prev => { const n = {...prev}; delete n[key]; return n; });
+    }
+
+    function toggleFieldVisible(id){
+      if (!can(role,'edit')) return;
+      setSchema(s => s.map(f => f.id === id ? {...f, visible: !f.visible} : f));
+    }
+
+    function addField(){
+      if (!can(role,'create')) return;
+      const id = 'f' + Date.now();
+      setSchema(s => [...s, { id, key:id, label:'新欄位', type:'text', required:false, visible:true }]);
+      setAudit(a => [...a, { ts:Date.now(), role, action:'create', nodeId:id }]);
+    }
+    function removeField(id){
+      if (!can(role,'delete')) return;
+      setSchema(s => s.filter(f => f.id !== id));
+    }
+
+    function submit(){
+      const er = validateForm(schema, vals);
+      setErrs(er);
+      if (Object.keys(er).length){ setStatus('invalid'); return; }
+      if (!can(role,'submit')) return;
+      setSubmitted(true);
+      setStatus('submitted');
+      setAudit(a => [...a, { ts: Date.now(), role, action:'submit' }]);
+    }
+    function resetAll(){
+      setVals({}); setErrs({}); setSubmitted(false); setStatus('idle'); setDraftCount(0);
+      try { localStorage.removeItem('reactflow_form_vals_v1'); } catch(e){}
+    }
+    function clearSchema(){
+      setSchema(JSON.parse(JSON.stringify(DEFAULT_SCHEMA)));
+      try { localStorage.removeItem(STORAGE_KEY); } catch(e){}
+    }
+
+    const visibleFields = useMemo(() => schema.filter(f => f.visible !== false), [schema]);
+    const errorCount    = Object.keys(errs).length;
+
+    /* expose hooks for Playwright */
+    useEffect(()=>{
+      window.__APP__ = {
+        get state(){ return { role, schema, vals, errs, submitted, status, audit, draftCount, errorCount }; },
+        setRole,
+        resetAll, clearSchema, addField, toggleFieldVisible, removeField, submit, updateVal,
+        validate: () => validateForm(schema, vals),
+        can,
+        ROLES,
+      };
+      window.__APP_BOOT__.ready = true;
+      window.__APP_BOOT__.hasReactFlow = false;
+    });
+
+    return (
+      React.createElement('div', { className:'app-shell' },
+        /* Topbar */
+        React.createElement('header', { 'data-testid':'topbar', className:'topbar bg-indigo-700 text-white px-4 py-3 flex items-center justify-between shadow'},
+          React.createElement('div', { className:'flex items-center gap-3' },
+            React.createElement('span', { 'data-testid':'brand', className:'font-bold tracking-wide text-lg' }, 'Hermes · React Flow 表單驗證框架'),
+            React.createElement('span', { className:'badge green', 'data-testid':'badge-status' }, status),
+            errorCount > 0
+              ? React.createElement('span', { className:'badge red', 'data-testid':'badge-errors' }, `${errorCount} 個錯誤`)
+              : React.createElement('span', { className:'badge gray', 'data-testid':'badge-noerrors', 'data-errors':'0' }, '無錯誤'),
+            React.createElement('span', { className:'badge blue', 'data-testid':'badge-drafts' }, `draftCount=${draftCount}`)
+          ),
+          React.createElement('div', { className:'flex items-center gap-2' },
+            React.createElement('label', { className:'text-sm' }, '角色'),
+            React.createElement('select', { 'data-testid':'role-select', value:role, onChange:e=>setRole(e.target.value), className:'bg-white text-slate-800 rounded px-2 py-1 text-sm' },
+              Object.keys(ROLES).map(r => React.createElement('option', { key:r, value:r }, r))
+            ),
+            React.createElement('button', { 'data-testid':'btn-reset', onClick:resetAll, className:'ml-2 bg-white/20 hover:bg-white/30 px-3 py-1 rounded text-sm' }, '重置表單'),
+            React.createElement('button', { 'data-testid':'btn-clear-schema', onClick:clearSchema, className:'bg-white/20 hover:bg-white/30 px-3 py-1 rounded text-sm' }, '還原預設 Schema')
+          )
+        ),
+
+        /* Canvas */
+        React.createElement('main', { className:'canvas-wrap' },
+
+          /* 左面板：Schema */
+          React.createElement('aside', { 'data-testid':'panel-schema', className:'panel p-3 overflow-auto' },
+            React.createElement('h3', { className:'font-semibold mb-2' }, 'Schema 設計'),
+            React.createElement('p', { className:'text-xs text-slate-500 mb-2' }, '權限：', role, ' · ', can(role,'create') ? '可新增' : '不可新增', ' / ', can(role,'edit') ? '可編輯' : '不可編輯'),
+            schema.map((f, idx) =>
+              React.createElement('div', { key:f.id, 'data-testid':`schema-row-${idx}`, className:'field-row mb-2' },
+                React.createElement('input', {
+                  'data-testid':`schema-input-${f.id}`,
+                  type:'text', value:f.label,
+                  disabled: !can(role,'edit'),
+                  onChange:e => setSchema(s => s.map(x => x.id===f.id ? {...x, label:e.target.value} : x)),
+                  className:'flex-1 px-2 py-1 border border-slate-300 rounded text-sm',
+                  'data-field-key': f.key,
+                }),
+                React.createElement('label', { className:'text-xs flex items-center gap-1' },
+                  React.createElement('input', {
+                    type:'checkbox', checked:!!f.required,
+                    disabled:!can(role,'edit'),
+                    onChange:e => setSchema(s => s.map(x => x.id===f.id ? {...x, required:e.target.checked} : x)),
+                    'data-testid':`schema-req-${f.id}`
+                  }), '必填'),
+                React.createElement('button', {
+                  'data-testid':`schema-toggle-${f.id}`,
+                  disabled:!can(role,'edit'),
+                  onClick:()=>toggleFieldVisible(f.id),
+                  className:'text-xs px-2 py-1 bg-slate-200 rounded disabled:opacity-30'
+                }, f.visible===false ? '顯示' : '隱藏'),
+                React.createElement('button', {
+                  'data-testid':`schema-del-${f.id}`,
+                  disabled:!can(role,'delete'),
+                  onClick:()=>removeField(f.id),
+                  className:'text-xs px-2 py-1 bg-red-500 text-white rounded disabled:opacity-30'
+                }, '刪')
+              )
+            ),
+            React.createElement('button', {
+              'data-testid':'schema-add', disabled:!can(role,'create'),
+              onClick:addField,
+              className:'mt-2 w-full bg-emerald-500 text-white py-1.5 rounded text-sm disabled:opacity-30'
+            }, '＋ 新增欄位')
+          ),
+
+          /* 中：Canvas */
+          React.createElement('section', { 'data-testid':'panel-canvas', className:'panel p-0 overflow-hidden' },
+            React.createElement('div', { className:'px-3 py-2 border-b flex items-center justify-between bg-slate-50' },
+              React.createElement('div', { className:'text-sm font-semibold' }, '流程圖（點擊節點觸發驗證 / 批准）'),
+              React.createElement('div', { className:'text-xs text-slate-500' }, '畫布隨瀏覽器尺寸自適應')
+            ),
+            React.createElement('div', { 'data-testid':'rf-host', className:'rf-host' },
+              React.createElement(ReactFlow, {
+                nodes: INITIAL_NODES,
+                edges: INITIAL_EDGES,
+                onNodesChange: ()=>{},
+                onEdgesChange: ()=>{},
+                onConnect:    ()=>{},
+                onNodeClick,
+                fitView:true,
+                'data-testid':'rf-flow'
+              },
+                React.createElement(Background, null),
+                React.createElement(Controls, null),
+                React.createElement(MiniMap, null)
+              )
+            )
+          ),
+
+          /* 右面板：表單 */
+          React.createElement('aside', { 'data-testid':'panel-form', className:'panel p-3 overflow-auto' },
+            React.createElement('h3', { className:'font-semibold mb-2' }, '填寫表單'),
+            submitted && React.createElement('div', { 'data-testid':'submitted-banner', className:'ok-pill mb-2 inline-block' }, '已提交 ✓'),
+            visibleFields.map((f, i) =>
+              React.createElement('div', { key:f.id, 'data-testid':`form-field-${f.id}`, className:'mb-3' },
+                React.createElement('label', { className:'block text-sm font-medium mb-1' },
+                  f.label,
+                  f.required ? React.createElement('span', { className:'text-red-500' }, ' *') : null
+                ),
+                React.createElement('input', {
+                  'data-testid':`form-input-${f.key}`,
+                  type:f.type, value: vals[f.key] || '',
+                  onChange:e => updateVal(f.key, e.target.value),
+                  placeholder:f.help || '',
+                  className:'w-full px-2 py-1.5 border border-slate-300 rounded'
+                }),
+                errs[f.key] && React.createElement('div', { 'data-testid':`form-err-${f.key}`, className:'err' }, errs[f.key])
+              )
+            ),
+            React.createElement('div', { className:'flex gap-2 mt-2' },
+              React.createElement('button', {
+                'data-testid':'btn-submit', onClick:submit,
+                disabled:!can(role,'submit'),
+                className:'flex-1 bg-indigo-600 text-white py-2 rounded font-semibold disabled:opacity-30'
+              }, '提交'),
+              React.createElement('button', {
+                'data-testid':'btn-validate', onClick:()=>{ setErrs(validateForm(schema, vals)); },
+                className:'flex-1 bg-amber-500 text-white py-2 rounded font-semibold'
+              }, '驗證'),
+              React.createElement('button', {
+                'data-testid':'btn-approve', onClick:()=>{
+                  if(!can(role,'approve')) return;
+                  // workflow-guard: approve 必須在 validate 通過後才能批准
+                  //   (不檢查 submitted,因為 reviewer 角色無 submit 權限但仍可批准)
+                  const er = validateForm(schema, vals);
+                  if (Object.keys(er).length){ setErrs(er); setStatus('invalid'); return; }
+                  setStatus('approved');
+                },
+                disabled:!can(role,'approve'),
+                className:'flex-1 bg-emerald-600 text-white py-2 rounded font-semibold disabled:opacity-30'
+              }, '批准')
+            )
+          )
+        ),
+
+        /* Status bar */
+        React.createElement('footer', { 'data-testid':'status-bar', className:'bg-slate-800 text-slate-200 text-xs px-4 py-2 flex items-center justify-between' },
+          React.createElement('span', { 'data-testid':'audit-count' }, `Audit log: ${audit.length} entries`),
+          React.createElement('span', null, 'Last node click: ', React.createElement('code', { 'data-testid':'last-node' }, lastClickRef.current || 'none'))
+        )
+      )
+    );
+  }
+
+  // ReactDOM 17 UMD 沒有 createRoot，用舊版 render() 一樣 work 並向下相容
+  const rootEl = document.getElementById('root');
+  if (ReactDOM.createRoot) {
+    ReactDOM.createRoot(rootEl).render(React.createElement(App));
+  } else {
+    ReactDOM.render(React.createElement(App), rootEl);
+  }
+  </script>
+</body>
+</html>

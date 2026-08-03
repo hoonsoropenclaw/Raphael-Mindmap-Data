@@ -1,0 +1,902 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>FlowForge — 基於 React Flow 的事件驅動工作流設計器 + DAG 執行引擎</title>
+<!-- React 18 UMD -->
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<!-- React Flow UMD (v11 — 對 UMD 友善) -->
+<script crossorigin src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css" />
+<!-- Babel Standalone (Skill #86) — 在瀏覽器內即時編譯 JSX -->
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+<style>
+  :root {
+    --bg-0: #0b0f1a;
+    --bg-1: #111827;
+    --bg-2: #1f2937;
+    --bg-3: #2a3441;
+    --fg-0: #e5e7eb;
+    --fg-1: #9ca3af;
+    --fg-2: #6b7280;
+    --accent: #7c3aed;
+    --accent-2: #06b6d4;
+    --ok: #10b981;
+    --warn: #f59e0b;
+    --err: #ef4444;
+    --border: #374151;
+  }
+  * { box-sizing: border-box; }
+  html, body, #root { height: 100%; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC",
+      "Noto Sans TC", "Microsoft JhengHei", Roboto, sans-serif;
+    background: var(--bg-0);
+    color: var(--fg-0);
+    overflow: hidden;
+  }
+  .app {
+    display: grid;
+    grid-template-columns: 280px 1fr 340px;
+    grid-template-rows: 56px 1fr 220px;
+    height: 100vh;
+    gap: 0;
+  }
+  .topbar {
+    grid-column: 1 / 4;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 16px;
+    background: linear-gradient(135deg, var(--bg-1), #0f172a);
+    border-bottom: 1px solid var(--border);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: 0.3px; }
+  .brand-dot {
+    width: 14px; height: 14px; border-radius: 4px;
+    background: conic-gradient(from 45deg, var(--accent), var(--accent-2), var(--ok), var(--accent));
+    box-shadow: 0 0 16px rgba(124, 58, 237, 0.6);
+  }
+  .brand-sub { color: var(--fg-1); font-weight: 500; font-size: 12px; margin-left: 6px; }
+  .toolbar { display: flex; gap: 8px; }
+  .btn {
+    background: var(--bg-2); color: var(--fg-0); border: 1px solid var(--border);
+    padding: 7px 12px; border-radius: 8px; font-size: 13px; cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .btn:hover { background: var(--bg-3); border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); }
+  .btn.primary:hover { background: #6d28d9; }
+  .btn.danger { background: var(--err); border-color: var(--err); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .sidebar {
+    background: var(--bg-1); border-right: 1px solid var(--border);
+    padding: 12px; overflow-y: auto;
+  }
+  .sidebar h3 { margin: 8px 0 6px 0; font-size: 11px; color: var(--fg-1);
+    text-transform: uppercase; letter-spacing: 1px; }
+  .palette-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 10px; margin-bottom: 6px;
+    background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px;
+    cursor: grab; font-size: 13px;
+    transition: all 0.15s;
+  }
+  .palette-item:hover { border-color: var(--accent); transform: translateX(2px); }
+  .palette-item .ico { font-size: 16px; }
+  .palette-item .label { flex: 1; }
+  .palette-item .type {
+    font-size: 10px; padding: 2px 6px; border-radius: 4px;
+    background: var(--bg-3); color: var(--fg-1);
+  }
+  .canvas-wrap { position: relative; background: #0a0e1a; }
+  .rightpanel {
+    background: var(--bg-1); border-left: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .rightpanel .tabs {
+    display: flex; border-bottom: 1px solid var(--border);
+  }
+  .rightpanel .tab {
+    flex: 1; padding: 10px; text-align: center; cursor: pointer;
+    font-size: 12px; color: var(--fg-1); border-bottom: 2px solid transparent;
+  }
+  .rightpanel .tab.active { color: var(--accent-2); border-bottom-color: var(--accent-2); }
+  .rightpanel .tab-body { flex: 1; overflow-y: auto; padding: 12px; }
+  .field { margin-bottom: 10px; }
+  .field label {
+    display: block; font-size: 11px; color: var(--fg-1);
+    text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;
+  }
+  .field input, .field select, .field textarea {
+    width: 100%; padding: 7px 9px;
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--fg-0); font-size: 13px;
+    font-family: inherit;
+  }
+  .field textarea { resize: vertical; min-height: 60px; font-family: 'SFMono-Regular', Consolas, monospace; }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    outline: none; border-color: var(--accent);
+  }
+  .badge {
+    display: inline-block; padding: 2px 7px; border-radius: 10px;
+    font-size: 10px; font-weight: 600;
+  }
+  .badge.pending { background: #374151; color: #d1d5db; }
+  .badge.running { background: #1e3a8a; color: #bfdbfe; }
+  .badge.success { background: #064e3b; color: #6ee7b7; }
+  .badge.failed { background: #7f1d1d; color: #fca5a5; }
+  .badge.skipped { background: #4b5563; color: #9ca3af; }
+  .console {
+    grid-column: 1 / 4;
+    background: #060912; border-top: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .console-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 12px; background: var(--bg-1);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px; color: var(--fg-1);
+  }
+  .console-body {
+    flex: 1; overflow-y: auto; padding: 8px 12px;
+    font-family: 'SFMono-Regular', Consolas, monospace; font-size: 12px;
+    line-height: 1.55;
+  }
+  .log-line { display: flex; gap: 8px; padding: 2px 0; }
+  .log-ts { color: var(--fg-2); flex-shrink: 0; }
+  .log-lv { font-weight: 700; flex-shrink: 0; width: 56px; }
+  .log-lv.info { color: var(--accent-2); }
+  .log-lv.event { color: var(--ok); }
+  .log-lv.warn { color: var(--warn); }
+  .log-lv.error { color: var(--err); }
+  .log-msg { color: var(--fg-0); word-break: break-all; }
+  /* Custom Node */
+  .rf-node {
+    background: var(--bg-2);
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    min-width: 180px;
+    color: var(--fg-0);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    transition: all 0.2s;
+  }
+  .rf-node:hover { box-shadow: 0 4px 20px rgba(124, 58, 237, 0.4); }
+  .rf-node.running { border-color: var(--accent-2); animation: pulse 1.5s infinite; }
+  .rf-node.success { border-color: var(--ok); }
+  .rf-node.failed { border-color: var(--err); }
+  .rf-node.skipped { opacity: 0.5; }
+  .rf-node .node-head {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 13px; font-weight: 600;
+  }
+  .rf-node .node-sub {
+    font-size: 11px; color: var(--fg-1); margin-top: 4px;
+  }
+  .rf-node .node-status {
+    margin-top: 6px; font-size: 10px;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.5); }
+    50% { box-shadow: 0 0 0 8px rgba(6, 182, 212, 0); }
+  }
+  /* React Flow overrides */
+  .react-flow__handle {
+    width: 10px; height: 10px;
+    background: var(--accent);
+    border: 2px solid var(--bg-0);
+  }
+  .react-flow__edge-path { stroke: var(--fg-2); stroke-width: 2; }
+  .react-flow__edge.selected .react-flow__edge-path { stroke: var(--accent); }
+  .react-flow__edge.running .react-flow__edge-path { stroke: var(--accent-2); stroke-dasharray: 5; animation: dash 1s linear infinite; }
+  @keyframes dash { to { stroke-dashoffset: -10; } }
+  .react-flow__controls {
+    background: var(--bg-1); border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden;
+  }
+  .react-flow__controls button {
+    background: var(--bg-1); border-bottom: 1px solid var(--border);
+    color: var(--fg-0); fill: var(--fg-0);
+  }
+  .react-flow__controls button:hover { background: var(--bg-2); }
+  .react-flow__minimap {
+    background: var(--bg-1) !important; border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .react-flow__background { background-color: #0a0e1a; }
+  .stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+  .stat-card {
+    background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 10px;
+  }
+  .stat-card .num { font-size: 20px; font-weight: 700; color: var(--accent-2); }
+  .stat-card .lbl { font-size: 10px; color: var(--fg-1); text-transform: uppercase; }
+  .empty-hint { color: var(--fg-2); font-size: 12px; text-align: center; padding: 30px 10px; }
+  .hint { color: var(--fg-1); font-size: 11px; margin-top: 8px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+/* ===========================================================
+ * FlowForge — 事件驅動工作流設計器 + DAG 執行引擎
+ * 整合技能模組: #58 React Flow Setup, #24 DAG Execution Engine,
+ *               #19 DAG Topological Sort, #33 Event-Driven Anti-Patterns,
+ *               #22 Retry Policy, #5 Event-Driven Anti-Patterns,
+ *               #45 React UMD Setup, #86 Babel JSX Standalone
+ * =========================================================== */
+
+const { useState, useEffect, useCallback, useMemo, useRef, useReducer } = React;
+const RF = window.ReactFlow;
+const {
+  ReactFlow, ReactFlowProvider, Background, Controls, MiniMap,
+  Handle, Position, useNodesState, useEdgesState, addEdge, MarkerType
+} = RF;
+
+/* ===========================================================
+ * 1) EventBus — 事件驅動核心 (Skill #33, #5)
+ *    設計原則: 同步/非同步解耦、避免 callback hell、
+ *    嚴禁循環事件 (防 Anti-Pattern)
+ * =========================================================== */
+class EventBus {
+  constructor() {
+    this.listeners = new Map();
+    this.eventLog = [];
+    this.maxLog = 500;
+  }
+  on(event, cb) {
+    if (!this.listeners.has(event)) this.listeners.set(event, new Set());
+    this.listeners.get(event).add(cb);
+    return () => this.off(event, cb);
+  }
+  off(event, cb) {
+    this.listeners.get(event)?.delete(cb);
+  }
+  emit(event, payload, source = 'system') {
+    // 循環事件偵測 (Anti-Pattern 防護)
+    const cycleKey = `${event}:${source}`;
+    const recent = this.eventLog.filter(e => e.ts > Date.now() - 100);
+    if (recent.filter(e => `${e.event}:${e.source}` === cycleKey).length > 5) {
+      this._log('error', 'event.cycle.detected', { event, source });
+      return;
+    }
+    this._log('event', event, payload);
+    const handlers = this.listeners.get(event);
+    if (handlers) {
+      // 複製一份避免迭代中修改
+      [...handlers].forEach(cb => {
+        try { cb(payload, { event, source, ts: Date.now() }); }
+        catch (e) { this._log('error', 'event.handler.error', { event, error: e.message }); }
+      });
+    }
+    // 萬用監聽
+    const wild = this.listeners.get('*');
+    if (wild) wild.forEach(cb => cb({ event, payload, source }));
+  }
+  _log(level, msg, data) {
+    this.eventLog.push({ ts: Date.now(), level, msg, data, source: data?.source || 'system' });
+    if (this.eventLog.length > this.maxLog) this.eventLog.shift();
+  }
+  getLog() { return [...this.eventLog]; }
+  clearLog() { this.eventLog = []; }
+}
+
+/* ===========================================================
+ * 2) DAG 拓撲排序 + 循環偵測 (Skill #19)
+ *    Kahn's algorithm: 同層並行, 強健偵測 cycle
+ * =========================================================== */
+function topologicalSort(nodes, edges) {
+  const inDeg = new Map();
+  const adj = new Map();
+  nodes.forEach(n => { inDeg.set(n.id, 0); adj.set(n.id, []); });
+  edges.forEach(e => {
+    if (!adj.has(e.source)) adj.set(e.source, []);
+    if (!inDeg.has(e.target)) inDeg.set(e.target, 0);
+    adj.get(e.source).push(e.target);
+    inDeg.set(e.target, inDeg.get(e.target) + 1);
+  });
+  const queue = [];
+  inDeg.forEach((d, id) => { if (d === 0) queue.push(id); });
+  const order = [];
+  const layers = [];
+  while (queue.length) {
+    const layer = [...queue];
+    layers.push(layer);
+    const next = [];
+    layer.forEach(id => {
+      order.push(id);
+      (adj.get(id) || []).forEach(child => {
+        inDeg.set(child, inDeg.get(child) - 1);
+        if (inDeg.get(child) === 0) next.push(child);
+      });
+    });
+    queue.length = 0;
+    queue.push(...next);
+  }
+  if (order.length !== nodes.length) {
+    return { order, layers, hasCycle: true };
+  }
+  return { order, layers, hasCycle: false };
+}
+
+/* ===========================================================
+ * 3) 節點執行器 — 含 Retry Policy (Skill #22)
+ *    內建節點類型: trigger / http / transform / log / condition / delay
+ * =========================================================== */
+const NODE_DEFS = {
+  trigger: {
+    label: 'Trigger', icon: '⚡', color: '#f59e0b',
+    desc: '工作流入口 (手動或事件觸發)',
+    defaults: { payload: '{}' }
+  },
+  http: {
+    label: 'HTTP Request', icon: '🌐', color: '#06b6d4',
+    desc: '呼叫外部 API, 支援重試',
+    defaults: { url: 'https://httpbin.org/get', method: 'GET', retries: 2, timeoutMs: 5000 }
+  },
+  transform: {
+    label: 'Transform', icon: '🔧', color: '#7c3aed',
+    desc: 'JavaScript 表達式處理資料',
+    defaults: { expr: '(x) => ({ ...x, ts: Date.now() })' }
+  },
+  condition: {
+    label: 'Condition', icon: '🔀', color: '#ec4899',
+    desc: '依條件決定分支走向',
+    defaults: { expr: 'x.value > 0' }
+  },
+  log: {
+    label: 'Log', icon: '📝', color: '#10b981',
+    desc: '記錄資料到事件匯流排',
+    defaults: { message: 'checkpoint' }
+  },
+  delay: {
+    label: 'Delay', icon: '⏱️', color: '#6366f1',
+    desc: '等待指定毫秒',
+    defaults: { ms: 800 }
+  }
+};
+
+async function executeNode(node, ctx) {
+  const { type, data } = node;
+  const params = { ...(NODE_DEFS[type]?.defaults || {}), ...(data.params || {}) };
+  ctx.bus._log('info', `node.${type}.start`, { id: node.id, params });
+
+  const run = async () => {
+    switch (type) {
+      case 'trigger': {
+        const payload = safeJson(params.payload, {});
+        return { ...ctx.lastResult, ...payload, triggeredAt: Date.now() };
+      }
+      case 'http': {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), params.timeoutMs || 5000);
+        try {
+          const res = await fetch(params.url, { method: params.method || 'GET', signal: controller.signal });
+          clearTimeout(timer);
+          const body = await res.text();
+          let parsed;
+          try { parsed = JSON.parse(body); } catch { parsed = body.slice(0, 200); }
+          return { status: res.status, ok: res.ok, body: parsed };
+        } catch (e) {
+          clearTimeout(timer);
+          throw new Error(`HTTP failed: ${e.message}`);
+        }
+      }
+      case 'transform': {
+        const fn = safeEval(params.expr, '(x) => x');
+        return fn(ctx.lastResult);
+      }
+      case 'condition': {
+        const fn = safeEval(params.expr, 'x => true');
+        const result = !!fn(ctx.lastResult);
+        return { ...ctx.lastResult, _branch: result ? 'true' : 'false', value: ctx.lastResult };
+      }
+      case 'log': {
+        ctx.bus.emit('node.log', { id: node.id, message: params.message, data: ctx.lastResult }, node.id);
+        return { ...ctx.lastResult, logged: true };
+      }
+      case 'delay': {
+        await new Promise(r => setTimeout(r, params.ms || 500));
+        return { ...ctx.lastResult, delayedMs: params.ms };
+      }
+      default:
+        return ctx.lastResult;
+    }
+  };
+
+  // Retry Policy with exponential backoff (Skill #22)
+  const maxRetries = params.retries ?? 0;
+  let attempt = 0;
+  let lastErr;
+  while (attempt <= maxRetries) {
+    try {
+      const out = await run();
+      ctx.bus._log('info', `node.${type}.success`, { id: node.id, attempt });
+      return out;
+    } catch (e) {
+      lastErr = e;
+      attempt++;
+      if (attempt > maxRetries) break;
+      const backoff = Math.min(2000, 200 * Math.pow(2, attempt - 1));
+      ctx.bus._log('warn', `node.${type}.retry`, { id: node.id, attempt, backoff, error: e.message });
+      await new Promise(r => setTimeout(r, backoff));
+    }
+  }
+  throw lastErr;
+}
+
+function safeJson(s, def) { try { return JSON.parse(s); } catch { return def; } }
+function safeEval(expr, def) {
+  try { return new Function('return (' + expr + ')')(); } catch { return new Function('return ' + def)(); }
+}
+
+/* ===========================================================
+ * 4) DAG 執行引擎 — 並行分層 + 失敗短路 (Skill #24)
+ * =========================================================== */
+async function runDag(nodes, edges, bus, onUpdate) {
+  const { order, layers, hasCycle } = topologicalSort(nodes, edges);
+  if (hasCycle) {
+    bus.emit('dag.error', { reason: 'cycle-detected' }, 'engine');
+    return { ok: false, reason: 'cycle' };
+  }
+  const nodeMap = new Map(nodes.map(n => [n.id, n]));
+  const results = new Map();
+  let lastResult = {};
+  let firstError = null;
+
+  bus.emit('dag.start', { totalNodes: nodes.length, layers: layers.length }, 'engine');
+
+  for (let i = 0; i < layers.length; i++) {
+    const layer = layers[i];
+    bus.emit('dag.layer.start', { layer: i, count: layer.length }, 'engine');
+    onUpdate && onUpdate({ running: layer, completed: [...results.keys()] });
+
+    // 同層並行執行
+    const promises = layer.map(async (id) => {
+      const node = nodeMap.get(id);
+      // 檢查上游是否有失敗 → 跳過
+      const upstreams = edges.filter(e => e.target === id).map(e => e.source);
+      if (firstError && upstreams.some(u => results.get(u)?._error)) {
+        results.set(id, { _error: 'upstream-failed', _skipped: true });
+        return;
+      }
+      try {
+        const out = await executeNode(node, { bus, lastResult });
+        results.set(id, out);
+        if (out && typeof out === 'object') lastResult = { ...lastResult, ...out };
+      } catch (e) {
+        firstError = e;
+        results.set(id, { _error: e.message });
+        bus.emit('node.error', { id, error: e.message }, id);
+      }
+    });
+    await Promise.all(promises);
+  }
+  bus.emit('dag.done', { ok: !firstError, error: firstError?.message }, 'engine');
+  onUpdate && onUpdate({ running: [], completed: [...results.keys()] });
+  return { ok: !firstError, results, error: firstError?.message };
+}
+
+/* ===========================================================
+ * 5) 自訂節點元件 — 顯示狀態徽章
+ * =========================================================== */
+function FlowNode({ data, selected }) {
+  const def = NODE_DEFS[data.type] || { label: data.type, icon: '?', color: '#666' };
+  const status = data.status || 'pending';
+  return (
+    <div className={`rf-node ${status}`} style={selected ? { borderColor: def.color } : {}}>
+      <Handle type="target" position={Position.Left} />
+      <div className="node-head">
+        <span style={{ fontSize: 18 }}>{def.icon}</span>
+        <span>{data.label || def.label}</span>
+      </div>
+      <div className="node-sub">{def.desc}</div>
+      <div className="node-status">
+        <span className={`badge ${status}`}>{status.toUpperCase()}</span>
+      </div>
+      <Handle type="source" position={Position.Right} />
+    </div>
+  );
+}
+
+const nodeTypes = { flow: FlowNode };
+
+/* ===========================================================
+ * 6) 主應用 — 整合所有模組
+ * =========================================================== */
+function App() {
+  const busRef = useRef(new EventBus());
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [logs, setLogs] = useState([]);
+  const [running, setRunning] = useState(false);
+  const [activeTab, setActiveTab] = useState('props');
+  const [stats, setStats] = useState({ total: 0, success: 0, failed: 0, skipped: 0 });
+  const reactFlowWrapper = useRef(null);
+  const [rfInstance, setRfInstance] = useState(null);
+
+  // 訂閱事件匯流排 → 更新 console
+  useEffect(() => {
+    const bus = busRef.current;
+    const off1 = bus.on('*', () => {
+      setLogs(bus.getLog().slice(-200));
+    });
+    // 初始 demo
+    loadDemo();
+    return () => { off1(); };
+  }, []);
+
+  // 載入 demo workflow
+  const loadDemo = useCallback(() => {
+    const demo = [
+      { id: 't1', type: 'flow', position: { x: 60, y: 120 }, data: { type: 'trigger', label: 'Start', status: 'pending', params: { payload: '{"userId":42,"value":17}' } } },
+      { id: 'h1', type: 'flow', position: { x: 300, y: 60 }, data: { type: 'http', label: 'Fetch Profile', status: 'pending', params: { url: 'https://httpbin.org/uuid', method: 'GET', retries: 1, timeoutMs: 4000 } } },
+      { id: 'c1', type: 'flow', position: { x: 300, y: 220 }, data: { type: 'condition', label: 'Check value', status: 'pending', params: { expr: 'x.value > 10' } } },
+      { id: 'tr1', type: 'flow', position: { x: 540, y: 60 }, data: { type: 'transform', label: 'Enrich', status: 'pending', params: { expr: '(x) => ({ ...x, enriched: true, source: "demo" })' } } },
+      { id: 'd1', type: 'flow', position: { x: 540, y: 220 }, data: { type: 'delay', label: 'Wait 600ms', status: 'pending', params: { ms: 600 } } },
+      { id: 'l1', type: 'flow', position: { x: 780, y: 140 }, data: { type: 'log', label: 'Final Log', status: 'pending', params: { message: 'workflow.completed' } } }
+    ];
+    const demoEdges = [
+      { id: 'e1', source: 't1', target: 'h1', markerEnd: { type: MarkerType.ArrowClosed } },
+      { id: 'e2', source: 't1', target: 'c1', markerEnd: { type: MarkerType.ArrowClosed } },
+      { id: 'e3', source: 'h1', target: 'tr1', markerEnd: { type: MarkerType.ArrowClosed } },
+      { id: 'e4', source: 'c1', target: 'd1', markerEnd: { type: MarkerType.ArrowClosed } },
+      { id: 'e5', source: 'tr1', target: 'l1', markerEnd: { type: MarkerType.ArrowClosed } },
+      { id: 'e6', source: 'd1', target: 'l1', markerEnd: { type: MarkerType.ArrowClosed } }
+    ];
+    setNodes(demo);
+    setEdges(demoEdges);
+    setStats({ total: demo.length, success: 0, failed: 0, skipped: 0 });
+    busRef.current.clearLog();
+    setLogs([]);
+  }, [setNodes, setEdges]);
+
+  const onConnect = useCallback((params) => {
+    setEdges(eds => addEdge({ ...params, markerEnd: { type: MarkerType.ArrowClosed } }, eds));
+  }, [setEdges]);
+
+  // 從 palette 拖入新節點
+  const onDragOver = useCallback((e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  }, []);
+  const onDrop = useCallback((e) => {
+    e.preventDefault();
+    const type = e.dataTransfer.getData('application/flowforge');
+    if (!type || !NODE_DEFS[type]) return;
+    const bounds = reactFlowWrapper.current.getBoundingClientRect();
+    const pos = rfInstance ? rfInstance.screenToFlowPosition({ x: e.clientX - bounds.left, y: e.clientY - bounds.top }) : { x: 200, y: 200 };
+    const def = NODE_DEFS[type];
+    const newNode = {
+      id: 'n_' + Math.random().toString(36).slice(2, 8),
+      type: 'flow',
+      position: pos,
+      data: {
+        type, label: def.label, status: 'pending',
+        params: { ...def.defaults }
+      }
+    };
+    setNodes(ns => [...ns, newNode]);
+    setStats(s => ({ ...s, total: s.total + 1 }));
+  }, [rfInstance, setNodes]);
+
+  // 執行 DAG
+  const handleRun = useCallback(async () => {
+    if (running || nodes.length === 0) return;
+    setRunning(true);
+    // 重置狀態
+    setNodes(ns => ns.map(n => ({ ...n, data: { ...n.data, status: 'pending' } })));
+    setStats({ total: nodes.length, success: 0, failed: 0, skipped: 0 });
+
+    // 監聽 node 事件 → 更新視覺狀態
+    const bus = busRef.current;
+    const offStart = bus.on('dag.start', () => {});
+    const offLayer = bus.on('dag.layer.start', ({ layer, count }) => {
+      // highlight running layer
+    });
+    const offDone = bus.on('dag.done', ({ ok, error }) => {
+      // 最終計算
+    });
+
+    // 動畫用: 逐層點亮
+    const { layers, hasCycle } = topologicalSort(nodes, edges);
+    if (hasCycle) {
+      bus._log('error', 'dag.cycle.detected', { reason: 'graph-contains-cycle' });
+      setRunning(false);
+      return;
+    }
+
+    // 視覺化動畫: 逐層 set 狀態
+    (async () => {
+      for (let i = 0; i < layers.length; i++) {
+        const layer = layers[i];
+        setNodes(ns => ns.map(n => layer.includes(n.id) ? { ...n, data: { ...n.data, status: 'running' } } : n));
+        setEdges(es => es.map(e => {
+          const inLayer = layer.includes(e.source);
+          return inLayer ? { ...e, className: 'running' } : { ...e, className: '' };
+        }));
+        await new Promise(r => setTimeout(r, Math.max(400, 600 / layer.length)));
+      }
+    })();
+
+    // 背景執行實際 DAG
+    const result = await runDag(nodes, edges, bus, ({ running: runningIds, completed }) => {
+      setNodes(ns => ns.map(n => {
+        let status = 'pending';
+        if (runningIds.includes(n.id)) status = 'running';
+        else if (completed.includes(n.id)) status = 'success';
+        return { ...n, data: { ...n.data, status } };
+      }));
+    });
+
+    // 收尾: 標記完成/失敗
+    setNodes(ns => ns.map(n => {
+      const r = result.results?.get(n.id);
+      let status = 'success';
+      if (r?._skipped) status = 'skipped';
+      else if (r?._error) status = 'failed';
+      return { ...n, data: { ...n.data, status } };
+    }));
+    setEdges(es => es.map(e => ({ ...e, className: '' })));
+
+    // 統計
+    let succ = 0, fail = 0, skip = 0;
+    nodes.forEach(n => {
+      const r = result.results?.get(n.id);
+      if (r?._skipped) skip++;
+      else if (r?._error) fail++;
+      else succ++;
+    });
+    setStats({ total: nodes.length, success: succ, failed: fail, skipped: skip });
+    setRunning(false);
+  }, [nodes, edges, running, setNodes, setEdges]);
+
+  const handleClear = () => {
+    setNodes([]); setEdges([]); setSelectedNode(null);
+    setStats({ total: 0, success: 0, failed: 0, skipped: 0 });
+  };
+
+  const handleNodeClick = useCallback((_, node) => setSelectedNode(node), []);
+
+  // 同步 selected node 的最新 data (執行中會變)
+  const liveSelected = useMemo(() => {
+    if (!selectedNode) return null;
+    return nodes.find(n => n.id === selectedNode.id) || null;
+  }, [nodes, selectedNode]);
+
+  const updateSelected = (key, val) => {
+    if (!liveSelected) return;
+    setNodes(ns => ns.map(n => n.id === liveSelected.id
+      ? { ...n, data: { ...n.data, params: { ...n.data.params, [key]: val } } }
+      : n));
+  };
+
+  return (
+    <div className="app">
+      <div className="topbar">
+        <div className="brand">
+          <div className="brand-dot"></div>
+          <span>FlowForge</span>
+          <span className="brand-sub">事件驅動 × DAG 執行引擎</span>
+        </div>
+        <div className="toolbar">
+          <button className="btn" onClick={loadDemo} disabled={running}>📋 Demo</button>
+          <button className="btn" onClick={handleClear} disabled={running}>🗑️ 清空</button>
+          <button className="btn primary" onClick={handleRun} disabled={running || nodes.length === 0}>
+            {running ? '⏳ 執行中…' : '▶ 執行 DAG'}
+          </button>
+        </div>
+      </div>
+
+      <div className="sidebar">
+        <h3>節點 Palette</h3>
+        {Object.entries(NODE_DEFS).map(([type, def]) => (
+          <div
+            key={type}
+            className="palette-item"
+            draggable
+            onDragStart={(e) => e.dataTransfer.setData('application/flowforge', type)}
+            title={def.desc}
+          >
+            <span className="ico" style={{ color: def.color }}>{def.icon}</span>
+            <span className="label">{def.label}</span>
+            <span className="type">{type}</span>
+          </div>
+        ))}
+        <div className="hint">
+          💡 拖曳到畫布建立節點，從右側 handle 拉出連線建立相依。
+          點擊節點可在右側編輯參數。
+        </div>
+        <h3 style={{ marginTop: 16 }}>執行統計</h3>
+        <div className="stats-row">
+          <div className="stat-card">
+            <div className="num">{stats.total}</div>
+            <div className="lbl">Total</div>
+          </div>
+          <div className="stat-card">
+            <div className="num" style={{ color: 'var(--ok)' }}>{stats.success}</div>
+            <div className="lbl">Success</div>
+          </div>
+          <div className="stat-card">
+            <div className="num" style={{ color: 'var(--err)' }}>{stats.failed}</div>
+            <div className="lbl">Failed</div>
+          </div>
+          <div className="stat-card">
+            <div className="num" style={{ color: 'var(--warn)' }}>{stats.skipped}</div>
+            <div className="lbl">Skipped</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="canvas-wrap" ref={reactFlowWrapper}>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onInit={setRfInstance}
+          onDrop={onDrop}
+          onDragOver={onDragOver}
+          onNodeClick={handleNodeClick}
+          onPaneClick={() => setSelectedNode(null)}
+          nodeTypes={nodeTypes}
+          fitView
+          attributionPosition="bottom-left"
+        >
+          <Background color="#1f2937" gap={20} />
+          <Controls />
+          <MiniMap nodeColor={(n) => NODE_DEFS[n.data?.type]?.color || '#666'} maskColor="rgba(11,15,26,0.7)" />
+        </ReactFlow>
+      </div>
+
+      <div className="rightpanel">
+        <div className="tabs">
+          <div className={`tab ${activeTab === 'props' ? 'active' : ''}`} onClick={() => setActiveTab('props')}>
+            屬性
+          </div>
+          <div className={`tab ${activeTab === 'json' ? 'active' : ''}`} onClick={() => setActiveTab('json')}>
+            JSON
+          </div>
+          <div className={`tab ${activeTab === 'topo' ? 'active' : ''}`} onClick={() => setActiveTab('topo')}>
+            DAG 分析
+          </div>
+        </div>
+        <div className="tab-body">
+          {activeTab === 'props' && (
+            liveSelected ? (
+              <div>
+                <div className="field">
+                  <label>節點類型</label>
+                  <div style={{ padding: '6px 9px', background: 'var(--bg-2)', borderRadius: 6, fontSize: 13 }}>
+                    {NODE_DEFS[liveSelected.data.type]?.icon} {NODE_DEFS[liveSelected.data.type]?.label}
+                  </div>
+                </div>
+                <div className="field">
+                  <label>標籤</label>
+                  <input
+                    value={liveSelected.data.label || ''}
+                    onChange={(e) => setNodes(ns => ns.map(n => n.id === liveSelected.id
+                      ? { ...n, data: { ...n.data, label: e.target.value } } : n))}
+                  />
+                </div>
+                <div className="field">
+                  <label>狀態</label>
+                  <div><span className={`badge ${liveSelected.data.status || 'pending'}`}>{(liveSelected.data.status || 'pending').toUpperCase()}</span></div>
+                </div>
+                <h3 style={{ marginTop: 14, fontSize: 11, color: 'var(--fg-1)', textTransform: 'uppercase' }}>參數</h3>
+                {Object.entries(liveSelected.data.params || {}).map(([k, v]) => (
+                  <div className="field" key={k}>
+                    <label>{k}</label>
+                    {typeof v === 'string' && v.length > 40 ? (
+                      <textarea value={v} onChange={(e) => updateSelected(k, e.target.value)} />
+                    ) : (
+                      <input value={v} onChange={(e) => updateSelected(k, e.target.value)} />
+                    )}
+                  </div>
+                ))}
+                <button className="btn danger" onClick={() => {
+                  setNodes(ns => ns.filter(n => n.id !== liveSelected.id));
+                  setEdges(es => es.filter(e => e.source !== liveSelected.id && e.target !== liveSelected.id));
+                  setSelectedNode(null);
+                  setStats(s => ({ ...s, total: s.total - 1 }));
+                }}>🗑️ 刪除節點</button>
+              </div>
+            ) : (
+              <div className="empty-hint">👈 點擊畫布上任一節點<br />以檢視與編輯參數</div>
+            )
+          )}
+
+          {activeTab === 'json' && (
+            <div>
+              <div className="hint" style={{ marginBottom: 10 }}>即時 workflow 結構 (含節點狀態)</div>
+              <textarea
+                readOnly
+                style={{ width: '100%', height: 'calc(100% - 60px)', minHeight: 300, fontSize: 11 }}
+                value={JSON.stringify({ nodes: nodes.map(n => ({ id: n.id, type: n.data.type, label: n.data.label, status: n.data.status, params: n.data.params })), edges }, null, 2)}
+              />
+            </div>
+          )}
+
+          {activeTab === 'topo' && (() => {
+            const { layers, hasCycle, order } = topologicalSort(nodes, edges);
+            return (
+              <div>
+                <div className="hint" style={{ marginBottom: 8 }}>
+                  {hasCycle
+                    ? <span style={{ color: 'var(--err)' }}>⚠️ 偵測到循環! DAG 不可執行</span>
+                    : <span style={{ color: 'var(--ok)' }}>✓ Valid DAG, {layers.length} 層並行</span>}
+                </div>
+                <h3 style={{ marginTop: 10, fontSize: 11, color: 'var(--fg-1)', textTransform: 'uppercase' }}>執行層級</h3>
+                {layers.map((layer, i) => (
+                  <div key={i} style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 11, color: 'var(--fg-1)' }}>Layer {i} ({layer.length} 個節點並行)</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                      {layer.map(id => {
+                        const n = nodes.find(x => x.id === id);
+                        const def = NODE_DEFS[n?.data?.type] || {};
+                        return (
+                          <span key={id} style={{
+                            padding: '3px 8px', background: 'var(--bg-2)', borderRadius: 4,
+                            fontSize: 11, border: '1px solid var(--border)'
+                          }}>
+                            {def.icon} {n?.data?.label || id}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+                <h3 style={{ marginTop: 14, fontSize: 11, color: 'var(--fg-1)', textTransform: 'uppercase' }}>拓撲序</h3>
+                <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--fg-1)', wordBreak: 'break-all' }}>
+                  {order.join(' → ')}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      </div>
+
+      <div className="console">
+        <div className="console-head">
+          <span>📡 Event Bus Console (事件驅動日誌)</span>
+          <span style={{ fontSize: 11 }}>
+            {logs.length} 事件
+            <button className="btn" style={{ marginLeft: 8, padding: '2px 8px', fontSize: 11 }} onClick={() => { busRef.current.clearLog(); setLogs([]); }}>清空</button>
+          </span>
+        </div>
+        <div className="console-body">
+          {logs.length === 0
+            ? <div style={{ color: 'var(--fg-2)' }}>等待事件… 按下「執行 DAG」開始</div>
+            : logs.slice(-150).map((l, i) => (
+              <div className="log-line" key={i}>
+                <span className="log-ts">{new Date(l.ts).toLocaleTimeString()}</span>
+                <span className={`log-lv ${l.level}`}>{l.level.toUpperCase()}</span>
+                <span className="log-msg">{l.msg} {l.data && Object.keys(l.data).length > 0 ? JSON.stringify(l.data).slice(0, 200) : ''}</span>
+              </div>
+            ))
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Root() {
+  return (
+    <ReactFlowProvider>
+      <App />
+    </ReactFlowProvider>
+  );
+}
+
+// Babel will compile the JSX in this script; mount after compile.
+// The Babel standalone runtime exposes a global `Babel` and runs the script on DOMContentLoaded.
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<Root />);
+</script>
+</body>
+</html>

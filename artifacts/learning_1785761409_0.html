@@ -1,0 +1,1276 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>React Flow 工作流 — 動態節點擴展與收縮</title>
+
+  <!-- React 18 + ReactDOM 18 (UMD production) -->
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+
+  <!-- React Flow (UMD v11.11.4 monolithic - includes Background/Controls/MiniMap/Handle/Position) -->
+  <script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css" />
+
+  <!-- Babel Standalone (in-browser JSX compiler) -->
+  <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+
+  <style>
+    :root {
+      --bg-0: #0a0e1f;
+      --bg-1: #111733;
+      --bg-2: #19224a;
+      --bg-3: #233063;
+      --line: #2c3868;
+      --line-strong: #3d4d8f;
+      --text: #e6ecff;
+      --text-dim: #9aa6cf;
+      --text-mute: #6b78a5;
+      --accent: #6c8cff;
+      --accent-2: #56e0c2;
+      --amber: #ffb86b;
+      --purple: #b48cff;
+      --pink: #ff6b8a;
+      --ok: #56e0c2;
+      --warn: #ffb86b;
+      --danger: #ff6b8a;
+      --shadow: 0 6px 24px rgba(0,0,0,0.45);
+    }
+    * { box-sizing: border-box; }
+    html, body, #root { height: 100%; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC",
+        "PingFang TC", "Microsoft JhengHei", Roboto, sans-serif;
+      background:
+        radial-gradient(circle at 12% 0%, rgba(108,140,255,0.18) 0%, transparent 50%),
+        radial-gradient(circle at 88% 100%, rgba(86,224,194,0.12) 0%, transparent 50%),
+        var(--bg-0);
+      color: var(--text);
+      overflow: hidden;
+    }
+
+    /* ───────── Layout ───────── */
+    .app {
+      display: grid;
+      grid-template-columns: 280px 1fr 320px;
+      grid-template-rows: 56px 1fr;
+      grid-template-areas:
+        "header header header"
+        "sidebar canvas stats";
+      height: 100vh;
+      width: 100vw;
+    }
+    header.topbar {
+      grid-area: header;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 18px;
+      background: linear-gradient(180deg, var(--bg-2) 0%, var(--bg-1) 100%);
+      border-bottom: 1px solid var(--line);
+      z-index: 10;
+    }
+    header.topbar h1 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.4px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    header.topbar h1 .logo {
+      width: 26px; height: 26px;
+      border-radius: 7px;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--purple) 50%, var(--accent-2) 100%);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; color: white; font-weight: 800;
+      box-shadow: 0 2px 10px rgba(108,140,255,0.4);
+    }
+    header.topbar .sub { font-size: 12px; color: var(--text-dim); font-weight: 400; }
+    header.topbar .spacer { flex: 1; }
+    header.topbar button {
+      background: var(--bg-3);
+      color: var(--text);
+      border: 1px solid var(--line);
+      padding: 7px 14px;
+      border-radius: 7px;
+      font-size: 12.5px;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-family: inherit;
+    }
+    header.topbar button:hover { background: #2c3878; border-color: var(--accent); }
+    header.topbar button.primary {
+      background: linear-gradient(135deg, var(--accent) 0%, #4f6ee0 100%);
+      border-color: var(--accent);
+    }
+    header.topbar button.primary:hover { filter: brightness(1.1); }
+    header.topbar button.ghost {
+      background: transparent;
+    }
+    header.topbar .badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      background: rgba(108,140,255,0.15);
+      color: var(--accent);
+      border-radius: 10px;
+      border: 1px solid rgba(108,140,255,0.3);
+    }
+
+    /* ───────── Sidebar (blueprint) ───────── */
+    aside.sidebar {
+      grid-area: sidebar;
+      background: var(--bg-1);
+      border-right: 1px solid var(--line);
+      overflow-y: auto;
+      padding: 16px;
+    }
+    aside.sidebar h3 {
+      margin: 4px 0 10px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1.4px;
+      color: var(--text-dim);
+    }
+    .blueprint-tree {
+      font-size: 13px;
+      user-select: none;
+    }
+    .bp-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 6px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .bp-row:hover { background: var(--bg-2); }
+    .bp-row.has-children { font-weight: 500; }
+    .bp-row .toggle {
+      width: 18px; height: 18px;
+      display: inline-flex; align-items: center; justify-content: center;
+      border-radius: 4px;
+      background: var(--bg-3);
+      font-size: 11px;
+      color: var(--accent-2);
+      transition: transform 0.18s;
+      flex-shrink: 0;
+    }
+    .bp-row .toggle.collapsed { transform: rotate(-90deg); }
+    .bp-row .icon {
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+    .bp-row .label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bp-row .count {
+      font-size: 10px;
+      color: var(--text-mute);
+      background: var(--bg-2);
+      padding: 1px 6px;
+      border-radius: 8px;
+    }
+    .bp-row.is-visible .count { color: var(--accent-2); }
+    .bp-children { padding-left: 16px; border-left: 1px dashed var(--line); margin-left: 8px; }
+
+    .batch-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-bottom: 18px;
+    }
+    .batch-actions button {
+      background: var(--bg-2);
+      border: 1px solid var(--line);
+      color: var(--text);
+      padding: 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-family: inherit;
+    }
+    .batch-actions button:hover { border-color: var(--accent); background: var(--bg-3); }
+    .batch-actions button.danger { color: var(--amber); border-color: rgba(255,184,107,0.3); }
+
+    .depth-slider {
+      margin-top: 8px;
+      padding: 10px;
+      background: var(--bg-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .depth-slider label {
+      display: flex; justify-content: space-between;
+      font-size: 11px; color: var(--text-dim);
+      margin-bottom: 6px;
+    }
+    .depth-slider input[type=range] { width: 100%; accent-color: var(--accent); }
+    .depth-slider .value { color: var(--accent); font-weight: 600; }
+
+    /* ───────── Canvas ───────── */
+    main.canvas-wrap {
+      grid-area: canvas;
+      position: relative;
+      background: var(--bg-0);
+    }
+
+    /* ───────── Stats Panel ───────── */
+    aside.stats {
+      grid-area: stats;
+      background: var(--bg-1);
+      border-left: 1px solid var(--line);
+      overflow-y: auto;
+      padding: 16px;
+    }
+    .stat-card {
+      background: var(--bg-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+    }
+    .stat-card .stat-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: var(--text-mute);
+      margin-bottom: 6px;
+    }
+    .stat-card .stat-value {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .stat-card .stat-detail {
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-top: 4px;
+    }
+    .progress-bar {
+      width: 100%;
+      height: 6px;
+      background: var(--bg-3);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    .progress-bar .fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 100%);
+      transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .info-list { font-size: 12px; }
+    .info-list .row {
+      display: flex; justify-content: space-between;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .info-list .row:last-child { border-bottom: none; }
+    .info-list .row .key { color: var(--text-dim); }
+    .info-list .row .val { color: var(--text); font-weight: 500; }
+
+    .legend {
+      margin-top: 16px;
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
+    }
+    .legend-row {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12px;
+      padding: 4px 0;
+    }
+    .legend-row .swatch {
+      width: 12px; height: 12px; border-radius: 3px;
+    }
+
+    /* ───────── Custom Node Styles ───────── */
+    .react-flow__node {
+      font-family: inherit;
+    }
+    .rf-node {
+      width: 220px;
+      background: var(--bg-2);
+      border: 1.5px solid var(--line);
+      border-radius: 10px;
+      color: var(--text);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                  opacity 0.25s ease,
+                  box-shadow 0.2s;
+    }
+    .rf-node:hover {
+      box-shadow: 0 8px 32px rgba(108,140,255,0.4);
+    }
+    .rf-node.is-group {
+      background: linear-gradient(135deg, rgba(180,140,255,0.18) 0%, var(--bg-2) 60%);
+      border-color: var(--purple);
+      border-style: solid;
+    }
+    .rf-node.is-root {
+      background: linear-gradient(135deg, rgba(108,140,255,0.2) 0%, var(--bg-2) 60%);
+      border-color: var(--accent);
+      border-width: 2px;
+    }
+    .rf-node.is-decision {
+      background: linear-gradient(135deg, rgba(255,184,107,0.18) 0%, var(--bg-2) 60%);
+      border-color: var(--amber);
+    }
+    .rf-node .head {
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid var(--line);
+    }
+    .rf-node .head .kind-icon {
+      width: 22px; height: 22px;
+      border-radius: 5px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+    .rf-node.is-group .head .kind-icon { background: rgba(180,140,255,0.25); color: var(--purple); }
+    .rf-node.is-root .head .kind-icon { background: rgba(108,140,255,0.25); color: var(--accent); }
+    .rf-node.is-decision .head .kind-icon { background: rgba(255,184,107,0.25); color: var(--amber); }
+    .rf-node.is-task .head .kind-icon { background: rgba(86,224,194,0.25); color: var(--accent-2); }
+    .rf-node .head .title {
+      flex: 1;
+      font-size: 13px;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .rf-node .head .expand-btn {
+      width: 24px; height: 24px;
+      border-radius: 5px;
+      background: var(--bg-3);
+      border: 1px solid var(--line-strong);
+      color: var(--accent-2);
+      font-size: 13px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s;
+      flex-shrink: 0;
+    }
+    .rf-node .head .expand-btn:hover { background: var(--accent-2); color: var(--bg-0); }
+    .rf-node .head .expand-btn:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+    .rf-node .body {
+      padding: 8px 12px;
+      font-size: 11.5px;
+      color: var(--text-dim);
+    }
+    .rf-node .body .desc { line-height: 1.45; }
+    .rf-node .body .meta {
+      display: flex; gap: 8px;
+      margin-top: 6px;
+      font-size: 10px;
+      color: var(--text-mute);
+    }
+    .rf-node .body .meta .chip {
+      background: var(--bg-3);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .rf-node .body .child-summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px dashed var(--line);
+      font-size: 10px;
+    }
+    .rf-node .body .child-summary .lbl { color: var(--text-mute); }
+    .rf-node .body .child-summary .val { color: var(--purple); font-weight: 600; }
+
+    /* React Flow dark theme overrides */
+    .react-flow__background { background: var(--bg-0); }
+    .react-flow__attribution { background: rgba(0,0,0,0.5) !important; color: var(--text-dim) !important; }
+    .react-flow__attribution a { color: var(--accent) !important; }
+    .react-flow__controls button {
+      background: var(--bg-2) !important;
+      border-bottom: 1px solid var(--line) !important;
+      color: var(--text) !important;
+      fill: var(--text) !important;
+    }
+    .react-flow__controls button:hover { background: var(--bg-3) !important; }
+    .react-flow__controls button svg { fill: var(--text); }
+    .react-flow__minimap { background: var(--bg-1) !important; }
+    .react-flow__edge-path {
+      stroke: var(--accent);
+      stroke-width: 1.6;
+    }
+    .react-flow__edge.selected .react-flow__edge-path,
+    .react-flow__edge:hover .react-flow__edge-path {
+      stroke: var(--accent-2);
+      stroke-width: 2.4;
+    }
+    .react-flow__handle {
+      width: 9px; height: 9px;
+      background: var(--accent);
+      border: 2px solid var(--bg-0);
+    }
+
+    /* Toast */
+    .toast-area {
+      position: fixed;
+      bottom: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      display: flex; flex-direction: column; gap: 8px;
+      align-items: center;
+    }
+    .toast {
+      background: var(--bg-2);
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--accent-2);
+      padding: 10px 18px;
+      border-radius: 6px;
+      font-size: 13px;
+      box-shadow: var(--shadow);
+      animation: slideup 0.2s ease-out;
+      max-width: 480px;
+    }
+    .toast.warn { border-left-color: var(--amber); }
+    .toast.info { border-left-color: var(--accent); }
+    @keyframes slideup {
+      from { transform: translateY(10px); opacity: 0; }
+      to   { transform: translateY(0); opacity: 1; }
+    }
+
+    /* Subtle animation when nodes appear */
+    @keyframes nodeEnter {
+      from { transform: scale(0.7); opacity: 0; }
+      to   { transform: scale(1); opacity: 1; }
+    }
+    .rf-node.entering { animation: nodeEnter 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="react">
+    const { useState, useEffect, useCallback, useMemo, useRef } = React;
+
+    /* =========================================================
+       1) React Flow UMD bootstrap (reused from skill: react_flow_setup_umd)
+       ========================================================= */
+    const RF = window.ReactFlow;
+    if (!RF) {
+      document.body.innerHTML =
+        '<pre style="color:#ff6b8a;padding:20px">React Flow UMD 載入失敗，請檢查 CDN。</pre>';
+      throw new Error("ReactFlow UMD not loaded");
+    }
+    const ReactFlow = RF.ReactFlow;
+    const {
+      ReactFlowProvider,
+      Background,
+      Controls,
+      MiniMap,
+      Handle,
+      Position,
+      applyNodeChanges,
+      applyEdgeChanges,
+      addEdge,
+      useReactFlow,
+    } = RF;
+
+    /* =========================================================
+       2) 藍圖 (Blueprint) - 樹狀結構的工作流定義
+          type: 'root' | 'group' | 'task' | 'decision'
+          children: 子節點 (group 可折疊)
+       ========================================================= */
+    const BLUEPRINT = {
+      id: "bp_root",
+      type: "root",
+      title: "CI/CD Pipeline",
+      desc: "持續整合與部署流程入口",
+      status: "active",
+      children: [
+        {
+          id: "bp_source",
+          type: "task",
+          title: "Git Pull",
+          desc: "從 Git 拉取最新程式碼",
+          status: "ready",
+          tag: "src",
+        },
+        {
+          id: "bp_build",
+          type: "group",
+          title: "Build Stage",
+          desc: "編譯與打包階段",
+          color: "purple",
+          children: [
+            {
+              id: "bp_build_compile",
+              type: "task",
+              title: "Compile",
+              desc: "TypeScript / Babel 編譯",
+              status: "ready",
+              tag: "10s",
+            },
+            {
+              id: "bp_build_bundle",
+              type: "task",
+              title: "Bundle",
+              desc: "Webpack / Vite 打包",
+              status: "ready",
+              tag: "30s",
+            },
+            {
+              id: "bp_build_decision",
+              type: "decision",
+              title: "Build OK?",
+              desc: "編譯是否成功",
+              status: "branch",
+            },
+          ],
+        },
+        {
+          id: "bp_test",
+          type: "group",
+          title: "Test Stage",
+          desc: "自動化測試套件",
+          color: "purple",
+          children: [
+            {
+              id: "bp_test_unit",
+              type: "task",
+              title: "Unit Tests",
+              desc: "Jest 單元測試",
+              status: "ready",
+              tag: "120s",
+            },
+            {
+              id: "bp_test_e2e",
+              type: "group",
+              title: "E2E Tests",
+              desc: "端對端測試群組",
+              color: "purple",
+              children: [
+                {
+                  id: "bp_test_e2e_chrome",
+                  type: "task",
+                  title: "Chrome E2E",
+                  desc: "Playwright / Chrome",
+                  status: "ready",
+                  tag: "90s",
+                },
+                {
+                  id: "bp_test_e2e_firefox",
+                  type: "task",
+                  title: "Firefox E2E",
+                  desc: "Playwright / Firefox",
+                  status: "ready",
+                  tag: "85s",
+                },
+                {
+                  id: "bp_test_e2e_safari",
+                  type: "task",
+                  title: "Safari E2E",
+                  desc: "Playwright / Safari",
+                  status: "ready",
+                  tag: "95s",
+                },
+              ],
+            },
+            {
+              id: "bp_test_perf",
+              type: "task",
+              title: "Performance",
+              desc: "Lighthouse 跑分",
+              status: "ready",
+              tag: "60s",
+            },
+          ],
+        },
+        {
+          id: "bp_deploy",
+          type: "group",
+          title: "Deploy Stage",
+          desc: "部署到正式環境",
+          color: "purple",
+          children: [
+            {
+              id: "bp_deploy_staging",
+              type: "task",
+              title: "Deploy → Staging",
+              desc: "先上 staging 環境",
+              status: "ready",
+              tag: "45s",
+            },
+            {
+              id: "bp_deploy_decision",
+              type: "decision",
+              title: "Manual Approve?",
+              desc: "需人工核可",
+              status: "branch",
+            },
+            {
+              id: "bp_deploy_prod",
+              type: "task",
+              title: "Deploy → Prod",
+              desc: "正式環境上線",
+              status: "ready",
+              tag: "120s",
+            },
+          ],
+        },
+        {
+          id: "bp_monitor",
+          type: "group",
+          title: "Monitor",
+          desc: "上線後監控",
+          color: "purple",
+          children: [
+            {
+              id: "bp_monitor_logs",
+              type: "task",
+              title: "Log Watcher",
+              desc: "收集錯誤日誌",
+              status: "ready",
+              tag: "live",
+            },
+            {
+              id: "bp_monitor_metrics",
+              type: "task",
+              title: "Metrics Dashboard",
+              desc: "Grafana 儀表板",
+              status: "ready",
+              tag: "live",
+            },
+          ],
+        },
+      ],
+    };
+
+    /* =========================================================
+       3) 工具：把藍圖轉成 layout (位置/邊)，支援隱藏未展開子節點
+       ========================================================= */
+
+    // 計算每個節點在藍圖中的深度
+    function computeDepthMap(node, depth = 0, map = {}) {
+      map[node.id] = depth;
+      if (node.children) {
+        for (const c of node.children) computeDepthMap(c, depth + 1, map);
+      }
+      return map;
+    }
+
+    // 給定一個 blueprint node，依據其子節點的 type 配置 icons
+    function nodeIcon(type) {
+      switch (type) {
+        case "root": return "★";
+        case "group": return "▾";
+        case "decision": return "?";
+        case "task": default: return "✓";
+      }
+    }
+
+    // 計算 layout：DFS 走訪，依深度 X 軸、同層 Y 軸堆疊
+    function layoutBlueprint(bp, visibleSet, opts = {}) {
+      const H_GAP = 280;     // X 軸(深度方向)間距
+      const V_GAP = 110;     // Y 軸(同層)間距
+      const ORIGIN_X = 60;
+      const ORIGIN_Y = 60;
+
+      const result = { nodes: [], edges: [] };
+      const idToPos = {};
+      // 同層 y 計數器
+      const depthCount = {};
+      let edgeCounter = 0;
+
+      function walk(bpNode) {
+        // 自己是否可見
+        if (!visibleSet.has(bpNode.id)) return;
+
+        const depth = computeDepthMap(BLUEPRINT)[bpNode.id];
+        const y = (depthCount[depth] ?? 0) * V_GAP;
+        depthCount[depth] = (depthCount[depth] ?? 0) + 1;
+        idToPos[bpNode.id] = { x: ORIGIN_X + depth * H_GAP, y: ORIGIN_Y + y };
+
+        // 加自己的 node 物件
+        result.nodes.push({
+          id: bpNode.id,
+          type: "rfNode",        // 自訂節點類型
+          data: {
+            bpId: bpNode.id,
+            title: bpNode.title,
+            desc: bpNode.desc,
+            kind: bpNode.type,
+            tag: bpNode.tag,
+            status: bpNode.status,
+            hasChildren: !!bpNode.children,
+            childCount: (bpNode.children || []).length,
+            isExpanded: opts.expandedSet ? opts.expandedSet.has(bpNode.id) : false,
+          },
+          position: idToPos[bpNode.id],
+        });
+
+        // 走訪子節點
+        if (bpNode.children) {
+          for (const child of bpNode.children) {
+            const childVisible = visibleSet.has(child.id);
+            if (childVisible) {
+              // 加 edge
+              result.edges.push({
+                id: "e_" + (edgeCounter++),
+                source: bpNode.id,
+                target: child.id,
+                type: "smoothstep",
+                animated: bpNode.type === "group" || child.type === "decision",
+              });
+              walk(child);
+            }
+          }
+        }
+      }
+      walk(bp);
+      return result;
+    }
+
+    // 取得所有 descendants id
+    function descendants(bpNode, acc = []) {
+      if (bpNode.children) {
+        for (const c of bpNode.children) {
+          acc.push(c.id);
+          descendants(c, acc);
+        }
+      }
+      return acc;
+    }
+
+    // 取得祖先鏈 (包含自己)
+    function ancestors(bpNode, targetId, path = []) {
+      path.push(bpNode.id);
+      if (bpNode.id === targetId) return path;
+      if (bpNode.children) {
+        for (const c of bpNode.children) {
+          if (c.id === targetId) { path.push(c.id); return path; }
+          const sub = ancestors(c, targetId, []);
+          if (sub.length > 0 && sub[sub.length - 1] === targetId) {
+            return [...path, ...sub];
+          }
+        }
+      }
+      return [];
+    }
+
+    // 找節點 by id
+    function findById(bpNode, id) {
+      if (bpNode.id === id) return bpNode;
+      if (bpNode.children) {
+        for (const c of bpNode.children) {
+          const r = findById(c, id);
+          if (r) return r;
+        }
+      }
+      return null;
+    }
+
+    // 計算 blueprint 中所有 group 的 id
+    function allGroups(bpNode, acc = []) {
+      if (bpNode.type === "group") acc.push(bpNode.id);
+      if (bpNode.children) {
+        for (const c of bpNode.children) allGroups(c, acc);
+      }
+      return acc;
+    }
+
+    // 計算所有節點 id (含 root)
+    function allNodes(bpNode, acc = []) {
+      acc.push(bpNode.id);
+      if (bpNode.children) {
+        for (const c of bpNode.children) allNodes(c, acc);
+      }
+      return acc;
+    }
+
+    /* =========================================================
+       4) 自訂節點元件：rfNode
+          - 顯示標題/描述/tag
+          - 群組節點有 [+]/[−] 按鈕 (展開/收縮)
+       ========================================================= */
+    function RFNode({ data, selected }) {
+      const isGroup = data.kind === "group";
+      const isRoot  = data.kind === "root";
+      const isDecision = data.kind === "decision";
+
+      const klass = [
+        "rf-node",
+        isGroup ? "is-group" : "",
+        isRoot ? "is-root" : "",
+        isDecision ? "is-decision" : "",
+        (!isGroup && !isRoot && !isDecision) ? "is-task" : "",
+      ].filter(Boolean).join(" ");
+
+      return (
+        <div className={klass} style={{
+          borderColor: selected ? "var(--accent-2)" : undefined,
+          boxShadow: selected ? "0 0 0 2px var(--accent-2), var(--shadow)" : undefined,
+        }}>
+          <Handle type="target" position={Position.Left} />
+          <div className="head">
+            <span className="kind-icon">{nodeIcon(data.kind)}</span>
+            <span className="title">{data.title}</span>
+            {isGroup && (
+              <button
+                className="expand-btn"
+                title={data.isExpanded ? "收縮子節點" : "展開子節點"}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  data.onToggleExpand && data.onToggleExpand(data.bpId);
+                }}
+              >
+                {data.isExpanded ? "−" : "+"}
+              </button>
+            )}
+          </div>
+          <div className="body">
+            <div className="desc">{data.desc}</div>
+            {data.tag && (
+              <div className="meta">
+                <span className="chip">{data.tag}</span>
+                {data.status && <span className="chip">{data.status}</span>}
+              </div>
+            )}
+            {isGroup && (
+              <div className="child-summary">
+                <span className="lbl">子節點</span>
+                <span className="val">
+                  {data.isExpanded
+                    ? `${data.childCount} 已展開`
+                    : `${data.childCount} 隱藏`}
+                </span>
+              </div>
+            )}
+          </div>
+          <Handle type="source" position={Position.Right} />
+        </div>
+      );
+    }
+
+    const nodeTypes = { rfNode: RFNode };
+
+    /* =========================================================
+       5) 預設展開集合：只顯示 root (其餘都收縮)
+       ========================================================= */
+    const DEFAULT_EXPANDED = new Set(["bp_root"]);
+
+    /* =========================================================
+       6) 主元件：FlowApp
+       ========================================================= */
+    function FlowApp() {
+      const reactFlow = useReactFlow();
+      const reactFlowRef = useRef(null);
+
+      // 展開狀態（哪些 group 已被展開）
+      const [expandedSet, setExpandedSet] = useState(() => {
+        try {
+          const saved = localStorage.getItem("rf-flow-expanded");
+          if (saved) return new Set(JSON.parse(saved));
+        } catch (e) {}
+        return new Set(DEFAULT_EXPANDED);
+      });
+
+      // toast queue
+      const [toasts, setToasts] = useState([]);
+      const pushToast = useCallback((msg, kind = "ok") => {
+        const id = Date.now() + Math.random();
+        setToasts(t => [...t, { id, msg, kind }]);
+        setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 2400);
+      }, []);
+
+      // 計算目前可見節點
+      const visibleSet = useMemo(() => {
+        const set = new Set();
+        // 從 root 開始，只把「展開鏈上」的子節點納入
+        function walk(bp) {
+          set.add(bp.id);
+          if (bp.children && expandedSet.has(bp.id)) {
+            for (const c of bp.children) walk(c);
+          }
+        }
+        walk(BLUEPRINT);
+        return set;
+      }, [expandedSet]);
+
+      const { nodes: layoutNodes, edges: layoutEdges } = useMemo(
+        () => layoutBlueprint(BLUEPRINT, visibleSet, { expandedSet }),
+        [visibleSet, expandedSet]
+      );
+
+      // 注入回呼到每個群組節點的 data
+      const finalNodes = useMemo(() => {
+        return layoutNodes.map(n => ({
+          ...n,
+          data: {
+            ...n.data,
+            onToggleExpand: (bpId) => toggleExpand(bpId),
+          },
+        }));
+      }, [layoutNodes]);
+
+      const [rfNodes, setRfNodes] = useState(finalNodes);
+      const [rfEdges, setRfEdges] = useState(layoutEdges);
+
+      // 同步 layout 變化到 rf state
+      useEffect(() => {
+        setRfNodes(finalNodes);
+        setRfEdges(layoutEdges);
+      }, [finalNodes, layoutEdges]);
+
+      // 持久化 expandedSet
+      useEffect(() => {
+        try {
+          localStorage.setItem("rf-flow-expanded", JSON.stringify([...expandedSet]));
+        } catch (e) {}
+      }, [expandedSet]);
+
+      // 展開 / 收縮切換
+      const toggleExpand = useCallback((bpId) => {
+        const bp = findById(BLUEPRINT, bpId);
+        const bpTitle = bp ? bp.title : bpId;
+        setExpandedSet(prev => {
+          const next = new Set(prev);
+          if (next.has(bpId)) {
+            // 收縮：同時移除所有後代（避免誤展開中間節點）
+            if (bp) {
+              next.delete(bpId);
+              for (const desc of descendants(bp)) next.delete(desc);
+            }
+            pushToast(`收縮: ${bpTitle}`, "info");
+          } else {
+            next.add(bpId);
+            pushToast(`展開: ${bpTitle}`, "ok");
+          }
+          return next;
+        });
+        // 下一幀 fitView 確保可見
+        setTimeout(() => {
+          try { reactFlow.fitView({ padding: 0.18, duration: 400 }); } catch(e) {}
+        }, 50);
+      }, [pushToast, reactFlow]);
+
+      // 批次操作
+      const expandAll = useCallback(() => {
+        // 重要：bp_root 也必須加入，否則 walk(BLUEPRINT) 進不去子節點
+        const all = new Set(["bp_root", ...allGroups(BLUEPRINT)]);
+        setExpandedSet(all);
+        pushToast("已展開全部群組", "ok");
+        setTimeout(() => { try { reactFlow.fitView({ padding: 0.15, duration: 500 }); } catch(e){} }, 60);
+      }, [pushToast, reactFlow]);
+
+      const collapseAll = useCallback(() => {
+        setExpandedSet(new Set(["bp_root"]));
+        pushToast("已收縮至僅顯示根節點", "warn");
+        setTimeout(() => { try { reactFlow.fitView({ padding: 0.2, duration: 500 }); } catch(e){} }, 60);
+      }, [pushToast, reactFlow]);
+
+      const expandToDepth = useCallback((targetDepth) => {
+        // 把 blueprint 中所有 depth <= targetDepth 的 group 展開
+        const depthMap = computeDepthMap(BLUEPRINT);
+        const next = new Set(["bp_root"]);
+        for (const gid of allGroups(BLUEPRINT)) {
+          if (depthMap[gid] <= targetDepth) next.add(gid);
+        }
+        setExpandedSet(next);
+        pushToast(`已展開至第 ${targetDepth} 層`, "info");
+        setTimeout(() => { try { reactFlow.fitView({ padding: 0.15, duration: 500 }); } catch(e){} }, 60);
+      }, [pushToast, reactFlow]);
+
+      // 計算統計
+      const allIds = useMemo(() => allNodes(BLUEPRINT), []);
+      const totalNodes = allIds.length;
+      const visibleNodes = visibleSet.size;
+      const hiddenNodes = totalNodes - visibleNodes;
+      const allGroupIds = useMemo(() => allGroups(BLUEPRINT), []);
+      const expandedGroups = allGroupIds.filter(g => expandedSet.has(g)).length;
+      const collapseRatio = totalNodes > 0 ? Math.round((hiddenNodes / totalNodes) * 100) : 0;
+      const maxDepth = useMemo(() => {
+        const dm = computeDepthMap(BLUEPRINT);
+        return Math.max(...Object.values(dm));
+      }, []);
+
+      // Slider 深度
+      const [depthLimit, setDepthLimit] = useState(maxDepth);
+      useEffect(() => {
+        // 當 blueprint 變動時（這裡不會變，但保留彈性）
+      }, [maxDepth]);
+
+      // 處理 React Flow 的 onNodesChange/onEdgesChange
+      const onNodesChange = useCallback(
+        (changes) => setRfNodes((nds) => applyNodeChanges(changes, nds)),
+        []
+      );
+      const onEdgesChange = useCallback(
+        (changes) => setRfEdges((eds) => applyEdgeChanges(changes, eds)),
+        []
+      );
+      const onConnect = useCallback(
+        (params) => setRfEdges((eds) => addEdge({ ...params, animated: true }, eds)),
+        []
+      );
+
+      // 渲染藍圖樹
+      const renderTree = (bp, depth = 0) => {
+        const hasKids = bp.children && bp.children.length > 0;
+        const isGroup = bp.type === "group";
+        const visible = visibleSet.has(bp.id);
+        return (
+          <div key={bp.id}>
+            <div
+              className={`bp-row ${hasKids ? "has-children" : ""} ${visible ? "is-visible" : ""}`}
+              onClick={() => {
+                if (isGroup) toggleExpand(bp.id);
+              }}
+            >
+              {hasKids ? (
+                <span className={`toggle ${expandedSet.has(bp.id) ? "" : "collapsed"}`}>▾</span>
+              ) : (
+                <span style={{ width: 18, display: "inline-block" }} />
+              )}
+              <span className="icon">{nodeIcon(bp.type)}</span>
+              <span className="label">{bp.title}</span>
+              {hasKids && <span className="count">{bp.children.length}</span>}
+            </div>
+            {hasKids && expandedSet.has(bp.id) && (
+              <div className="bp-children">
+                {bp.children.map(c => renderTree(c, depth + 1))}
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      return (
+        <div className="app">
+          <header className="topbar">
+            <h1>
+              <span className="logo">⇕</span>
+              <span>React Flow 工作流</span>
+              <span className="sub">動態節點擴展與收縮</span>
+            </h1>
+            <span className="badge">v11.11.4</span>
+            <div className="spacer" />
+            <button className="ghost" onClick={() => {
+              try { reactFlow.fitView({ padding: 0.15, duration: 400 }); } catch(e){}
+              pushToast("已自動置中", "info");
+            }}>↔ 置中視圖</button>
+            <button className="primary" onClick={() => {
+              try { localStorage.removeItem("rf-flow-expanded"); } catch(e){}
+              setExpandedSet(new Set(DEFAULT_EXPANDED));
+              pushToast("已重置為初始狀態", "info");
+            }}>↻ 重置</button>
+          </header>
+
+          <aside className="sidebar">
+            <h3>🔧 批次操作</h3>
+            <div className="batch-actions">
+              <button onClick={expandAll}>⊞ 展開全部</button>
+              <button className="danger" onClick={collapseAll}>⊟ 收縮全部</button>
+            </div>
+
+            <h3>📏 展開深度</h3>
+            <div className="depth-slider">
+              <label>
+                <span>目標層級</span>
+                <span><span className="value">{depthLimit}</span> / {maxDepth}</span>
+              </label>
+              <input
+                type="range"
+                min="1"
+                max={maxDepth}
+                value={depthLimit}
+                onChange={(e) => setDepthLimit(Number(e.target.value))}
+              />
+              <button
+                style={{
+                  width: "100%",
+                  marginTop: 8,
+                  padding: 6,
+                  background: "var(--bg-3)",
+                  border: "1px solid var(--line-strong)",
+                  color: "var(--text)",
+                  borderRadius: 5,
+                  cursor: "pointer",
+                  fontSize: 12,
+                  fontFamily: "inherit",
+                }}
+                onClick={() => expandToDepth(depthLimit)}
+              >
+                套用展開
+              </button>
+            </div>
+
+            <h3 style={{ marginTop: 18 }}>📂 工作流藍圖</h3>
+            <div className="blueprint-tree">
+              {renderTree(BLUEPRINT)}
+            </div>
+          </aside>
+
+          <main className="canvas-wrap">
+            <ReactFlow
+              ref={reactFlowRef}
+              nodes={rfNodes}
+              edges={rfEdges}
+              nodeTypes={nodeTypes}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
+              fitView
+              fitViewOptions={{ padding: 0.18 }}
+              minZoom={0.15}
+              maxZoom={1.8}
+              proOptions={{ hideAttribution: true }}
+            >
+              <Background variant="dots" gap={18} size={1} color="#2c3868" />
+              <Controls position="bottom-right" />
+              <MiniMap
+                pannable
+                zoomable
+                nodeColor={(n) => {
+                  const k = n.data?.kind;
+                  if (k === "root") return "#6c8cff";
+                  if (k === "group") return "#b48cff";
+                  if (k === "decision") return "#ffb86b";
+                  return "#56e0c2";
+                }}
+                maskColor="rgba(10,14,31,0.85)"
+                position="top-right"
+                style={{
+                  background: "var(--bg-1)",
+                  border: "1px solid var(--line)",
+                }}
+              />
+            </ReactFlow>
+          </main>
+
+          <aside className="stats">
+            <h3 style={{
+              margin: "4px 0 12px",
+              fontSize: 11,
+              textTransform: "uppercase",
+              letterSpacing: 1.4,
+              color: "var(--text-dim)",
+            }}>📊 即時統計</h3>
+
+            <div className="stat-card">
+              <div className="stat-label">可見節點</div>
+              <div className="stat-value">{visibleNodes} <span style={{ fontSize: 14, color: "var(--text-dim)", fontWeight: 400 }}>/ {totalNodes}</span></div>
+              <div className="stat-detail">{hiddenNodes > 0 ? `${hiddenNodes} 個節點被隱藏` : "全部展開"}</div>
+              <div className="progress-bar">
+                <div className="fill" style={{ width: `${(visibleNodes / totalNodes) * 100}%` }} />
+              </div>
+            </div>
+
+            <div className="stat-card">
+              <div className="stat-label">展開群組</div>
+              <div className="stat-value">{expandedGroups} <span style={{ fontSize: 14, color: "var(--text-dim)", fontWeight: 400 }}>/ {allGroupIds.length}</span></div>
+              <div className="stat-detail">
+                收縮比例 <span style={{ color: "var(--accent-2)", fontWeight: 600 }}>{collapseRatio}%</span>
+              </div>
+            </div>
+
+            <div className="stat-card">
+              <div className="stat-label">工作流深度</div>
+              <div className="stat-value">{maxDepth + 1} <span style={{ fontSize: 14, color: "var(--text-dim)", fontWeight: 400 }}>層</span></div>
+              <div className="stat-detail">最深的決策分支</div>
+            </div>
+
+            <div className="stat-card">
+              <div className="stat-label">節點類型分佈</div>
+              <div className="info-list" style={{ marginTop: 6 }}>
+                <div className="row">
+                  <span className="key">▾ Group</span>
+                  <span className="val">{allGroupIds.length}</span>
+                </div>
+                <div className="row">
+                  <span className="key">✓ Task</span>
+                  <span className="val">{allIds.filter(id => findById(BLUEPRINT, id)?.type === "task").length}</span>
+                </div>
+                <div className="row">
+                  <span className="key">? Decision</span>
+                  <span className="val">{allIds.filter(id => findById(BLUEPRINT, id)?.type === "decision").length}</span>
+                </div>
+                <div className="row">
+                  <span className="key">★ Root</span>
+                  <span className="val">1</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="legend">
+              <h3 style={{
+                margin: "0 0 8px",
+                fontSize: 11,
+                textTransform: "uppercase",
+                letterSpacing: 1.4,
+                color: "var(--text-dim)",
+              }}>圖例</h3>
+              <div className="legend-row">
+                <span className="swatch" style={{ background: "var(--accent)" }}></span>
+                <span>Root 流程入口</span>
+              </div>
+              <div className="legend-row">
+                <span className="swatch" style={{ background: "var(--purple)" }}></span>
+                <span>Group 可展開群組</span>
+              </div>
+              <div className="legend-row">
+                <span className="swatch" style={{ background: "var(--amber)" }}></span>
+                <span>Decision 分支決策</span>
+              </div>
+              <div className="legend-row">
+                <span className="swatch" style={{ background: "var(--accent-2)" }}></span>
+                <span>Task 任務節點</span>
+              </div>
+            </div>
+
+            <div className="legend">
+              <div style={{ fontSize: 11, color: "var(--text-mute)", lineHeight: 1.6 }}>
+                💡 <b>操作提示</b><br />
+                • 點擊節點上的 [+] / [−] 切換展開<br />
+                • 拖曳節點重新佈線<br />
+                • 滾輪縮放，空白處拖曳平移<br />
+                • 狀態自動儲存於 localStorage
+              </div>
+            </div>
+          </aside>
+
+          <div className="toast-area">
+            {toasts.map(t => (
+              <div key={t.id} className={`toast ${t.kind === "warn" ? "warn" : t.kind === "info" ? "info" : ""}`}>
+                {t.msg}
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    /* =========================================================
+       7) 入口
+       ========================================================= */
+    function Root() {
+      return (
+        <ReactFlowProvider>
+          <FlowApp />
+        </ReactFlowProvider>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<Root />);
+  </script>
+</body>
+</html>

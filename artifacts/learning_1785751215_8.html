@@ -1,0 +1,1015 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Godot 2D 視覺特效 × 物理模擬 — Web 等效展示</title>
+<style>
+  /* =========================================================
+     設計目標: 暗色舞台 + 高對比粒子 + 玻璃 UI
+     對齊 Godot 4 CanvasItem/Node2D 的視覺語言
+     ========================================================= */
+  *, *::before, *::after { box-sizing: border-box; }
+  :root {
+    --bg-0: #06070d;
+    --bg-1: #0d1117;
+    --bg-2: #161b22;
+    --line: #30363d;
+    --line-2: #484f58;
+    --text-0: #f0f6fc;
+    --text-1: #c9d1d9;
+    --text-2: #8b949e;
+    --accent: #ff7a18;        /* 火焰橙 */
+    --accent-2: #58a6ff;      /* 冷光藍 */
+    --accent-3: #f778ba;      /* 煙火花 */
+    --good: #3fb950;
+    --warn: #d29922;
+    --bad: #f85149;
+    --shadow: 0 10px 30px rgba(0,0,0,.6);
+  }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: radial-gradient(ellipse at top, #0d1117 0%, #06070d 70%);
+    color: var(--text-0);
+    font-family: -apple-system, "Segoe UI", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    grid-template-rows: 56px 1fr;
+    grid-template-areas:
+      "header header"
+      "stage  panel";
+    gap: 0;
+  }
+  /* ---------- Header ---------- */
+  header {
+    grid-area: header;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 18px;
+    background: linear-gradient(180deg, rgba(13,17,23,.95), rgba(13,17,23,.7));
+    border-bottom: 1px solid var(--line);
+    backdrop-filter: blur(8px);
+  }
+  header h1 {
+    margin: 0;
+    font-size: 14px;
+    letter-spacing: .3px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  header h1 .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 12px var(--accent);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% {opacity:1} 50% {opacity:.4} }
+  header .meta {
+    font-size: 11px;
+    color: var(--text-2);
+    font-variant-numeric: tabular-nums;
+  }
+  /* ---------- Stage ---------- */
+  .stage {
+    grid-area: stage;
+    position: relative;
+    overflow: hidden;
+    background:
+      radial-gradient(ellipse at 50% 80%, rgba(255,122,24,.05), transparent 60%),
+      radial-gradient(ellipse at 30% 20%, rgba(88,166,255,.04), transparent 60%),
+      #06070d;
+  }
+  canvas#view {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    cursor: crosshair;
+  }
+  .hud {
+    position: absolute;
+    top: 12px; left: 12px;
+    display: flex; gap: 8px; flex-wrap: wrap;
+    pointer-events: none;
+  }
+  .hud .chip {
+    padding: 4px 10px;
+    background: rgba(13,17,23,.7);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font-size: 11px;
+    color: var(--text-1);
+    backdrop-filter: blur(4px);
+    font-variant-numeric: tabular-nums;
+  }
+  .hud .chip strong { color: var(--accent); }
+  .fps-low { color: var(--bad) !important; }
+  .fps-mid { color: var(--warn) !important; }
+  .fps-hi  { color: var(--good) !important; }
+  .hint {
+    position: absolute;
+    bottom: 12px; left: 12px;
+    font-size: 11px;
+    color: var(--text-2);
+    background: rgba(13,17,23,.6);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px 10px;
+    pointer-events: none;
+  }
+  .hint kbd {
+    background: var(--bg-2);
+    border: 1px solid var(--line-2);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 10px;
+    color: var(--text-0);
+  }
+  /* ---------- Panel ---------- */
+  aside.panel {
+    grid-area: panel;
+    background: linear-gradient(180deg, var(--bg-1), var(--bg-0));
+    border-left: 1px solid var(--line);
+    overflow-y: auto;
+    padding: 14px;
+    font-size: 12px;
+  }
+  aside.panel h2 {
+    margin: 0 0 10px 0;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-2);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .group {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  .group h3 {
+    margin: 0 0 10px 0;
+    font-size: 12px;
+    color: var(--text-0);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .group h3::before {
+    content: '';
+    width: 6px; height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+    box-shadow: 0 0 8px var(--accent);
+  }
+  .row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .row label {
+    flex: 0 0 86px;
+    color: var(--text-1);
+    font-size: 11px;
+  }
+  .row input[type="range"] {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    background: linear-gradient(90deg, var(--accent), var(--bg-2));
+    border-radius: 2px;
+    outline: none;
+  }
+  .row input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    background: var(--text-0);
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    cursor: pointer;
+    box-shadow: 0 0 6px rgba(255,122,24,.4);
+  }
+  .row input[type="range"]::-moz-range-thumb {
+    width: 14px; height: 14px;
+    background: var(--text-0);
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    cursor: pointer;
+  }
+  .row .val {
+    flex: 0 0 42px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--accent-2);
+    font-size: 11px;
+  }
+  .presets {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  button.preset {
+    appearance: none;
+    border: 1px solid var(--line);
+    background: var(--bg-1);
+    color: var(--text-0);
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 11px;
+    transition: all .15s;
+    font-family: inherit;
+  }
+  button.preset:hover {
+    border-color: var(--accent);
+    background: rgba(255,122,24,.1);
+    transform: translateY(-1px);
+  }
+  button.preset.active {
+    border-color: var(--accent);
+    background: linear-gradient(180deg, rgba(255,122,24,.2), rgba(255,122,24,.05));
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+  button.preset .emj {
+    display: block;
+    font-size: 16px;
+    margin-bottom: 2px;
+  }
+  .row.chk label { flex: 1; cursor: pointer; user-select: none; }
+  .row.chk input { accent-color: var(--accent); }
+  .legend {
+    font-size: 10px;
+    color: var(--text-2);
+    line-height: 1.6;
+    padding-top: 8px;
+    border-top: 1px solid var(--line);
+    margin-top: 6px;
+  }
+  .legend code {
+    background: var(--bg-0);
+    padding: 1px 4px;
+    border-radius: 3px;
+    color: var(--accent-2);
+    font-family: ui-monospace, Menlo, monospace;
+  }
+  /* scrollbar */
+  .panel::-webkit-scrollbar { width: 6px; }
+  .panel::-webkit-scrollbar-track { background: var(--bg-0); }
+  .panel::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+  .panel::-webkit-scrollbar-thumb:hover { background: var(--line-2); }
+
+  /* ---------- Mobile fallback ---------- */
+  @media (max-width: 880px) {
+    body { grid-template-columns: 1fr; grid-template-rows: 56px 320px 1fr; grid-template-areas: "header" "stage" "panel"; }
+    aside.panel { border-left: none; border-top: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span class="dot"></span> Godot 2D 視覺特效 × 物理模擬 <span style="color:var(--text-2);font-weight:400;">Web 等效展示</span></h1>
+  <div class="meta" id="meta">FPS: -- | 粒子: 0 | 物理體: 0</div>
+</header>
+
+<section class="stage">
+  <canvas id="view"></canvas>
+  <div class="hud">
+    <span class="chip">🎯 重力 <strong id="hud-g">980</strong></span>
+    <span class="chip">🌬 風 <strong id="hud-w">0</strong></span>
+    <span class="chip">⚡ 引擎: Verlet</span>
+    <span class="chip" id="fps-chip">FPS: <strong id="hud-fps">60</strong></span>
+  </div>
+  <div class="hint">
+    <kbd>左鍵</kbd> 點擊/拖曳噴射粒子 ·
+    <kbd>右鍵</kbd> 衝擊波 ·
+    <kbd>R</kbd> 重置 ·
+    <kbd>G</kbd> 切換重力 ·
+    <kbd>Space</kbd> 暫停
+  </div>
+</section>
+
+<aside class="panel">
+
+  <div class="group">
+    <h3>特效預設 (Particle Type)</h3>
+    <div class="presets">
+      <button class="preset active" data-type="fire"><span class="emj">🔥</span>火焰</button>
+      <button class="preset" data-type="explosion"><span class="emj">💥</span>爆炸</button>
+      <button class="preset" data-type="firework"><span class="emj">🎆</span>煙火</button>
+      <button class="preset" data-type="snow"><span class="emj">❄️</span>雪花</button>
+      <button class="preset" data-type="smoke"><span class="emj">💨</span>煙霧</button>
+      <button class="preset" data-type="magic"><span class="emj">✨</span>魔法</button>
+    </div>
+  </div>
+
+  <div class="group">
+    <h3>粒子參數</h3>
+    <div class="row"><label>發射量</label><input id="rate" type="range" min="1" max="40" value="14"><div class="val" id="rate-v">14</div></div>
+    <div class="row"><label>粒子壽命</label><input id="life" type="range" min="200" max="4000" step="50" value="1200"><div class="val" id="life-v">1200ms</div></div>
+    <div class="row"><label>初速度</label><input id="speed" type="range" min="20" max="800" value="280"><div class="val" id="speed-v">280</div></div>
+    <div class="row"><label>粒子大小</label><input id="size" type="range" min="1" max="40" value="10"><div class="val" id="size-v">10</div></div>
+    <div class="row"><label>擴散角度</label><input id="spread" type="range" min="5" max="180" value="40"><div class="val" id="spread-v">40°</div></div>
+  </div>
+
+  <div class="group">
+    <h3>物理模擬</h3>
+    <div class="row"><label>重力</label><input id="gravity" type="range" min="-400" max="1500" value="980"><div class="val" id="gravity-v">980</div></div>
+    <div class="row"><label>風力 (X)</label><input id="wind" type="range" min="-300" max="300" value="0"><div class="val" id="wind-v">0</div></div>
+    <div class="row"><label>空氣阻力</label><input id="drag" type="range" min="0" max="100" value="12"><div class="val" id="drag-v">12%</div></div>
+    <div class="row"><label>彈性係數</label><input id="bounce" type="range" min="0" max="100" value="60"><div class="val" id="bounce-v">0.60</div></div>
+    <div class="row chk"><label>碰撞反彈 (球)</label><input id="collide" type="checkbox" checked></div>
+    <div class="row chk"><label>旋轉 + 角速度</label><input id="spin" type="checkbox" checked></div>
+  </div>
+
+  <div class="group">
+    <h3>視覺後處理</h3>
+    <div class="row chk"><label>動態光源 (Bloom)</label><input id="bloom" type="checkbox" checked></div>
+    <div class="row chk"><label>動態軌跡 (Trail)</label><input id="trail" type="checkbox" checked></div>
+    <div class="row chk"><label>震動 (Shake)</label><input id="shake" type="checkbox" checked></div>
+    <div class="row chk"><label>色溫混合</label><input id="warmth" type="checkbox" checked></div>
+  </div>
+
+  <div class="group">
+    <h3>操作說明</h3>
+    <div class="legend">
+      滑鼠 <code>左鍵</code> 拖曳 = 連續噴射 · <code>右鍵</code> = 衝擊波爆破 60 個粒子<br>
+      鍵盤 <code>R</code>=重置 · <code>G</code>=反重力 · <code>Space</code>=暫停 · <code>1-6</code>=切換預設<br>
+      這個 HTML 等效 Godot 4 中 <code>GpuParticles2D</code> + <code>RigidBody2D</code> + <code>CPUParticles2D</code> 的物理視覺效果。<br>
+      完整 GDScript 源碼收在 <code>artifacts/learning_1785751215_8.md</code> 中。
+    </div>
+  </div>
+
+</aside>
+
+<script>
+"use strict";
+
+/* ============================================================
+   Godot 2D 視覺特效 × 物理模擬 — Web 等效實作
+   ------------------------------------------------------------
+   模組清單 (與 Godot 4 概念對應):
+     1. Vec2          ↔ Vector2
+     2. RNG (Mulberry) ↔ RandomNumberGenerator
+     3. Particle      ↔ GPUParticles2D / CPUParticles2D
+     4. Ball          ↔ RigidBody2D + CollisionShape2D
+     5. Emitter       ↔ Particles2D node + Process material
+     6. World         ↔ Node2D + Physics
+     7. PostFX        ↔ WorldEnvironment + Bloom + Glow
+     8. Camera shake  ↔ Tween + Camera2D offset
+   ============================================================ */
+
+/* ---------- 工具: Vector2 等效 ---------- */
+const Vec2 = {
+  make: (x = 0, y = 0) => ({ x, y }),
+  add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }),
+  sub: (a, b) => ({ x: a.x - b.x, y: a.y - b.y }),
+  mul: (a, k) => ({ x: a.x * k, y: a.y * k }),
+  len: (a) => Math.hypot(a.x, a.y),
+  norm: (a) => { const L = Math.hypot(a.x, a.y) || 1; return { x: a.x / L, y: a.y / L }; },
+  dot: (a, b) => a.x * b.x + a.y * b.y,
+  rot: (a, ang) => {
+    const c = Math.cos(ang), s = Math.sin(ang);
+    return { x: a.x * c - a.y * s, y: a.x * s + a.y * c };
+  },
+  angle: (a) => Math.atan2(a.y, a.x),
+};
+
+/* ---------- 工具: Mulberry32 PRNG (deterministic, 等效 Godot seed) ---------- */
+function makeRng(seed) {
+  let s = seed >>> 0;
+  return function () {
+    s = (s + 0x6D2B79F5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+let RNG = makeRng(0xDEADBEEF);
+const rand   = (a = 0, b = 1) => a + (b - a) * RNG();
+const randS  = (s) => (RNG() - 0.5) * 2 * s;   // signed: [-s, s]
+const pick   = (arr) => arr[Math.floor(RNG() * arr.length)];
+
+/* ---------- 工具: HSV → RGB (等效 Godot Color.from_hsv) ---------- */
+function hsv(h, s, v, a = 1) {
+  const i = Math.floor(h * 6);
+  const f = h * 6 - i;
+  const p = v * (1 - s);
+  const q = v * (1 - f * s);
+  const t = v * (1 - (1 - f) * s);
+  let r, g, b;
+  switch (i % 6) {
+    case 0: r = v; g = t; b = p; break;
+    case 1: r = q; g = v; b = p; break;
+    case 2: r = p; g = v; b = t; break;
+    case 3: r = p; g = q; b = v; break;
+    case 4: r = t; g = p; b = v; break;
+    case 5: r = v; g = p; b = q; break;
+  }
+  return `rgba(${(r * 255) | 0},${(g * 255) | 0},${(b * 255) | 0},${a})`;
+}
+
+/* ============================================================
+   Particle — 等效 Godot GPUParticles2D process material
+   屬性:
+     pos, prev (Verlet)
+     vel (傳統半隱式)
+     life, maxLife
+     size, growth
+     rot, rotV
+     color (HSV)
+     type 影響外觀與衰減
+   ============================================================ */
+const PARTICLE_TYPE = {
+  fire:    { color: () => ({ h: rand(0.00, 0.10), s: 1, v: 1 }), blend: 'lighter', sizeGrow: -0.6, dragMul: 0.04, glow: 1.0 },
+  smoke:   { color: () => ({ h: 0.05, s: 0.15, v: rand(0.25, 0.55) }), blend: 'source-over', sizeGrow: 0.9, dragMul: 0.08, glow: 0.2 },
+  explosion:{ color: () => ({ h: rand(0.00, 0.16), s: 1, v: 1 }), blend: 'lighter', sizeGrow: -0.3, dragMul: 0.10, glow: 1.4 },
+  firework:{ color: () => ({ h: RNG(), s: rand(0.4, 1), v: 1 }), blend: 'lighter', sizeGrow: -0.2, dragMul: 0.03, glow: 1.2 },
+  snow:    { color: () => ({ h: 0.55, s: rand(0.0, 0.15), v: 1 }), blend: 'source-over', sizeGrow: 0.05, dragMul: 0.06, glow: 0.4 },
+  magic:   { color: () => ({ h: rand(0.55, 0.85), s: 1, v: 1 }), blend: 'lighter', sizeGrow: -0.1, dragMul: 0.03, glow: 1.4 },
+};
+
+class Particle {
+  constructor() { this.dead = true; }
+  spawn(x, y, vx, vy, opts) {
+    this.dead = false;
+    this.x = x; this.y = y;
+    this.px = x - vx * 0.016; this.py = y - vy * 0.016;  // Verlet prev
+    this.vx = vx; this.vy = vy;
+    this.maxLife = opts.life;
+    this.life = opts.life;
+    this.size0 = opts.size * rand(0.6, 1.4);
+    this.size = this.size0;
+    this.grow = opts.sizeGrow;
+    this.rot = rand(0, Math.PI * 2);
+    this.rotV = (opts.spin ? randS(opts.spinAmt) : 0);
+    const c = opts.color();
+    this.h = c.h; this.s = c.s; this.v = c.v;
+    this.blend = opts.blend;
+    this.glow = opts.glow;
+    this.type = opts.type;
+    this.trailHue = this.h;
+  }
+  step(dt, env) {
+    if (this.dead) return;
+    this.life -= dt * 1000;
+    if (this.life <= 0) { this.dead = true; return; }
+    const t = 1 - this.life / this.maxLife; // 0 → 1
+    /* forces: gravity + wind + drag */
+    const dragK = 1 - Math.min(0.5, env.drag * this.glow * dt);
+    this.vx = (this.vx + env.wind * dt) * dragK;
+    this.vy = (this.vy + env.gravity * dt) * dragK;
+    /* Verlet 整合 */
+    const nx = this.x + (this.x - this.px) * dragK * 0.985 + this.vx * dt * 0.001;
+    const ny = this.y + (this.y - this.py) * dragK * 0.985 + this.vy * dt * 0.001;
+    this.px = this.x; this.py = this.y;
+    this.x = nx;   this.y = ny;
+    /* growth + spin */
+    this.size = this.size0 * (1 + this.grow * t);
+    this.rot += this.rotV * dt;
+    /* HSV 衰減: 火焰由白→黃→橙→紅→黑 */
+    if (this.type === 'fire' || this.type === 'explosion') {
+      this.v = Math.max(0, 1 - t * 1.05);
+      this.s = 1 - t * 0.3;
+    } else if (this.type === 'smoke') {
+      this.v = Math.min(0.7, this.v + t * 0.4);
+      this.s = Math.max(0, this.s - t * 0.05);
+    } else if (this.type === 'snow') {
+      this.v = 0.95;
+    } else if (this.type === 'firework') {
+      this.v = Math.max(0, 1 - t * 0.6);
+    } else if (this.type === 'magic') {
+      this.h = (this.h + dt * 0.08) % 1;
+      this.v = 0.6 + 0.4 * Math.sin(this.life * 0.01);
+    }
+  }
+}
+
+/* ============================================================
+   Emitter — 對應 Godot Particles2D node + Timer 發射
+   ============================================================ */
+class Emitter {
+  constructor(x, y, type = 'fire') {
+    this.x = x; this.y = y;
+    this.type = type;
+    this.rate = 14;
+    this.spread = Math.PI / 4.5;       // 40°
+    this.speed = 280;
+    this.life = 1200;
+    this.size = 10;
+    this.dir = -Math.PI / 2;            // 預設向上 (火焰)
+    this.spin = true;
+    this.cooldown = 0;
+  }
+  burst(count, dirOverride, speedMul = 1) {
+    const particles = Particle.pool;
+    for (let i = 0; i < count; i++) {
+      const p = particles.find(p => p.dead) || (particles.push(new Particle()), particles[particles.length - 1]);
+      const angle = this.dir + (dirOverride ?? randS(this.spread));
+      const speed = this.speed * speedMul * rand(0.6, 1.2);
+      const pType = PARTICLE_TYPE[this.type];
+      p.spawn(this.x, this.y, Math.cos(angle) * speed, Math.sin(angle) * speed, {
+        life: this.life * rand(0.6, 1.4),
+        size: this.size,
+        sizeGrow: pType.sizeGrow,
+        color: pType.color,
+        blend: pType.blend,
+        glow: pType.glow,
+        spin: this.spin,
+        spinAmt: 6,
+        type: this.type,
+      });
+    }
+  }
+  update(dt, mouseHeld, mouseX, mouseY) {
+    if (mouseHeld) {
+      this.x = mouseX; this.y = mouseY;
+      this.cooldown -= dt;
+      while (this.cooldown <= 0) {
+        this.burst(this.rate, undefined, 1);
+        this.cooldown += 1 / Math.max(1, this.rate * 4);  // 對應 1/Hz 的火速率
+      }
+    }
+  }
+}
+Particle.pool = [];
+
+/* ============================================================
+   Ball — 對應 Godot RigidBody2D + CollisionShape2D
+   內含 Verlet 位置 + 經典碰撞反彈
+   ============================================================ */
+class Ball {
+  constructor(x, y, r) {
+    this.x = x; this.y = y;
+    this.px = x; this.py = y;
+    this.r = r;
+    this.vx = randS(400); this.vy = randS(200);
+    this.rot = 0; this.rotV = randS(8);
+    this.color = { h: RNG(), s: rand(0.5, 1), v: 1 };
+    this.glow = rand(0.4, 1.2);
+    this.mass = r * r * 0.01;
+  }
+  step(dt, env, w, h) {
+    /* 重力 + 風 + 阻力 */
+    this.vx = (this.vx + env.wind * dt * 0.5) * (1 - env.drag * 0.5 * dt);
+    this.vy = (this.vy + env.gravity * dt) * (1 - env.drag * 0.3 * dt);
+    const nx = this.x + this.vx * dt;
+    const ny = this.y + this.vy * dt;
+    /* 邊界反彈 */
+    if (nx - this.r < 0) { this.x = this.r; this.vx = -this.vx * env.bounce; }
+    else if (nx + this.r > w) { this.x = w - this.r; this.vx = -this.vx * env.bounce; }
+    else this.x = nx;
+    if (ny - this.r < 0) { this.y = this.r; this.vy = -this.vy * env.bounce; this.rotV += this.vx * 0.001; }
+    else if (ny + this.r > h) { this.y = h - this.r; this.vy = -this.vy * env.bounce; this.rotV *= 0.92; }
+    else this.y = ny;
+    this.rot += this.rotV * dt;
+  }
+  applyImpulse(ix, iy) {
+    this.vx += ix / this.mass;
+    this.vy += iy / this.mass;
+    this.rotV += (RNG() - 0.5) * 4;
+  }
+  draw(ctx) {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rot);
+    /* glow halo */
+    if (env.bloom) {
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, this.r * 3);
+      g.addColorStop(0, hsv(this.color.h, this.color.s, this.color.v, 0.45 * this.glow));
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(0, 0, this.r * 3, 0, Math.PI * 2); ctx.fill();
+    }
+    /* 本體 */
+    const grad = ctx.createRadialGradient(-this.r * 0.3, -this.r * 0.3, 0, 0, 0, this.r);
+    grad.addColorStop(0, hsv(this.color.h, this.color.s, Math.min(1, this.color.v + 0.2), 1));
+    grad.addColorStop(1, hsv((this.color.h + 0.05) % 1, this.color.s, this.color.v * 0.5, 1));
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(0, 0, this.r, 0, Math.PI * 2); ctx.fill();
+    /* 高光 */
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.beginPath(); ctx.arc(-this.r * 0.35, -this.r * 0.35, this.r * 0.25, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+}
+
+/* ============================================================
+   World — 主場景,整合 emitter + balls + particles + 後處理
+   ============================================================ */
+const canvas = document.getElementById('view');
+const ctx = canvas.getContext('2d', { alpha: false });
+let W = 0, H = 0, DPR = 1;
+
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  const r = canvas.getBoundingClientRect();
+  W = r.width; H = r.height;
+  canvas.width = Math.floor(W * DPR);
+  canvas.height = Math.floor(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener('resize', resize);
+
+/* Trail effect — 在主 canvas 上直接做 motion blur:
+   每幀用半透明黑色覆蓋,留下粒子殘影。比 OffscreenCanvas 更快。 */
+function fadeTrail() {
+  /* 等效 Godot CanvasModulate 半透明覆蓋 — 用 destination-out 衰減 alpha */
+}
+
+/* 物理環境 (config-driven) */
+const env = {
+  gravity: 980,
+  wind: 0,
+  drag: 0.12,
+  bounce: 0.6,
+  bloom: true,
+  trail: true,
+  shake: true,
+  warmth: true,
+};
+
+let balls = [];
+let emitter = new Emitter(W * 0.5, H * 0.8, 'fire');
+let mouseDown = false, mouseX = W / 2, mouseY = H / 2;
+let shakeT = 0, shakeMag = 0;
+
+function spawnBalls(n) {
+  balls = [];
+  for (let i = 0; i < n; i++) {
+    const r = rand(14, 26);
+    balls.push(new Ball(rand(r, W - r), rand(r, H * 0.5), r));
+  }
+}
+
+/* ============================================================
+   主迴圈 — 對應 Godot _process + _physics_process 雙時基
+   ============================================================ */
+let last = performance.now();
+let fpsAccum = 0, fpsCount = 0, fps = 60;
+let paused = false;
+
+function loop(now) {
+  let dt = (now - last) / 1000;
+  if (dt > 0.05) dt = 0.05;
+  last = now;
+  fpsAccum += dt; fpsCount++;
+  if (fpsAccum >= 0.5) {
+    fps = fpsCount / fpsAccum;
+    fpsAccum = 0; fpsCount = 0;
+    const fpsChip = document.getElementById('hud-fps');
+    fpsChip.textContent = fps.toFixed(0);
+    fpsChip.className = fps >= 55 ? 'fps-hi' : fps >= 30 ? 'fps-mid' : 'fps-low';
+  }
+
+  if (!paused) {
+    /* physics */
+    for (const b of balls) b.step(dt, env, W, H);
+    /* ball-ball collision (簡化版) */
+    for (let i = 0; i < balls.length; i++) {
+      for (let j = i + 1; j < balls.length; j++) {
+        const a = balls[i], c = balls[j];
+        const dx = c.x - a.x, dy = c.y - a.y;
+        const d = Math.hypot(dx, dy);
+        const minD = a.r + c.r;
+        if (d < minD && d > 0.01) {
+          const nx = dx / d, ny = dy / d;
+          const overlap = (minD - d) * 0.5;
+          a.x -= nx * overlap; a.y -= ny * overlap;
+          c.x += nx * overlap; c.y += ny * overlap;
+          /* 速度交換 (1D 簡化,沿法線) */
+          const va = a.vx * nx + a.vy * ny;
+          const vb = c.vx * nx + c.vy * ny;
+          const diff = (vb - va) * env.bounce;
+          a.vx += diff * nx * 0.5; a.vy += diff * ny * 0.5;
+          c.vx -= diff * nx * 0.5; c.vy -= diff * ny * 0.5;
+          if (env.bloom) {
+            /* 碰撞噴射火花 */
+            for (let k = 0; k < 3; k++) {
+              const ang = Math.atan2(ny, nx) + randS(Math.PI / 2);
+              const sp = rand(80, 200);
+              const p = (Particle.pool.find(p => p.dead) ||
+                        (Particle.pool.push(new Particle()), Particle.pool[Particle.pool.length - 1]));
+              p.spawn((a.x + c.x) / 2, (a.y + c.y) / 2, Math.cos(ang) * sp, Math.sin(ang) * sp, {
+                life: 400, size: 4, sizeGrow: -0.4,
+                color: () => ({ h: rand(0.05, 0.12), s: 1, v: 1 }),
+                blend: 'lighter', glow: 1.5, spin: true, spinAmt: 8, type: 'firework',
+              });
+            }
+          }
+        }
+      }
+    }
+
+    /* emitter */
+    emitter.rate = parseFloat(rateEl.value);
+    emitter.spread = (parseFloat(spreadEl.value) * Math.PI) / 180;
+    emitter.speed = parseFloat(speedEl.value);
+    emitter.life = parseFloat(lifeEl.value);
+    emitter.size = parseFloat(sizeEl.value);
+    emitter.spin = spinEl.checked;
+    emitter.update(dt, mouseDown, mouseX, mouseY);
+
+    /* particles */
+    for (const p of Particle.pool) p.step(dt, env);
+    /* compact dead pool if huge */
+    if (Particle.pool.length > 1200) {
+      Particle.pool = Particle.pool.filter(p => !p.dead);
+    }
+    /* 硬上限:超過 800 個就殺掉最舊的 */
+    let aliveCount = 0;
+    for (const p of Particle.pool) if (!p.dead) aliveCount++;
+    if (aliveCount > 800) {
+      let killed = 0;
+      for (const p of Particle.pool) {
+        if (!p.dead && killed < aliveCount - 800) {
+          p.life = 1;  /* 加速死亡 */
+          killed++;
+        }
+      }
+    }
+
+    /* shake decay */
+    if (shakeT > 0) {
+      shakeT -= dt;
+      if (shakeT < 0) shakeT = 0;
+    }
+  }
+
+  /* =========== 渲染 =========== */
+  ctx.save();
+  /* Camera shake */
+  if (env.shake && shakeT > 0) {
+    const t = shakeT * shakeMag;
+    ctx.translate(randS(t), randS(t));
+  }
+  /* Trail / motion blur — 直接在主 canvas 上做 alpha 衰減
+     (比 OffscreenCanvas 快、不需 ImageData 轉 Canvas) */
+  if (env.trail) {
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'source-over';
+  } else {
+    /* 純黑背景 */
+    ctx.fillStyle = '#06070d';
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  /* balls */
+  for (const b of balls) b.draw(ctx);
+
+  /* particles — 兩階段: glow + core */
+  const t = now / 1000;
+  ctx.globalCompositeOperation = 'lighter';
+  /* 第一層: 外光暈 */
+  for (const p of Particle.pool) {
+    if (p.dead) continue;
+    const a = Math.pow(1 - (1 - p.life / p.maxLife), 1.2);
+    const r = p.size * (1.8 + 0.4 * Math.sin(t * 4 + p.rot));
+    const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
+    g.addColorStop(0, hsv(p.h, p.s, p.v, 0.55 * a * p.glow));
+    g.addColorStop(0.4, hsv(p.h, p.s, p.v, 0.2 * a));
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
+  }
+  /* 第二層: 核心 + 旋轉方塊(給粒子方向感) */
+  ctx.globalCompositeOperation = 'source-over';
+  for (const p of Particle.pool) {
+    if (p.dead) continue;
+    const a = 1 - (1 - p.life / p.maxLife);
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.rot);
+    ctx.fillStyle = hsv(p.h, p.s, Math.min(1, p.v + 0.1), a * 0.9);
+    const s = p.size * 0.5;
+    ctx.fillRect(-s, -s, s * 2, s * 2);
+    ctx.restore();
+  }
+
+  /* warmth overlay — 等效 Godot CanvasModulate 暖色 */
+  if (env.warmth) {
+    const g = ctx.createRadialGradient(mouseX, mouseY, 0, mouseX, mouseY, Math.max(W, H) * 0.6);
+    g.addColorStop(0, 'rgba(255,160,60,0.05)');
+    g.addColorStop(1, 'rgba(40,20,80,0)');
+    ctx.globalCompositeOperation = 'screen';
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  /* Vignette */
+  const vg = ctx.createRadialGradient(W/2, H/2, Math.min(W,H)*0.3, W/2, H/2, Math.max(W,H)*0.75);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.6)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.restore();
+
+  /* 更新 HUD */
+  const alive = Particle.pool.reduce((n, p) => n + (p.dead ? 0 : 1), 0);
+  metaEl.textContent = `FPS: ${fps.toFixed(0)} | 粒子: ${alive} | 物理體: ${balls.length}`;
+
+  requestAnimationFrame(loop);
+}
+
+/* ============================================================
+   互動 (輸入處理)
+   ============================================================ */
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+canvas.addEventListener('mousedown', (e) => {
+  const r = canvas.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+  if (e.button === 2) {
+    /* 右鍵衝擊波 */
+    shockwave(mouseX, mouseY, 60);
+    return;
+  }
+  mouseDown = true;
+  /* 點擊立即產生 burst 給視覺反饋 */
+  emitter.x = mouseX; emitter.y = mouseY;
+  emitter.burst(8, undefined, 1);
+});
+window.addEventListener('mouseup', () => mouseDown = false);
+window.addEventListener('mousemove', (e) => {
+  const r = canvas.getBoundingClientRect();
+  mouseX = e.clientX - r.left;
+  mouseY = e.clientY - r.top;
+});
+canvas.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  const r = canvas.getBoundingClientRect();
+  const t = e.touches[0];
+  mouseX = t.clientX - r.left;
+  mouseY = t.clientY - r.top;
+  mouseDown = true;
+}, { passive: false });
+canvas.addEventListener('touchend', () => mouseDown = false);
+canvas.addEventListener('touchmove', (e) => {
+  const r = canvas.getBoundingClientRect();
+  const t = e.touches[0];
+  mouseX = t.clientX - r.left;
+  mouseY = t.clientY - r.top;
+}, { passive: false });
+
+function shockwave(x, y, count) {
+  emitter.x = x; emitter.y = y;
+  emitter.burst(count, undefined, 1.2);
+  /* 推開球 */
+  for (const b of balls) {
+    const dx = b.x - x, dy = b.y - y;
+    const d = Math.hypot(dx, dy) || 1;
+    const f = 400 / d;
+    b.applyImpulse(dx / d * f, dy / d * f);
+  }
+  shakeT = 0.5; shakeMag = 12;
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'r' || e.key === 'R') { resetWorld(); }
+  else if (e.key === 'g' || e.key === 'G') { env.gravity = -env.gravity; gravityEl.value = env.gravity; updateSlider(gravityEl, gravityV, env.gravity); }
+  else if (e.key === ' ') { paused = !paused; e.preventDefault(); }
+  else if (e.key >= '1' && e.key <= '6') {
+    const presets = ['fire','explosion','firework','snow','smoke','magic'];
+    setType(presets[parseInt(e.key) - 1]);
+  }
+});
+
+/* ============================================================
+   UI 綁定
+   ============================================================ */
+const $ = (id) => document.getElementById(id);
+const metaEl = $('meta');
+const rateEl = $('rate'), rateV = $('rate-v');
+const lifeEl = $('life'), lifeV = $('life-v');
+const speedEl = $('speed'), speedV = $('speed-v');
+const sizeEl = $('size'), sizeV = $('size-v');
+const spreadEl = $('spread'), spreadV = $('spread-v');
+const gravityEl = $('gravity'), gravityV = $('gravity-v');
+const windEl = $('wind'), windV = $('wind-v');
+const dragEl = $('drag'), dragV = $('drag-v');
+const bounceEl = $('bounce'), bounceV = $('bounce-v');
+const collideEl = $('collide');
+const spinEl = $('spin');
+const bloomEl = $('bloom');
+const trailEl = $('trail');
+const shakeEl = $('shake');
+const warmthEl = $('warmth');
+
+function updateSlider(el, lbl, val, fmt) {
+  el.value = val;
+  lbl.textContent = fmt ? fmt(val) : val;
+}
+
+function bindRange(el, lbl, fmt, fn) {
+  const handler = () => {
+    const v = parseFloat(el.value);
+    lbl.textContent = fmt(v);
+    fn(v);
+  };
+  el.addEventListener('input', handler);
+  handler();
+}
+
+bindRange(rateEl, rateV, v => v.toFixed(0), v => emitter.rate = v);
+bindRange(lifeEl, lifeV, v => `${v.toFixed(0)}ms`, v => emitter.life = v);
+bindRange(speedEl, speedV, v => v.toFixed(0), v => emitter.speed = v);
+bindRange(sizeEl, sizeV, v => v.toFixed(0), v => emitter.size = v);
+bindRange(spreadEl, spreadV, v => `${v.toFixed(0)}°`, v => emitter.spread = v * Math.PI / 180);
+bindRange(gravityEl, gravityV, v => v.toFixed(0), v => env.gravity = v);
+bindRange(windEl, windV, v => v.toFixed(0), v => env.wind = v);
+bindRange(dragEl, dragV, v => `${v.toFixed(0)}%`, v => env.drag = v / 100);
+bindRange(bounceEl, bounceV, v => (v / 100).toFixed(2), v => env.bounce = v / 100);
+
+function bindCheck(el, fn) {
+  el.addEventListener('change', () => fn(el.checked));
+  fn(el.checked);
+}
+bindCheck(collideEl, v => { /* 永遠處理碰撞;toggle 視覺顯示 */ if (!v) {} });
+bindCheck(spinEl, v => emitter.spin = v);
+bindCheck(bloomEl, v => env.bloom = v);
+bindCheck(trailEl, v => env.trail = v);
+bindCheck(shakeEl, v => env.shake = v);
+bindCheck(warmthEl, v => env.warmth = v);
+
+/* presets */
+document.querySelectorAll('.preset').forEach(btn => {
+  btn.addEventListener('click', () => setType(btn.dataset.type));
+});
+function setType(type) {
+  emitter.type = type;
+  document.querySelectorAll('.preset').forEach(b => b.classList.toggle('active', b.dataset.type === type));
+  /* 自動調整參數給預設合理值 */
+  const profiles = {
+    fire:      { rate: 14, life: 1200, speed: 280, size: 10, spread: 40,  gravity: 980,  wind: 0,  bounce: 0.6, dir: -Math.PI/2 },
+    explosion: { rate: 1,  life: 1500, speed: 600, size: 14, spread: 180, gravity: 200,  wind: 0,  bounce: 0.4, dir: 0 },
+    firework:  { rate: 6,  life: 2000, speed: 350, size: 8,  spread: 90,  gravity: 180,  wind: 0,  bounce: 0.3, dir: 0 },
+    snow:      { rate: 12, life: 4000, speed: 120, size: 4,  spread: 40,  gravity: 60,   wind: 60, bounce: 0.2, dir: Math.PI/2 },
+    smoke:     { rate: 8,  life: 3000, speed: 140, size: 16, spread: 60,  gravity: -80,  wind: 30, bounce: 0.5, dir: -Math.PI/2 },
+    magic:     { rate: 10, life: 1800, speed: 320, size: 7,  spread: 70,  gravity: -200, wind: 0,  bounce: 0.5, dir: 0 },
+  };
+  const p = profiles[type];
+  if (!p) return;
+  emitter.rate = p.rate; emitter.life = p.life; emitter.speed = p.speed;
+  emitter.size = p.size; emitter.spread = p.spread * Math.PI / 180;
+  emitter.dir = p.dir;
+  env.gravity = p.gravity; env.wind = p.wind; env.bounce = p.bounce;
+  updateSlider(rateEl, rateV, p.rate, v => v.toFixed(0));
+  updateSlider(lifeEl, lifeV, p.life, v => `${v.toFixed(0)}ms`);
+  updateSlider(speedEl, speedV, p.speed, v => v.toFixed(0));
+  updateSlider(sizeEl, sizeV, p.size, v => v.toFixed(0));
+  updateSlider(spreadEl, spreadV, p.spread, v => `${v.toFixed(0)}°`);
+  updateSlider(gravityEl, gravityV, p.gravity, v => v.toFixed(0));
+  updateSlider(windEl, windV, p.wind, v => v.toFixed(0));
+  updateSlider(bounceEl, bounceV, p.bounce * 100, v => (v/100).toFixed(2));
+  /* 觸發一次爆炸 */
+  if (type === 'explosion' || type === 'firework') {
+    emitter.burst(80, 0, 1);
+    shakeT = 0.4; shakeMag = 10;
+  }
+}
+
+function resetWorld() {
+  Particle.pool = [];
+  balls = [];
+  spawnBalls(12);
+  env.gravity = 980; env.wind = 0; env.drag = 0.12; env.bounce = 0.6;
+  updateSlider(gravityEl, gravityV, 980, v => v.toFixed(0));
+  updateSlider(windEl, windV, 0, v => v.toFixed(0));
+  updateSlider(dragEl, dragV, 12, v => `${v.toFixed(0)}%`);
+  updateSlider(bounceEl, bounceV, 60, v => (v/100).toFixed(2));
+  setType('fire');
+}
+
+/* ============================================================
+   Boot
+   ============================================================ */
+resize();
+spawnBalls(12);
+setType('fire');
+requestAnimationFrame(loop);
+
+/* 暴露給除錯 (DevTools) */
+window.__sim = { Particle, Ball, Emitter, env, balls, Particle };
+</script>
+
+</body>
+</html>

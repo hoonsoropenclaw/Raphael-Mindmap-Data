@@ -1,0 +1,1121 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Spiderline · 爬蟲流程設計器</title>
+
+  <!-- Inline favicon: amber square mark; eliminates /favicon.ico 404 noise -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='4' width='24' height='24' fill='%23f5a524' rx='4'/%3E%3Crect x='10' y='10' width='12' height='12' fill='%230a0d12' rx='2'/%3E%3C/svg%3E" />
+
+  <!-- React 17 UMD (production) -->
+  <script crossorigin src="https://unpkg.com/react@17.0.2/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@17.0.2/umd/react-dom.production.min.js"></script>
+
+  <!-- React Flow 11.11.4 UMD (verified CDN, 2026-08-03 working combo) -->
+  <link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css" />
+  <script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+
+  <!-- Babel standalone for inline JSX -->
+  <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+
+  <!-- Fonts: industrial mono + tight display -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter+Tight:wght@500;600;700&display=swap" rel="stylesheet" />
+
+  <style>
+    :root {
+      --bg-0: #0a0d12;
+      --bg-1: #0f141b;
+      --bg-2: #141a23;
+      --bg-3: #1a2230;
+      --line: #1f2a3a;
+      --line-bright: #2c3a52;
+      --ink-0: #e8edf4;
+      --ink-1: #a9b3c2;
+      --ink-2: #6b7689;
+      --amber: #f5a524;
+      --amber-soft: #b97a18;
+      --amber-glow: rgba(245,165,36,0.18);
+      --jade: #2dd4a3;
+      --rose: #f87171;
+      --shadow: 0 18px 48px rgba(0,0,0,0.45);
+    }
+    * { box-sizing: border-box; }
+    html, body, #root { height: 100%; }
+    body {
+      margin: 0;
+      font-family: "IBM Plex Mono", "JetBrains Mono", ui-monospace, monospace;
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--ink-0);
+      background:
+        radial-gradient(1200px 700px at 110% -10%, rgba(245,165,36,0.05), transparent 60%),
+        radial-gradient(900px 500px at -10% 110%, rgba(45,212,163,0.04), transparent 60%),
+        var(--bg-0);
+      overflow: hidden;
+    }
+    .display { font-family: "Inter Tight", "IBM Plex Mono", monospace; letter-spacing: -0.01em; }
+    a { color: inherit; text-decoration: none; }
+
+    /* Top bar */
+    .topbar {
+      position: relative; z-index: 10;
+      display: flex; align-items: center; gap: 16px;
+      padding: 10px 18px;
+      background: linear-gradient(180deg, rgba(10,13,18,0.95), rgba(10,13,18,0.85));
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(6px);
+    }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .brand-mark {
+      width: 22px; height: 22px;
+      border: 1.5px solid var(--amber);
+      border-radius: 4px;
+      position: relative;
+      box-shadow: 0 0 0 3px rgba(245,165,36,0.06);
+    }
+    .brand-mark::after {
+      content: ""; position: absolute; inset: 4px;
+      border: 1px solid var(--amber); border-radius: 2px;
+      opacity: 0.6;
+    }
+    .brand-name { font-family: "Inter Tight", monospace; font-weight: 700; letter-spacing: 0.04em; }
+    .brand-tag { color: var(--ink-2); font-size: 11px; }
+    .nav { display: flex; gap: 4px; margin-left: 8px; }
+    .nav a {
+      padding: 6px 10px; border-radius: 4px; color: var(--ink-1);
+      font-size: 12px; border: 1px solid transparent;
+    }
+    .nav a:hover { color: var(--ink-0); border-color: var(--line); background: var(--bg-2); }
+    .nav a.active { color: var(--amber); border-color: var(--amber-soft); background: var(--amber-glow); }
+    .spacer { flex: 1; }
+    .topbar .meta { color: var(--ink-2); font-size: 11px; }
+    .topbar .meta strong { color: var(--ink-1); font-weight: 500; }
+
+    /* Layout grid */
+    .app { display: grid; grid-template-columns: 260px 1fr 320px; height: calc(100vh - 49px); min-height: 0; overflow: hidden; }
+    .app > main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+    @media (max-width: 1100px) {
+      .app { grid-template-columns: 220px 1fr 280px; }
+    }
+    @media (max-width: 860px) {
+      .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; height: calc(100vh - 49px); overflow: auto; }
+      .pane { border-right: none !important; border-bottom: 1px solid var(--line); }
+    }
+
+    .pane { background: var(--bg-1); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+    .pane.right { border-right: none; border-left: 1px solid var(--line); }
+    .pane-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px; border-bottom: 1px solid var(--line);
+      font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-2);
+    }
+    .pane-head .label { display: flex; align-items: center; gap: 8px; }
+    .pane-head .pulse {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--amber);
+      box-shadow: 0 0 0 0 var(--amber-glow);
+      animation: pulse 2.2s infinite;
+    }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 var(--amber-glow); }
+      70% { box-shadow: 0 0 0 8px transparent; }
+      100% { box-shadow: 0 0 0 0 transparent; }
+    }
+    .pane-body { padding: 12px 16px; overflow: auto; flex: 1; min-height: 0; }
+
+    /* Node template library */
+    .palette { display: grid; grid-template-columns: 1fr; gap: 8px; }
+    .palette-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px;
+      background: var(--bg-2);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      cursor: grab; user-select: none;
+      transition: transform 0.08s, border-color 0.12s, background 0.12s;
+    }
+    .palette-item:hover { border-color: var(--amber-soft); background: var(--bg-3); }
+    .palette-item:active { cursor: grabbing; transform: scale(0.98); }
+    .palette-item .glyph {
+      width: 28px; height: 28px; flex: 0 0 28px;
+      border-radius: 4px;
+      display: grid; place-items: center;
+      font-weight: 600; font-size: 12px;
+      color: var(--bg-0);
+    }
+    .palette-item .meta { display: flex; flex-direction: column; min-width: 0; }
+    .palette-item .name { color: var(--ink-0); font-size: 12px; font-weight: 500; }
+    .palette-item .desc { color: var(--ink-2); font-size: 11px; }
+
+    /* Canvas */
+    .canvas-wrap { position: relative; flex: 1; min-width: 0; min-height: 0; background: var(--bg-0); display: flex; flex-direction: column; }
+    .canvas-wrap > .react-flow { flex: 1; min-height: 0; }
+    .react-flow__node {
+      font-family: "IBM Plex Mono", monospace;
+    }
+    .react-flow__node-rfNode { padding: 0; border: 0; background: transparent; }
+    .react-flow__edge-path { stroke: var(--amber); stroke-width: 1.5; }
+    .react-flow__edge.selected .react-flow__edge-path,
+    .react-flow__edge:focus .react-flow__edge-path { stroke: var(--jade); stroke-width: 2.2; }
+    .react-flow__handle { background: var(--amber); border: 1px solid var(--bg-0); width: 10px; height: 10px; }
+    .react-flow__handle:hover { background: var(--jade); }
+    .react-flow__controls { box-shadow: none; }
+    .react-flow__controls-button {
+      background: var(--bg-2); border: 1px solid var(--line); color: var(--ink-1);
+      border-radius: 4px; margin-bottom: 4px;
+    }
+    .react-flow__controls-button:hover { background: var(--bg-3); color: var(--amber); }
+    .react-flow__controls-button svg { fill: currentColor; }
+    .react-flow__minimap { background: var(--bg-1) !important; border: 1px solid var(--line); border-radius: 6px; }
+    .react-flow__attribution { display: none; }
+
+    /* Custom node */
+    .rf-node {
+      width: 220px; min-height: 110px;
+      background: var(--bg-1);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .rf-node.selected { border-color: var(--amber); box-shadow: 0 0 0 2px var(--amber-glow), var(--shadow); }
+    .rf-node .row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 10px; border-bottom: 1px solid var(--line);
+    }
+    .rf-node .row:last-child { border-bottom: 0; }
+    .rf-node .glyph {
+      width: 22px; height: 22px; flex: 0 0 22px;
+      border-radius: 4px;
+      display: grid; place-items: center;
+      color: var(--bg-0); font-weight: 600; font-size: 11px;
+    }
+    .rf-node .name { font-size: 12px; font-weight: 500; }
+    .rf-node .sub { color: var(--ink-2); font-size: 11px; font-family: "IBM Plex Mono", monospace; }
+    .rf-node .status {
+      margin-left: auto; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--ink-2);
+    }
+    .rf-node .status.run { color: var(--amber); }
+    .rf-node .status.ok { color: var(--jade); }
+    .rf-node .status.err { color: var(--rose); }
+    .rf-node .summary { padding: 8px 10px; color: var(--ink-1); font-size: 11px; }
+    .rf-node .summary .k { color: var(--ink-2); margin-right: 4px; }
+
+    /* Right pane: property editor */
+    .editor { display: flex; flex-direction: column; gap: 12px; }
+    .editor .empty { color: var(--ink-2); font-size: 12px; padding: 24px 0; text-align: center; }
+    .editor .empty .hint { display: block; margin-top: 8px; color: var(--ink-2); }
+    .editor .field { display: flex; flex-direction: column; gap: 4px; }
+    .editor .field label { color: var(--ink-2); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+    .editor .field input,
+    .editor .field textarea,
+    .editor .field select {
+      background: var(--bg-2);
+      border: 1px solid var(--line);
+      color: var(--ink-0);
+      border-radius: 4px;
+      padding: 8px 10px;
+      font-family: inherit;
+      font-size: 12px;
+      outline: none;
+    }
+    .editor .field input:focus,
+    .editor .field textarea:focus,
+    .editor .field select:focus { border-color: var(--amber); box-shadow: 0 0 0 2px var(--amber-glow); }
+    .editor .field textarea { min-height: 70px; resize: vertical; }
+    .editor .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .editor .actions { display: flex; gap: 8px; margin-top: 4px; }
+    .editor .info {
+      font-size: 11px; color: var(--ink-2);
+      border-top: 1px dashed var(--line); padding-top: 10px;
+    }
+    .editor .info code { color: var(--ink-1); }
+
+    /* Buttons */
+    .btn {
+      appearance: none; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 7px 11px;
+      background: var(--bg-2);
+      border: 1px solid var(--line);
+      color: var(--ink-0);
+      border-radius: 4px;
+      font-family: inherit; font-size: 12px;
+      transition: border-color 0.12s, color 0.12s, background 0.12s;
+    }
+    .btn:hover { border-color: var(--amber-soft); color: var(--amber); }
+    .btn.primary { background: var(--amber); color: var(--bg-0); border-color: var(--amber); font-weight: 600; }
+    .btn.primary:hover { background: #ffb84a; border-color: #ffb84a; color: var(--bg-0); }
+    .btn.ghost { background: transparent; }
+    .btn.danger { color: var(--rose); }
+    .btn.danger:hover { border-color: var(--rose); color: var(--rose); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* Top toolbar inside canvas */
+    .canvas-toolbar {
+      position: absolute; top: 12px; left: 12px; right: 12px; z-index: 5;
+      display: flex; align-items: center; gap: 8px;
+      background: rgba(15,20,27,0.85);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 6px 8px;
+      backdrop-filter: blur(6px);
+      flex-wrap: wrap;
+    }
+    .canvas-toolbar .legend {
+      margin-left: auto; color: var(--ink-2); font-size: 11px;
+      display: flex; gap: 14px; align-items: center;
+    }
+    .canvas-toolbar .legend .dot {
+      display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      margin-right: 6px; vertical-align: middle;
+    }
+    .canvas-toolbar .legend .dot.amber { background: var(--amber); }
+    .canvas-toolbar .legend .dot.jade  { background: var(--jade); }
+    .canvas-toolbar .legend .dot.rose  { background: var(--rose); }
+
+    /* Status bar at bottom */
+    .statusbar {
+      position: absolute; bottom: 0; left: 0; right: 0; z-index: 5;
+      display: flex; align-items: center; gap: 16px;
+      padding: 6px 12px;
+      background: rgba(10,13,18,0.92);
+      border-top: 1px solid var(--line);
+      color: var(--ink-2); font-size: 11px;
+      backdrop-filter: blur(6px);
+    }
+    .statusbar strong { color: var(--ink-1); font-weight: 500; }
+    .statusbar .ok { color: var(--jade); }
+    .statusbar .warn { color: var(--amber); }
+    .statusbar .err { color: var(--rose); }
+
+    /* Toast */
+    .toast-wrap {
+      position: fixed; top: 64px; right: 16px; z-index: 50;
+      display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+    }
+    .toast {
+      pointer-events: auto;
+      min-width: 240px; max-width: 340px;
+      background: var(--bg-2);
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--amber);
+      border-radius: 4px;
+      padding: 10px 12px;
+      box-shadow: var(--shadow);
+      font-size: 12px;
+      animation: slideIn 0.18s ease-out;
+    }
+    .toast.ok { border-left-color: var(--jade); }
+    .toast.err { border-left-color: var(--rose); }
+    .toast .t { font-weight: 500; color: var(--ink-0); margin-bottom: 2px; }
+    .toast .d { color: var(--ink-2); }
+    @keyframes slideIn {
+      from { transform: translateX(8px); opacity: 0; }
+      to   { transform: translateX(0); opacity: 1; }
+    }
+
+    /* Modal */
+    .modal-backdrop {
+      position: fixed; inset: 0; z-index: 40;
+      background: rgba(5,7,10,0.7);
+      backdrop-filter: blur(3px);
+      display: grid; place-items: center;
+      animation: fadeIn 0.14s ease-out;
+    }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .modal {
+      background: var(--bg-1);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      width: min(640px, 92vw);
+      max-height: 80vh;
+      display: flex; flex-direction: column;
+      box-shadow: var(--shadow);
+    }
+    .modal-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 18px; border-bottom: 1px solid var(--line);
+    }
+    .modal-head h3 { margin: 0; font-size: 14px; font-family: "Inter Tight", monospace; }
+    .modal-body { padding: 16px 18px; overflow: auto; }
+    .modal-body pre {
+      background: var(--bg-0); border: 1px solid var(--line); border-radius: 4px;
+      padding: 12px; color: var(--ink-1); font-size: 11px; max-height: 50vh; overflow: auto;
+    }
+    .modal-foot {
+      padding: 12px 18px; border-top: 1px solid var(--line);
+      display: flex; gap: 8px; justify-content: flex-end;
+    }
+
+    /* Section anchors (scroll targets; these are hidden, only used as ID hooks) */
+    .anchor { position: absolute; visibility: hidden; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="react">
+    const { useCallback, useEffect, useMemo, useRef, useState } = React;
+    const RF = window.ReactFlow;
+    const {
+      ReactFlow, ReactFlowProvider, Background, Controls, MiniMap,
+      addEdge, applyNodeChanges, applyEdgeChanges,
+      Handle, Position, useReactFlow
+    } = RF;
+
+    // ============================================================
+    // 1. Domain model: 8 crawler node types with config schema
+    // ============================================================
+    const NODE_TYPES = {
+      start:    { label: "起點",     color: "#2dd4a3", desc: "流程入口", initial: { url: "https://example.com" } },
+      fetch:    { label: "HTTP 抓取", color: "#f5a524", desc: "GET / POST", initial: { method: "GET", url: "" } },
+      parse:    { label: "解析",     color: "#60a5fa", desc: "CSS / XPath", initial: { selector: "a", mode: "css" } },
+      filter:   { label: "過濾",     color: "#a78bfa", desc: "包含 / 排除", initial: { include: "", exclude: "" } },
+      transform:{ label: "轉換",     color: "#fb7185", desc: "欄位映射", initial: { mapping: "title -> title" } },
+      dedupe:   { label: "去重",     color: "#facc15", desc: "URL / hash", initial: { key: "url" } },
+      store:    { label: "儲存",     color: "#34d399", desc: "JSON / CSV", initial: { format: "json", path: "out.json" } },
+      end:      { label: "結束",     color: "#94a3b8", desc: "流程出口", initial: {} }
+    };
+    const TYPELIST = Object.keys(NODE_TYPES);
+
+    // Build a default config from the initial spec
+    function defaultConfig(type) {
+      return JSON.parse(JSON.stringify(NODE_TYPES[type].initial));
+    }
+
+    // ============================================================
+    // 2. Custom node renderer (handles + body + status)
+    // ============================================================
+    function CrawlerNode({ id, data, selected }) {
+      const t = NODE_TYPES[data?.type] || NODE_TYPES.fetch;
+      const summary = useMemo(() => {
+        const cfg = data?.config || {};
+        if (data?.type === "fetch")  return (<><span className="k">URL</span>{cfg.url || "—"}</>);
+        if (data?.type === "start")  return (<><span className="k">入口</span>{cfg.url || "—"}</>);
+        if (data?.type === "parse")  return (<><span className="k">{cfg.mode || "css"}</span>{cfg.selector || "—"}</>);
+        if (data?.type === "filter") return (<><span className="k">in</span>{cfg.include || "*"}</>);
+        if (data?.type === "transform") return (<><span className="k">map</span>{cfg.mapping || "—"}</>);
+        if (data?.type === "dedupe") return (<><span className="k">key</span>{cfg.key || "url"}</>);
+        if (data?.type === "store")  return (<><span className="k">{cfg.format || "json"}</span>{cfg.path || "—"}</>);
+        return null;
+      }, [data?.type, data?.config]);
+
+      return (
+        <div className={"rf-node" + (selected ? " selected" : "")}>
+          <Handle type="target" position={Position.Left} />
+          <div className="row">
+            <div className="glyph" style={{ background: t.color }}>{t.label.slice(0, 1)}</div>
+            <div>
+              <div className="name">{t.label}</div>
+              <div className="sub">{id}</div>
+            </div>
+            <div className={"status " + (data?.status || "")}>{data?.status || "idle"}</div>
+          </div>
+          <div className="summary">{summary}</div>
+          <Handle type="source" position={Position.Right} />
+        </div>
+      );
+    }
+
+    const nodeTypes = { rfNode: CrawlerNode };
+
+    // ============================================================
+    // 3. Toast / Modal hooks (mini micro-skills inlined)
+    // ============================================================
+    function useToasts() {
+      const [toasts, setToasts] = useState([]);
+      const idRef = useRef(0);
+      const push = useCallback((kind, title, detail) => {
+        const id = ++idRef.current;
+        setToasts(t => [...t, { id, kind, title, detail }]);
+        setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3200);
+      }, []);
+      return { toasts, push };
+    }
+    function Toasts({ toasts }) {
+      return (
+        <div className="toast-wrap">
+          {toasts.map(t => (
+            <div key={t.id} className={"toast " + (t.kind || "")}>
+              <div className="t">{t.title}</div>
+              {t.detail ? <div className="d">{t.detail}</div> : null}
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    // ============================================================
+    // 4. Property editor
+    // ============================================================
+    function PropertyEditor({ node, onChange, onDelete, onDuplicate, push }) {
+      if (!node) {
+        return (
+          <div className="empty">
+            <div>尚未選取節點</div>
+            <div className="hint">在畫布點擊節點以編輯參數</div>
+          </div>
+        );
+      }
+      const t = NODE_TYPES[node.data?.type] || NODE_TYPES.fetch;
+      const cfg = node.data?.config || {};
+      const setCfg = (patch) => onChange({ ...node, config: { ...cfg, ...patch } });
+      const setName = (e) => onChange({ ...node, label: e.target.value });
+
+      return (
+        <div className="editor">
+          <div className="field">
+            <label>節點類型</label>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <div className="glyph" style={{ background: t.color, width: 24, height: 24, borderRadius: 4, display: "grid", placeItems: "center", color: "#0a0d12", fontWeight: 600, fontSize: 11 }}>{t.label.slice(0, 1)}</div>
+              <div style={{ color: "var(--ink-0)", fontSize: 12 }}>{t.label}</div>
+              <div style={{ color: "var(--ink-2)", fontSize: 11, marginLeft: "auto" }}>{t.desc}</div>
+            </div>
+          </div>
+          <div className="field">
+            <label>節點 ID</label>
+            <input data-testid="prop-id" value={node.id} readOnly />
+          </div>
+
+          {node.data?.type === "start" && (
+            <div className="field">
+              <label>入口 URL</label>
+              <input data-testid="prop-start-url" value={cfg.url || ""} onChange={e => setCfg({ url: e.target.value })} placeholder="https://..." />
+            </div>
+          )}
+
+          {node.data?.type === "fetch" && (
+            <>
+              <div className="row-2">
+                <div className="field">
+                  <label>方法</label>
+                  <select data-testid="prop-fetch-method" value={cfg.method || "GET"} onChange={e => setCfg({ method: e.target.value })}>
+                    <option>GET</option>
+                    <option>POST</option>
+                    <option>HEAD</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label>逾時 (ms)</label>
+                  <input data-testid="prop-fetch-timeout" type="number" value={cfg.timeout || 15000} onChange={e => setCfg({ timeout: Number(e.target.value) || 0 })} />
+                </div>
+              </div>
+              <div className="field">
+                <label>URL 模板</label>
+                <input data-testid="prop-fetch-url" value={cfg.url || ""} onChange={e => setCfg({ url: e.target.value })} placeholder="{{start.url}}/page?page={i}" />
+              </div>
+            </>
+          )}
+
+          {node.data?.type === "parse" && (
+            <>
+              <div className="row-2">
+                <div className="field">
+                  <label>模式</label>
+                  <select data-testid="prop-parse-mode" value={cfg.mode || "css"} onChange={e => setCfg({ mode: e.target.value })}>
+                    <option value="css">CSS</option>
+                    <option value="xpath">XPath</option>
+                    <option value="regex">Regex</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label>回傳筆數上限</label>
+                  <input data-testid="prop-parse-limit" type="number" value={cfg.limit || 100} onChange={e => setCfg({ limit: Number(e.target.value) || 0 })} />
+                </div>
+              </div>
+              <div className="field">
+                <label>選擇器</label>
+                <input data-testid="prop-parse-selector" value={cfg.selector || ""} onChange={e => setCfg({ selector: e.target.value })} placeholder="article h2 a" />
+              </div>
+              <div className="field">
+                <label>屬性 (選填)</label>
+                <input data-testid="prop-parse-attr" value={cfg.attr || ""} onChange={e => setCfg({ attr: e.target.value })} placeholder="href" />
+              </div>
+            </>
+          )}
+
+          {node.data?.type === "filter" && (
+            <>
+              <div className="field">
+                <label>包含 (regex / 關鍵字)</label>
+                <input data-testid="prop-filter-include" value={cfg.include || ""} onChange={e => setCfg({ include: e.target.value })} placeholder="news|tech" />
+              </div>
+              <div className="field">
+                <label>排除 (regex / 關鍵字)</label>
+                <input data-testid="prop-filter-exclude" value={cfg.exclude || ""} onChange={e => setCfg({ exclude: e.target.value })} placeholder="login|cart" />
+              </div>
+            </>
+          )}
+
+          {node.data?.type === "transform" && (
+            <div className="field">
+              <label>欄位映射 (一行一條)</label>
+              <textarea data-testid="prop-transform-mapping" value={cfg.mapping || ""} onChange={e => setCfg({ mapping: e.target.value })} placeholder={"title -> title\npublished_at -> date"} />
+            </div>
+          )}
+
+          {node.data?.type === "dedupe" && (
+            <div className="field">
+              <label>去重鍵</label>
+              <input data-testid="prop-dedupe-key" value={cfg.key || "url"} onChange={e => setCfg({ key: e.target.value })} placeholder="url | hash | id" />
+            </div>
+          )}
+
+          {node.data?.type === "store" && (
+            <>
+              <div className="row-2">
+                <div className="field">
+                  <label>格式</label>
+                  <select data-testid="prop-store-format" value={cfg.format || "json"} onChange={e => setCfg({ format: e.target.value })}>
+                    <option>json</option>
+                    <option>jsonl</option>
+                    <option>csv</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label>壓縮</label>
+                  <select data-testid="prop-store-compress" value={cfg.compress || "none"} onChange={e => setCfg({ compress: e.target.value })}>
+                    <option value="none">無</option>
+                    <option value="gzip">gzip</option>
+                  </select>
+                </div>
+              </div>
+              <div className="field">
+                <label>輸出路徑</label>
+                <input data-testid="prop-store-path" value={cfg.path || ""} onChange={e => setCfg({ path: e.target.value })} placeholder="out/$(date).jsonl" />
+              </div>
+            </>
+          )}
+
+          <div className="actions">
+            <button className="btn" data-testid="prop-duplicate" onClick={onDuplicate}>複製節點</button>
+            <button className="btn danger" data-testid="prop-delete" onClick={onDelete}>刪除</button>
+          </div>
+          <div className="info">
+            <div>位置：<code>{Math.round(node.position?.x || 0)}, {Math.round(node.position?.y || 0)}</code></div>
+            <div>狀態：<code>{node.data?.status || "idle"}</code></div>
+          </div>
+        </div>
+      );
+    }
+
+    // ============================================================
+    // 5. Topology check + simulated execution
+    // ============================================================
+    function checkTopology(nodes, edges) {
+      // Build adjacency
+      const adj = new Map();
+      const indeg = new Map();
+      nodes.forEach(n => { adj.set(n.id, []); indeg.set(n.id, 0); });
+      edges.forEach(e => {
+        if (!adj.has(e.source) || !indeg.has(e.target)) return;
+        adj.get(e.source).push(e.target);
+        indeg.set(e.target, (indeg.get(e.target) || 0) + 1);
+      });
+      // Kahn topological sort + cycle detection
+      const queue = [];
+      indeg.forEach((d, k) => { if (d === 0) queue.push(k); });
+      const order = [];
+      const localIndeg = new Map(indeg);
+      while (queue.length) {
+        const u = queue.shift();
+        order.push(u);
+        for (const v of adj.get(u) || []) {
+          localIndeg.set(v, localIndeg.get(v) - 1);
+          if (localIndeg.get(v) === 0) queue.push(v);
+        }
+      }
+      if (order.length !== nodes.length) {
+        return { ok: false, reason: "偵測到循環依賴", order: [] };
+      }
+      return { ok: true, order };
+    }
+
+    async function simulateRun(nodes, edges, push, setNodes) {
+      const top = checkTopology(nodes, edges);
+      if (!top.ok) {
+        push("err", "拓樸檢查失敗", top.reason);
+        return;
+      }
+      const order = top.order;
+      const byId = new Map(nodes.map(n => [n.id, n]));
+      const markStatus = (id, status) => {
+        setNodes(curr => curr.map(n => n.id === id ? { ...n, data: { ...(n.data || {}), status } } : n));
+      };
+      // Reset all
+      setNodes(curr => curr.map(n => ({ ...n, data: { ...(n.data || {}), status: "idle" } })));
+      push("ok", "模擬執行開始", `拓樸排序 ${order.length} 個節點`);
+
+      for (let i = 0; i < order.length; i++) {
+        const id = order[i];
+        const n = byId.get(id);
+        markStatus(id, "run");
+        await new Promise(r => setTimeout(r, 320));
+        const t = NODE_TYPES[n.data?.type] || NODE_TYPES[n.type] || {};
+        // Deterministic fake result counts
+        const ok = true;
+        markStatus(id, ok ? "ok" : "err");
+        push("ok", `${t.label || n.data?.type || n.type} ✓`, `step ${i + 1}/${order.length}`);
+      }
+      push("ok", "模擬執行完成", `${order.length} 步全部成功`);
+    }
+
+    // ============================================================
+    // 6. Seed graph (so the canvas is never empty)
+    // ============================================================
+    const SEED = () => {
+      const ids = ["n_start", "n_fetch", "n_parse", "n_filter", "n_store"];
+      const xs = [40, 280, 520, 760, 1000];
+      const ys = [120, 120, 120, 120, 120];
+      const nodes = [
+        { id: "n_start",  type: "rfNode", position: { x: xs[0], y: ys[0] }, width: 220, height: 110, data: { type: "start",   config: { url: "https://news.example.com" } } },
+        { id: "n_fetch",  type: "rfNode", position: { x: xs[1], y: ys[1] }, width: 220, height: 110, data: { type: "fetch",   config: { method: "GET", url: "{{start.url}}/articles", timeout: 15000 } } },
+        { id: "n_parse",  type: "rfNode", position: { x: xs[2], y: ys[2] }, width: 220, height: 110, data: { type: "parse",   config: { mode: "css", selector: "article h2 a", attr: "href", limit: 100 } } },
+        { id: "n_filter", type: "rfNode", position: { x: xs[3], y: ys[3] }, width: 220, height: 110, data: { type: "filter",  config: { include: "news|tech", exclude: "login|cart" } } },
+        { id: "n_store",  type: "rfNode", position: { x: xs[4], y: ys[4] }, width: 220, height: 110, data: { type: "store",   config: { format: "jsonl", path: "out/$(date).jsonl", compress: "gzip" } } }
+      ];
+      const edges = [
+        { id: "e1", source: "n_start",  target: "n_fetch" },
+        { id: "e2", source: "n_fetch",  target: "n_parse" },
+        { id: "e3", source: "n_parse",  target: "n_filter" },
+        { id: "e4", source: "n_filter", target: "n_store" }
+      ];
+      return { nodes, edges };
+    };
+
+    // ============================================================
+    // 7. Auto-layout (simple left-to-right lanes by depth)
+    // ============================================================
+    function autoLayout(nodes, edges) {
+      const top = checkTopology(nodes, edges);
+      if (!top.ok) return { ok: false, reason: top.reason, nodes };
+      const order = top.order;
+      const depth = new Map();
+      order.forEach((id, i) => depth.set(id, i));
+      // If multiple components, group by depth anyway
+      const DX = 240, DY = 80;
+      const cols = {};
+      order.forEach(id => {
+        const d = depth.get(id);
+        cols[d] = cols[d] || [];
+        cols[d].push(id);
+      });
+      const positioned = nodes.map(n => {
+        const d = depth.get(n.id) || 0;
+        const list = cols[d];
+        const idx = list.indexOf(n.id);
+        return { ...n, width: 220, height: 110, position: { x: 40 + d * DX, y: 40 + idx * DY } };
+      });
+      return { ok: true, nodes: positioned };
+    }
+
+    // ============================================================
+    // 8. Persistence (LocalStorage)
+    // ============================================================
+    const LS_KEY = "spiderline.v1.graph";
+    function loadGraph() {
+      try {
+        const raw = localStorage.getItem(LS_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed || !Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) return null;
+        return parsed;
+      } catch (e) { return null; }
+    }
+    function saveGraph(graph) {
+      try { localStorage.setItem(LS_KEY, JSON.stringify(graph)); return true; }
+      catch (e) { return false; }
+    }
+
+    // ============================================================
+    // 9. Main canvas
+    // ============================================================
+    function Canvas({ nodes, edges, setNodes, setEdges, selectedId, setSelectedId, onLayout, onRun, onSave, onLoad, onExport, onImport, onClear, dirty }) {
+      const wrapperRef = useRef(null);
+      const [rfInstance, setRfInstance] = useState(null);
+      const onNodesChange = useCallback((changes) => setNodes(curr => applyNodeChanges(changes, curr)), [setNodes]);
+      const onEdgesChange = useCallback((changes) => setEdges(curr => applyEdgeChanges(changes, curr)), [setEdges]);
+      const onConnect = useCallback((p) => setEdges(curr => addEdge({ ...p, id: "e_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6) }, curr)), [setEdges]);
+
+      return (
+        <div className="canvas-wrap" ref={wrapperRef}>
+          <div className="canvas-toolbar">
+            <button className="btn primary" data-testid="btn-run" onClick={onRun}>▶ 模擬執行</button>
+            <button className="btn" data-testid="btn-layout" onClick={onLayout}>↔ 自動佈局</button>
+            <button className="btn" data-testid="btn-save" onClick={onSave}>儲存</button>
+            <button className="btn" data-testid="btn-load" onClick={onLoad}>載入</button>
+            <button className="btn" data-testid="btn-export" onClick={onExport}>匯出 JSON</button>
+            <button className="btn" data-testid="btn-import" onClick={onImport}>匯入 JSON</button>
+            <button className="btn danger" data-testid="btn-clear" onClick={onClear}>清除</button>
+            <div className="legend">
+              <span><span className="dot amber"></span>idle / run</span>
+              <span><span className="dot jade"></span>ok / selected</span>
+              <span><span className="dot rose"></span>err</span>
+            </div>
+          </div>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onInit={setRfInstance}
+            onNodeClick={(_, n) => setSelectedId(n.id)}
+            onPaneClick={() => setSelectedId(null)}
+            fitView
+            fitViewOptions={{ padding: 0.25 }}
+            proOptions={{ hideAttribution: true }}
+            defaultEdgeOptions={{ animated: true }}
+            minZoom={0.2}
+            maxZoom={1.6}
+          >
+            <Background gap={20} size={1} color="#1f2a3a" />
+            <Controls position="bottom-right" />
+            <MiniMap
+              pannable
+              zoomable
+              nodeColor={(n) => (NODE_TYPES[n.data?.type] || {}).color || "#999"}
+              maskColor="rgba(10,13,18,0.7)"
+            />
+          </ReactFlow>
+          <div className="statusbar">
+            <span>節點 <strong data-testid="stat-nodes">{nodes.length}</strong></span>
+            <span>邊 <strong data-testid="stat-edges">{edges.length}</strong></span>
+            <span>選取 <strong data-testid="stat-selected">{selectedId || "—"}</strong></span>
+            <span>狀態 <strong className={dirty ? "warn" : "ok"} data-testid="stat-dirty">{dirty ? "unsaved" : "synced"}</strong></span>
+          </div>
+        </div>
+      );
+    }
+
+    // ============================================================
+    // 10. Top app shell
+    // ============================================================
+    function App() {
+      const seed = useMemo(() => SEED(), []);
+      const initial = loadGraph() || seed;
+      const [nodes, setNodes] = useState(initial.nodes);
+      const [edges, setEdges] = useState(initial.edges);
+      const [selectedId, setSelectedId] = useState(null);
+      const [dirty, setDirty] = useState(false);
+      const [modal, setModal] = useState(null); // {kind: "export" | "import", payload}
+      const fileInputRef = useRef(null);
+      const { toasts, push } = useToasts();
+
+      // Mark dirty when graph changes
+      useEffect(() => { setDirty(true); }, [nodes, edges]);
+      // Clear dirty on first load
+      useEffect(() => { setDirty(false); }, []); // eslint-disable-line
+
+      const selectedNode = useMemo(
+        () => nodes.find(n => n.id === selectedId) || null,
+        [nodes, selectedId]
+      );
+
+      // Topnav: smooth scroll anchors
+      useEffect(() => {
+        const handler = (e) => {
+          const a = e.target.closest && e.target.closest('a[href^="#"]');
+          if (!a) return;
+          const id = a.getAttribute('href').slice(1);
+          if (!id) return;
+          const el = document.getElementById(id);
+          if (el) {
+            e.preventDefault();
+            el.scrollIntoView({ behavior: "smooth", block: "start" });
+            history.replaceState(null, '', '#' + id);
+          }
+        };
+        document.addEventListener('click', handler);
+        return () => document.removeEventListener('click', handler);
+      }, []);
+
+      // Escape closes modal / clears selection
+      useEffect(() => {
+        const onKey = (e) => {
+          if (e.key === "Escape") {
+            if (modal) setModal(null);
+            else setSelectedId(null);
+          }
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+      }, [modal]);
+
+      // Palette: add node at runtime
+      const addNode = useCallback((type) => {
+        const id = "n_" + type + "_" + Math.random().toString(36).slice(2, 6);
+        const newNode = {
+          id, type: "rfNode",
+          position: { x: 200 + Math.random() * 320, y: 240 + Math.random() * 160 },
+          width: 220, height: 110,
+          data: { type, status: "idle", config: defaultConfig(type) }
+        };
+        setNodes(curr => [...curr, newNode]);
+        setSelectedId(id);
+        push("ok", "節點已新增", `${NODE_TYPES[type].label} (${id})`);
+      }, [push]);
+
+      // Drag-and-drop from palette
+      const onDragStart = (e, type) => {
+        e.dataTransfer.setData("application/spiderline-node", type);
+        e.dataTransfer.effectAllowed = "move";
+      };
+      const onDrop = (e) => {
+        e.preventDefault();
+        const type = e.dataTransfer.getData("application/spiderline-node");
+        if (!type || !NODE_TYPES[type]) return;
+        const wrap = document.querySelector(".canvas-wrap");
+        if (!wrap) return;
+        const r = wrap.getBoundingClientRect();
+        const x = e.clientX - r.left - 90;
+        const y = e.clientY - r.top - 30;
+        const id = "n_" + type + "_" + Math.random().toString(36).slice(2, 6);
+        setNodes(curr => [...curr, { id, type: "rfNode", position: { x, y }, width: 220, height: 110, data: { type, status: "idle", config: defaultConfig(type) } }]);
+        setSelectedId(id);
+        push("ok", "節點已新增", `${NODE_TYPES[type].label} (${id})`);
+      };
+      const onDragOver = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; };
+
+      // Topology check (instant, no execution)
+      const onCheck = useCallback(() => {
+        const r = checkTopology(nodes, edges);
+        if (r.ok) push("ok", "拓樸 OK", `拓樸排序 ${r.order.length} 步`);
+        else push("err", "拓樸錯誤", r.reason);
+      }, [nodes, edges, push]);
+
+      // Run simulation
+      const onRun = useCallback(() => simulateRun(nodes, edges, push, setNodes), [nodes, edges, push]);
+
+      // Layout
+      const onLayout = useCallback(() => {
+        const r = autoLayout(nodes, edges);
+        if (!r.ok) { push("err", "無法佈局", r.reason); return; }
+        setNodes(r.nodes);
+        push("ok", "已重新佈局", `${r.nodes.length} 節點`);
+      }, [nodes, edges, push]);
+
+      // Save / Load
+      const onSave = useCallback(() => {
+        const ok = saveGraph({ nodes, edges });
+        if (ok) { setDirty(false); push("ok", "已儲存", "LocalStorage"); }
+        else push("err", "儲存失敗", "瀏覽器儲存空間不足");
+      }, [nodes, edges, push]);
+      const onLoad = useCallback(() => {
+        const g = loadGraph();
+        if (!g) { push("err", "無儲存資料", "請先建立並儲存流程"); return; }
+        setNodes(g.nodes); setEdges(g.edges); setDirty(false);
+        push("ok", "已載入", `${g.nodes.length} 節點 / ${g.edges.length} 邊`);
+      }, [push]);
+
+      // Export / Import
+      const onExport = useCallback(() => {
+        const json = JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), nodes, edges }, null, 2);
+        setModal({ kind: "export", payload: json });
+      }, [nodes, edges]);
+      const onImport = useCallback(() => {
+        fileInputRef.current && fileInputRef.current.click();
+      }, []);
+      const onFile = (e) => {
+        const f = e.target.files && e.target.files[0];
+        if (!f) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const obj = JSON.parse(String(reader.result));
+            if (!obj || !Array.isArray(obj.nodes) || !Array.isArray(obj.edges)) throw new Error("格式錯誤");
+            setNodes(obj.nodes); setEdges(obj.edges); setDirty(false);
+            push("ok", "匯入成功", `${obj.nodes.length} 節點 / ${obj.edges.length} 邊`);
+          } catch (err) {
+            push("err", "匯入失敗", String(err.message || err));
+          }
+        };
+        reader.readAsText(f);
+        e.target.value = "";
+      };
+      const onClear = useCallback(() => {
+        if (!confirm("確定要清除所有節點？此動作無法復原。")) return;
+        setNodes([]); setEdges([]); setSelectedId(null);
+        push("ok", "已清除", "畫布為空");
+      }, [push]);
+
+      // Property editor handlers
+      const onPropChange = useCallback((next) => {
+        setNodes(curr => curr.map(n => n.id === next.id ? next : n));
+      }, []);
+      const onPropDelete = useCallback(() => {
+        if (!selectedNode) return;
+        const id = selectedNode.id;
+        setNodes(curr => curr.filter(n => n.id !== id));
+        setEdges(curr => curr.filter(e => e.source !== id && e.target !== id));
+        setSelectedId(null);
+        push("ok", "節點已刪除", id);
+      }, [selectedNode, push]);
+      const onPropDuplicate = useCallback(() => {
+        if (!selectedNode) return;
+        const n = selectedNode;
+        const id = "n_" + n.type + "_" + Math.random().toString(36).slice(2, 6);
+        setNodes(curr => [...curr, {
+          id, type: "rfNode",
+          position: { x: (n.position?.x || 0) + 40, y: (n.position?.y || 0) + 40 },
+          width: n.width || 220, height: n.height || 110,
+          data: { ...(n.data || {}), config: JSON.parse(JSON.stringify(n.data?.config || {})) }
+        }]);
+        setSelectedId(id);
+        push("ok", "節點已複製", id);
+      }, [selectedNode, push]);
+
+      const modalEl = modal && modal.kind === "export" && (
+        <div className="modal-backdrop" data-testid="modal-backdrop" onClick={(e) => { if (e.target.classList.contains("modal-backdrop")) setModal(null); }}>
+          <div className="modal" role="dialog" aria-label="匯出 JSON">
+            <div className="modal-head">
+              <h3>匯出流程 JSON</h3>
+              <button className="btn ghost" onClick={() => setModal(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <pre data-testid="modal-json">{modal.payload}</pre>
+            </div>
+            <div className="modal-foot">
+              <button className="btn" data-testid="modal-copy" onClick={async () => {
+                try { await navigator.clipboard.writeText(modal.payload); push("ok", "已複製", "剪貼簿"); }
+                catch (e) {
+                  const ta = document.createElement("textarea");
+                  ta.value = modal.payload; document.body.appendChild(ta); ta.select();
+                  try { document.execCommand("copy"); push("ok", "已複製", "剪貼簿"); } catch (_) { push("err", "複製失敗", "請手動選取"); }
+                  document.body.removeChild(ta);
+                }
+              }}>複製到剪貼簿</button>
+              <button className="btn primary" data-testid="modal-download" onClick={() => {
+                const blob = new Blob([modal.payload], { type: "application/json" });
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = "spiderline-" + Date.now() + ".json";
+                document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                push("ok", "下載完成", a.download);
+              }}>下載檔案</button>
+            </div>
+          </div>
+        </div>
+      );
+
+      return (
+        <ReactFlowProvider>
+          <header className="topbar">
+            <div className="brand">
+              <div className="brand-mark" />
+              <div>
+                <div className="brand-name">SPIDERLINE</div>
+                <div className="brand-tag">爬蟲流程設計器 · v1.0</div>
+              </div>
+            </div>
+            <nav className="nav" aria-label="topnav">
+              <a href="#sec-palette" data-testid="nav-palette">工具箱</a>
+              <a href="#sec-canvas" data-testid="nav-canvas">畫布</a>
+              <a href="#sec-props" data-testid="nav-props">參數</a>
+              <a href="#sec-help" data-testid="nav-help">使用說明</a>
+            </nav>
+            <div className="spacer" />
+            <div className="meta">
+              <span>節點 <strong>{nodes.length}</strong></span>&nbsp;·&nbsp;
+              <span>邊 <strong>{edges.length}</strong></span>&nbsp;·&nbsp;
+              <span>狀態 <strong style={{ color: dirty ? "var(--amber)" : "var(--jade)" }}>{dirty ? "未儲存" : "已同步"}</strong></span>
+            </div>
+          </header>
+
+          <div className="app" onDragOver={onDragOver} onDrop={onDrop}>
+            <aside className="pane" id="sec-palette">
+              <div className="pane-head"><span className="label"><span className="pulse" />工具箱</span><span>{TYPELIST.length}</span></div>
+              <div className="pane-body">
+                <div className="palette">
+                  {TYPELIST.map(type => (
+                    <div
+                      key={type}
+                      className="palette-item"
+                      data-testid={"palette-" + type}
+                      draggable
+                      onDragStart={(e) => onDragStart(e, type)}
+                      onDoubleClick={() => addNode(type)}
+                      title="拖曳到畫布 / 雙擊加入"
+                    >
+                      <div className="glyph" style={{ background: NODE_TYPES[type].color }}>{NODE_TYPES[type].label.slice(0, 1)}</div>
+                      <div className="meta">
+                        <div className="name">{NODE_TYPES[type].label}</div>
+                        <div className="desc">{NODE_TYPES[type].desc}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ marginTop: 18, color: "var(--ink-2)", fontSize: 11, lineHeight: 1.6 }}>
+                  <div style={{ marginBottom: 6, color: "var(--ink-1)" }}>操作提示</div>
+                  · 拖曳節點到畫布<br />
+                  · 雙擊節點卡片可加入<br />
+                  · 拖曳節點右側 handle 連線<br />
+                  · <kbd style={{ background: "var(--bg-2)", border: "1px solid var(--line)", padding: "1px 4px", borderRadius: 3 }}>Esc</kbd> 取消選取
+                </div>
+              </div>
+            </aside>
+
+            <main id="sec-canvas">
+              <Canvas
+                nodes={nodes} edges={edges}
+                setNodes={setNodes} setEdges={setEdges}
+                selectedId={selectedId} setSelectedId={setSelectedId}
+                onLayout={onLayout} onRun={onRun}
+                onSave={onSave} onLoad={onLoad}
+                onExport={onExport} onImport={onImport} onClear={onClear}
+                dirty={dirty}
+              />
+              <input ref={fileInputRef} type="file" accept="application/json" hidden onChange={onFile} data-testid="file-input" />
+            </main>
+
+            <aside className="pane right" id="sec-props">
+              <div className="pane-head"><span className="label">參數編輯</span><button className="btn ghost" data-testid="btn-check" onClick={onCheck} style={{ padding: "4px 8px", fontSize: 11 }}>拓樸檢查</button></div>
+              <div className="pane-body">
+                <PropertyEditor
+                  node={selectedNode}
+                  onChange={onPropChange}
+                  onDelete={onPropDelete}
+                  onDuplicate={onPropDuplicate}
+                  push={push}
+                />
+              </div>
+            </aside>
+          </div>
+
+          <div id="sec-help" style={{ display: "none" }}>
+            {/* Hidden section anchor; user-facing help embedded in the left pane */}
+          </div>
+
+          {modalEl}
+          <Toasts toasts={toasts} />
+        </ReactFlowProvider>
+      );
+    }
+
+    // ============================================================
+    // 11. Mount with error overlay
+    // ============================================================
+    const rootEl = document.getElementById("root");
+    try {
+      // react-dom 17.x UMD exposes ReactDOM.render (createRoot landed in 18).
+      // Use legacy render API. Strict mode not needed for this UMD setup.
+      ReactDOM.render(<App />, rootEl);
+      // mark ready
+      window.__SPIDERLINE_READY__ = true;
+      document.body.setAttribute("data-rf-ready", "1");
+    } catch (e) {
+      const pre = document.createElement("pre");
+      pre.style.cssText = "color:#f87171;background:#0a0d12;padding:16px;font-family:monospace;white-space:pre-wrap;";
+      pre.textContent = "[spiderline] mount error: " + (e && e.stack || e);
+      rootEl.appendChild(pre);
+      console.error("[spiderline] mount error", e);
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Next.js 動態表單系統 — RBAC 權限控制展示</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          brand: { 50:'#eff6ff', 100:'#dbeafe', 500:'#3b82f6', 600:'#2563eb', 700:'#1d4ed8', 900:'#1e3a8a' },
+        },
+        boxShadow: { 'card': '0 10px 30px -10px rgba(31,41,55,0.15)' },
+      },
+    },
+  };
+</script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif; }
+  .fade-in { animation: fadeIn .3s ease-out; }
+  @keyframes fadeIn { from { opacity:0; transform: translateY(8px); } to { opacity:1; transform: none; } }
+  .pulse-dot { animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.4;} }
+  details > summary { list-style: none; cursor: pointer; }
+  details > summary::-webkit-details-marker { display: none; }
+  .field-disabled { opacity:.45; pointer-events:none; filter: grayscale(.6); }
+  .badge { display:inline-flex; align-items:center; gap:.25rem; padding:.125rem .5rem; border-radius:9999px; font-size:.7rem; font-weight:600; letter-spacing:.025em; }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+
+<!-- ================== App Shell ================== -->
+<div id="app" class="min-h-screen flex flex-col">
+
+  <!-- Top Nav -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-brand-500 to-brand-700 grid place-items-center text-white font-bold">N</div>
+        <div>
+          <h1 class="text-base font-semibold leading-tight">DynamicForm<span class="text-brand-600">.js</span></h1>
+          <p class="text-[11px] text-slate-500 leading-tight">Next.js · RBAC · Schema-Driven</p>
+        </div>
+      </div>
+
+      <!-- Role Switcher -->
+      <div class="flex items-center gap-2">
+        <span class="hidden sm:inline text-xs text-slate-500">模擬身份：</span>
+        <select id="role-switcher" class="text-sm border border-slate-300 rounded-md px-3 py-1.5 bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+          <option value="admin">Admin（全部權限）</option>
+          <option value="editor">Editor（編輯可發布）</option>
+          <option value="viewer">Viewer（唯讀）</option>
+          <option value="guest">Guest（受限訪客）</option>
+        </select>
+        <span id="role-badge" class="badge bg-brand-100 text-brand-700"></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Layout -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 grid grid-cols-12 gap-6">
+
+    <!-- Left Sidebar: Form List -->
+    <aside class="col-span-12 md:col-span-3">
+      <div class="bg-white rounded-xl shadow-card p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-sm font-semibold text-slate-700">表單範本</h2>
+          <button id="btn-new-form" class="text-xs px-2 py-1 rounded bg-brand-600 text-white hover:bg-brand-700 disabled:bg-slate-300" disabled>+ 新增</button>
+        </div>
+        <ul id="form-list" class="space-y-1 text-sm"></ul>
+
+        <div class="mt-5 pt-4 border-t border-slate-100">
+          <h3 class="text-xs font-semibold text-slate-500 uppercase mb-2">權限矩陣</h3>
+          <div id="permission-matrix" class="text-xs"></div>
+        </div>
+      </div>
+
+      <!-- Audit Log -->
+      <div class="bg-white rounded-xl shadow-card p-4 mt-4">
+        <h3 class="text-sm font-semibold text-slate-700 mb-2 flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 pulse-dot"></span> 操作日誌
+        </h3>
+        <ul id="audit-log" class="text-xs space-y-1.5 max-h-48 overflow-y-auto"></ul>
+      </div>
+    </aside>
+
+    <!-- Center: Form Builder / Renderer -->
+    <section class="col-span-12 md:col-span-6">
+      <div id="form-area" class="bg-white rounded-xl shadow-card p-6 fade-in">
+        <div id="form-empty" class="text-center py-16 text-slate-400">
+          <div class="text-5xl mb-3">📋</div>
+          <p class="text-sm">請從左側選擇一個表單範本開始</p>
+        </div>
+        <div id="form-container" class="hidden"></div>
+      </div>
+    </section>
+
+    <!-- Right: Schema Inspector + Submissions -->
+    <aside class="col-span-12 md:col-span-3 space-y-4">
+      <div class="bg-white rounded-xl shadow-card p-4">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-sm font-semibold text-slate-700">JSON Schema</h3>
+          <button id="btn-copy-schema" class="text-[11px] text-brand-600 hover:underline disabled:text-slate-300" disabled>複製</button>
+        </div>
+        <pre id="schema-preview" class="text-[11px] bg-slate-900 text-emerald-300 rounded-md p-3 overflow-x-auto max-h-64"></pre>
+      </div>
+
+      <div class="bg-white rounded-xl shadow-card p-4">
+        <h3 class="text-sm font-semibold text-slate-700 mb-2">提交記錄 <span id="submission-count" class="text-xs text-slate-400">0</span></h3>
+        <ul id="submission-list" class="text-xs space-y-2 max-h-64 overflow-y-auto"></ul>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="border-t border-slate-200 bg-white py-3 text-center text-xs text-slate-500">
+    Next.js-style SPA · 本機展示，無外部 API · 所有狀態以 LocalStorage 持久化
+  </footer>
+</div>
+
+<!-- ================== Toast Container ================== -->
+<div id="toast" class="fixed bottom-6 right-6 z-50 hidden">
+  <div class="bg-slate-900 text-white px-4 py-2.5 rounded-lg shadow-lg text-sm flex items-center gap-2">
+    <span id="toast-icon">✓</span>
+    <span id="toast-msg"></span>
+  </div>
+</div>
+
+<!-- ================== Modal: New Form ================== -->
+<div id="modal-new" class="hidden fixed inset-0 bg-black/40 z-40 grid place-items-center p-4">
+  <div class="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 fade-in">
+    <h3 class="text-lg font-semibold mb-4">新增表單範本</h3>
+    <div class="space-y-3">
+      <div>
+        <label class="text-xs text-slate-500">表單名稱</label>
+        <input id="new-form-name" type="text" class="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500" placeholder="例：員工入職申請" />
+      </div>
+      <div>
+        <label class="text-xs text-slate-500">選擇基礎範本</label>
+        <select id="new-form-template" class="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500">
+          <option value="blank">空白表單</option>
+          <option value="contact">聯絡表單（4 欄位）</option>
+          <option value="leave">請假申請（5 欄位含條件）</option>
+        </select>
+      </div>
+    </div>
+    <div class="mt-5 flex justify-end gap-2">
+      <button id="modal-cancel" class="px-3 py-1.5 text-sm rounded-md text-slate-600 hover:bg-slate-100">取消</button>
+      <button id="modal-confirm" class="px-3 py-1.5 text-sm rounded-md bg-brand-600 text-white hover:bg-brand-700">建立</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+ * DynamicForm.js — Next.js 風格的 Schema-Driven Form with RBAC
+ * 模擬 Next.js App Router + Server Actions + Middleware 行為
+ * 將「角色 → 動作 → 欄位可見性/可編輯性」三層分離
+ * ===================================================================== */
+
+// ----------------- (1) RBAC 核心：角色與權限定義 -----------------
+const ROLES = {
+  admin:  { label: '管理員', color: 'bg-rose-100 text-rose-700',
+    permissions: { create: true, read: true, update: true, delete: true, publish: true, export: true } },
+  editor: { label: '編輯者', color: 'bg-amber-100 text-amber-700',
+    permissions: { create: true, read: true, update: true, delete: false, publish: true, export: true } },
+  viewer: { label: '檢視者', color: 'bg-emerald-100 text-emerald-700',
+    permissions: { create: false, read: true, update: false, delete: false, publish: false, export: true } },
+  guest:  { label: '訪客',   color: 'bg-slate-200 text-slate-600',
+    permissions: { create: false, read: true, update: false, delete: false, publish: false, export: false } },
+};
+
+// 欄位級權限規則（可附加於 schema 欄位）
+const FIELD_ACCESS = {
+  admin:  { read: true,  write: true },
+  editor: { read: true,  write: true },
+  viewer: { read: true,  write: false },
+  guest:  { read: false, write: false },
+};
+
+// ----------------- (2) 預設表單 Schema -----------------
+const DEFAULT_FORMS = [
+  {
+    id: 'form-contact', name: '聯絡我們', icon: '✉️',
+    schema: {
+      fields: [
+        { name:'name',    label:'姓名',    type:'text',     required:true,  visibleTo:['admin','editor','viewer'] },
+        { name:'email',   label:'Email', type:'email',    required:true,  visibleTo:['admin','editor','viewer'], validate: v=>/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v) },
+        { name:'subject', label:'主旨',    type:'select',   options:['一般詢問','技術支援','合作邀約'], visibleTo:['admin','editor','viewer'] },
+        { name:'message', label:'訊息內容',type:'textarea', required:true,  visibleTo:['admin','editor','viewer'] },
+      ],
+    },
+  },
+  {
+    id: 'form-leave', name: '請假申請', icon: '🌴',
+    schema: {
+      fields: [
+        { name:'employeeId', label:'員工編號', type:'text',  required:true,  visibleTo:['admin','editor','viewer'] },
+        { name:'leaveType',  label:'假別',     type:'radio', options:['特休','病假','事假','公假'], required:true, visibleTo:['admin','editor','viewer'] },
+        { name:'startDate',  label:'開始日期', type:'date',  required:true,  visibleTo:['admin','editor','viewer'] },
+        { name:'endDate',    label:'結束日期', type:'date',  required:true,  visibleTo:['admin','editor','viewer'], validate:(v,form)=>v>=form.startDate },
+        { name:'reason',     label:'原因說明', type:'textarea', required:true, visibleTo:['admin','editor'] }, // guest/viewer 看不到
+        { name:'managerApproval', label:'主管簽核', type:'checkbox', visibleTo:['admin'] },
+      ],
+    },
+  },
+  {
+    id: 'form-product', name: '產品上架', icon: '🛒',
+    schema: {
+      fields: [
+        { name:'productName', label:'產品名稱', type:'text',     required:true,  visibleTo:['admin','editor','viewer'] },
+        { name:'price',       label:'價格',     type:'number',   required:true,  visibleTo:['admin','editor','viewer'], validate:v=>v>0 },
+        { name:'category',    label:'分類',     type:'select',   options:['3C','服飾','食品','書籍'], visibleTo:['admin','editor','viewer'] },
+        { name:'description', label:'描述',     type:'textarea', visibleTo:['admin','editor'] },
+        { name:'internalCost',label:'內部成本', type:'number',   visibleTo:['admin'] }, // 敏感欄位
+        { name:'published',   label:'立即上架', type:'checkbox', visibleTo:['admin','editor'] },
+      ],
+    },
+  },
+];
+
+// ----------------- (3) 應用狀態（取代 Next.js server state） -----------------
+const State = {
+  currentRole: 'admin',
+  currentFormId: null,
+  forms: [],          // [{id, name, icon, schema}]
+  submissions: {},    // {formId: [{data, ts, role}]}
+  auditLog: [],       // [{action, ts, role, detail}]
+};
+
+// 從 LocalStorage 載入（取代 Next.js DB）
+function loadState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('dynamicform-state') || '{}');
+    State.forms = saved.forms || JSON.parse(JSON.stringify(DEFAULT_FORMS));
+    State.submissions = saved.submissions || {};
+    State.auditLog = saved.auditLog || [];
+  } catch { State.forms = JSON.parse(JSON.stringify(DEFAULT_FORMS)); }
+}
+function saveState() {
+  localStorage.setItem('dynamicform-state', JSON.stringify({
+    forms: State.forms,
+    submissions: State.submissions,
+    auditLog: State.auditLog,
+  }));
+}
+
+// ----------------- (4) RBAC 工具函式 -----------------
+function can(action) { return !!ROLES[State.currentRole]?.permissions[action]; }
+function fieldVisible(field) { return field.visibleTo?.includes(State.currentRole) ?? true; }
+function fieldWritable(field) { return fieldVisible(field) && FIELD_ACCESS[State.currentRole].write; }
+
+// ----------------- (5) 工具：Toast、Audit -----------------
+function toast(msg, type='ok') {
+  const t = document.getElementById('toast');
+  document.getElementById('toast-msg').textContent = msg;
+  document.getElementById('toast-icon').textContent = type==='ok'?'✓':type==='err'?'✗':'ℹ';
+  t.classList.remove('hidden');
+  clearTimeout(t._tm); t._tm = setTimeout(()=>t.classList.add('hidden'), 2200);
+}
+function audit(action, detail) {
+  State.auditLog.unshift({ action, detail, role: State.currentRole, ts: Date.now() });
+  if (State.auditLog.length > 50) State.auditLog.length = 50;
+  renderAudit();
+  saveState();
+}
+
+// ----------------- (6) Render: Role Badge -----------------
+function renderRoleBadge() {
+  const r = ROLES[State.currentRole];
+  const el = document.getElementById('role-badge');
+  el.className = `badge ${r.color}`;
+  el.textContent = r.label;
+}
+
+// ----------------- (7) Render: 表單列表 -----------------
+function renderFormList() {
+  const ul = document.getElementById('form-list');
+  ul.innerHTML = '';
+  State.forms.forEach(f => {
+    const li = document.createElement('li');
+    const isActive = State.currentFormId === f.id;
+    li.className = `flex items-center justify-between px-3 py-2 rounded-md cursor-pointer transition ${
+      isActive ? 'bg-brand-50 text-brand-700' : 'hover:bg-slate-50'
+    }`;
+    li.innerHTML = `
+      <span class="flex items-center gap-2">
+        <span>${f.icon}</span>
+        <span class="truncate">${f.name}</span>
+      </span>
+      ${can('delete') ? `<button data-del="${f.id}" class="text-rose-400 hover:text-rose-600 text-xs">✕</button>` : ''}
+    `;
+    li.addEventListener('click', e => {
+      if (e.target.dataset.del) return;
+      State.currentFormId = f.id;
+      render();
+      audit('view', `開啟表單「${f.name}」`);
+    });
+    li.querySelector('[data-del]')?.addEventListener('click', e => {
+      e.stopPropagation();
+      if (!can('delete')) return toast('無刪除權限', 'err');
+      if (!confirm(`確定刪除「${f.name}」？`)) return;
+      State.forms = State.forms.filter(x => x.id !== f.id);
+      delete State.submissions[f.id];
+      if (State.currentFormId === f.id) State.currentFormId = null;
+      audit('delete', `刪除表單「${f.name}」`);
+      saveState(); render();
+      toast('已刪除');
+    });
+    ul.appendChild(li);
+  });
+
+  document.getElementById('btn-new-form').disabled = !can('create');
+}
+
+// ----------------- (8) Render: 權限矩陣 -----------------
+function renderPermissionMatrix() {
+  const wrap = document.getElementById('permission-matrix');
+  const perms = ['create','read','update','delete','publish','export'];
+  const labels = { create:'建立', read:'讀取', update:'編輯', delete:'刪除', publish:'發布', export:'匯出' };
+  wrap.innerHTML = `
+    <table class="w-full">
+      <thead><tr class="text-slate-400">
+        <th class="text-left font-normal pb-1">動作</th>
+        ${Object.keys(ROLES).map(r => `<th class="font-normal pb-1 text-center">${ROLES[r].label.slice(0,2)}</th>`).join('')}
+      </tr></thead>
+      <tbody>
+        ${perms.map(p => `
+          <tr class="border-t border-slate-100">
+            <td class="py-1 text-slate-600">${labels[p]}</td>
+            ${Object.keys(ROLES).map(r => `
+              <td class="text-center">${ROLES[r].permissions[p]
+                ? '<span class="text-emerald-500">●</span>'
+                : '<span class="text-slate-300">○</span>'}</td>
+            `).join('')}
+          </tr>`).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+// ----------------- (9) Render: Audit Log -----------------
+function renderAudit() {
+  const ul = document.getElementById('audit-log');
+  ul.innerHTML = State.auditLog.length === 0
+    ? '<li class="text-slate-400 italic">尚無記錄</li>'
+    : State.auditLog.slice(0, 20).map(a => `
+        <li class="flex items-start gap-2">
+          <span class="text-slate-400 tabular-nums shrink-0">${new Date(a.ts).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}</span>
+          <span class="shrink-0 px-1 rounded text-[10px] font-bold ${ROLES[a.role]?.color || 'bg-slate-100'}">${ROLES[a.role]?.label || a.role}</span>
+          <span class="text-slate-600">${a.action}: ${a.detail}</span>
+        </li>`).join('');
+}
+
+// ----------------- (10) Render: Schema Preview -----------------
+function renderSchemaPreview() {
+  const form = State.forms.find(f => f.id === State.currentFormId);
+  const pre = document.getElementById('schema-preview');
+  const btn = document.getElementById('btn-copy-schema');
+  if (!form) { pre.textContent = '// 尚未選擇表單'; btn.disabled = true; return; }
+  // 只顯示當前角色可見欄位
+  const visibleFields = form.schema.fields.filter(fieldVisible);
+  const displaySchema = {
+    formId: form.id, name: form.name,
+    role: State.currentRole,
+    fields: visibleFields,
+  };
+  pre.textContent = JSON.stringify(displaySchema, null, 2);
+  btn.disabled = visibleFields.length === 0;
+}
+
+// ----------------- (11) Render: Submission List -----------------
+function renderSubmissions() {
+  const subs = State.submissions[State.currentFormId] || [];
+  document.getElementById('submission-count').textContent = `(${subs.length})`;
+  const ul = document.getElementById('submission-list');
+  if (subs.length === 0) { ul.innerHTML = '<li class="text-slate-400 italic">尚無提交</li>'; return; }
+  ul.innerHTML = subs.slice().reverse().slice(0, 10).map((s, idx) => `
+    <li class="border border-slate-100 rounded-md p-2 bg-slate-50">
+      <div class="flex justify-between text-[10px] text-slate-400">
+        <span>#${subs.length - idx}</span>
+        <span>${new Date(s.ts).toLocaleString('zh-TW',{hour12:false})}</span>
+      </div>
+      <div class="mt-1 text-slate-700 font-mono break-all">${
+        Object.entries(s.data).slice(0,3).map(([k,v])=>`<span class="text-slate-500">${k}:</span> ${String(v).slice(0,18)}`).join(' · ')
+      }</div>
+    </li>`).join('');
+}
+
+// ----------------- (12) Render: Dynamic Form -----------------
+function renderForm() {
+  const form = State.forms.find(f => f.id === State.currentFormId);
+  const empty = document.getElementById('form-empty');
+  const cont = document.getElementById('form-container');
+  const area = document.getElementById('form-area');
+
+  if (!form) {
+    empty.classList.remove('hidden'); cont.classList.add('hidden'); return;
+  }
+  empty.classList.add('hidden'); cont.classList.remove('hidden');
+
+  const visibleFields = form.schema.fields.filter(fieldVisible);
+  const writable = can('update');
+
+  if (visibleFields.length === 0) {
+    cont.innerHTML = `
+      <div class="text-center py-12 text-slate-400">
+        <div class="text-4xl mb-2">🔒</div>
+        <p class="text-sm">當前角色無權檢視此表單任何欄位</p>
+      </div>`;
+    return;
+  }
+
+  cont.innerHTML = `
+    <div class="flex items-center justify-between mb-5">
+      <div>
+        <h2 class="text-xl font-semibold flex items-center gap-2">
+          <span>${form.icon}</span> ${form.name}
+        </h2>
+        <p class="text-xs text-slate-500 mt-1">
+          共 ${form.schema.fields.length} 欄位 ·
+          <span class="text-emerald-600">${visibleFields.length} 可見</span> ·
+          <span class="text-brand-600">${visibleFields.filter(f=>fieldWritable(f)).length} 可編輯</span>
+        </p>
+      </div>
+      <div class="flex gap-2">
+        ${can('export') ? '<button id="btn-export" class="text-xs px-3 py-1.5 border border-slate-300 rounded-md hover:bg-slate-50">匯出 JSON</button>' : ''}
+      </div>
+    </div>
+
+    <form id="dyn-form" class="space-y-4">
+      ${visibleFields.map(f => renderField(f, writable)).join('')}
+      <div class="pt-3 border-t border-slate-100 flex items-center justify-between">
+        <span id="form-msg" class="text-xs text-slate-400"></span>
+        <div class="flex gap-2">
+          <button type="button" id="btn-reset" class="text-xs px-4 py-2 border border-slate-300 rounded-md hover:bg-slate-50">重置</button>
+          <button type="submit" id="btn-submit" class="text-xs px-4 py-2 bg-brand-600 text-white rounded-md hover:bg-brand-700 disabled:bg-slate-300" ${writable?'':'disabled'}>
+            ${can('publish')?'提交並發布':'提交'}
+          </button>
+        </div>
+      </div>
+    </form>
+  `;
+
+  // 綁定事件
+  document.getElementById('btn-reset').addEventListener('click', () => { renderForm(); toast('已重置'); });
+  document.getElementById('dyn-form').addEventListener('submit', handleSubmit);
+  document.getElementById('btn-export')?.addEventListener('click', exportSubmissions);
+
+  // 即時驗證
+  visibleFields.forEach(f => {
+    const el = cont.querySelector(`[name="${f.name}"]`);
+    el?.addEventListener('input', () => validateField(f, el));
+    el?.addEventListener('blur',  () => validateField(f, el));
+  });
+}
+
+function renderField(field, writable) {
+  const isRO = !fieldWritable(field);
+  const disAttr = isRO ? 'disabled' : '';
+  const val = '';
+  let inputHtml = '';
+
+  switch(field.type) {
+    case 'textarea':
+      inputHtml = `<textarea name="${field.name}" rows="3" ${disAttr}
+        class="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500 ${isRO?'bg-slate-50':''}">${val}</textarea>`;
+      break;
+    case 'select':
+      inputHtml = `<select name="${field.name}" ${disAttr}
+        class="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 ${isRO?'bg-slate-50':''}">
+        <option value="">請選擇</option>
+        ${(field.options||[]).map(o => `<option value="${o}">${o}</option>`).join('')}
+      </select>`;
+      break;
+    case 'radio':
+      inputHtml = `<div class="mt-2 flex flex-wrap gap-3">
+        ${(field.options||[]).map(o => `
+          <label class="inline-flex items-center gap-1.5 text-sm ${isRO?'opacity-50':''}">
+            <input type="radio" name="${field.name}" value="${o}" ${disAttr} class="text-brand-600 focus:ring-brand-500" /> ${o}
+          </label>`).join('')}
+      </div>`;
+      break;
+    case 'checkbox':
+      inputHtml = `<label class="inline-flex items-center gap-2 text-sm mt-2 ${isRO?'opacity-50':''}">
+        <input type="checkbox" name="${field.name}" ${disAttr} class="rounded text-brand-600 focus:ring-brand-500" />
+        <span class="text-slate-600">${field.label}</span>
+      </label>`;
+      break;
+    case 'number':
+      inputHtml = `<input type="number" name="${field.name}" ${disAttr}
+        class="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 ${isRO?'bg-slate-50':''}" />`;
+      break;
+    case 'date':
+      inputHtml = `<input type="date" name="${field.name}" ${disAttr}
+        class="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 ${isRO?'bg-slate-50':''}" />`;
+      break;
+    case 'email':
+      inputHtml = `<input type="email" name="${field.name}" ${disAttr}
+        class="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 ${isRO?'bg-slate-50':''}" />`;
+      break;
+    default:
+      inputHtml = `<input type="text" name="${field.name}" ${disAttr}
+        class="mt-1 w-full border border-slate-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 ${isRO?'bg-slate-50':''}" />`;
+  }
+
+  return `
+    <div class="field-wrap" data-field="${field.name}">
+      ${field.type !== 'checkbox' ? `<label class="text-xs font-medium text-slate-600 flex items-center gap-1">
+        ${field.label} ${field.required ? '<span class="text-rose-500">*</span>' : ''}
+        ${isRO ? '<span class="ml-2 text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">🔒 唯讀</span>' : ''}
+      </label>` : ''}
+      ${inputHtml}
+      <p class="err-msg mt-1 text-xs text-rose-500 hidden"></p>
+    </div>
+  `;
+}
+
+// ----------------- (13) 驗證與提交 -----------------
+function readFormData(form) {
+  const data = {};
+  const visibleFields = State.forms.find(f=>f.id===State.currentFormId).schema.fields.filter(fieldVisible);
+  visibleFields.forEach(f => {
+    const el = form.querySelector(`[name="${f.name}"]`);
+    if (!el) return;
+    if (f.type === 'checkbox') data[f.name] = el.checked;
+    else data[f.name] = el.value;
+  });
+  return { data, visibleFields };
+}
+
+function validateField(field, el) {
+  const wrap = el.closest('.field-wrap');
+  const err = wrap.querySelector('.err-msg');
+  const form = document.getElementById('dyn-form');
+  const { data } = readFormData(form);
+  let msg = '';
+
+  if (field.required && !el.value && el.type !== 'checkbox') msg = '此欄位為必填';
+  else if (field.required && el.type === 'checkbox' && !el.checked) msg = '請勾選確認';
+  else if (field.validate && el.value) {
+    const v = field.validate(el.value, data);
+    if (v === false) msg = '驗證失敗';
+    else if (typeof v === 'string') msg = v;
+  }
+  err.textContent = msg;
+  err.classList.toggle('hidden', !msg);
+  return !msg;
+}
+
+function handleSubmit(e) {
+  e.preventDefault();
+  if (!can('update')) return toast('當前角色無提交權限', 'err');
+  const form = e.target;
+  const { data, visibleFields } = readFormData(form);
+  const allValid = visibleFields.map(f => {
+    const el = form.querySelector(`[name="${f.name}"]`);
+    return el ? validateField(f, el) : true;
+  }).every(Boolean);
+
+  if (!allValid) { toast('請修正錯誤後再提交', 'err'); return; }
+
+  const ts = Date.now();
+  if (!State.submissions[State.currentFormId]) State.submissions[State.currentFormId] = [];
+  State.submissions[State.currentFormId].push({ data, ts, role: State.currentRole });
+
+  const fname = State.forms.find(f=>f.id===State.currentFormId).name;
+  audit('submit', `${can('publish')?'發布':'提交'}「${fname}」`);
+  saveState();
+  renderForm(); renderSubmissions();
+  toast(can('publish') ? '已發布' : '已提交');
+}
+
+function exportSubmissions() {
+  if (!can('export')) return toast('無匯出權限', 'err');
+  const subs = State.submissions[State.currentFormId] || [];
+  const blob = new Blob([JSON.stringify(subs, null, 2)], { type:'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `${State.currentFormId}-submissions.json`; a.click();
+  URL.revokeObjectURL(url);
+  audit('export', `匯出 ${subs.length} 筆提交`);
+  toast(`已匯出 ${subs.length} 筆`);
+}
+
+// ----------------- (14) 主 Render -----------------
+function render() {
+  renderRoleBadge();
+  renderFormList();
+  renderPermissionMatrix();
+  renderForm();
+  renderSchemaPreview();
+  renderSubmissions();
+  renderAudit();
+  // 新增表單按鈕
+  document.getElementById('btn-new-form').disabled = !can('create');
+  document.getElementById('btn-new-form').onclick = openNewFormModal;
+  document.getElementById('btn-copy-schema').onclick = () => {
+    navigator.clipboard.writeText(document.getElementById('schema-preview').textContent)
+      .then(()=>toast('Schema 已複製'))
+      .catch(()=>toast('複製失敗', 'err'));
+  };
+}
+
+// ----------------- (15) Modal: 新增表單 -----------------
+const TEMPLATES = {
+  blank: { icon:'📄', fields: [
+    { name:'title', label:'標題', type:'text', required:true, visibleTo:['admin','editor','viewer'] },
+    { name:'content', label:'內容', type:'textarea', visibleTo:['admin','editor','viewer'] },
+  ]},
+  contact: { icon:'✉️', fields: JSON.parse(JSON.stringify(DEFAULT_FORMS[0].schema.fields)) },
+  leave:   { icon:'🌴', fields: JSON.parse(JSON.stringify(DEFAULT_FORMS[1].schema.fields)) },
+};
+
+function openNewFormModal() {
+  if (!can('create')) return toast('無建立權限', 'err');
+  document.getElementById('modal-new').classList.remove('hidden');
+  document.getElementById('new-form-name').value = '';
+  document.getElementById('new-form-template').value = 'blank';
+}
+function closeNewFormModal() { document.getElementById('modal-new').classList.add('hidden'); }
+
+document.getElementById('modal-cancel').addEventListener('click', closeNewFormModal);
+document.getElementById('modal-new').addEventListener('click', e => {
+  if (e.target.id === 'modal-new') closeNewFormModal();
+});
+document.getElementById('modal-confirm').addEventListener('click', () => {
+  const name = document.getElementById('new-form-name').value.trim();
+  const tplKey = document.getElementById('new-form-template').value;
+  if (!name) return toast('請填寫表單名稱', 'err');
+  const tpl = TEMPLATES[tplKey];
+  const id = 'form-' + Date.now();
+  State.forms.push({ id, name, icon: tpl.icon, schema:{ fields: JSON.parse(JSON.stringify(tpl.fields)) } });
+  audit('create', `新增表單「${name}」（基於 ${tplKey}）`);
+  saveState(); render(); closeNewFormModal();
+  State.currentFormId = id; render();
+  toast('表單已建立');
+});
+
+// ----------------- (16) Role Switcher -----------------
+document.getElementById('role-switcher').addEventListener('change', e => {
+  State.currentRole = e.target.value;
+  audit('switch', `切換身份為 ${ROLES[State.currentRole].label}`);
+  render();
+  toast(`已切換至 ${ROLES[State.currentRole].label}`, 'info');
+});
+
+// ----------------- (17) Boot -----------------
+loadState();
+render();
+audit('init', '系統啟動');
+
+// 自動示範：5 秒後切到 viewer 展示權限變化
+setTimeout(() => {
+  if (State.auditLog.length < 3) {
+    document.getElementById('role-switcher').value = 'viewer';
+    document.getElementById('role-switcher').dispatchEvent(new Event('change'));
+  }
+}, 5000);
+</script>
+</body>
+</html>

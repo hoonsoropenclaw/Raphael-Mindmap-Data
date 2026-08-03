@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dynamic Responsive Form Generator · Tailwind CSS</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          brand: { 50:'#eef2ff', 100:'#e0e7ff', 500:'#6366f1', 600:'#4f46e5', 700:'#4338ca' },
+          ink: { 900:'#0b1020', 800:'#11172e', 700:'#1c2347' },
+        },
+        boxShadow: {
+          glass: '0 24px 80px rgba(0, 10, 28, .28)',
+        },
+        animation: {
+          'fade-in': 'fadeIn .35s ease-out both',
+          'slide-up': 'slideUp .4s ease-out both',
+        },
+        keyframes: {
+          fadeIn: { '0%':{opacity:0}, '100%':{opacity:1} },
+          slideUp: { '0%':{opacity:0, transform:'translateY(8px)'}, '100%':{opacity:1, transform:'translateY(0)'} },
+        }
+      }
+    }
+  }
+</script>
+<style>
+  html, body { height: 100%; }
+  body {
+    background:
+      radial-gradient(1200px 600px at 10% -10%, rgba(99,102,241,.25), transparent 60%),
+      radial-gradient(900px 500px at 110% 10%, rgba(236,72,153,.18), transparent 60%),
+      linear-gradient(180deg, #0b1020 0%, #11172e 100%);
+    color: #e6e9f5;
+  }
+  .glass {
+    background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+    border: 1px solid rgba(255,255,255,.10);
+    box-shadow: 0 24px 80px rgba(0, 10, 28, .28);
+    -webkit-backdrop-filter: blur(22px) saturate(135%);
+    backdrop-filter: blur(22px) saturate(135%);
+  }
+  .glass-input {
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.12);
+    color: #e6e9f5;
+    transition: border-color .2s, box-shadow .2s, background .2s;
+  }
+  .glass-input::placeholder { color: rgba(230,233,245,.45); }
+  .glass-input:focus {
+    outline: none;
+    border-color: rgba(99,102,241,.65);
+    box-shadow: 0 0 0 3px rgba(99,102,241,.25);
+    background: rgba(255,255,255,.06);
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: .25rem;
+    padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 600;
+    border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.05);
+  }
+  .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 9999px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  @media (prefers-reduced-motion: reduce) {
+    .anim, [class*="animate-"] { animation: none !important; transition: none !important; }
+  }
+  .field-card.dragging { opacity: .5; }
+  .field-card.drag-over { border-color: #6366f1 !important; }
+  [data-tooltip] { position: relative; }
+  [data-tooltip]:hover::after {
+    content: attr(data-tooltip);
+    position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+    background: #11172e; color: #e6e9f5; font-size: 11px; padding: 4px 8px; border-radius: 6px;
+    white-space: nowrap; border: 1px solid rgba(255,255,255,.12); z-index: 50;
+  }
+  details > summary { list-style: none; cursor: pointer; }
+  details > summary::-webkit-details-marker { display: none; }
+</style>
+</head>
+<body class="min-h-screen font-sans antialiased">
+
+<div id="app" class="max-w-[1400px] mx-auto px-3 sm:px-5 lg:px-8 py-5 lg:py-8">
+
+  <!-- ================= HEADER ================= -->
+  <header class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5 lg:mb-8 anim animate-fade-in">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 grid place-items-center shadow-lg">
+        <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h7l5 5v11a2 2 0 01-2 2z"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="text-lg sm:text-xl font-semibold tracking-tight">Dynamic Form Generator</h1>
+        <p class="text-xs text-white/55">Tailwind CSS · Schema-driven · Responsive · Live preview</p>
+      </div>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="chip"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span><span id="statusText">ready</span></span>
+      <button id="btnImport" data-tooltip="匯入 JSON schema" class="px-3 py-1.5 text-sm rounded-lg border border-white/15 bg-white/5 hover:bg-white/10 transition">匯入</button>
+      <button id="btnExport" data-tooltip="匯出 JSON schema" class="px-3 py-1.5 text-sm rounded-lg border border-white/15 bg-white/5 hover:bg-white/10 transition">匯出</button>
+      <button id="btnReset" data-tooltip="重置成預設範例" class="px-3 py-1.5 text-sm rounded-lg border border-rose-400/40 text-rose-200 bg-rose-500/10 hover:bg-rose-500/20 transition">重置</button>
+    </div>
+  </header>
+
+  <!-- ================= TOOLBAR (mobile preview toggle) ================= -->
+  <div class="lg:hidden mb-4 anim animate-fade-in">
+    <div class="glass rounded-xl p-1 grid grid-cols-2 gap-1">
+      <button data-view="build" class="view-btn px-3 py-2 rounded-lg text-sm font-medium transition">建構</button>
+      <button data-view="preview" class="view-btn px-3 py-2 rounded-lg text-sm font-medium transition">預覽</button>
+    </div>
+  </div>
+
+  <!-- ================= MAIN GRID ================= -->
+  <!--
+    Mobile  : stack (full width)
+    Tablet  : 2 columns  (md:grid-cols-12)
+    Desktop : 3 columns  (lg:grid-cols-12)  [Schema | Editor | Preview]
+  -->
+  <div class="grid grid-cols-1 md:grid-cols-12 gap-4 lg:gap-5">
+
+    <!-- ========== LEFT: FIELD PALETTE & SCHEMA LIST ========== -->
+    <section id="colSchema" class="md:col-span-12 lg:col-span-4 space-y-4 anim animate-slide-up">
+
+      <!-- Field palette -->
+      <div class="glass rounded-2xl p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-sm font-semibold tracking-wide text-white/80">① 加入欄位</h2>
+          <span class="text-[11px] text-white/45">點擊新增</span>
+        </div>
+        <div id="palette" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 gap-2"></div>
+      </div>
+
+      <!-- Schema list -->
+      <div class="glass rounded-2xl p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-sm font-semibold tracking-wide text-white/80">② 欄位清單</h2>
+          <span id="fieldCount" class="text-[11px] text-white/45">0 個</span>
+        </div>
+        <ul id="schemaList" class="space-y-2 max-h-[420px] overflow-y-auto pr-1 scrollbar-thin"></ul>
+        <p id="schemaEmpty" class="hidden text-xs text-white/40 text-center py-6">尚未加入任何欄位,從上方點擊新增</p>
+      </div>
+    </section>
+
+    <!-- ========== CENTER: FIELD EDITOR ========== -->
+    <section id="colEditor" class="md:col-span-6 lg:col-span-5 anim animate-slide-up" style="animation-delay:.05s">
+      <div class="glass rounded-2xl p-4 lg:p-5 lg:sticky lg:top-4">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-sm font-semibold tracking-wide text-white/80">③ 編輯欄位</h2>
+          <div id="editorMeta" class="text-[11px] text-white/45">未選取</div>
+        </div>
+        <div id="editor">
+          <div class="text-center text-white/45 text-sm py-12 border border-dashed border-white/10 rounded-xl">
+            ← 從左側選取一個欄位以編輯
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== RIGHT: LIVE PREVIEW ========== -->
+    <section id="colPreview" class="md:col-span-6 lg:col-span-3 anim animate-slide-up" style="animation-delay:.1s">
+      <div class="glass rounded-2xl p-4 lg:p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-sm font-semibold tracking-wide text-white/80">④ 即時預覽</h2>
+          <span class="chip"><span class="w-1.5 h-1.5 rounded-full bg-indigo-400"></span>live</span>
+        </div>
+        <form id="previewForm" class="space-y-4" novalidate></form>
+        <div class="flex gap-2 pt-3 mt-4 border-t border-white/10">
+          <button id="btnSubmit" type="button" class="flex-1 px-3 py-2 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-medium transition">提交</button>
+          <button id="btnClear" type="button" class="px-3 py-2 rounded-lg border border-white/15 bg-white/5 hover:bg-white/10 text-sm transition">清除</button>
+        </div>
+        <details class="mt-4">
+          <summary class="text-xs text-white/55 hover:text-white/80">檢視提交結果 (JSON)</summary>
+          <pre id="submitResult" class="mt-2 text-[11px] leading-snug bg-black/30 border border-white/10 rounded-lg p-3 max-h-48 overflow-auto scrollbar-thin text-emerald-200/90">尚未提交</pre>
+        </details>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- footer -->
+  <footer class="mt-8 text-center text-[11px] text-white/35">
+    Tailwind CSS via CDN · schema 自動持久化到 localStorage · 無需後端
+  </footer>
+</div>
+
+<!-- ============== MODAL (import) ============== -->
+<div id="modal" class="hidden fixed inset-0 z-50 grid place-items-center p-4 bg-black/60 anim animate-fade-in">
+  <div class="glass rounded-2xl p-5 w-full max-w-xl anim animate-slide-up">
+    <div class="flex items-center justify-between mb-3">
+      <h3 id="modalTitle" class="text-sm font-semibold">匯入 JSON Schema</h3>
+      <button id="modalClose" class="text-white/60 hover:text-white text-lg leading-none">×</button>
+    </div>
+    <textarea id="modalText" rows="14" class="glass-input w-full rounded-lg px-3 py-2 text-xs font-mono scrollbar-thin"></textarea>
+    <div class="flex justify-end gap-2 mt-3">
+      <button id="modalCancel" class="px-3 py-2 rounded-lg border border-white/15 bg-white/5 hover:bg-white/10 text-sm">取消</button>
+      <button id="modalConfirm" class="px-3 py-2 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-medium">確定</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============== TOAST ============== -->
+<div id="toast" class="hidden fixed bottom-6 right-6 z-50 px-4 py-2 rounded-xl text-sm font-medium anim animate-slide-up glass"></div>
+
+<script>
+/* ===========================================================
+   Dynamic Responsive Form Generator
+   - Single-file vanilla JS
+   - Tailwind utility classes (CDN)
+   - Schema-driven, localStorage persisted
+   - Responsive: stacked (mobile) / 2-col (md) / 3-col (lg)
+   =========================================================== */
+(function () {
+  'use strict';
+
+  // ---------- Field type definitions ----------
+  const FIELD_TYPES = [
+    { type: 'text',     label: '文字',     icon: 'T', defaults: { label:'文字欄位', placeholder:'請輸入...', required:false } },
+    { type: 'textarea', label: '多行文字', icon: '¶', defaults: { label:'多行文字', placeholder:'請輸入...', required:false } },
+    { type: 'email',    label: 'Email',    icon: '@', defaults: { label:'Email',    placeholder:'name@example.com', required:true } },
+    { type: 'number',   label: '數字',     icon: '#', defaults: { label:'數字',     placeholder:'0', min:0, max:100, required:false } },
+    { type: 'date',     label: '日期',     icon: '📅', defaults: { label:'日期',     required:false } },
+    { type: 'select',   label: '下拉選單', icon: '▾', defaults: { label:'下拉選單', options:['選項 A','選項 B','選項 C'], required:false } },
+    { type: 'radio',    label: '單選',     icon: '◉', defaults: { label:'單選題',   options:['是','否'], required:false } },
+    { type: 'checkbox', label: '勾選',     icon: '☑', defaults: { label:'我同意條款', required:false } },
+    { type: 'file',     label: '檔案',     icon: '📎', defaults: { label:'上傳檔案', required:false } },
+    { type: 'section',  label: '區段標題', icon: '§', defaults: { label:'區段標題', required:false } },
+  ];
+
+  const TYPE_MAP = Object.fromEntries(FIELD_TYPES.map(f => [f.type, f]));
+
+  // ---------- Default starter schema ----------
+  const STARTER_SCHEMA = {
+    title: '客戶滿意度調查',
+    description: '請填寫以下問卷,所有欄位皆會加密保存。',
+    fields: [
+      { id: 'f1', type: 'text',     label: '姓名',     placeholder:'您的姓名',     required:true,  showIf:null },
+      { id: 'f2', type: 'email',    label: 'Email',    placeholder:'name@example.com', required:true, showIf:null },
+      { id: 'f3', type: 'number',   label: '年齡',     placeholder:'18-99', min:18, max:99, required:false, showIf:null },
+      { id: 'f4', type: 'select',   label: '產品類型', options:['軟體','硬體','服務','其他'], required:true, showIf:null },
+      { id: 'f5', type: 'radio',    label: '整體滿意度', options:['非常滿意','滿意','普通','不滿意'], required:true, showIf:null },
+      { id: 'f6', type: 'textarea', label: '建議',     placeholder:'您的寶貴建議...', required:false, showIf:null },
+      { id: 'f7', type: 'checkbox', label: '願意收到產品更新', required:false, showIf:null },
+    ],
+  };
+
+  // ---------- State ----------
+  const STORAGE_KEY = 'dfg.schema.v1';
+  let state = {
+    schema: loadSchema(),
+    selectedId: null,
+    answers: {},
+    view: 'build', // mobile only
+  };
+
+  // ---------- Persistence ----------
+  function loadSchema() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return deepCopy(STARTER_SCHEMA);
+      const parsed = JSON.parse(raw);
+      if (!isValidSchema(parsed)) return deepCopy(STARTER_SCHEMA);
+      return parsed;
+    } catch (e) {
+      console.warn('schema parse failed, using starter', e);
+      return deepCopy(STARTER_SCHEMA);
+    }
+  }
+  function saveSchema() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.schema)); }
+    catch (e) { toast('儲存失敗:' + e.message, 'warn'); }
+  }
+  function isValidSchema(s) {
+    return s && typeof s === 'object' && Array.isArray(s.fields)
+      && s.fields.every(f => f && f.id && TYPE_MAP[f.type]);
+  }
+  function deepCopy(o) { return JSON.parse(JSON.stringify(o)); }
+  function uid() { return 'f' + Math.random().toString(36).slice(2, 9); }
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+  function escAttr(s){ return esc(s); }
+
+  // ---------- Renderers ----------
+  const $ = (sel, root=document) => root.querySelector(sel);
+  const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+
+  function render() {
+    renderPalette();
+    renderSchemaList();
+    renderEditor();
+    renderPreview();
+    renderToolbar();
+    setStatus('已自動儲存');
+  }
+
+  function setStatus(t) {
+    const el = $('#statusText');
+    if (el) el.textContent = t;
+    clearTimeout(setStatus._t);
+    setStatus._t = setTimeout(() => { if (el) el.textContent = 'ready'; }, 1500);
+  }
+
+  function renderPalette() {
+    const root = $('#palette');
+    root.innerHTML = FIELD_TYPES.map(f => `
+      <button data-add="${f.type}" class="group flex items-center gap-2 px-3 py-2 rounded-lg border border-white/10 bg-white/[.03] hover:bg-white/10 hover:border-indigo-400/50 transition text-left">
+        <span class="w-6 h-6 grid place-items-center rounded-md bg-indigo-500/20 text-indigo-300 text-sm font-mono group-hover:bg-indigo-500/30">${esc(f.icon)}</span>
+        <span class="text-xs text-white/85">${esc(f.label)}</span>
+      </button>
+    `).join('');
+  }
+
+  function renderSchemaList() {
+    const list = $('#schemaList');
+    const empty = $('#schemaEmpty');
+    const fields = state.schema.fields;
+    $('#fieldCount').textContent = `${fields.length} 個`;
+    if (fields.length === 0) {
+      list.innerHTML = '';
+      empty.classList.remove('hidden');
+      return;
+    }
+    empty.classList.add('hidden');
+    list.innerHTML = fields.map((f, i) => {
+      const isSel = f.id === state.selectedId;
+      const requiredTag = f.required ? '<span class="chip text-rose-300 border-rose-400/30 bg-rose-500/10">必填</span>' : '';
+      const showIfTag = f.showIf ? `<span class="chip text-amber-300 border-amber-400/30 bg-amber-500/10">條件</span>` : '';
+      return `
+        <li class="field-card group flex items-center gap-2 p-2.5 rounded-lg border ${isSel ? 'border-indigo-400/60 bg-indigo-500/10' : 'border-white/10 bg-white/[.03]'} cursor-pointer transition" draggable="true" data-id="${f.id}">
+          <span class="cursor-move text-white/30 group-hover:text-white/60 select-none" title="拖曳排序">⋮⋮</span>
+          <span class="w-6 h-6 grid place-items-center rounded-md bg-white/10 text-white/70 text-[11px] font-mono shrink-0">${esc(TYPE_MAP[f.type]?.icon || '?')}</span>
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-1.5">
+              <span class="text-sm font-medium truncate">${esc(f.label || '(未命名)')}</span>
+              ${requiredTag}${showIfTag}
+            </div>
+            <div class="text-[10.5px] text-white/45 truncate">${esc(TYPE_MAP[f.type]?.label || f.type)} · ${esc(f.id)}</div>
+          </div>
+          <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition">
+            <button data-dup="${f.id}" data-tooltip="複製" class="w-7 h-7 grid place-items-center rounded-md hover:bg-white/10 text-white/70">⎘</button>
+            <button data-del="${f.id}" data-tooltip="刪除" class="w-7 h-7 grid place-items-center rounded-md hover:bg-rose-500/20 text-rose-300">✕</button>
+          </div>
+        </li>`;
+    }).join('');
+
+    // Drag & drop reordering
+    let dragId = null;
+    list.querySelectorAll('.field-card').forEach(card => {
+      card.addEventListener('dragstart', e => {
+        dragId = card.dataset.id;
+        card.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+      });
+      card.addEventListener('dragend', () => {
+        card.classList.remove('dragging');
+        list.querySelectorAll('.field-card').forEach(c => c.classList.remove('drag-over'));
+      });
+      card.addEventListener('dragover', e => { e.preventDefault(); card.classList.add('drag-over'); });
+      card.addEventListener('dragleave', () => card.classList.remove('drag-over'));
+      card.addEventListener('drop', e => {
+        e.preventDefault();
+        card.classList.remove('drag-over');
+        if (!dragId || dragId === card.dataset.id) return;
+        reorderField(dragId, card.dataset.id);
+        dragId = null;
+      });
+    });
+  }
+
+  function reorderField(srcId, targetId) {
+    const arr = state.schema.fields;
+    const srcIdx = arr.findIndex(f => f.id === srcId);
+    const tgtIdx = arr.findIndex(f => f.id === targetId);
+    if (srcIdx < 0 || tgtIdx < 0) return;
+    const [moved] = arr.splice(srcIdx, 1);
+    arr.splice(tgtIdx, 0, moved);
+    saveSchema();
+    render();
+  }
+
+  function renderEditor() {
+    const f = state.schema.fields.find(x => x.id === state.selectedId);
+    $('#editorMeta').textContent = f ? `編輯中:${f.id}` : '未選取';
+    const root = $('#editor');
+    if (!f) {
+      root.innerHTML = `<div class="text-center text-white/45 text-sm py-12 border border-dashed border-white/10 rounded-xl">← 從左側選取一個欄位以編輯</div>`;
+      return;
+    }
+    const showIfField = state.schema.fields
+      .filter(x => x.id !== f.id)
+      .map(x => `<option value="${esc(x.id)}" ${f.showIf?.field===x.id?'selected':''}>${esc(x.label||x.id)} (${esc(x.id)})</option>`).join('');
+
+    root.innerHTML = `
+      <div class="space-y-4">
+        <div>
+          <label class="block text-[11px] font-medium text-white/65 mb-1">欄位類型</label>
+          <div class="flex items-center gap-2">
+            <span class="w-7 h-7 grid place-items-center rounded-md bg-indigo-500/20 text-indigo-300 text-sm font-mono">${esc(TYPE_MAP[f.type].icon)}</span>
+            <span class="text-sm text-white/85">${esc(TYPE_MAP[f.type].label)}</span>
+            <span class="chip ml-auto">${esc(f.id)}</span>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-[11px] font-medium text-white/65 mb-1">顯示名稱 (label)</label>
+          <input data-bind="label" class="glass-input w-full rounded-lg px-3 py-2 text-sm" value="${escAttr(f.label)}" />
+        </div>
+
+        ${needsPlaceholder(f.type) ? `
+        <div>
+          <label class="block text-[11px] font-medium text-white/65 mb-1">提示文字 (placeholder)</label>
+          <input data-bind="placeholder" class="glass-input w-full rounded-lg px-3 py-2 text-sm" value="${escAttr(f.placeholder||'')}" />
+        </div>` : ''}
+
+        ${f.type === 'text' ? `
+        <div>
+          <label class="block text-[11px] font-medium text-white/65 mb-1">最小長度 / 最大長度</label>
+          <div class="grid grid-cols-2 gap-2">
+            <input data-bind="minLength" type="number" min="0" class="glass-input rounded-lg px-3 py-2 text-sm" value="${escAttr(f.minLength??'')}" placeholder="最小" />
+            <input data-bind="maxLength" type="number" min="0" class="glass-input rounded-lg px-3 py-2 text-sm" value="${escAttr(f.maxLength??'')}" placeholder="最大" />
+          </div>
+        </div>` : ''}
+
+        ${f.type === 'number' ? `
+        <div>
+          <label class="block text-[11px] font-medium text-white/65 mb-1">最小值 / 最大值</label>
+          <div class="grid grid-cols-2 gap-2">
+            <input data-bind="min" type="number" class="glass-input rounded-lg px-3 py-2 text-sm" value="${escAttr(f.min??'')}" />
+            <input data-bind="max" type="number" class="glass-input rounded-lg px-3 py-2 text-sm" value="${escAttr(f.max??'')}" />
+          </div>
+        </div>` : ''}
+
+        ${hasOptions(f.type) ? `
+        <div>
+          <label class="block text-[11px] font-medium text-white/65 mb-1">選項 (每行一個)</label>
+          <textarea data-bind="options" rows="4" class="glass-input w-full rounded-lg px-3 py-2 text-sm font-mono scrollbar-thin">${esc((f.options||[]).join('\n'))}</textarea>
+        </div>` : ''}
+
+        ${f.type !== 'section' ? `
+        <div class="flex items-center gap-2">
+          <input id="reqToggle" data-bind="required" type="checkbox" class="w-4 h-4 rounded accent-indigo-500" ${f.required?'checked':''} />
+          <label for="reqToggle" class="text-sm text-white/85 select-none cursor-pointer">必填欄位</label>
+        </div>` : ''}
+
+        ${state.schema.fields.length > 1 && f.type !== 'section' ? `
+        <div class="border-t border-white/10 pt-3">
+          <label class="block text-[11px] font-medium text-white/65 mb-1">條件顯示 (選填)</label>
+          <div class="grid grid-cols-2 gap-2">
+            <select data-bind="showIf.field" class="glass-input rounded-lg px-3 py-2 text-sm">
+              <option value="">— 無 —</option>
+              ${showIfField}
+            </select>
+            <select data-bind="showIf.equals" class="glass-input rounded-lg px-3 py-2 text-sm">
+              <option value="">— 值 —</option>
+              <option value="true"  ${f.showIf?.equals==='true'?'selected':''}>是 (true)</option>
+              <option value="false" ${f.showIf?.equals==='false'?'selected':''}>否 (false)</option>
+              <option value="__checked"  ${f.showIf?.equals==='__checked'?'selected':''}>已勾選</option>
+              <option value="__unchecked" ${f.showIf?.equals==='__unchecked'?'selected':''}>未勾選</option>
+            </select>
+          </div>
+          <p class="text-[10.5px] text-white/45 mt-1">當依賴欄位的值符合條件時,此欄位才會顯示。</p>
+        </div>` : ''}
+
+        <div class="flex gap-2 pt-2 border-t border-white/10">
+          <button id="btnDupField" class="px-3 py-1.5 rounded-lg border border-white/15 bg-white/5 hover:bg-white/10 text-xs">複製此欄位</button>
+          <button id="btnDelField" class="px-3 py-1.5 rounded-lg border border-rose-400/40 text-rose-200 bg-rose-500/10 hover:bg-rose-500/20 text-xs ml-auto">刪除</button>
+        </div>
+      </div>
+    `;
+
+    // Bind inputs
+    root.querySelectorAll('[data-bind]').forEach(el => {
+      el.addEventListener('input', () => updateField(f.id, el));
+      el.addEventListener('change', () => updateField(f.id, el));
+    });
+    $('#btnDupField')?.addEventListener('click', () => duplicateField(f.id));
+    $('#btnDelField')?.addEventListener('click', () => deleteField(f.id));
+  }
+
+  function needsPlaceholder(t) { return ['text','email','textarea','number','date'].includes(t); }
+  function hasOptions(t)        { return ['select','radio'].includes(t); }
+
+  function updateField(id, el) {
+    const f = state.schema.fields.find(x => x.id === id);
+    if (!f) return;
+    const path = el.dataset.bind; // e.g. "showIf.field"
+    const val  = el.type === 'checkbox' ? el.checked
+               : el.type === 'number'   ? (el.value === '' ? null : Number(el.value))
+               : el.value;
+
+    if (path.startsWith('showIf.')) {
+      const sub = path.split('.')[1];
+      if (!f.showIf) f.showIf = { field:'', equals:'' };
+      f.showIf[sub] = val;
+      if (!f.showIf.field) { f.showIf = null; }
+    } else if (path === 'options') {
+      f.options = val.split('\n').map(s => s.trim()).filter(Boolean);
+    } else {
+      f[path] = val;
+    }
+    saveSchema();
+    renderSchemaList();
+    renderPreview();
+    setStatus('已自動儲存');
+  }
+
+  function renderPreview() {
+    const form = $('#previewForm');
+    const f = state.schema.fields;
+    const a = state.answers;
+    if (f.length === 0) {
+      form.innerHTML = `<p class="text-xs text-white/45 text-center py-6">尚未加入任何欄位</p>`;
+      return;
+    }
+    form.innerHTML = `
+      <div class="mb-3">
+        <h3 class="text-base font-semibold text-white">${esc(state.schema.title||'(未命名表單)')}</h3>
+        ${state.schema.description ? `<p class="text-xs text-white/55 mt-1">${esc(state.schema.description)}</p>` : ''}
+      </div>
+    ` + f.map(field => renderPreviewField(field, a)).join('');
+  }
+
+  function renderPreviewField(f, a) {
+    // Conditional visibility
+    if (f.showIf && f.showIf.field) {
+      const depVal = a[f.showIf.field];
+      const target = f.showIf.equals;
+      let visible = false;
+      if (target === 'true' || target === 'false') {
+        visible = String(Boolean(depVal)) === target;
+      } else if (target === '__checked') {
+        visible = Boolean(depVal) === true;
+      } else if (target === '__unchecked') {
+        visible = !depVal;
+      } else {
+        visible = String(depVal ?? '') === String(target);
+      }
+      if (!visible) return '';
+    }
+
+    const val = a[f.id];
+    const required = f.required ? '<span class="text-rose-400 ml-0.5">*</span>' : '';
+    const lbl = `<label class="block text-sm font-medium text-white/85 mb-1">${esc(f.label||'(未命名)')}${required}</label>`;
+
+    if (f.type === 'section') {
+      return `<div class="pt-3 pb-1 border-b border-white/10"><h4 class="text-sm font-semibold text-white/90">${esc(f.label||'')}</h4></div>`;
+    }
+    if (f.type === 'textarea') {
+      return `<div><label class="block text-sm font-medium text-white/85 mb-1">${esc(f.label||'')}${required}</label>
+        <textarea data-fid="${f.id}" data-field="textarea" rows="3" ${f.required?'required':''} ${f.placeholder?`placeholder="${escAttr(f.placeholder)}"`:''}
+          class="glass-input w-full rounded-lg px-3 py-2 text-sm scrollbar-thin">${esc(val||'')}</textarea></div>`;
+    }
+    if (f.type === 'select') {
+      const opts = (f.options||[]).map(o => `<option value="${escAttr(o)}" ${val===o?'selected':''}>${esc(o)}</option>`).join('');
+      return `<div><label class="block text-sm font-medium text-white/85 mb-1">${esc(f.label||'')}${required}</label>
+        <select data-fid="${f.id}" data-field="select" ${f.required?'required':''}
+          class="glass-input w-full rounded-lg px-3 py-2 text-sm"><option value="">— 請選擇 —</option>${opts}</select></div>`;
+    }
+    if (f.type === 'radio') {
+      const opts = (f.options||[]).map((o,i) => {
+        const id = `${f.id}_${i}`;
+        return `<label for="${id}" class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border ${val===o?'border-indigo-400/60 bg-indigo-500/10':'border-white/10 bg-white/[.03]'} cursor-pointer hover:bg-white/5 transition">
+          <input id="${id}" data-fid="${f.id}" data-field="radio" type="radio" name="${f.id}" value="${escAttr(o)}" ${val===o?'checked':''} ${f.required?'required':''} class="accent-indigo-500" />
+          <span class="text-sm">${esc(o)}</span></label>`;
+      }).join('');
+      return `<div><label class="block text-sm font-medium text-white/85 mb-1.5">${esc(f.label||'')}${required}</label>
+        <div class="grid grid-cols-1 gap-1.5">${opts}</div></div>`;
+    }
+    if (f.type === 'checkbox') {
+      return `<label class="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-white/10 bg-white/[.03] cursor-pointer hover:bg-white/5 transition">
+        <input data-fid="${f.id}" data-field="checkbox" type="checkbox" ${val?'checked':''} class="w-4 h-4 rounded accent-indigo-500" />
+        <span class="text-sm text-white/85">${esc(f.label||'')}${required}</span></label>`;
+    }
+    if (f.type === 'file') {
+      return `<div><label class="block text-sm font-medium text-white/85 mb-1">${esc(f.label||'')}${required}</label>
+        <input data-fid="${f.id}" data-field="file" type="file" ${f.required?'required':''}
+          class="glass-input w-full rounded-lg px-3 py-2 text-sm file:mr-3 file:px-3 file:py-1 file:rounded-md file:border-0 file:bg-indigo-500/30 file:text-indigo-100 file:cursor-pointer" /></div>`;
+    }
+    // text-like
+    let extra = '';
+    if (f.type === 'number' && (f.min!=null || f.max!=null)) {
+      const parts = [];
+      if (f.min!=null) parts.push(`min="${f.min}"`);
+      if (f.max!=null) parts.push(`max="${f.max}"`);
+      extra = ' ' + parts.join(' ');
+    }
+    if (f.type === 'text' && (f.minLength!=null || f.maxLength!=null)) {
+      const parts = [];
+      if (f.minLength!=null) parts.push(`minlength="${f.minLength}"`);
+      if (f.maxLength!=null) parts.push(`maxlength="${f.maxLength}"`);
+      extra = ' ' + parts.join(' ');
+    }
+    return `<div><label class="block text-sm font-medium text-white/85 mb-1">${esc(f.label||'')}${required}</label>
+      <input data-fid="${f.id}" data-field="${f.type}" type="${f.type}" ${f.required?'required':''} ${f.placeholder?`placeholder="${escAttr(f.placeholder)}"`:''} ${extra}
+        value="${escAttr(val??'')}" class="glass-input w-full rounded-lg px-3 py-2 text-sm" /></div>`;
+  }
+
+  function renderToolbar() {
+    $$('.view-btn').forEach(b => {
+      const active = b.dataset.view === state.view;
+      b.classList.toggle('bg-white/10', active);
+      b.classList.toggle('text-white', active);
+      b.classList.toggle('text-white/55', !active);
+    });
+    // mobile column visibility
+    const isBuild  = state.view === 'build';
+    const isPreview = state.view === 'preview';
+    if (window.matchMedia('(max-width: 767px)').matches) {
+      $('#colSchema').style.display  = isBuild   ? '' : 'none';
+      $('#colEditor').style.display  = isBuild   ? '' : 'none';
+      $('#colPreview').style.display = isPreview ? '' : 'none';
+    } else if (window.matchMedia('(min-width:768px) and (max-width:1023px)').matches) {
+      // Tablet: space is limited, let user toggle build/preview; schema list always visible on tablet (≥768px)
+      $('#colSchema').style.display  = '';
+      $('#colEditor').style.display  = isBuild   ? '' : 'none';
+      $('#colPreview').style.display = isPreview ? '' : 'none';
+    } else {
+      $('#colSchema').style.display = '';
+      $('#colEditor').style.display = '';
+      $('#colPreview').style.display = '';
+    }
+  }
+
+  // ---------- Actions ----------
+  function addField(type) {
+    const t = TYPE_MAP[type];
+    if (!t) return;
+    const f = { id: uid(), type, ...deepCopy(t.defaults) };
+    state.schema.fields.push(f);
+    state.selectedId = f.id;
+    saveSchema();
+    render();
+    setStatus(`已新增 ${t.label}`);
+  }
+  function deleteField(id) {
+    const i = state.schema.fields.findIndex(f => f.id === id);
+    if (i < 0) return;
+    state.schema.fields.splice(i, 1);
+    // remove dependent showIf
+    state.schema.fields.forEach(f => { if (f.showIf?.field === id) f.showIf = null; });
+    if (state.selectedId === id) state.selectedId = null;
+    saveSchema();
+    render();
+    toast('已刪除欄位');
+  }
+  function duplicateField(id) {
+    const i = state.schema.fields.findIndex(f => f.id === id);
+    if (i < 0) return;
+    const orig = state.schema.fields[i];
+    const copy = deepCopy(orig);
+    copy.id = uid();
+    copy.label = (copy.label || '') + ' (副本)';
+    state.schema.fields.splice(i+1, 0, copy);
+    state.selectedId = copy.id;
+    saveSchema();
+    render();
+    toast('已複製欄位');
+  }
+
+  // ---------- Modal ----------
+  function openModal(title, value, onConfirm) {
+    $('#modalTitle').textContent = title;
+    $('#modalText').value = value;
+    $('#modal').classList.remove('hidden');
+    setTimeout(() => $('#modalText').focus(), 50);
+    const close = () => { $('#modal').classList.add('hidden'); cleanup(); };
+    const cleanup = () => {
+      $('#modalClose').removeEventListener('click', close);
+      $('#modalCancel').removeEventListener('click', close);
+      $('#modalConfirm').removeEventListener('click', confirm);
+    };
+    const confirm = () => {
+      try { onConfirm($('#modalText').value); close(); }
+      catch (e) { toast('解析失敗:' + e.message, 'warn'); }
+    };
+    $('#modalClose').addEventListener('click', close);
+    $('#modalCancel').addEventListener('click', close);
+    $('#modalConfirm').addEventListener('click', confirm);
+  }
+
+  // ---------- Toast ----------
+  function toast(msg, kind='ok') {
+    const el = $('#toast');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+    el.style.borderColor = kind==='warn' ? 'rgba(251,191,36,.4)' : 'rgba(255,255,255,.12)';
+    el.style.background  = kind==='warn' ? 'rgba(251,191,36,.12)' : '';
+    el.style.color       = kind==='warn' ? '#fde68a' : '';
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => el.classList.add('hidden'), 2200);
+  }
+
+  // ---------- Wire up events ----------
+  function wire() {
+    // Palette
+    $('#palette').addEventListener('click', e => {
+      const btn = e.target.closest('[data-add]');
+      if (btn) addField(btn.dataset.add);
+    });
+
+    // Schema list
+    $('#schemaList').addEventListener('click', e => {
+      const dup = e.target.closest('[data-dup]');
+      const del = e.target.closest('[data-del]');
+      const card = e.target.closest('.field-card');
+      if (dup) { e.stopPropagation(); duplicateField(dup.dataset.dup); return; }
+      if (del) { e.stopPropagation(); deleteField(del.dataset.del); return; }
+      if (card) { state.selectedId = card.dataset.id; render(); }
+    });
+
+    // Preview form delegation
+    $('#previewForm').addEventListener('input',  e => captureAnswer(e));
+    $('#previewForm').addEventListener('change', e => captureAnswer(e));
+
+    // Toolbar
+    $$('.view-btn').forEach(b => b.addEventListener('click', () => {
+      state.view = b.dataset.view; renderToolbar();
+    }));
+
+    // Submit / clear
+    $('#btnSubmit').addEventListener('click', () => {
+      const result = collectAnswers();
+      $('#submitResult').textContent = JSON.stringify(result, null, 2);
+      toast('已提交,請看下方 JSON');
+    });
+    $('#btnClear').addEventListener('click', () => {
+      state.answers = {};
+      saveSchema();
+      renderPreview();
+      $('#submitResult').textContent = '尚未提交';
+      toast('已清除輸入');
+    });
+
+    // Top actions
+    $('#btnImport').addEventListener('click', () => {
+      openModal('匯入 JSON Schema', JSON.stringify(state.schema, null, 2), (txt) => {
+        const parsed = JSON.parse(txt);
+        if (!isValidSchema(parsed)) throw new Error('schema 結構不合法');
+        state.schema = parsed; state.selectedId = null; state.answers = {};
+        saveSchema(); render(); toast('已匯入');
+      });
+    });
+    $('#btnExport').addEventListener('click', () => {
+      openModal('匯出 JSON Schema (可複製)', JSON.stringify(state.schema, null, 2), () => {});
+    });
+    $('#btnReset').addEventListener('click', () => {
+      if (!confirm('確定要重置成預設範例嗎?目前的 schema 將被覆蓋。')) return;
+      state.schema = deepCopy(STARTER_SCHEMA);
+      state.selectedId = null; state.answers = {};
+      saveSchema(); render(); toast('已重置');
+    });
+
+    // Responsive
+    window.addEventListener('resize', () => renderToolbar());
+  }
+
+  function captureAnswer(e) {
+    const el = e.target;
+    const fid = el.dataset.fid;
+    if (!fid) return;
+    if (el.type === 'checkbox') state.answers[fid] = el.checked;
+    else if (el.type === 'file') state.answers[fid] = el.files?.[0]?.name || '';
+    else state.answers[fid] = el.value;
+    // For showIf: re-render preview so dependent fields appear/disappear
+    if (state.schema.fields.some(f => f.showIf?.field === fid)) {
+      renderPreview();
+    }
+  }
+  function collectAnswers() {
+    const out = {};
+    for (const f of state.schema.fields) {
+      if (f.type === 'section') continue;
+      let v = state.answers[f.id];
+      if (f.required && (v === undefined || v === '' || v === null)) {
+        throw new Error(`「${f.label}」為必填`);
+      }
+      out[f.id] = v ?? null;
+    }
+    return out;
+  }
+
+  // ---------- Init ----------
+  document.addEventListener('DOMContentLoaded', () => {
+    wire();
+    render();
+  });
+})();
+</script>
+</body>
+</html>

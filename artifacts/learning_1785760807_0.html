@@ -1,0 +1,1216 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>React Flow 工作流自動化 — 動態表單生成引擎</title>
+
+  <!-- React 18 (UMD production) -->
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+
+  <!-- React Flow (UMD v11.11.4 monolithic - includes Background/Controls/MiniMap) -->
+  <script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css" />
+
+  <!-- Babel Standalone (in-browser JSX compiler) -->
+  <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+
+  <style>
+    :root {
+      --bg-0: #0b1020;
+      --bg-1: #121831;
+      --bg-2: #1a2148;
+      --bg-3: #232c5c;
+      --line: #2c3568;
+      --text: #e8ecff;
+      --text-dim: #9aa3d0;
+      --accent: #6c8cff;
+      --accent-2: #56e0c2;
+      --warn: #ffb86b;
+      --danger: #ff6b8a;
+      --ok: #56e0c2;
+    }
+
+    * { box-sizing: border-box; }
+    html, body, #root { height: 100%; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC",
+        "PingFang TC", "Microsoft JhengHei", Roboto, sans-serif;
+      background: radial-gradient(circle at 20% 0%, #1a2050 0%, var(--bg-0) 60%);
+      color: var(--text);
+      overflow: hidden;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: 320px 1fr 380px;
+      grid-template-rows: 56px 1fr;
+      grid-template-areas:
+        "header header header"
+        "sidebar canvas inspector";
+      height: 100vh;
+      width: 100vw;
+    }
+
+    header.topbar {
+      grid-area: header;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 18px;
+      background: linear-gradient(180deg, var(--bg-2) 0%, var(--bg-1) 100%);
+      border-bottom: 1px solid var(--line);
+      z-index: 10;
+    }
+    header.topbar h1 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: 0.4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    header.topbar h1 .dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
+      box-shadow: 0 0 10px rgba(108,140,255,0.6);
+    }
+    header.topbar .spacer { flex: 1; }
+    header.topbar button {
+      background: var(--bg-3);
+      color: var(--text);
+      border: 1px solid var(--line);
+      padding: 7px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    header.topbar button:hover { background: #2e3878; border-color: var(--accent); }
+    header.topbar button.primary {
+      background: linear-gradient(135deg, var(--accent) 0%, #4f6ee0 100%);
+      border-color: var(--accent);
+    }
+    header.topbar button.primary:hover { filter: brightness(1.1); }
+    header.topbar button.danger { color: var(--danger); }
+
+    aside.sidebar {
+      grid-area: sidebar;
+      background: var(--bg-1);
+      border-right: 1px solid var(--line);
+      overflow-y: auto;
+      padding: 16px;
+    }
+    aside.sidebar h3 {
+      margin: 0 0 10px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--text-dim);
+    }
+    .palette {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+    .palette .item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: var(--bg-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      cursor: grab;
+      transition: all 0.15s;
+      font-size: 13px;
+    }
+    .palette .item:hover { border-color: var(--accent); transform: translateX(2px); }
+    .palette .item .swatch {
+      width: 28px; height: 28px;
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+    }
+    .palette .item .desc { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+
+    main.canvas-wrap {
+      grid-area: canvas;
+      position: relative;
+      background: var(--bg-0);
+    }
+    .react-flow__node {
+      font-family: inherit;
+    }
+    .form-node {
+      width: 260px;
+      background: var(--bg-2);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      color: var(--text);
+      box-shadow: 0 6px 20px rgba(0,0,0,0.45);
+      overflow: hidden;
+    }
+    .form-node .head {
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid var(--line);
+    }
+    .form-node .head .kind {
+      width: 22px; height: 22px;
+      border-radius: 5px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px;
+    }
+    .form-node .head .title {
+      flex: 1;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .form-node .head .badge {
+      font-size: 10px;
+      padding: 2px 6px;
+      background: var(--bg-3);
+      border-radius: 10px;
+      color: var(--text-dim);
+    }
+    .form-node .body { padding: 10px 12px; }
+    .form-node .body .row {
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 11px; color: var(--text-dim);
+      margin-bottom: 4px;
+    }
+    .form-node .body .fields-list {
+      display: grid; gap: 4px;
+    }
+    .form-node .body .field-pill {
+      font-size: 11px;
+      background: var(--bg-3);
+      padding: 3px 8px;
+      border-radius: 4px;
+      display: inline-flex; align-items: center; gap: 6px;
+      width: max-content;
+    }
+    .form-node .body .field-pill .req { color: var(--warn); }
+    .form-node .body .field-pill .type {
+      color: var(--accent-2);
+      font-size: 10px;
+      background: rgba(86,224,194,0.12);
+      padding: 1px 4px;
+      border-radius: 3px;
+    }
+    .form-node .body .meta {
+      margin-top: 8px;
+      font-size: 10px;
+      color: var(--text-dim);
+      display: flex; gap: 12px;
+    }
+
+    aside.inspector {
+      grid-area: inspector;
+      background: var(--bg-1);
+      border-left: 1px solid var(--line);
+      overflow-y: auto;
+      padding: 16px;
+    }
+    aside.inspector h3 {
+      margin: 0 0 10px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--text-dim);
+    }
+    .empty-state {
+      color: var(--text-dim);
+      font-size: 13px;
+      padding: 24px 8px;
+      text-align: center;
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+    }
+    .form-editor label {
+      display: block;
+      font-size: 11px;
+      color: var(--text-dim);
+      margin: 10px 0 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+    .form-editor input[type="text"],
+    .form-editor input[type="number"],
+    .form-editor select,
+    .form-editor textarea {
+      width: 100%;
+      background: var(--bg-2);
+      border: 1px solid var(--line);
+      color: var(--text);
+      padding: 7px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+    }
+    .form-editor input:focus, .form-editor select:focus, .form-editor textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .form-editor textarea { resize: vertical; min-height: 60px; }
+    .field-row {
+      background: var(--bg-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 8px;
+      position: relative;
+    }
+    .field-row .field-row-head {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 6px;
+    }
+    .field-row .field-row-head .label {
+      font-size: 11px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+    }
+    .field-row .field-row-head .x {
+      background: transparent;
+      border: none;
+      color: var(--danger);
+      cursor: pointer;
+      font-size: 14px;
+      padding: 0 6px;
+    }
+    .field-row .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+    .field-row .grid-2 label { margin-top: 6px; }
+    .field-row .toggle {
+      display: flex; align-items: center; gap: 6px;
+      margin-top: 6px;
+      font-size: 12px;
+    }
+    .btn-add {
+      width: 100%;
+      background: transparent;
+      color: var(--accent-2);
+      border: 1px dashed var(--accent-2);
+      padding: 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-top: 8px;
+      font-size: 13px;
+    }
+    .btn-add:hover { background: rgba(86,224,194,0.08); }
+    .btn-del-node {
+      width: 100%;
+      background: transparent;
+      color: var(--danger);
+      border: 1px solid var(--danger);
+      padding: 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-top: 14px;
+      font-size: 13px;
+    }
+    .btn-del-node:hover { background: rgba(255,107,138,0.08); }
+
+    .preview-section {
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+    .dyn-form { display: grid; gap: 12px; }
+    .dyn-form .field { display: grid; gap: 4px; }
+    .dyn-form .field label {
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+    .dyn-form .field label .req { color: var(--warn); }
+    .dyn-form .field input, .dyn-form .field select, .dyn-form .field textarea {
+      background: var(--bg-2);
+      border: 1px solid var(--line);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+    }
+    .dyn-form .field input:focus, .dyn-form .field select:focus, .dyn-form .field textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .dyn-form .field .err {
+      font-size: 11px;
+      color: var(--danger);
+    }
+    .dyn-form .submit-btn {
+      background: linear-gradient(135deg, var(--accent) 0%, #4f6ee0 100%);
+      color: white;
+      border: none;
+      padding: 9px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      margin-top: 6px;
+    }
+    .dyn-form .submit-btn:hover { filter: brightness(1.1); }
+    .dyn-form .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .toast-area {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 1000;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .toast {
+      background: var(--bg-2);
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--accent-2);
+      padding: 10px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      animation: slidein 0.2s ease-out;
+    }
+    .toast.error { border-left-color: var(--danger); }
+    @keyframes slidein {
+      from { transform: translateX(20px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    .stat-bar {
+      display: flex; gap: 14px;
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+    .stat-bar .stat strong {
+      color: var(--accent-2);
+      font-weight: 600;
+      margin-right: 4px;
+    }
+
+    /* React Flow 暗色覆寫 */
+    .react-flow__background {
+      background: var(--bg-0);
+    }
+    .react-flow__attribution {
+      background: rgba(0,0,0,0.4) !important;
+      color: var(--text-dim) !important;
+    }
+    .react-flow__attribution a {
+      color: var(--accent) !important;
+    }
+    .react-flow__controls button {
+      background: var(--bg-2) !important;
+      border-bottom: 1px solid var(--line) !important;
+      color: var(--text) !important;
+    }
+    .react-flow__controls button:hover { background: var(--bg-3) !important; }
+    .react-flow__controls button svg { fill: var(--text); }
+    .react-flow__minimap {
+      background: var(--bg-1) !important;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="react">
+    const { useState, useEffect, useCallback, useMemo, useRef } = React;
+
+    /* =========================================================
+       1) 從 window 取出 React Flow (monolithic UMD)
+          monolithic 會把所有東西掛在 window.ReactFlow
+       ========================================================= */
+    const RF = window.ReactFlow;
+    if (!RF) {
+      document.body.innerHTML =
+        '<pre style="color:#ff6b8a;padding:20px">React Flow UMD 載入失敗，請檢查 CDN。</pre>';
+      throw new Error("ReactFlow UMD not loaded");
+    }
+    const ReactFlow = RF.ReactFlow;
+    const {
+      ReactFlowProvider,
+      Background,
+      Controls,
+      MiniMap,
+      Handle,
+      Position,
+      applyNodeChanges,
+      applyEdgeChanges,
+      addEdge,
+    } = RF;
+
+    if (!ReactFlow || !ReactFlowProvider) {
+      document.body.innerHTML =
+        '<pre style="color:#ff6b8a;padding:20px">ReactFlow 或 ReactFlowProvider 不存在於 window.ReactFlow。\n實際 keys: ' +
+        Object.keys(RF).join(", ") + '</pre>';
+      throw new Error("ReactFlow components missing");
+    }
+
+    /* =========================================================
+       2) 節點類型定義（Palette / Schema）
+       ========================================================= */
+    const NODE_KINDS = {
+      start: {
+        label: "開始 (Start)",
+        desc: "工作流的起點",
+        color: "#56e0c2",
+        icon: "▶",
+        allowFields: true,
+        defaultFields: [
+          { id: "fid_1", label: "申請人姓名", key: "applicant", type: "text", required: true, options: "" }
+        ],
+      },
+      approval: {
+        label: "審核 (Approval)",
+        desc: "由審核者填寫決定",
+        color: "#ffb86b",
+        icon: "✓",
+        allowFields: true,
+        defaultFields: [
+          { id: "fid_1", label: "審核者", key: "reviewer", type: "text", required: true, options: "" },
+          { id: "fid_2", label: "審核意見", key: "comment", type: "textarea", required: false, options: "" },
+          { id: "fid_3", label: "決定", key: "decision", type: "select", required: true, options: "通過|駁退" },
+        ],
+      },
+      form: {
+        label: "表單 (Form)",
+        desc: "收集使用者輸入",
+        color: "#6c8cff",
+        icon: "📝",
+        allowFields: true,
+        defaultFields: [
+          { id: "fid_1", label: "欄位 1", key: "field1", type: "text", required: false, options: "" }
+        ],
+      },
+      notification: {
+        label: "通知 (Notify)",
+        desc: "發送 Email / 訊息",
+        color: "#b48cff",
+        icon: "✉",
+        allowFields: true,
+        defaultFields: [
+          { id: "fid_1", label: "收件人", key: "recipient", type: "text", required: true, options: "" },
+          { id: "fid_2", label: "主旨", key: "subject", type: "text", required: true, options: "" },
+          { id: "fid_3", label: "內文", key: "body", type: "textarea", required: false, options: "" },
+        ],
+      },
+      decision: {
+        label: "條件分支 (Branch)",
+        desc: "依據欄位決定流向",
+        color: "#ff6b8a",
+        icon: "⇆",
+        allowFields: true,
+        defaultFields: [
+          { id: "fid_1", label: "條件表達式", key: "condition", type: "text", required: true, options: "" },
+        ],
+      },
+      end: {
+        label: "結束 (End)",
+        desc: "工作流的終點",
+        color: "#9aa3d0",
+        icon: "■",
+        allowFields: false,
+        defaultFields: [],
+      },
+    };
+
+    const FIELD_TYPES = [
+      { value: "text", label: "文字" },
+      { value: "textarea", label: "多行文字" },
+      { value: "number", label: "數字" },
+      { value: "email", label: "Email" },
+      { value: "date", label: "日期" },
+      { value: "select", label: "下拉選單" },
+      { value: "checkbox", label: "勾選" },
+    ];
+
+    /* =========================================================
+       3) 預設工作流（demo）
+       ========================================================= */
+    const initialNodes = [
+      {
+        id: "n1",
+        type: "formNode",
+        position: { x: 60, y: 120 },
+        data: {
+          kind: "start",
+          title: "員工請假申請",
+          fields: [
+            { id: "f1", label: "申請人姓名", key: "applicant", type: "text", required: true, options: "" },
+            { id: "f2", label: "假別", key: "leave_type", type: "select", required: true, options: "特休|病假|事假|公假" },
+            { id: "f3", label: "開始日期", key: "start_date", type: "date", required: true, options: "" },
+            { id: "f4", label: "結束日期", key: "end_date", type: "date", required: true, options: "" },
+            { id: "f5", label: "請假事由", key: "reason", type: "textarea", required: false, options: "" },
+          ],
+        },
+      },
+      {
+        id: "n2",
+        type: "formNode",
+        position: { x: 400, y: 120 },
+        data: {
+          kind: "approval",
+          title: "主管審核",
+          fields: [
+            { id: "f1", label: "審核者姓名", key: "reviewer", type: "text", required: true, options: "" },
+            { id: "f2", label: "審核意見", key: "comment", type: "textarea", required: false, options: "" },
+            { id: "f3", label: "決定", key: "decision", type: "select", required: true, options: "通過|駁退|補充資料" },
+          ],
+        },
+      },
+      {
+        id: "n3",
+        type: "formNode",
+        position: { x: 740, y: 60 },
+        data: {
+          kind: "notification",
+          title: "通知 HR",
+          fields: [
+            { id: "f1", label: "收件人", key: "recipient", type: "text", required: true, options: "" },
+            { id: "f2", label: "主旨", key: "subject", type: "text", required: true, options: "" },
+            { id: "f3", label: "Email 內文", key: "body", type: "textarea", required: false, options: "" },
+          ],
+        },
+      },
+      {
+        id: "n4",
+        type: "formNode",
+        position: { x: 740, y: 280 },
+        data: {
+          kind: "end",
+          title: "駁退結束",
+          fields: [],
+        },
+      },
+    ];
+
+    const initialEdges = [
+      { id: "e1-2", source: "n1", target: "n2", animated: true, label: "已提交" },
+      { id: "e2-3", source: "n2", target: "n3", label: "通過" },
+      { id: "e2-4", source: "n2", target: "n4", label: "駁退" },
+    ];
+
+    /* =========================================================
+       4) Custom Form Node (在畫布上顯示的節點)
+       ========================================================= */
+    function FormNode({ data, selected }) {
+      const kind = NODE_KINDS[data.kind] || NODE_KINDS.form;
+      return (
+        <div className="form-node" style={{
+          borderColor: selected ? kind.color : "var(--line)",
+          boxShadow: selected ? `0 0 0 2px ${kind.color}55` : undefined,
+        }}>
+          <Handle type="target" position={Position.Left} />
+          <div className="head" style={{ background: `linear-gradient(180deg, ${kind.color}22 0%, transparent 100%)` }}>
+            <div className="kind" style={{ background: kind.color }}>{kind.icon}</div>
+            <div className="title">{data.title || kind.label}</div>
+            <div className="badge">{kind.label.split(" ")[0]}</div>
+          </div>
+          <div className="body">
+            {data.fields && data.fields.length > 0 ? (
+              <div className="fields-list">
+                {data.fields.slice(0, 4).map(f => (
+                  <span key={f.id} className="field-pill">
+                    <span>{f.label}{f.required && <span className="req">*</span>}</span>
+                    <span className="type">{f.type}</span>
+                  </span>
+                ))}
+                {data.fields.length > 4 && (
+                  <span style={{ fontSize: 10, color: "var(--text-dim)" }}>
+                    +{data.fields.length - 4} 個欄位
+                  </span>
+                )}
+              </div>
+            ) : (
+              <div style={{ fontSize: 11, color: "var(--text-dim)" }}>（無欄位）</div>
+            )}
+            <div className="meta">
+              <span>id: {data._idShort || "—"}</span>
+              <span>欄位: {data.fields?.length || 0}</span>
+            </div>
+          </div>
+          <Handle type="source" position={Position.Right} />
+        </div>
+      );
+    }
+
+    const nodeTypes = { formNode: FormNode };
+
+    /* =========================================================
+       5) 動態表單生成器（DynamicFormRenderer）
+          - 根據 schema.fields 渲染出真實可填寫的表單
+          - 含驗證
+       ========================================================= */
+    function DynamicFormRenderer({ fields, onSubmit, submitLabel = "送出" }) {
+      const initial = useMemo(() => {
+        const o = {};
+        fields.forEach(f => { o[f.key || f.id] = f.type === "checkbox" ? false : ""; });
+        return o;
+      }, [fields]);
+      const [values, setValues] = useState(initial);
+      const [errors, setErrors] = useState({});
+      const [touched, setTouched] = useState({});
+
+      useEffect(() => { setValues(initial); setErrors({}); setTouched({}); }, [initial]);
+
+      function validate() {
+        const errs = {};
+        fields.forEach(f => {
+          const v = values[f.key || f.id];
+          if (f.required) {
+            if (f.type === "checkbox") {
+              if (!v) errs[f.key || f.id] = "此欄位為必填";
+            } else if (v === "" || v == null) {
+              errs[f.key || f.id] = "此欄位為必填";
+            }
+          }
+          if (f.type === "email" && v && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) {
+            errs[f.key || f.id] = "Email 格式不正確";
+          }
+          if (f.type === "number" && v !== "" && isNaN(Number(v))) {
+            errs[f.key || f.id] = "必須為數字";
+          }
+        });
+        return errs;
+      }
+
+      function handleSubmit(e) {
+        e.preventDefault();
+        const errs = validate();
+        setErrors(errs);
+        setTouched(Object.fromEntries(fields.map(f => [f.key || f.id, true])));
+        if (Object.keys(errs).length === 0 && onSubmit) {
+          onSubmit(values);
+        }
+      }
+
+      function setField(k, v) {
+        setValues(prev => ({ ...prev, [k]: v }));
+        if (touched[k]) {
+          // re-validate this field
+          setErrors(prev => {
+            const n = { ...prev };
+            const field = fields.find(f => (f.key || f.id) === k);
+            if (!field) return prev;
+            if (field.required && (v === "" || v == null || (field.type === "checkbox" && !v))) {
+              n[k] = "此欄位為必填";
+            } else if (field.type === "email" && v && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) {
+              n[k] = "Email 格式不正確";
+            } else if (field.type === "number" && v !== "" && isNaN(Number(v))) {
+              n[k] = "必須為數字";
+            } else {
+              delete n[k];
+            }
+            return n;
+          });
+        }
+      }
+
+      return (
+        <form className="dyn-form" onSubmit={handleSubmit}>
+          {fields.length === 0 && (
+            <div className="empty-state">此節點無表單欄位</div>
+          )}
+          {fields.map(f => {
+            const k = f.key || f.id;
+            const err = errors[k];
+            return (
+              <div className="field" key={f.id}>
+                <label>
+                  {f.label}
+                  {f.required && <span className="req"> *</span>}
+                </label>
+                {f.type === "textarea" ? (
+                  <textarea
+                    value={values[k] || ""}
+                    onChange={e => setField(k, e.target.value)}
+                    onBlur={() => setTouched(t => ({ ...t, [k]: true }))}
+                    rows={3}
+                  />
+                ) : f.type === "select" ? (
+                  <select
+                    value={values[k] || ""}
+                    onChange={e => setField(k, e.target.value)}
+                    onBlur={() => setTouched(t => ({ ...t, [k]: true }))}
+                  >
+                    <option value="">請選擇…</option>
+                    {(f.options || "").split("|").filter(Boolean).map(opt => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
+                ) : f.type === "checkbox" ? (
+                  <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={!!values[k]}
+                      onChange={e => setField(k, e.target.checked)}
+                    />
+                    <span style={{ color: "var(--text-dim)", fontSize: 12 }}>
+                      {f.label}
+                    </span>
+                  </label>
+                ) : (
+                  <input
+                    type={f.type}
+                    value={values[k] || ""}
+                    onChange={e => setField(k, e.target.value)}
+                    onBlur={() => setTouched(t => ({ ...t, [k]: true }))}
+                  />
+                )}
+                {err && <span className="err">{err}</span>}
+              </div>
+            );
+          })}
+          {fields.length > 0 && (
+            <button type="submit" className="submit-btn">{submitLabel}</button>
+          )}
+        </form>
+      );
+    }
+
+    /* =========================================================
+       6) Inspector (右側面板) - 編輯所選節點的 schema
+       ========================================================= */
+    function Inspector({ node, onChange, onDelete }) {
+      if (!node) {
+        return (
+          <>
+            <h3>節點屬性</h3>
+            <div className="empty-state">點擊畫布上任一節點以編輯</div>
+            <div className="preview-section">
+              <h3>關於本系統</h3>
+              <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.6 }}>
+                這是一個 React Flow 工作流引擎 + 動態表單生成器的展示。
+                <br /><br />
+                • 從左側 <b>拖曳</b> 節點到畫布<br />
+                • 從節點右側 handle <b>拉到</b> 另一節點左側 handle 建立連線<br />
+                • 點擊節點在此面板 <b>編輯</b> 表單 schema<br />
+                • 右下角 <b>即時預覽</b> 動態產生的表單<br />
+                • 整套 schema 自動儲存於 <b>localStorage</b><br />
+              </div>
+            </div>
+          </>
+        );
+      }
+      const kind = NODE_KINDS[node.data.kind] || NODE_KINDS.form;
+
+      function update(patch) {
+        onChange({ ...node, data: { ...node.data, ...patch } });
+      }
+      function updateField(idx, patch) {
+        const fields = [...node.data.fields];
+        fields[idx] = { ...fields[idx], ...patch };
+        update({ fields });
+      }
+      function addField() {
+        const newField = {
+          id: "f" + Date.now(),
+          label: "新欄位",
+          key: "field_" + Date.now(),
+          type: "text",
+          required: false,
+          options: "",
+        };
+        update({ fields: [...(node.data.fields || []), newField] });
+      }
+      function deleteField(idx) {
+        const fields = [...node.data.fields];
+        fields.splice(idx, 1);
+        update({ fields });
+      }
+      function moveField(idx, dir) {
+        const fields = [...node.data.fields];
+        const j = idx + dir;
+        if (j < 0 || j >= fields.length) return;
+        [fields[idx], fields[j]] = [fields[j], fields[idx]];
+        update({ fields });
+      }
+
+      return (
+        <>
+          <h3>節點屬性</h3>
+          <div className="form-editor">
+            <label>節點標題</label>
+            <input
+              type="text"
+              value={node.data.title || ""}
+              onChange={e => update({ title: e.target.value })}
+            />
+
+            <label>節點類型</label>
+            <select
+              value={node.data.kind}
+              onChange={e => {
+                const newKind = e.target.value;
+                const def = NODE_KINDS[newKind];
+                update({ kind: newKind, fields: [...def.defaultFields] });
+              }}
+            >
+              {Object.entries(NODE_KINDS).map(([k, v]) => (
+                <option key={k} value={k}>{v.label}</option>
+              ))}
+            </select>
+
+            <div style={{ marginTop: 14, fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>
+              {kind.desc}
+            </div>
+
+            {kind.allowFields && (
+              <>
+                <label style={{ marginTop: 18 }}>
+                  表單欄位 ({node.data.fields?.length || 0})
+                </label>
+
+                {(node.data.fields || []).map((f, idx) => (
+                  <div className="field-row" key={f.id}>
+                    <div className="field-row-head">
+                      <span className="label">欄位 #{idx + 1}</span>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <button className="x" onClick={() => moveField(idx, -1)} title="上移">↑</button>
+                        <button className="x" onClick={() => moveField(idx, 1)} title="下移">↓</button>
+                        <button className="x" onClick={() => deleteField(idx)} title="刪除">✕</button>
+                      </div>
+                    </div>
+                    <div className="grid-2">
+                      <div>
+                        <label>顯示名稱</label>
+                        <input
+                          type="text"
+                          value={f.label}
+                          onChange={e => updateField(idx, { label: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <label>欄位 Key</label>
+                        <input
+                          type="text"
+                          value={f.key}
+                          onChange={e => updateField(idx, {
+                            key: e.target.value.replace(/[^a-zA-Z0-9_]/g, "_")
+                          })}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid-2">
+                      <div>
+                        <label>類型</label>
+                        <select
+                          value={f.type}
+                          onChange={e => updateField(idx, { type: e.target.value })}
+                        >
+                          {FIELD_TYPES.map(t => (
+                            <option key={t.value} value={t.value}>{t.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label>選項 (| 分隔)</label>
+                        <input
+                          type="text"
+                          value={f.options || ""}
+                          disabled={f.type !== "select"}
+                          onChange={e => updateField(idx, { options: e.target.value })}
+                          placeholder="A|B|C"
+                        />
+                      </div>
+                    </div>
+                    <label className="toggle">
+                      <input
+                        type="checkbox"
+                        checked={!!f.required}
+                        onChange={e => updateField(idx, { required: e.target.checked })}
+                      />
+                      <span>必填</span>
+                    </label>
+                  </div>
+                ))}
+
+                <button className="btn-add" onClick={addField}>+ 新增欄位</button>
+              </>
+            )}
+
+            <button className="btn-del-node" onClick={() => onDelete(node.id)}>
+              🗑 刪除此節點
+            </button>
+          </div>
+
+          <div className="preview-section">
+            <h3>即時表單預覽</h3>
+            <DynamicFormRenderer
+              fields={node.data.fields || []}
+              submitLabel="預覽送出"
+              onSubmit={vals => {
+                window.dispatchEvent(new CustomEvent("wf-toast", {
+                  detail: { message: "✓ 預覽送出：" + JSON.stringify(vals), type: "ok" }
+                }));
+              }}
+            />
+          </div>
+        </>
+      );
+    }
+
+    /* =========================================================
+       7) Toast 系統
+       ========================================================= */
+    function ToastHost() {
+      const [toasts, setToasts] = useState([]);
+      useEffect(() => {
+        function handler(e) {
+          const t = { id: Date.now() + Math.random(), ...e.detail };
+          setToasts(prev => [...prev, t]);
+          setTimeout(() => {
+            setToasts(prev => prev.filter(x => x.id !== t.id));
+          }, 3000);
+        }
+        window.addEventListener("wf-toast", handler);
+        return () => window.removeEventListener("wf-toast", handler);
+      }, []);
+      return (
+        <div className="toast-area">
+          {toasts.map(t => (
+            <div key={t.id} className={"toast " + (t.type || "")}>{t.message}</div>
+          ))}
+        </div>
+      );
+    }
+    const toast = (message, type = "ok") => {
+      window.dispatchEvent(new CustomEvent("wf-toast", { detail: { message, type } }));
+    };
+
+    /* =========================================================
+       8) 主應用
+       ========================================================= */
+    const STORAGE_KEY = "wf_dynamic_form_v1";
+
+    function App() {
+      const reactFlowWrapper = useRef(null);
+      const [nodes, setNodes] = useState(initialNodes);
+      const [edges, setEdges] = useState(initialEdges);
+      const [selectedNodeId, setSelectedNodeId] = useState(null);
+      const [rfInstance, setRfInstance] = useState(null);
+
+      // 載入 localStorage
+      useEffect(() => {
+        try {
+          const stored = localStorage.getItem(STORAGE_KEY);
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed.nodes) && Array.isArray(parsed.edges)) {
+              setNodes(parsed.nodes);
+              setEdges(parsed.edges);
+              toast("已從 localStorage 還原工作流");
+            }
+          }
+        } catch (e) {
+          console.error("localStorage 解析失敗", e);
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      }, []);
+
+      // 自動儲存
+      useEffect(() => {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ nodes, edges }));
+        } catch (e) {
+          console.warn("localStorage 寫入失敗", e);
+        }
+      }, [nodes, edges]);
+
+      const onNodesChange = useCallback(changes => setNodes(ns => applyNodeChanges(changes, ns)), []);
+      const onEdgesChange = useCallback(changes => setEdges(es => applyEdgeChanges(changes, es)), []);
+      const onConnect = useCallback(conn => {
+        setEdges(es => addEdge({ ...conn, animated: true }, es));
+        toast("已建立連線");
+      }, []);
+
+      const onNodeClick = useCallback((e, node) => {
+        setSelectedNodeId(node.id);
+      }, []);
+      const onPaneClick = useCallback(() => setSelectedNodeId(null), []);
+
+      const onInit = useCallback(instance => setRfInstance(instance), []);
+
+      // 從 Palette 拖曳新增節點
+      const onDragOver = useCallback(e => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+      }, []);
+      const onDrop = useCallback(e => {
+        e.preventDefault();
+        const kind = e.dataTransfer.getData("application/wf-node-kind");
+        if (!kind || !NODE_KINDS[kind]) return;
+        if (!rfInstance) return;
+        const bounds = reactFlowWrapper.current.getBoundingClientRect();
+        const position = rfInstance.screenToFlowPosition({
+          x: e.clientX - bounds.left,
+          y: e.clientY - bounds.top,
+        });
+        const newNode = {
+          id: "n" + Date.now(),
+          type: "formNode",
+          position,
+          data: {
+            kind,
+            title: NODE_KINDS[kind].label,
+            fields: NODE_KINDS[kind].defaultFields.map(f => ({ ...f, id: "f" + Date.now() + "_" + f.id })),
+          },
+        };
+        setNodes(ns => [...ns, newNode]);
+        setSelectedNodeId(newNode.id);
+        toast("已新增 " + NODE_KINDS[kind].label);
+      }, [rfInstance]);
+
+      const selectedNode = useMemo(
+        () => nodes.find(n => n.id === selectedNodeId),
+        [nodes, selectedNodeId]
+      );
+
+      const updateNode = useCallback(updated => {
+        setNodes(ns => ns.map(n => (n.id === updated.id ? updated : n)));
+      }, []);
+
+      const deleteNode = useCallback(id => {
+        setNodes(ns => ns.filter(n => n.id !== id));
+        setEdges(es => es.filter(e => e.source !== id && e.target !== id));
+        if (selectedNodeId === id) setSelectedNodeId(null);
+        toast("已刪除節點", "error");
+      }, [selectedNodeId]);
+
+      function exportJSON() {
+        const data = { nodes, edges, exportedAt: new Date().toISOString() };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "workflow_" + Date.now() + ".json";
+        a.click();
+        URL.revokeObjectURL(url);
+        toast("已匯出工作流 JSON");
+      }
+
+      function clearAll() {
+        if (!confirm("確定要清空整個工作流？此動作無法復原。")) return;
+        setNodes([]);
+        setEdges([]);
+        setSelectedNodeId(null);
+        toast("已清空工作流", "error");
+      }
+
+      const stats = useMemo(() => {
+        const totalFields = nodes.reduce((sum, n) => sum + (n.data.fields?.length || 0), 0);
+        return { nodes: nodes.length, edges: edges.length, fields: totalFields };
+      }, [nodes, edges]);
+
+      return (
+        <ReactFlowProvider>
+          <div className="app">
+            <header className="topbar">
+              <h1><span className="dot"></span> React Flow 工作流引擎 · 動態表單生成器</h1>
+              <div className="stat-bar">
+                <span className="stat"><strong>{stats.nodes}</strong>節點</span>
+                <span className="stat"><strong>{stats.edges}</strong>連線</span>
+                <span className="stat"><strong>{stats.fields}</strong>欄位</span>
+              </div>
+              <div className="spacer"></div>
+              <button onClick={exportJSON}>匯出 JSON</button>
+              <button className="danger" onClick={clearAll}>清空</button>
+              <button className="primary" onClick={() => rfInstance?.fitView({ padding: 0.2 })}>
+                適配視窗
+              </button>
+            </header>
+
+            <aside className="sidebar">
+              <h3>節點面板 (拖曳到畫布)</h3>
+              <div className="palette">
+                {Object.entries(NODE_KINDS).map(([k, v]) => (
+                  <div
+                    key={k}
+                    className="item"
+                    draggable
+                    onDragStart={e => {
+                      e.dataTransfer.setData("application/wf-node-kind", k);
+                      e.dataTransfer.effectAllowed = "move";
+                    }}
+                  >
+                    <div className="swatch" style={{ background: v.color }}>{v.icon}</div>
+                    <div>
+                      <div>{v.label}</div>
+                      <div className="desc">{v.desc}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <h3>使用說明</h3>
+              <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.7 }}>
+                1. 拖曳左側節點到畫布<br />
+                2. 點擊節點以編輯表單 schema<br />
+                3. 拖曳右側 handle 建立連線<br />
+                4. 右側面板即時預覽動態表單<br />
+                5. 連線自動以動畫呈現資料流<br />
+                6. 全部狀態自動存到 localStorage<br />
+              </div>
+            </aside>
+
+            <main className="canvas-wrap" ref={reactFlowWrapper}>
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onConnect={onConnect}
+                onInit={onInit}
+                onNodeClick={onNodeClick}
+                onPaneClick={onPaneClick}
+                onDrop={onDrop}
+                onDragOver={onDragOver}
+                nodeTypes={nodeTypes}
+                fitView
+                deleteKeyCode={["Backspace", "Delete"]}
+                proOptions={{ hideAttribution: false }}
+              >
+                <Background variant="dots" gap={16} size={1} color="#2a3470" />
+                <Controls position="bottom-right" />
+                <MiniMap
+                  position="bottom-left"
+                  nodeColor={n => (NODE_KINDS[n.data?.kind] || NODE_KINDS.form).color}
+                  maskColor="rgba(11,16,32,0.7)"
+                  style={{ background: "var(--bg-1)" }}
+                />
+              </ReactFlow>
+            </main>
+
+            <aside className="inspector">
+              <Inspector
+                node={selectedNode}
+                onChange={updateNode}
+                onDelete={deleteNode}
+              />
+            </aside>
+
+            <ToastHost />
+          </div>
+        </ReactFlowProvider>
+      );
+    }
+
+    /* =========================================================
+       9) Mount
+       ========================================================= */
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<App />);
+  </script>
+</body>
+</html>
