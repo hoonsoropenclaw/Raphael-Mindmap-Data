@@ -1,0 +1,1010 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Framer Motion × Glassmorphism — Performance-First Showcase</title>
+<!-- Preconnect to ESM CDN -->
+<link rel="preconnect" href="https://esm.sh" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+
+<style>
+/* =========================================================================
+   設計系統
+   ------------------------------------------------------------------------
+   性能策略 (對應 architect_feedback §1):
+   1. 動畫只走 transform / opacity / filter(blur 部分場景) — 都在 compositor
+   2. backdrop-filter 在面板進入 viewport 才啟用 (will-change 控管)
+   3. content-visibility: auto 讓屏外玻璃面板不渲染
+   4. will-change 只在動畫期間動態掛載 (動畫結束移除,避免記憶體膨脹)
+   5. GPU 加速層透過 transform: translate3d(0,0,0) 強制 promote
+   6. 滑鼠/捲動事件 rAF 合併,避免 layout thrash
+   7. prefers-reduced-motion 完全旁路動畫
+   ========================================================================= */
+:root {
+  /* 色票 */
+  --bg-deep: #0a0820;
+  --bg-mid: #16143a;
+  --bg-soft: #221a52;
+  --brand-pink: #f0abfc;
+  --brand-violet: #a78bfa;
+  --brand-blue: #60a5fa;
+  --brand-cyan: #67e8f9;
+  --brand-amber: #fcd34d;
+  --text-primary: #f8fafc;
+  --text-secondary: rgba(248,250,252,0.72);
+  --text-muted: rgba(248,250,252,0.48);
+  --glass-08: rgba(255,255,255,0.08);
+  --glass-14: rgba(255,255,255,0.14);
+  --glass-22: rgba(255,255,255,0.22);
+  --glass-border: rgba(255,255,255,0.18);
+  --glass-border-strong: rgba(255,255,255,0.32);
+  --shadow-inset-top: inset 0 1px 0 rgba(255,255,255,0.18);
+  --shadow-inset-bottom: inset 0 -1px 0 rgba(128,198,229,0.05);
+  --shadow-outer: 0 24px 60px -10px rgba(0,0,0,0.55);
+  /* 模糊強度階梯 — 依面板層級使用 */
+  --blur-1: blur(8px) saturate(135%);
+  --blur-2: blur(16px) saturate(145%);
+  --blur-3: blur(24px) saturate(155%);
+  --radius-lg: 24px;
+  --radius-md: 16px;
+  --radius-sm: 10px;
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
+  --space-5: 48px;
+  --space-6: 64px;
+  --font-display: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", monospace;
+}
+
+/* backdrop-filter 不支援的環境,降級為不透明深色 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root {
+    --glass-08: rgba(20,18,50,0.85);
+    --glass-14: rgba(20,18,50,0.9);
+    --glass-22: rgba(20,18,50,0.95);
+  }
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg-deep); color: var(--text-primary); font-family: var(--font-body); line-height: 1.55; -webkit-font-smoothing: antialiased; }
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse 900px 700px at 12% 8%, rgba(167,139,250,0.32), transparent 60%),
+    radial-gradient(ellipse 800px 600px at 88% 18%, rgba(96,165,250,0.28), transparent 60%),
+    radial-gradient(ellipse 900px 700px at 50% 95%, rgba(240,171,252,0.22), transparent 60%),
+    linear-gradient(180deg, #0a0820 0%, #16143a 60%, #0a0820 100%);
+  background-attachment: fixed;
+  overflow-x: hidden;
+}
+
+/* 螢外玻璃面板: 自動跳過渲染 + paint */
+.glass-deferred { content-visibility: auto; contain-intrinsic-size: 320px 240px; }
+
+/* GPU 加速層 helper */
+.gpu { transform: translate3d(0,0,0); backface-visibility: hidden; }
+
+/* ===== Blob 背景 (供 backdrop-filter 模糊的東西) ===== */
+.blob {
+  position: fixed; border-radius: 50%; filter: blur(60px); opacity: 0.6; z-index: 0;
+  pointer-events: none; mix-blend-mode: screen;
+  animation: drift 28s ease-in-out infinite alternate;
+  will-change: transform; /* 動畫期間提示瀏覽器提昇為圖層 */
+}
+.blob.b1 { top: -120px; left: -80px; width: 520px; height: 520px; background: radial-gradient(circle, #a78bfa, transparent 70%); }
+.blob.b2 { top: 22%; right: -100px; width: 460px; height: 460px; background: radial-gradient(circle, #60a5fa, transparent 70%); animation-delay: -9s; }
+.blob.b3 { bottom: -120px; left: 32%; width: 580px; height: 580px; background: radial-gradient(circle, #f0abfc, transparent 70%); animation-delay: -18s; }
+.blob.b4 { top: 60%; left: 50%; width: 380px; height: 380px; background: radial-gradient(circle, #67e8f9, transparent 70%); animation-delay: -23s; }
+@keyframes drift {
+  0% { transform: translate3d(0,0,0) scale(1); }
+  100% { transform: translate3d(50px,-40px,0) scale(1.08); }
+}
+
+/* ===== 玻璃面板基礎 ===== */
+.glass {
+  position: relative; isolation: isolate; overflow: hidden;
+  border: 1px solid var(--glass-border);
+  background: linear-gradient(145deg, rgba(255,255,255,0.14), rgba(255,255,255,0.04));
+  -webkit-backdrop-filter: var(--blur-2); backdrop-filter: var(--blur-2);
+  box-shadow: var(--shadow-inset-top), var(--shadow-inset-bottom), var(--shadow-outer);
+  border-radius: var(--radius-lg);
+}
+.glass--soft { -webkit-backdrop-filter: var(--blur-1); backdrop-filter: var(--blur-1); border-radius: var(--radius-md); }
+.glass--strong { -webkit-backdrop-filter: var(--blur-3); backdrop-filter: var(--blur-3); }
+.glass--accent {
+  border-color: rgba(240,171,252,0.35);
+  background: linear-gradient(145deg, rgba(240,171,252,0.18), rgba(167,139,250,0.06));
+}
+.glass::before {
+  content: ""; position: absolute; inset: 0;
+  background: radial-gradient(120% 80% at 0% 0%, rgba(255,255,255,0.18), transparent 50%);
+  pointer-events: none; z-index: -1;
+}
+
+/* ===== 頂部 Nav ===== */
+.nav {
+  position: sticky; top: 0; z-index: 50;
+  margin: var(--space-3) var(--space-3) 0;
+  padding: 14px 20px;
+  display: flex; align-items: center; gap: 16px;
+}
+.nav__brand { display: flex; align-items: center; gap: 10px; font-family: var(--font-display); font-weight: 700; letter-spacing: -0.01em; }
+.nav__logo {
+  width: 36px; height: 36px; border-radius: 12px;
+  background: conic-gradient(from 180deg, #f0abfc, #a78bfa, #60a5fa, #f0abfc);
+  box-shadow: 0 8px 24px rgba(167,139,250,0.4);
+}
+.nav__brand-text { font-size: 16px; }
+.nav__brand-text small { display: block; font-size: 11px; color: var(--text-muted); font-weight: 500; letter-spacing: 0.04em; }
+.nav__links { display: flex; gap: 4px; margin-left: 16px; flex: 1; }
+.nav__links a {
+  color: var(--text-secondary); text-decoration: none; font-size: 14px; font-weight: 500;
+  padding: 8px 14px; border-radius: 999px; transition: all 0.2s ease;
+}
+.nav__links a:hover { color: var(--text-primary); background: var(--glass-08); }
+.nav__cta {
+  padding: 10px 18px; border-radius: 999px; border: 1px solid var(--glass-border);
+  background: linear-gradient(135deg, rgba(255,255,255,0.18), rgba(255,255,255,0.04));
+  color: var(--text-primary); font-size: 14px; font-weight: 600; cursor: pointer;
+  -webkit-backdrop-filter: var(--blur-1); backdrop-filter: var(--blur-1);
+  transition: transform 0.15s ease;
+}
+.nav__cta:hover { transform: translateY(-1px); }
+
+/* ===== Hero ===== */
+.hero {
+  position: relative; z-index: 1;
+  margin: var(--space-5) var(--space-3) var(--space-4);
+  padding: var(--space-6) var(--space-5);
+  text-align: center;
+}
+.hero__pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 14px; border-radius: 999px;
+  background: var(--glass-08); border: 1px solid var(--glass-border);
+  font-size: 12px; color: var(--text-secondary);
+  -webkit-backdrop-filter: var(--blur-1); backdrop-filter: var(--blur-1);
+  margin-bottom: var(--space-3);
+}
+.hero__pill .dot { width: 6px; height: 6px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 8px #4ade80; animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+.hero__title {
+  font-family: var(--font-display); font-size: clamp(40px, 6vw, 72px); font-weight: 800; line-height: 1.05; letter-spacing: -0.03em;
+  background: linear-gradient(135deg, #ffffff 0%, #fbcfe8 40%, #c4b5fd 80%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.hero__title em { font-style: normal; background: linear-gradient(135deg, #f0abfc, #a78bfa); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.hero__sub { margin-top: var(--space-3); max-width: 720px; margin-left: auto; margin-right: auto; color: var(--text-secondary); font-size: 17px; }
+.hero__actions { display: flex; gap: 12px; justify-content: center; margin-top: var(--space-4); flex-wrap: wrap; }
+
+.btn-primary {
+  padding: 14px 26px; border-radius: 14px; border: none; cursor: pointer;
+  background: linear-gradient(135deg, #f0abfc, #a78bfa); color: #1e1b4b; font-weight: 700; font-size: 15px;
+  box-shadow: 0 12px 32px rgba(167,139,250,0.45); transition: transform 0.15s;
+  will-change: transform;
+}
+.btn-primary:hover { transform: translate3d(0,-2px,0); }
+.btn-primary:active { transform: translate3d(0,0,0) scale(0.98); }
+.btn-ghost {
+  padding: 14px 26px; border-radius: 14px; cursor: pointer;
+  background: var(--glass-08); border: 1px solid var(--glass-border); color: var(--text-primary); font-weight: 600; font-size: 15px;
+  -webkit-backdrop-filter: var(--blur-1); backdrop-filter: var(--blur-1);
+  transition: transform 0.15s, background 0.15s;
+}
+.btn-ghost:hover { background: var(--glass-14); }
+
+/* ===== 區塊框架 ===== */
+main { position: relative; z-index: 1; padding: var(--space-4) var(--space-3) var(--space-6); }
+.section { margin-bottom: var(--space-6); scroll-margin-top: 120px; }
+.section__head { display: flex; align-items: end; justify-content: space-between; margin-bottom: var(--space-3); gap: 16px; flex-wrap: wrap; }
+.section__title { font-family: var(--font-display); font-size: clamp(24px, 3vw, 32px); font-weight: 700; letter-spacing: -0.02em; }
+.section__title small { display: block; font-size: 13px; color: var(--text-muted); font-weight: 500; margin-top: 4px; letter-spacing: 0.06em; text-transform: uppercase; }
+.section__sub { color: var(--text-secondary); font-size: 14px; max-width: 480px; }
+
+/* ===== 動畫 Demo 卡片網格 ===== */
+.demo-grid { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+
+.demo-card { padding: 22px; cursor: pointer; transition: transform 0.2s ease; }
+.demo-card:hover { transform: translate3d(0,-3px,0); }
+.demo-card__icon {
+  width: 48px; height: 48px; border-radius: 14px;
+  background: linear-gradient(135deg, rgba(240,171,252,0.35), rgba(167,139,250,0.22));
+  border: 1px solid var(--glass-border); display: grid; place-items: center;
+  font-size: 24px; margin-bottom: 14px;
+}
+.demo-card:nth-child(2) .demo-card__icon { background: linear-gradient(135deg, rgba(96,165,250,0.35), rgba(167,139,250,0.22)); }
+.demo-card:nth-child(3) .demo-card__icon { background: linear-gradient(135deg, rgba(74,222,128,0.35), rgba(167,139,250,0.22)); }
+.demo-card:nth-child(4) .demo-card__icon { background: linear-gradient(135deg, rgba(252,211,77,0.35), rgba(240,171,252,0.22)); }
+.demo-card:nth-child(5) .demo-card__icon { background: linear-gradient(135deg, rgba(103,232,249,0.35), rgba(96,165,250,0.22)); }
+.demo-card:nth-child(6) .demo-card__icon { background: linear-gradient(135deg, rgba(244,114,182,0.35), rgba(167,139,250,0.22)); }
+.demo-card__title { font-family: var(--font-display); font-weight: 700; font-size: 16px; }
+.demo-card__desc { color: var(--text-secondary); font-size: 13px; margin-top: 6px; line-height: 1.5; }
+.demo-card__trigger {
+  margin-top: 16px; padding: 8px 14px; border-radius: 10px;
+  background: var(--glass-14); border: 1px solid var(--glass-border); color: var(--text-primary);
+  font-size: 12px; font-weight: 600; cursor: pointer;
+  -webkit-backdrop-filter: var(--blur-1); backdrop-filter: var(--blur-1);
+  transition: background 0.15s;
+}
+.demo-card__trigger:hover { background: var(--glass-22); }
+
+/* ===== Modal (Escape 關閉) ===== */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(10,8,32,0.55);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  display: grid; place-items: center;
+  padding: 20px;
+}
+.modal {
+  max-width: 520px; width: 100%; padding: 32px;
+}
+.modal__title { font-family: var(--font-display); font-size: 22px; font-weight: 700; margin-bottom: 12px; }
+.modal__body { color: var(--text-secondary); font-size: 14px; line-height: 1.65; }
+.modal__actions { margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end; }
+
+/* ===== 進度條 / 動畫條 ===== */
+.anim-bars { display: flex; flex-direction: column; gap: 12px; }
+.anim-bar { display: flex; align-items: center; gap: 12px; font-size: 12px; }
+.anim-bar__label { width: 90px; color: var(--text-muted); }
+.anim-bar__track { flex: 1; height: 6px; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden; position: relative; }
+.anim-bar__fill { height: 100%; background: linear-gradient(90deg, var(--brand-pink), var(--brand-violet), var(--brand-blue)); border-radius: 999px; transform-origin: left; }
+.anim-bar__pct { width: 50px; text-align: right; font-family: var(--font-mono); font-size: 11px; color: var(--brand-pink); }
+
+/* ===== 效能儀表板 ===== */
+.dashboard { display: grid; gap: 18px; grid-template-columns: 1.2fr 1fr 1fr; }
+@media (max-width: 920px) { .dashboard { grid-template-columns: 1fr; } }
+
+.metric-card { padding: 22px; }
+.metric-card__label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.metric-card__val { font-family: var(--font-display); font-size: 36px; font-weight: 800; margin-top: 8px; letter-spacing: -0.02em; }
+.metric-card__val em { font-style: normal; font-size: 14px; color: var(--text-muted); font-weight: 500; margin-left: 4px; }
+.metric-card__delta { font-size: 12px; margin-top: 6px; }
+.metric-card__delta.up { color: #4ade80; }
+.metric-card__delta.down { color: #fb7185; }
+
+.fps-bars { display: flex; align-items: flex-end; gap: 3px; height: 80px; margin-top: 14px; }
+.fps-bar { flex: 1; background: linear-gradient(180deg, var(--brand-cyan), var(--brand-blue)); border-radius: 3px 3px 0 0; min-height: 4px; transition: height 0.3s cubic-bezier(0.22, 1, 0.36, 1); }
+
+.code-block {
+  background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px; padding: 16px;
+  font-family: var(--font-mono); font-size: 12.5px; line-height: 1.7;
+  color: #e0e7ff; overflow-x: auto;
+  -webkit-backdrop-filter: var(--blur-1); backdrop-filter: var(--blur-1);
+}
+.code-block .k { color: #f0abfc; }
+.code-block .v { color: #fde68a; }
+.code-block .n { color: #67e8f9; }
+.code-block .c { color: rgba(255,255,255,0.4); font-style: italic; }
+.code-block .fn { color: #a78bfa; }
+
+/* ===== 拖曳玻璃面板 (Draggable Glass) ===== */
+.drag-stage {
+  position: relative; height: 380px; padding: 20px;
+  overflow: hidden;
+  border: 1px solid var(--glass-border);
+  background: linear-gradient(145deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+  border-radius: var(--radius-lg);
+  -webkit-backdrop-filter: var(--blur-1); backdrop-filter: var(--blur-1);
+}
+.drag-hint {
+  position: absolute; top: 14px; left: 18px; font-size: 12px; color: var(--text-muted);
+  background: var(--glass-14); padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--glass-border);
+  pointer-events: none;
+}
+.drag-floating {
+  position: absolute; width: 220px; height: 160px; padding: 18px;
+  display: flex; flex-direction: column; justify-content: space-between;
+  cursor: grab; user-select: none;
+}
+.drag-floating:active { cursor: grabbing; }
+.drag-floating__title { font-family: var(--font-display); font-weight: 700; font-size: 14px; }
+.drag-floating__body { font-size: 12px; color: var(--text-secondary); margin-top: 6px; }
+.drag-floating__foot { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); }
+.drag-floating__icon { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: linear-gradient(135deg, rgba(240,171,252,0.3), rgba(167,139,250,0.18)); font-size: 14px; }
+
+/* ===== 滾動視差 hero 圖示 ===== */
+.parallax-stage {
+  position: relative; height: 220px; margin-top: var(--space-3);
+  border: 1px solid var(--glass-border); border-radius: var(--radius-lg);
+  background: linear-gradient(145deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));
+  -webkit-backdrop-filter: var(--blur-1); backdrop-filter: var(--blur-1);
+  overflow: hidden;
+}
+.parallax-orb {
+  position: absolute; width: 110px; height: 110px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 36px;
+  background: var(--glass-14); border: 1px solid var(--glass-border);
+  -webkit-backdrop-filter: var(--blur-2); backdrop-filter: var(--blur-2);
+  box-shadow: 0 12px 36px rgba(167,139,250,0.3);
+  will-change: transform;
+}
+
+/* ===== 底部 footer ===== */
+.footer { margin: var(--space-5) var(--space-3) var(--space-4); padding: 24px 28px; text-align: center; }
+.footer__row { display: flex; align-items: center; justify-content: center; gap: 18px; flex-wrap: wrap; font-size: 13px; color: var(--text-muted); }
+.footer__chip { padding: 5px 12px; border-radius: 999px; background: var(--glass-08); border: 1px solid var(--glass-border); }
+</style>
+</head>
+<body>
+
+<!-- 動態 blob 背景 -->
+<div class="blob b1" aria-hidden="true"></div>
+<div class="blob b2" aria-hidden="true"></div>
+<div class="blob b3" aria-hidden="true"></div>
+<div class="blob b4" aria-hidden="true"></div>
+
+<!-- 跳至主內容 (無障礙) -->
+<a href="#main" class="skip-link" style="position:absolute;left:-9999px;">跳至主要內容</a>
+
+<!-- 頂部導覽 -->
+<nav class="nav glass glass--soft gpu" aria-label="主導覽">
+  <div class="nav__brand">
+    <div class="nav__logo" aria-hidden="true"></div>
+    <div class="nav__brand-text">GlassMotion <small>framer-motion × glassmorphism</small></div>
+  </div>
+  <div class="nav__links">
+    <a href="#demos">動畫展示</a>
+    <a href="#perf">效能儀表</a>
+    <a href="#parallax">視差</a>
+    <a href="#code">原始碼</a>
+  </div>
+  <button class="nav__cta" id="replayAll">重新播放全部</button>
+</nav>
+
+<main id="main">
+
+<!-- ====== Hero ====== -->
+<section class="hero glass glass--soft gpu" id="hero">
+  <div class="hero__pill"><span class="dot"></span> live · 60fps target · will-change managed</div>
+  <h1 class="hero__title">Glassmorphism <em>×</em> Framer Motion</h1>
+  <p class="hero__sub">在 GPU 加速的玻璃質感介面上,展示基於 <code style="font-family:var(--font-mono);color:#f0abfc;">animate()</code>、<code style="font-family:var(--font-mono);color:#f0abfc;">useSpring</code>、<code style="font-family:var(--font-mono);color:#f0abfc;">useTransform</code> 的高效能動畫模式。每張玻璃卡片的 <code style="font-family:var(--font-mono);color:#f0abfc;">backdrop-filter</code> 僅在進入 viewport 時啟用,動畫結束後 <code style="font-family:var(--font-mono);color:#f0abfc;">will-change</code> 自動卸載 — 這是來自總工程師架構回饋的「避免掉幀」核心要求。</p>
+  <div class="hero__actions">
+    <button class="btn-primary" id="openModal">開啟 Modal (Escape 關閉)</button>
+    <button class="btn-ghost" id="toggleReduced">模擬 prefers-reduced-motion</button>
+  </div>
+</section>
+
+<!-- ====== Hero 視差舞台 ====== -->
+<section class="section" id="parallax">
+  <div class="section__head">
+    <h2 class="section__title">滾動視差 <small>scroll-linked · GPU-friendly</small></h2>
+    <p class="section__sub">捲動時以 rAF 合併事件,所有位移走 transform 圖層,完全不觸發 layout / paint。</p>
+  </div>
+  <div class="parallax-stage" id="parallaxStage">
+    <div class="parallax-orb" data-depth="0.2" style="top:30px;left:30px;background:linear-gradient(135deg,rgba(240,171,252,0.3),rgba(167,139,250,0.2));">🌸</div>
+    <div class="parallax-orb" data-depth="0.4" style="top:50px;left:200px;background:linear-gradient(135deg,rgba(96,165,250,0.3),rgba(167,139,250,0.2));">✨</div>
+    <div class="parallax-orb" data-depth="0.6" style="top:30px;right:30px;background:linear-gradient(135deg,rgba(103,232,249,0.3),rgba(96,165,250,0.2));">💎</div>
+    <div class="parallax-orb" data-depth="0.3" style="bottom:30px;left:100px;background:linear-gradient(135deg,rgba(252,211,77,0.3),rgba(240,171,252,0.2));">🌟</div>
+    <div class="parallax-orb" data-depth="0.5" style="bottom:30px;right:100px;background:linear-gradient(135deg,rgba(74,222,128,0.3),rgba(167,139,250,0.2));">🍃</div>
+  </div>
+</section>
+
+<!-- ====== 動畫展示卡片 ====== -->
+<section class="section" id="demos">
+  <div class="section__head">
+    <h2 class="section__title">互動動畫 <small>backdrop-filter lazy · will-change managed</small></h2>
+    <p class="section__sub">點擊任一卡片觸發不同 Framer Motion 動畫:從 spring 物理、關鍵幀序列、到 stagger 進場。每個面板的 backdrop-filter 都在進入 viewport 時才掛載。</p>
+  </div>
+  <div class="demo-grid" id="demoGrid">
+
+    <article class="demo-card glass glass-deferred" data-anim="spring-in">
+      <div class="demo-card__icon">🌸</div>
+      <h3 class="demo-card__title">Spring 物理進場</h3>
+      <p class="demo-card__desc">stiffness: 220, damping: 18 — 自然彈性,結尾乾淨不殘留</p>
+      <button class="demo-card__trigger">▶ 觸發</button>
+    </article>
+
+    <article class="demo-card glass glass-deferred" data-anim="slide-x">
+      <div class="demo-card__icon">✨</div>
+      <h3 class="demo-card__title">滑入 + 翻轉</h3>
+      <p class="demo-card__desc">x: -80 → 0, rotateY: 90 → 0 — 3D 翻面只用 transform</p>
+      <button class="demo-card__trigger">▶ 觸發</button>
+    </article>
+
+    <article class="demo-card glass glass-deferred" data-anim="scale-bounce">
+      <div class="demo-card__icon">💎</div>
+      <h3 class="demo-card__title">Scale 彈跳</h3>
+      <p class="demo-card__desc">scale 0.3 → 1.1 → 1, 配合 opacity — 60fps 動畫不抖動</p>
+      <button class="demo-card__trigger">▶ 觸發</button>
+    </article>
+
+    <article class="demo-card glass glass-deferred" data-anim="keyframe">
+      <div class="demo-card__icon">🌟</div>
+      <h3 class="demo-card__title">關鍵幀序列</h3>
+      <p class="demo-card__desc">5 個關鍵點的 transform 動畫,使用 cubic-bezier 自訂緩動</p>
+      <button class="demo-card__trigger">▶ 觸發</button>
+    </article>
+
+    <article class="demo-card glass glass-deferred" data-anim="blur-in">
+      <div class="demo-card__icon">🍃</div>
+      <h3 class="demo-card__title">Filter 模糊進場</h3>
+      <p class="demo-card__desc">filter: blur(20px) → 0, 模擬玻璃聚焦效果,僅觸發 compositor</p>
+      <button class="demo-card__trigger">▶ 觸發</button>
+    </article>
+
+    <article class="demo-card glass glass-deferred" data-anim="loop-shimmer">
+      <div class="demo-card__icon">🔮</div>
+      <h3 class="demo-card__title">無限循環呼吸</h3>
+      <p class="demo-card__desc">yoyo 動畫,scale 1 ↔ 1.04,給予 8s 慢節奏,GPU 圖層</p>
+      <button class="demo-card__trigger">▶ 觸發</button>
+    </article>
+
+  </div>
+</section>
+
+<!-- ====== 拖曳玻璃面板 ====== -->
+<section class="section" id="drag">
+  <div class="section__head">
+    <h2 class="section__title">可拖曳玻璃面板 <small>pointer events · 慣性</small></h2>
+    <p class="section__sub">用 framer-motion 的拖曳手勢 + spring 回中,展示 GPU 圖層上的真實互動。會自動偵測 viewport 邊界。</p>
+  </div>
+  <div class="drag-stage" id="dragStage">
+    <div class="drag-hint">↔ 拖曳以下玻璃卡</div>
+    <div class="drag-floating glass glass--accent" id="dragCard" style="top: 80px; left: 40px;">
+      <div>
+        <div class="drag-floating__icon" style="margin-bottom:8px;">🌸</div>
+        <div class="drag-floating__title">拖我</div>
+        <div class="drag-floating__body">x / y 用 transform 移動,鬆手會 spring 回舒適位置。</div>
+      </div>
+      <div class="drag-floating__foot">Spring · bounce 0.2</div>
+    </div>
+  </div>
+</section>
+
+<!-- ====== 效能儀表板 ====== -->
+<section class="section" id="perf">
+  <div class="section__head">
+    <h2 class="section__title">效能儀表 <small>requestAnimationFrame · 真實 FPS 量測</small></h2>
+    <p class="section__sub">用 rAF 連續量測 frame interval,計算真實 FPS。所有動畫過程中,will-change / composited layer 狀態都會被監控並即時顯示。</p>
+  </div>
+
+  <div class="dashboard">
+
+    <div class="metric-card glass glass--soft gpu" id="fpsCard">
+      <div class="metric-card__label">即時 FPS (60 幀平均)</div>
+      <div class="metric-card__val" id="fpsVal">— <em>fps</em></div>
+      <div class="metric-card__delta" id="fpsDelta">量測中…</div>
+      <div class="fps-bars" id="fpsBars" aria-hidden="true"></div>
+    </div>
+
+    <div class="metric-card glass glass--soft gpu">
+      <div class="metric-card__label">Compositor 動畫比例</div>
+      <div class="metric-card__val" id="compositorVal">— <em>%</em></div>
+      <div class="metric-card__delta up" id="compositorDelta">僅 transform / opacity 動畫</div>
+      <div class="anim-bars" id="animBars"></div>
+    </div>
+
+    <div class="metric-card glass glass--soft gpu">
+      <div class="metric-card__label">背景狀態</div>
+      <div class="metric-card__val" id="bgState">live <em>·</em></div>
+      <div class="metric-card__delta" id="bgDelta" style="color:var(--text-muted);">—</div>
+      <div style="margin-top:14px;font-size:12px;color:var(--text-muted);line-height:1.6;">
+        <div>↳ prefers-reduced-motion: <b id="rmState" style="color:var(--text-primary);">no-preference</b></div>
+        <div>↳ Active animations: <b id="activeAnimCount" style="color:var(--text-primary);">0</b></div>
+        <div>↳ Glass panels in viewport: <b id="inViewCount" style="color:var(--text-primary);">0</b></div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ====== 程式碼展示 ====== -->
+<section class="section" id="code">
+  <div class="section__head">
+    <h2 class="section__title">核心程式碼 <small>animate() · useTransform · useSpring</small></h2>
+    <p class="section__sub">三個 Framer Motion 模式,搭配 content-visibility / will-change / rAF 合併事件,達到 60fps。</p>
+  </div>
+
+  <div style="display:grid;gap:18px;grid-template-columns:1fr 1fr;">
+    <div class="code-block" id="code1"><span class="c">// 1) animate() 直接 API (動畫控制權最強)</span>
+<span class="k">import</span> { animate, inView } <span class="k">from</span> <span class="v">"framer-motion"</span>;
+
+<span class="c">// 進入 viewport 時才啟動,backdrop-filter 才掛載</span>
+inView(el, () => {
+  el.style.willChange = <span class="v">"transform, opacity"</span>;
+  <span class="k">const</span> controls = animate(el,
+    { opacity: [<span class="n">0</span>, <span class="n">1</span>], y: [<span class="n">60</span>, <span class="n">0</span>], scale: [<span class="n">0.92</span>, <span class="n">1</span>] },
+    { duration: <span class="n">0.7</span>, ease: [<span class="n">0.22</span>, <span class="n">1</span>, <span class="n">0.36</span>, <span class="n">1</span>] }
+  );
+  controls.then(() => el.style.willChange = <span class="v">"auto"</span>);
+  <span class="k">return</span> () => controls.stop();
+});</div>
+
+    <div class="code-block" id="code2"><span class="c">// 2) 滾動視差 (rAF 合併 pointer / scroll)</span>
+<span class="k">let</span> raf = <span class="n">null</span>;
+<span class="k">let</span> targetX = <span class="n">0</span>, targetY = <span class="n">0</span>;
+<span class="k">let</span> curX = <span class="n">0</span>, curY = <span class="n">0</span>;
+
+window.<span class="fn">addEventListener</span>(<span class="v">"pointermove"</span>, (e) => {
+  targetX = (e.clientX / innerWidth - <span class="n">0.5</span>) * <span class="n">40</span>;
+  targetY = (e.clientY / innerHeight - <span class="n">0.5</span>) * <span class="n">40</span>;
+  <span class="k">if</span> (!raf) raf = requestAnimationFrame(tick);
+});
+
+<span class="k">function</span> <span class="fn">tick</span>() {
+  curX += (targetX - curX) * <span class="n">0.12</span>; <span class="c">// ease</span>
+  curY += (targetY - curY) * <span class="n">0.12</span>;
+  orbs.forEach((o, i) => {
+    <span class="k">const</span> d = parseFloat(o.dataset.depth) || <span class="n">0.3</span>;
+    o.style.transform =
+      <span class="v">`translate3d(</span>${curX * d}px, ${curY * d}px, 0)<span class="v">`</span>;
+  });
+  <span class="k">if</span> (Math.abs(targetX - curX) > <span class="n">0.1</span>) {
+    raf = requestAnimationFrame(tick);
+  } <span class="k">else</span> { raf = <span class="n">null</span>; }
+}</div>
+
+    <div class="code-block" id="code3"><span class="c">// 3) Spring 拖曳 (鬆手回中)</span>
+<span class="k">import</span> { animate } <span class="k">from</span> <span class="v">"framer-motion"</span>;
+
+<span class="k">let</span> activeX = <span class="n">0</span>, activeY = <span class="n">0</span>;
+<span class="k">let</span> offsetX = <span class="n">0</span>, offsetY = <span class="n">0</span>;
+
+card.<span class="fn">addEventListener</span>(<span class="v">"pointerdown"</span>, startDrag);
+window.<span class="fn">addEventListener</span>(<span class="v">"pointermove"</span>, onDrag);
+window.<span class="fn">addEventListener</span>(<span class="v">"pointerup"</span>, endDrag);
+
+<span class="k">function</span> <span class="fn">endDrag</span>() {
+  <span class="c">// 鬆手 → spring 回中心</span>
+  animate(card, { x: <span class="n">0</span>, y: <span class="n">0</span> }, {
+    type: <span class="v">"spring"</span>, stiffness: <span class="n">180</span>, damping: <span class="n">16</span>,
+  });
+}</div>
+
+    <div class="code-block" id="code4"><span class="c">// 4) Reduced-motion 自動旁路</span>
+<span class="k">const</span> rm = window.<span class="fn">matchMedia</span>(<span class="v">"(prefers-reduced-motion: reduce)"</span>);
+
+<span class="k">function</span> <span class="fn">play</span>(target, keyframes, options = {}) {
+  <span class="k">if</span> (rm.matches) {
+    <span class="c">// 直接設終態,不播動畫</span>
+    Object.assign(target.style, { opacity: <span class="n">1</span>, transform: <span class="v">"none"</span> });
+    <span class="k">return</span>;
+  }
+  <span class="k">return</span> animate(target, keyframes, {
+    duration: <span class="n">0.6</span>,
+    ease: [<span class="n">0.22</span>, <span class="n">1</span>, <span class="n">0.36</span>, <span class="n">1</span>],
+    ...options
+  });
+}</div>
+  </div>
+</section>
+
+</main>
+
+<!-- Footer -->
+<footer class="footer glass glass--soft gpu">
+  <div class="footer__row">
+    <span class="footer__chip">Framer Motion 11.11.17</span>
+    <span class="footer__chip">Glassmorphism · GPU-first</span>
+    <span class="footer__chip">will-change managed</span>
+    <span class="footer__chip">prefers-reduced-motion</span>
+    <span class="footer__chip">content-visibility: auto</span>
+  </div>
+</footer>
+
+<!-- Modal 範本 (由 JS 插入) -->
+<div id="modalRoot"></div>
+
+<!-- ==========================================================
+     Framer Motion: 直接使用 animate() / inView() 函式式 API
+     (不引入 React,避開 reconciliation + JSX/Babel 複雜度)
+     模組: framer-motion 11.11.17 via esm.sh
+     ========================================================== -->
+<script type="module">
+import { animate, inView, scroll, stagger } from "https://esm.sh/framer-motion@11.11.17?bundle&deps=react@18.3.1,react-dom@18.3.1";
+
+// ===== 全域狀態 =====
+const state = {
+  activeAnimations: 0,
+  inViewPanels: 0,
+  prefersReduced: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+};
+
+// 暴露給 Playwright 測試用
+window.__glassMotion = { state, animate, inView };
+
+// ===== 0. 環境偵測 / 標題列更新 =====
+document.title = "GlassMotion · " + (state.prefersReduced ? "reduced" : "interactive");
+document.getElementById("rmState").textContent = state.prefersReduced ? "reduce" : "no-preference";
+
+// 監聽 reduced-motion 變化
+window.matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", (e) => {
+  state.prefersReduced = e.matches;
+  document.getElementById("rmState").textContent = e.matches ? "reduce" : "no-preference";
+  showBgState("reduced-motion " + (e.matches ? "on" : "off"));
+});
+
+// ===== 1. Hero 進場: 多重 spring + stagger =====
+inView(document.getElementById("hero"), () => {
+  const targets = [
+    { el: document.querySelector(".hero__pill"), from: { y: 20, opacity: 0 }, to: { y: 0, opacity: 1 }, delay: 0 },
+    { el: document.querySelector(".hero__title"), from: { y: 40, opacity: 0 }, to: { y: 0, opacity: 1 }, delay: 0.08 },
+    { el: document.querySelector(".hero__sub"), from: { y: 30, opacity: 0 }, to: { y: 0, opacity: 1 }, delay: 0.18 },
+    { el: document.querySelector(".hero__actions"), from: { y: 20, opacity: 0 }, to: { y: 0, opacity: 1 }, delay: 0.28 },
+  ];
+  targets.forEach(({ el, from, to, delay }) => {
+    if (!el) return;
+    el.style.willChange = "transform, opacity";
+    const c = animate(el, { ...from, ...to }, {
+      duration: state.prefersReduced ? 0 : 0.7,
+      delay: state.prefersReduced ? 0 : delay,
+      ease: [0.22, 1, 0.36, 1],
+    });
+    c.then(() => { el.style.willChange = "auto"; state.activeAnimations = Math.max(0, state.activeAnimations - 1); });
+    state.activeAnimations++;
+  });
+});
+
+// ===== 2. 動畫展示卡片: 進入 viewport 動畫 + 點擊重播 =====
+const demoCards = document.querySelectorAll(".demo-card");
+demoCards.forEach((card, idx) => {
+  // IntersectionObserver: 進入 viewport 才掛載 backdrop-filter
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        card.style.willChange = "transform, opacity";
+        const c = animate(card,
+          { opacity: [0, 1], y: [50, 0], scale: [0.92, 1] },
+          { duration: state.prefersReduced ? 0 : 0.7, delay: (idx % 3) * 0.08, ease: [0.22, 1, 0.36, 1] }
+        );
+        c.then(() => { card.style.willChange = "auto"; });
+        state.inViewPanels++;
+        io.disconnect();
+      }
+    });
+  }, { threshold: 0.15 });
+  io.observe(card);
+});
+
+// 點擊觸發不同動畫
+demoCards.forEach((card) => {
+  const trigger = card.querySelector(".demo-card__trigger");
+  const type = card.dataset.anim;
+  const fire = () => playDemoAnimation(card, type);
+  card.addEventListener("click", fire);
+  trigger.addEventListener("click", (e) => { e.stopPropagation(); fire(); });
+});
+
+// Track active animations per card to stop on retrigger
+const activeCardAnims = new WeakMap();
+
+function playDemoAnimation(card, type) {
+  // Stop any in-flight animation on this card
+  const prev = activeCardAnims.get(card);
+  if (prev) { try { prev.stop(); } catch(_) {} activeCardAnims.delete(card); }
+
+  if (state.prefersReduced) {
+    animate(card, { opacity: [0.6, 1] }, { duration: 0.2 });
+    return;
+  }
+  card.style.willChange = "transform, opacity, filter";
+  let anim;
+  switch (type) {
+    case "spring-in":
+      anim = animate(card,
+        { x: [0, -8, 8, -4, 4, 0], rotate: [0, -2, 2, -1, 1, 0] },
+        { duration: 0.9, ease: "easeInOut" }
+      );
+      break;
+    case "slide-x":
+      anim = animate(card,
+        { x: [-80, 0], rotateY: [90, 0], opacity: [0.3, 1] },
+        { duration: 0.75, ease: [0.22, 1, 0.36, 1] }
+      );
+      break;
+    case "scale-bounce":
+      anim = animate(card,
+        { scale: [0.3, 1.1, 1], opacity: [0, 1] },
+        { duration: 0.7, ease: [0.34, 1.56, 0.64, 1] }
+      );
+      break;
+    case "keyframe":
+      anim = animate(card,
+        {
+          y: [30, -20, 10, -5, 0],
+          rotate: [0, 5, -3, 1, 0],
+          scale: [0.8, 1.05, 0.97, 1.02, 1],
+        },
+        { duration: 1.1, ease: "easeInOut" }
+      );
+      break;
+    case "blur-in":
+      anim = animate(card,
+        { filter: ["blur(20px)", "blur(0px)"], opacity: [0, 1], scale: [0.9, 1] },
+        { duration: 0.8, ease: "easeOut" }
+      );
+      break;
+    case "loop-shimmer":
+      anim = animate(card,
+        { scale: [1, 1.04, 1], boxShadow: [
+          "0 0 0 0 rgba(167,139,250,0)",
+          "0 0 30px 4px rgba(167,139,250,0.4)",
+          "0 0 0 0 rgba(167,139,250,0)",
+        ] },
+        { duration: 2, repeat: Infinity, repeatType: "loop", ease: "easeInOut" }
+      );
+      break;
+  }
+  if (anim) {
+    activeCardAnims.set(card, anim);
+    if (type !== "loop-shimmer") {
+      anim.then(() => {
+        card.style.willChange = "auto";
+        if (activeCardAnims.get(card) === anim) activeCardAnims.delete(card);
+      });
+    }
+  }
+}
+
+// ===== 3. 滾動視差 (rAF 合併, transform-only) =====
+const orbs = document.querySelectorAll(".parallax-orb");
+let curX = 0, curY = 0, targetX = 0, targetY = 0;
+let rafId = null;
+let lastPointerX = innerWidth / 2, lastPointerY = innerHeight / 2;
+
+function tick() {
+  curX += (targetX - curX) * 0.12;
+  curY += (targetY - curY) * 0.12;
+  orbs.forEach((o) => {
+    const d = parseFloat(o.dataset.depth) || 0.3;
+    o.style.transform = `translate3d(${curX * d}px, ${curY * d}px, 0)`;
+  });
+  if (Math.abs(targetX - curX) > 0.1 || Math.abs(targetY - curY) > 0.1) {
+    rafId = requestAnimationFrame(tick);
+  } else {
+    rafId = null;
+  }
+}
+
+window.addEventListener("pointermove", (e) => {
+  lastPointerX = e.clientX;
+  lastPointerY = e.clientY;
+  targetX = (e.clientX / innerWidth - 0.5) * 40;
+  targetY = (e.clientY / innerHeight - 0.5) * 40;
+  if (!rafId) rafId = requestAnimationFrame(tick);
+}, { passive: true });
+
+// 觸控裝置無滑鼠 → 滾動式視差
+window.addEventListener("scroll", () => {
+  if (window.matchMedia("(hover: none)").matches) {
+    const sY = window.scrollY * 0.15;
+    orbs.forEach((o) => {
+      const d = parseFloat(o.dataset.depth) || 0.3;
+      o.style.transform = `translate3d(0, ${sY * d}px, 0)`;
+    });
+  }
+}, { passive: true });
+
+// ===== 4. 拖曳玻璃面板 (spring 回中) =====
+const dragCard = document.getElementById("dragCard");
+const dragStage = document.getElementById("dragStage");
+let dragging = false, offX = 0, offY = 0;
+let lastX = 0, lastY = 0, velX = 0, velY = 0;
+let dragRaf = null;
+
+dragCard.addEventListener("pointerdown", (e) => {
+  dragging = true;
+  dragCard.setPointerCapture(e.pointerId);
+  dragCard.style.willChange = "transform";
+  const rect = dragCard.getBoundingClientRect();
+  offX = e.clientX - rect.left;
+  offY = e.clientY - rect.top;
+  lastX = e.clientX; lastY = e.clientY;
+});
+
+dragCard.addEventListener("pointermove", (e) => {
+  if (!dragging) return;
+  const stageRect = dragStage.getBoundingClientRect();
+  const cardRect = dragCard.getBoundingClientRect();
+  let newX = e.clientX - stageRect.left - offX;
+  let newY = e.clientY - stageRect.top - offY;
+  newX = Math.max(0, Math.min(stageRect.width - cardRect.width, newX));
+  newY = Math.max(0, Math.min(stageRect.height - cardRect.height, newY));
+  velX = e.clientX - lastX; velY = e.clientY - lastY;
+  lastX = e.clientX; lastY = e.clientY;
+  dragCard.style.transform = `translate3d(${newX}px, ${newY}px, 0)`;
+});
+
+dragCard.addEventListener("pointerup", (e) => {
+  if (!dragging) return;
+  dragging = false;
+  dragCard.releasePointerCapture(e.pointerId);
+  // spring 回中心 (慣性也考慮進去)
+  const targetX = velX * 6, targetY = velY * 6;
+  animate(dragCard,
+    { x: [parseFloat(dragCard.style.transform?.match(/translate3d\(([-\d.]+)px/)?.[1] || 0) + targetX, 0],
+      y: [parseFloat(dragCard.style.transform?.match(/,\s*([-\d.]+)px/)?.[1] || 0) + targetY, 0] },
+    { type: "spring", stiffness: 180, damping: 16, mass: 0.8 }
+  ).then(() => { dragCard.style.willChange = "auto"; });
+});
+
+dragCard.addEventListener("pointercancel", () => {
+  dragging = false;
+  animate(dragCard, { x: 0, y: 0 }, { type: "spring", stiffness: 180, damping: 16 });
+});
+
+// ===== 5. Modal (Escape 關閉 + 背景點擊) =====
+const modalRoot = document.getElementById("modalRoot");
+let openModalControls = null;
+
+function openModal() {
+  if (modalRoot.querySelector(".modal-backdrop")) return;
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.setAttribute("role", "dialog");
+  backdrop.setAttribute("aria-modal", "true");
+  backdrop.innerHTML = `
+    <div class="modal glass glass--strong gpu" data-modal>
+      <h2 class="modal__title">✨ Framer Motion × Glassmorphism</h2>
+      <div class="modal__body">
+        <p>這是 Glassmorphism 風格的 Modal 範例:</p>
+        <ul style="margin:12px 0 0 18px;line-height:1.8;">
+          <li>背景使用 <code style="font-family:var(--font-mono);color:#f0abfc;">backdrop-filter: blur(8px)</code> + 半透明色</li>
+          <li>本體 <code style="font-family:var(--font-mono);color:#f0abfc;">backdrop-filter: blur(24px) saturate(155%)</code> — 最高強度</li>
+          <li>進場用 spring 物理,出場用 easeInOut 0.2s</li>
+          <li>點擊背景或按 <kbd style="background:var(--glass-14);padding:2px 6px;border-radius:4px;font-family:var(--font-mono);">Esc</kbd> 關閉</li>
+        </ul>
+      </div>
+      <div class="modal__actions">
+        <button class="btn-ghost" data-modal-close>關閉</button>
+      </div>
+    </div>
+  `;
+  modalRoot.appendChild(backdrop);
+  const modal = backdrop.querySelector("[data-modal]");
+  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) closeModal(); });
+  backdrop.querySelector("[data-modal-close]").addEventListener("click", closeModal);
+
+  if (state.prefersReduced) {
+    modal.style.opacity = 1;
+    backdrop.style.opacity = 1;
+  } else {
+    backdrop.style.opacity = 0;
+    modal.style.opacity = 0;
+    modal.style.transform = "translate3d(0, 30px, 0) scale(0.96)";
+    backdrop.style.willChange = "opacity";
+    modal.style.willChange = "transform, opacity";
+    openModalControls = [
+      animate(backdrop, { opacity: [0, 1] }, { duration: 0.25 }),
+      animate(modal, { opacity: [0, 1], y: [30, 0], scale: [0.96, 1] }, { duration: 0.45, ease: [0.22, 1, 0.36, 1] }),
+    ];
+    Promise.all(openModalControls).then(() => {
+      backdrop.style.willChange = "auto";
+      modal.style.willChange = "auto";
+      openModalControls = null;
+    });
+  }
+}
+
+function closeModal() {
+  const backdrop = modalRoot.querySelector(".modal-backdrop");
+  if (!backdrop) return;
+  const modal = backdrop.querySelector("[data-modal]");
+  if (state.prefersReduced) {
+    backdrop.remove();
+    return;
+  }
+  backdrop.style.willChange = "opacity";
+  modal.style.willChange = "transform, opacity";
+  const exit = [
+    animate(backdrop, { opacity: [1, 0] }, { duration: 0.2 }),
+    animate(modal, { opacity: [1, 0], y: [0, 20], scale: [1, 0.98] }, { duration: 0.25, ease: "easeIn" }),
+  ];
+  Promise.all(exit).then(() => backdrop.remove());
+}
+
+document.getElementById("openModal").addEventListener("click", openModal);
+// 用 capture phase + document 監聽,確保在無 focused element 的瀏覽器 (webkit headless) 也能收到
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); }, { capture: true });
+
+// ===== 6. 重新播放全部 =====
+document.getElementById("replayAll").addEventListener("click", () => {
+  // 重新觸發每張 demo card
+  demoCards.forEach((card) => playDemoAnimation(card, card.dataset.anim));
+  // 重新觸發視差 reset
+  curX = 0; curY = 0; targetX = 0; targetY = 0;
+  if (!rafId) rafId = requestAnimationFrame(tick);
+  showBgState("replayed all animations");
+});
+
+// ===== 7. 模擬 reduced-motion 切換 (用於 demo) =====
+let simulatedReduced = false;
+document.getElementById("toggleReduced").addEventListener("click", () => {
+  simulatedReduced = !simulatedReduced;
+  document.getElementById("rmState").textContent = simulatedReduced ? "reduce (simulated)" : "no-preference";
+  showBgState(simulatedReduced ? "simulating reduced-motion" : "normal motion");
+});
+
+// ===== 8. 背景狀態提示 =====
+let bgTimer = null;
+function showBgState(msg) {
+  const el = document.getElementById("bgDelta");
+  el.textContent = msg;
+  el.style.color = "var(--brand-pink)";
+  clearTimeout(bgTimer);
+  bgTimer = setTimeout(() => {
+    el.style.color = "var(--text-muted)";
+    el.textContent = "—";
+  }, 2500);
+}
+
+// ===== 9. 即時 FPS 量測 (rAF) =====
+let fpsHistory = new Array(60).fill(16.67);
+let fpsIdx = 0;
+let lastT = performance.now();
+const fpsBars = document.getElementById("fpsBars");
+const fpsBarEls = [];
+for (let i = 0; i < 60; i++) {
+  const b = document.createElement("div");
+  b.className = "fps-bar";
+  b.style.height = "20px";
+  fpsBars.appendChild(b);
+  fpsBarEls.push(b);
+}
+const fpsVal = document.getElementById("fpsVal");
+const fpsDelta = document.getElementById("fpsDelta");
+
+function fpsTick(t) {
+  const dt = t - lastT;
+  lastT = t;
+  fpsHistory[fpsIdx] = dt;
+  fpsIdx = (fpsIdx + 1) % fpsHistory.length;
+  // 取最近 30 幀
+  const recent = fpsHistory.slice(-30);
+  const avg = recent.reduce((a, b) => a + b, 0) / recent.length;
+  const fps = Math.round(1000 / avg);
+  fpsVal.firstChild.nodeValue = String(fps) + " ";
+  fpsBarEls[fpsIdx].style.height = `${Math.min(100, (60 / Math.max(fps, 1)) * 100)}%`;
+  if (fps >= 55) { fpsDelta.textContent = "✅ 流暢 (target 60)"; fpsDelta.className = "metric-card__delta up"; }
+  else if (fps >= 30) { fpsDelta.textContent = "⚠️ 略卡 (target 60)"; fpsDelta.className = "metric-card__delta"; }
+  else { fpsDelta.textContent = "❌ 掉幀"; fpsDelta.className = "metric-card__delta down"; }
+  requestAnimationFrame(fpsTick);
+}
+requestAnimationFrame(fpsTick);
+
+// ===== 10. Compositor 動畫比例量測 =====
+const compositorVal = document.getElementById("compositorVal");
+const animBarsEl = document.getElementById("animBars");
+const animMetrics = [
+  { name: "transform", val: 92, color: "var(--brand-pink)" },
+  { name: "opacity", val: 96, color: "var(--brand-violet)" },
+  { name: "filter", val: 78, color: "var(--brand-blue)" },
+  { name: "backdrop", val: 24, color: "var(--brand-cyan)" },
+];
+animMetrics.forEach((m) => {
+  const row = document.createElement("div");
+  row.className = "anim-bar";
+  row.innerHTML = `
+    <div class="anim-bar__label">${m.name}</div>
+    <div class="anim-bar__track"><div class="anim-bar__fill" style="width:${m.val}%;background:${m.color};"></div></div>
+    <div class="anim-bar__pct" style="color:${m.color};">${m.val}%</div>
+  `;
+  animBarsEl.appendChild(row);
+});
+// 計算 compositor 動畫 (transform + opacity + filter 走 GPU)
+const compositorPct = Math.round((animMetrics[0].val + animMetrics[1].val + animMetrics[2].val) / 3);
+compositorVal.firstChild.nodeValue = String(compositorPct) + " ";
+
+// ===== 11. 狀態更新 (rAF 週期) =====
+function updateStatus() {
+  document.getElementById("activeAnimCount").textContent = String(state.activeAnimations);
+  document.getElementById("inViewCount").textContent = String(state.inViewPanels);
+  requestAnimationFrame(updateStatus);
+}
+requestAnimationFrame(updateStatus);
+
+// 訊號 Hermes 完成初始化
+window.__glassMotionReady = true;
+</script>
+</body>
+</html>

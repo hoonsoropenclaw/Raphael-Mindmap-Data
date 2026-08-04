@@ -1,20 +1,64 @@
-# Advanced Testing with Conditional Skipping
+# Advanced Asynchronous System Management
 
-## Target Skill Name: advanced_testing_with_conditional_skipping
+## Overview
 
-## Target Summary
-Implement advanced testing strategies that incorporate dynamic skip logic based on specific conditions to optimize test execution, enhance efficiency, and ensure system robustness and reliability.
+### Target Skill Name
+advanced_async_system_management
+
+### Target Summary
+Master advanced techniques for asynchronous system management, including asynchronous testing, task management, and network crawler configuration. Ensure comprehensive test coverage, efficient execution, robust error handling, and optimized crawler performance.
 
 ---
 
-## 1. Comprehensive Visual Regression Testing with Conditional Skipping
+## 1. Comprehensive Cross-Browser Functional Testing
 
 ### 1.1 Purpose
-Implement a visual regression testing framework that dynamically skips tests based on conditions such as browser type, device, or dynamic content, ensuring accurate and efficient visual comparisons.
+Conduct functional tests across multiple browsers (Chromium, Firefox, WebKit) and generate detailed reports, including test results, screenshots, and diff comparisons.
 
 ### 1.2 Implementation
 
 #### 1.2.1 Key Code Snippet
+```javascript
+const { chromium, firefox, webkit } = require('playwright');
+const fs = require('fs');
+
+(async () => {
+  const browsers = [chromium, firefox, webkit];
+  const results = [];
+
+  for (const browserType of browsers) {
+    const browser = await browserType.launch();
+    const page = await browser.newPage();
+    await page.goto('file:///home/hoonsoropenclaw/page.html');
+    const success = await page.evaluate(() => {
+      // Execute functional test assertions
+      return document.querySelector('#element').innerText === 'Expected Text';
+    });
+    results.push({ browser: browserType.name(), success });
+    await browser.close();
+  }
+
+  // Generate report
+  fs.writeFileSync('report.json', JSON.stringify(results, null, 2));
+})();
+```
+
+### 1.3 Common Errors & Solutions
+- **Error:** Insufficient file write permissions during report generation.
+  - **Solution:** Ensure the user running the tests has write permissions for the target directory or choose a directory with appropriate permissions.
+- **Error:** Assertion failures causing test script interruption.
+  - **Solution:** Implement error handling mechanisms, such as `try-catch`, to ensure all test cases run and results are recorded.
+
+---
+
+## 2. Advanced Visual Regression Testing with Conditional Skipping
+
+### 2.1 Purpose
+Develop a visual regression testing framework that dynamically skips tests based on conditions like browser type, device, or dynamic content, ensuring accurate and efficient visual comparisons.
+
+### 2.2 Implementation
+
+#### 2.2.1 Key Code Snippet
 ```javascript
 // helpers/visual-diff.js
 export function diffPngBuffers(baselineBuf, actualBuf, opts = {}) {
@@ -56,7 +100,7 @@ export function diffPngBuffers(baselineBuf, actualBuf, opts = {}) {
 }
 ```
 
-#### 1.2.2 Common Errors & Solutions
+#### 2.2.2 Common Errors & Solutions
 - **Error:** Screenshots are inconsistent due to dynamic content (e.g., timestamps).
   - **Solution:** Freeze dynamic content before taking screenshots, such as resetting event logs or hiding dynamic elements.
 - **Error:** Threshold settings are too high or too low, leading to false positives or false negatives.
@@ -64,7 +108,7 @@ export function diffPngBuffers(baselineBuf, actualBuf, opts = {}) {
 - **Error:** Baseline screenshots are not generated or updated correctly.
   - **Solution:** Automatically generate baselines on the first test run and provide an option to manually update baselines (e.g., by setting the environment variable `UPDATE_BASELINES=1`).
 
-### 1.3 Best Practices
+### 2.3 Best Practices
 - **Dynamic Content Handling:** Identify and manage dynamic content to ensure consistent screenshots.
 - **Threshold Tuning:** Set appropriate thresholds based on the type of comparison to balance sensitivity and accuracy.
 - **Baseline Management:** Implement a robust system for managing baseline images, including versioning and updating mechanisms.
@@ -72,14 +116,14 @@ export function diffPngBuffers(baselineBuf, actualBuf, opts = {}) {
 
 ---
 
-## 2. Cross-Browser Smoke Testing with Conditional Skipping
+## 3. Cross-Browser Smoke Testing with Conditional Skipping
 
-### 2.1 Purpose
+### 3.1 Purpose
 Establish a cross-browser automation testing infrastructure that dynamically skips tests based on browser type or device, ensuring tests are only run when appropriate.
 
-### 2.2 Implementation
+### 3.2 Implementation
 
-#### 2.2.1 Key Code Snippet
+#### 3.2.1 Key Code Snippet
 ```javascript
 // playwright.config.js
 import { devices } from '@playwright/test';
@@ -117,7 +161,7 @@ test('Visual regression test', async ({ page, browserName }) => {
 });
 ```
 
-#### 2.2.2 Common Errors & Solutions
+#### 3.2.2 Common Errors & Solutions
 - **Error:** Rendering differences between browsers cause test failures.
   - **Solution:** Limit visual testing to a single browser (e.g., Chromium) and use cross-browser smoke tests to verify functional consistency.
 - **Error:** Device emulation settings are incorrect, leading to unstable tests.
@@ -125,7 +169,7 @@ test('Visual regression test', async ({ page, browserName }) => {
 - **Error:** Incorrect conditional logic leads to tests being skipped when they should run.
   - **Solution:** Carefully review and test the conditional logic to ensure tests are skipped only when necessary.
 
-### 2.3 Best Practices
+### 3.3 Best Practices
 - **Browser Diversity:** Test across a range of browsers and devices to ensure broad compatibility.
 - **Device Configuration:** Utilize reliable device emulation configurations to mimic real-world usage scenarios.
 - **Test Prioritization:** Focus on critical functionality during smoke testing to quickly identify major issues.
@@ -133,24 +177,24 @@ test('Visual regression test', async ({ page, browserName }) => {
 
 ---
 
-## 3. Dynamic Testing and Error Handling with Conditional Skipping
+## 4. Dynamic Testing and Error Handling with Conditional Skipping
 
-### 3.1 Comprehensive Test Reporting
+### 4.1 Comprehensive Test Reporting
 - **HTML Report Generation:** Generate detailed HTML reports with screenshots, diff images, and assertion results for easy analysis.
 - **Data URIs for Images:** Embed images directly into reports using data URIs to ensure self-containment.
 - **HTML Structure Validation:** Use validation tools to ensure reports are correctly formatted.
 
-### 3.2 Robust Error Handling
+### 4.2 Robust Error Handling
 - **Console Error Guard:** Capture and log JavaScript errors and unhandled Promise rejections using event handlers.
 - **Event Handlers:** Set up handlers for `console`, `pageerror`, and `requestfailed` events to capture relevant errors and logs.
 - **Error Filtering:** Implement filtering mechanisms to exclude known benign issues from logs.
 
-### 3.3 Rule Engine Integration for Dynamic Decision-Making with Conditional Skipping
+### 4.3 Rule Engine Integration for Dynamic Decision-Making with Conditional Skipping
 - **Command Dispatch with Pure Functions:** Use pure functions for command handling to enhance modularity and testability.
 - **Rule Engine Dispatcher:** Utilize a rule engine to manage complex decision-making processes based on predefined rules, including conditional skipping.
 - **YAML-Based Rule Configuration:** Define rules in YAML for readability and ease of maintenance.
 
-### 3.4 Best Practices
+### 4.4 Best Practices
 - **Consistent Event Handling:** Apply event handlers uniformly across all test environments.
 - **Comprehensive Logging:** Implement detailed logging for all operations to facilitate easier debugging and analysis.
 - **YAML Syntax Validation:** Use tools like `yamllint` to validate YAML files and prevent formatting and syntax errors.
@@ -158,50 +202,18 @@ test('Visual regression test', async ({ page, browserName }) => {
 
 ---
 
-## 4. Unit Testing Framework with Conditional Skipping
+## 5. Unit Testing Framework with Conditional Skipping
 
-### 4.1 Purpose
+### 5.1 Purpose
 Ensure code quality and reliability through a comprehensive testing framework that includes unit tests, verifies function outputs and exception handling, and generates test coverage reports, with the ability to skip tests based on conditions.
 
-### 4.2 Implementation
+### 5.2 Implementation
 - **Test Coverage Reports:** Assess testing coverage and identify untested areas.
 - **Exception Handling Verification:** Ensure functions handle exceptions and invalid inputs correctly.
 - **CI Integration:** Automate testing as part of the development pipeline for rapid feedback and deployment.
 - **Conditional Skipping:** Use conditional skip logic to skip tests based on build configurations or other dynamic conditions.
 
-### 4.3 Best Practices
+### 5.3 Best Practices
 - **Modular Rule Files:** Organize rules into multiple YAML files based on functionality or domain to enhance maintainability.
 - **Documentation:** Include comments and documentation within YAML files to explain the purpose and logic of each rule.
-- **Skip Logic Documentation:** Clearly document the conditions under which tests are skipped to aid in understanding and maintenance.
-
----
-
-## 5. Best Practices and Common Pitfalls
-
-### 5.1 Error Prevention
-- **YAML Syntax Validation:** Use tools like `yamllint` to prevent formatting and syntax errors.
-- **Clear Condition Definitions:** Use logical operators and thorough testing to avoid ambiguity.
-- **Comprehensive Testing:** Test rules with diverse scenarios, including edge cases and invalid data.
-- **Skip Logic Validation:** Ensure that conditional skipping is correctly implemented and that tests are skipped only when necessary.
-
-### 5.2 Performance Optimization
-- **Rule Ordering:** Arrange rules by priority or specificity to optimize performance.
-- **Efficient Condition Evaluation:** Use efficient expressions to minimize processing time.
-
-### 5.3 Maintainability
-- **Modular Rule Files:** Organize rules into multiple files based on functionality or domain.
-- **Documentation:** Include comments and documentation within YAML files.
-
-### 5.4 Agile Development Practices
-- **Sprint Planning:** Define clear objectives and deliverables for each sprint.
-- **Backlog Management:** Prioritize tasks based on business value, technical dependencies, and rule complexity.
-- **CI/CD:** Automate testing and deployment for rapid and reliable releases.
-
-### 5.5 Strategic Domain Expansion
-- **Market Analysis:** Identify new market opportunities and understand customer needs.
-- **Technology Forecasting:** Anticipate future technology trends and assess their potential impact.
-- **Strategic Partnerships:** Collaborate with other companies to leverage complementary strengths and resources.
-
-### 5.6 Common Pitfalls & Solutions
-- **YAML Formatting Errors:** Use validation tools and consistent formatting practices.
-- **Ambiguous Rule Conditions:** Clearly specify conditions using
+- **Skip Logic Documentation:** Clearly document the conditions under which tests are skipped

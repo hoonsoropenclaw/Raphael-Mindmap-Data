@@ -1,10 +1,10 @@
-# Micro-Skill: Media and System Optimization
+# System and Task Optimization
 
 ## Target Skill Name
-media_and_system_optimization
+system_and_task_optimization
 
 ## Summary
-This micro-skill focuses on optimizing system performance through efficient media and data management techniques. It integrates robust system management, workflow optimization, change management, and advanced request interception to create a resilient, high-performance system. The skill encompasses real-time media processing, asynchronous communication, secure web scraping, data deduplication, normalization, and adherence to Standard Operating Procedures (SOPs).
+This skill focuses on optimizing system performance, managing media resources, and efficiently handling tasks using a bounded queue with worker pools. It integrates comprehensive system monitoring, workflow optimization, change management, and advanced request interception to create a resilient and high-performance system. The skill encompasses real-time media processing, asynchronous communication, secure web scraping, data deduplication, normalization, and adherence to Standard Operating Procedures (SOPs).
 
 ---
 
@@ -13,7 +13,7 @@ This micro-skill focuses on optimizing system performance through efficient medi
 ### 1.1 Robust I/O Handling and Error Optimization
 
 #### 1.1.1 Console Error Interception
-- **Overview**: Intercept and log browser console errors and warnings to capture issues in test reports for better debugging.
+- **Overview**: Capture and log browser console errors and warnings to identify and debug issues effectively.
 - **Key Code Snippet**:
   ```python
   # Intercept console errors and warnings
@@ -25,7 +25,7 @@ This micro-skill focuses on optimizing system performance through efficient medi
   - **Error information not recorded correctly**: Implement a unified logging mechanism with detailed error information in test reports.
 
 #### 1.1.2 Event Handling with Debouncing
-- **Overview**: Efficiently handle filesystem events by combining the `watchdog` library with debouncing to monitor events like creation, modification, and movement, processing them in batches to prevent system overload.
+- **Overview**: Efficiently manage filesystem events by combining the `watchdog` library with debouncing to process events in batches, preventing system overload.
 - **Watchdog Event Handler**:
   ```python
   from watchdog.observers import Observer
@@ -118,7 +118,7 @@ This micro-skill focuses on optimizing system performance through efficient medi
 ### 1.2 Robust Task Management with RBAC
 
 #### 1.2.1 Prompt Injection and Fake Authority Detection
-- **Description**: Identifies and mitigates forged system-level instructions that may compromise system integrity.
+- **Description**: Identify and mitigate forged system-level instructions that may compromise system integrity.
 - **Key Code Snippets and Patterns**:
   ```javascript
   if (message.includes("[SYSTEM_HEARTBEAT]") && is_via_user_channel(message)) {
@@ -131,7 +131,7 @@ This micro-skill focuses on optimizing system performance through efficient medi
   - **Overlooking genuine attacks**: Implement multi-layered detection mechanisms, including keyword filtering and behavior analysis.
 
 #### 1.2.2 User Message Interpretation with Priority Handling
-- **Description**: Interprets user message content and tags to determine priority and decide whether to interrupt the current task.
+- **Description**: Interpret user message content and tags to determine priority and decide whether to interrupt the current task.
 - **Key Code Snippets and Patterns**:
   ```javascript
   function handle_user_message(message) {
@@ -172,8 +172,8 @@ This micro-skill focuses on optimizing system performance through efficient medi
 ### 2.1 DAG Workflow Management and Validation
 
 #### 2.1.1 Cycle Detection
-- **Purpose**: Ensures the absence of cycles to maintain a valid DAG structure and prevent infinite loops.
-- **Implementation**: Utilizes Depth-First Search (DFS) for cycle detection.
+- **Purpose**: Ensure the absence of cycles to maintain a valid DAG structure and prevent infinite loops.
+- **Implementation**: Utilize Depth-First Search (DFS) for cycle detection.
 - **Key Code Snippet**:
   ```javascript
   // Cycle Detection (DFS)
@@ -212,24 +212,24 @@ This micro-skill focuses on optimizing system performance through efficient medi
   - **Incorrect Cycle Identification**: Ensure accurate recursion stack maintenance.
 
 #### 2.1.2 Orphan Node Detection
-- **Purpose**: Identifies nodes not connected to any other nodes to ensure workflow integrity.
-- **Implementation**: Checks node connectivity by analyzing in-degrees and out-degrees.
+- **Purpose**: Identify nodes not connected to any other nodes to ensure workflow integrity.
+- **Implementation**: Check node connectivity by analyzing in-degrees and out-degrees.
 
 #### 2.1.3 Complex Path Analysis
-- **Purpose**: Analyzes various paths within the DAG to understand dependencies and identify potential bottlenecks.
-- **Implementation**: Traverses the graph to evaluate the flow and dependencies between nodes.
+- **Purpose**: Analyze various paths within the DAG to understand dependencies and identify potential bottlenecks.
+- **Implementation**: Traverse the graph to evaluate the flow and dependencies between nodes.
 
 ### 2.2 DAG Visualization with SVG Fallback
 
 #### 2.2.1 Primary Rendering with React Flow
-- **Purpose**: Provides an interactive and visually appealing representation of the DAG using the React Flow library.
-- **Fallback Mechanism**: Automatically switches to pure SVG rendering if React Flow is unavailable.
+- **Purpose**: Provide an interactive and visually appealing representation of the DAG using the React Flow library.
+- **Fallback Mechanism**: Automatically switch to pure SVG rendering if React Flow is unavailable.
 
 #### 2.2.2 Pure SVG Rendering
-- **Purpose**: Ensures DAG remains visually represented when the primary rendering library is unavailable.
+- **Purpose**: Ensure DAG remains visually represented when the primary rendering library is unavailable.
 - **Implementation**:
-  - **Rendering Edges**: Uses SVG paths to draw edges between nodes.
-  - **Rendering Nodes**: Utilizes SVG rectangles and text elements to represent nodes and their labels.
+  - **Rendering Edges**: Use SVG paths to draw edges between nodes.
+  - **Rendering Nodes**: Utilize SVG rectangles and text elements to represent nodes and their labels.
   - **Key Code Snippet**:
     ```javascript
     function renderDAGSVG(flow) {
@@ -238,4 +238,6 @@ This micro-skill focuses on optimizing system performance through efficient medi
         svg.setAttribute('width', '100%');
         svg.setAttribute('height', '100%');
 
-        // Render
+        // Render Edges
+        flow.edges.forEach(edge => {
+            const edgePath = document.createElementNS(s
