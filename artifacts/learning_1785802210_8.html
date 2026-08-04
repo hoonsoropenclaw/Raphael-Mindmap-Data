@@ -1,0 +1,1365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Godot Hexagonal Level Editor — Live Preview + GDScript Source</title>
+<style>
+  :root {
+    --bg-0: #0e1116;
+    --bg-1: #161b22;
+    --bg-2: #1c232c;
+    --line: #2a3340;
+    --text-0: #e6edf3;
+    --text-1: #9aa6b2;
+    --text-2: #6e7681;
+    --accent: #4cc9f0;
+    --accent-2: #f72585;
+    --good: #2ea043;
+    --warn: #f0883e;
+    --bad:  #f85149;
+    --god:   #478cbf;
+    --tile-empty: #1a2129;
+    --tile-grid:  #2a3340;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg-0);
+    color: var(--text-0);
+    font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* === Layout === */
+  .app {
+    display: grid;
+    grid-template-rows: 48px 1fr 28px;
+    grid-template-columns: 240px 1fr 380px;
+    grid-template-areas:
+      "topbar topbar topbar"
+      "sidebar canvas inspector"
+      "status status status";
+    height: 100vh;
+  }
+
+  .topbar {
+    grid-area: topbar;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 16px;
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar .brand {
+    display: flex; align-items: center; gap: 10px;
+    font-weight: 700; letter-spacing: 0.5px;
+  }
+  .topbar .brand .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 10px var(--accent);
+  }
+  .topbar .actions { display: flex; gap: 8px; }
+  .topbar button {
+    background: var(--bg-2); color: var(--text-0);
+    border: 1px solid var(--line);
+    padding: 6px 12px; border-radius: 4px;
+    font: inherit; cursor: pointer;
+    transition: background .12s, border-color .12s;
+  }
+  .topbar button:hover { background: #2a3340; border-color: #3a4654; }
+  .topbar button.primary { background: var(--accent); color: #06121a; border-color: var(--accent); font-weight: 600; }
+  .topbar button.primary:hover { background: #6dd6f5; }
+  .topbar button.danger { background: var(--bad); color: white; border-color: var(--bad); }
+
+  .sidebar {
+    grid-area: sidebar;
+    background: var(--bg-1);
+    border-right: 1px solid var(--line);
+    overflow-y: auto;
+    padding: 12px;
+  }
+  .sidebar h3 {
+    margin: 14px 0 6px;
+    color: var(--text-1); font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+  }
+  .sidebar h3:first-child { margin-top: 0; }
+
+  .tool-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+  .tool-grid button {
+    background: var(--bg-2); color: var(--text-0);
+    border: 1px solid var(--line);
+    padding: 10px 6px; border-radius: 4px;
+    font: inherit; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+  }
+  .tool-grid button:hover { background: #2a3340; }
+  .tool-grid button.active { background: var(--accent); color: #06121a; border-color: var(--accent); }
+  .tool-grid button .ico { font-size: 18px; line-height: 1; }
+
+  .palette { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; }
+  .palette .tile {
+    padding: 8px; border-radius: 4px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
+    color: #06121a; font-weight: 600;
+    font-size: 11px;
+  }
+  .palette .tile.active { border-color: var(--text-0); box-shadow: 0 0 0 2px var(--bg-1); }
+  .palette .tile .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,0.3); }
+
+  .field { display: flex; align-items: center; justify-content: space-between; margin: 6px 0; gap: 8px; }
+  .field label { color: var(--text-1); font-size: 12px; }
+  .field input[type=number], .field input[type=text], .field select {
+    background: var(--bg-2); border: 1px solid var(--line);
+    color: var(--text-0); padding: 4px 6px; border-radius: 3px;
+    font: inherit; width: 100px; text-align: right;
+  }
+  .field input[type=range] { width: 100px; }
+
+  .canvas-wrap {
+    grid-area: canvas;
+    position: relative; overflow: hidden;
+    background: #0a0d12;
+    background-image:
+      radial-gradient(ellipse at center, #11171f 0%, #06080b 100%);
+  }
+  #canvas { display: block; cursor: crosshair; }
+  .canvas-overlay {
+    position: absolute; top: 12px; left: 12px;
+    background: rgba(0,0,0,0.5);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-size: 11px;
+    color: var(--text-1);
+    pointer-events: none;
+    backdrop-filter: blur(4px);
+  }
+  .canvas-overlay strong { color: var(--text-0); }
+  .canvas-help {
+    position: absolute; bottom: 12px; right: 12px;
+    background: rgba(0,0,0,0.5);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-size: 11px;
+    color: var(--text-1);
+    backdrop-filter: blur(4px);
+    max-width: 280px;
+  }
+  .canvas-help kbd {
+    background: var(--bg-2); border: 1px solid var(--line);
+    padding: 1px 5px; border-radius: 3px;
+    color: var(--text-0);
+    font-family: inherit; font-size: 10px;
+  }
+
+  .inspector {
+    grid-area: inspector;
+    background: var(--bg-1);
+    border-left: 1px solid var(--line);
+    overflow-y: auto;
+    padding: 12px;
+  }
+  .inspector h3 {
+    margin: 14px 0 6px; color: var(--text-1);
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+  }
+  .inspector h3:first-child { margin-top: 0; }
+
+  .stat {
+    display: flex; justify-content: space-between;
+    padding: 4px 0; border-bottom: 1px dashed var(--line);
+  }
+  .stat .k { color: var(--text-1); }
+  .stat .v { color: var(--text-0); font-weight: 600; }
+
+  pre.code {
+    background: #0a0d12;
+    color: #c9d1d9;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 10px;
+    font-size: 11px;
+    line-height: 1.4;
+    overflow-x: auto;
+    max-height: 360px;
+    overflow-y: auto;
+  }
+  pre.code .k { color: #ff7b72; }   /* keyword */
+  pre.code .s { color: #a5d6ff; }   /* string */
+  pre.code .c { color: #8b949e; font-style: italic; } /* comment */
+  pre.code .f { color: #d2a8ff; }   /* function */
+  pre.code .n { color: #79c0ff; }   /* number */
+
+  .statusbar {
+    grid-area: status;
+    background: var(--bg-1);
+    border-top: 1px solid var(--line);
+    display: flex; align-items: center; padding: 0 12px;
+    font-size: 11px; color: var(--text-2);
+    gap: 16px;
+  }
+  .statusbar .ok { color: var(--good); }
+  .statusbar .warn { color: var(--warn); }
+  .statusbar .bad { color: var(--bad); }
+
+  /* === Visual style: cyberpunk "engine monitor" feel === */
+  .topbar::after {
+    content: ''; position: absolute; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    pointer-events: none;
+  }
+  .topbar { position: relative; }
+  .topbar > * { position: relative; z-index: 1; }
+  .field input:focus, .field select:focus, .topbar button:focus { outline: 1px solid var(--accent); }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- TOP BAR -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot"></span>
+      <span>GODOT · HEX LEVEL EDITOR</span>
+      <span style="color: var(--text-2); font-weight: 400; margin-left: 8px;">v1.0 · Iteration 58</span>
+    </div>
+    <div class="actions">
+      <button id="btn-new">New</button>
+      <button id="btn-resize">Resize</button>
+      <button id="btn-save" class="primary">Save JSON</button>
+      <button id="btn-load">Load JSON</button>
+      <button id="btn-gdscript" title="Show GDScript source for this editor">View .gd</button>
+      <button id="btn-export-scene" title="Export as Godot .tscn snippet">Export .tscn</button>
+    </div>
+  </header>
+
+  <!-- LEFT SIDEBAR: Tools + Palette -->
+  <aside class="sidebar">
+    <h3>Tools</h3>
+    <div class="tool-grid" id="tools">
+      <button data-tool="paint" class="active"><span class="ico">✎</span>Paint</button>
+      <button data-tool="erase"><span class="ico">⌫</span>Erase</button>
+      <button data-tool="fill"><span class="ico">⛁</span>Fill</button>
+      <button data-tool="picker"><span class="ico">⤳</span>Pick</button>
+      <button data-tool="move"><span class="ico">✥</span>Pan</button>
+      <button data-tool="select"><span class="ico">▢</span>Select</button>
+    </div>
+
+    <h3>Tile Palette</h3>
+    <div class="palette" id="palette">
+      <div class="tile active" data-tile="grass" style="background: #4ade80;">
+        <span class="swatch" style="background:#16a34a"></span>Grass
+      </div>
+      <div class="tile" data-tile="water" style="background: #38bdf8;">
+        <span class="swatch" style="background:#0284c7"></span>Water
+      </div>
+      <div class="tile" data-tile="stone" style="background: #94a3b8;">
+        <span class="swatch" style="background:#475569"></span>Stone
+      </div>
+      <div class="tile" data-tile="lava" style="background: #fb923c;">
+        <span class="swatch" style="background:#ea580c"></span>Lava
+      </div>
+      <div class="tile" data-tile="player" style="background: #facc15;">
+        <span class="swatch" style="background:#a16207"></span>Player
+      </div>
+      <div class="tile" data-tile="goal" style="background: #f472b6;">
+        <span class="swatch" style="background:#be185d"></span>Goal
+      </div>
+    </div>
+
+    <h3>Grid</h3>
+    <div class="field">
+      <label>Orientation</label>
+      <select id="orient">
+        <option value="pointy">Pointy-top</option>
+        <option value="flat">Flat-top</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Cols</label>
+      <input id="cols" type="number" min="3" max="40" value="14" />
+    </div>
+    <div class="field">
+      <label>Rows</label>
+      <input id="rows" type="number" min="3" max="40" value="10" />
+    </div>
+    <div class="field">
+      <label>Hex size</label>
+      <input id="hexsize" type="range" min="16" max="56" value="28" />
+    </div>
+    <div class="field">
+      <label>Show coords</label>
+      <input id="showcoords" type="checkbox" checked />
+    </div>
+
+    <h3>Snapshot</h3>
+    <div class="field">
+      <label>Name</label>
+      <input id="lvlname" type="text" value="level_01" />
+    </div>
+  </aside>
+
+  <!-- CANVAS -->
+  <div class="canvas-wrap">
+    <canvas id="canvas"></canvas>
+    <div class="canvas-overlay" id="overlay">
+      <div><strong>Tool</strong>: <span id="ov-tool">Paint</span></div>
+      <div><strong>Tile</strong>: <span id="ov-tile">grass</span></div>
+      <div><strong>Cursor</strong>: <span id="ov-cell">—</span></div>
+      <div><strong>FPS</strong>: <span id="ov-fps">0</span></div>
+    </div>
+    <div class="canvas-help">
+      <kbd>LMB</kbd> paint &nbsp; <kbd>Shift</kbd>+drag = line &nbsp;
+      <kbd>MMB</kbd>/<kbd>Space</kbd>+drag = pan &nbsp; <kbd>Wheel</kbd> zoom<br/>
+      <kbd>1–6</kbd> palette &nbsp; <kbd>P/E/F</kbd> tools &nbsp; <kbd>Ctrl+Z</kbd> undo
+    </div>
+  </div>
+
+  <!-- INSPECTOR -->
+  <aside class="inspector">
+    <h3>Selection</h3>
+    <div id="inspector-body">
+      <div class="stat"><span class="k">Cell</span><span class="v" id="sel-cell">none</span></div>
+      <div class="stat"><span class="k">Tile</span><span class="v" id="sel-tile">—</span></div>
+      <div class="stat"><span class="k">World X</span><span class="v" id="sel-x">—</span></div>
+      <div class="stat"><span class="k">World Y</span><span class="v" id="sel-y">—</span></div>
+    </div>
+
+    <h3>Level Stats</h3>
+    <div class="stat"><span class="k">Total hexes</span><span class="v" id="stat-total">0</span></div>
+    <div class="stat"><span class="k">Painted</span><span class="v" id="stat-painted">0</span></div>
+    <div class="stat"><span class="k">Empty</span><span class="v" id="stat-empty">0</span></div>
+    <div class="stat"><span class="k">Player</span><span class="v" id="stat-player">0</span></div>
+    <div class="stat"><span class="k">Goals</span><span class="v" id="stat-goal">0</span></div>
+    <div class="stat"><span class="k">Undos left</span><span class="v" id="stat-undo">20</span></div>
+
+    <h3>Undo Stack</h3>
+    <pre class="code" id="undo-preview" style="max-height: 80px;">(empty)</pre>
+
+    <h3>GDScript · HexGrid.gd</h3>
+    <pre class="code" id="gdscript-preview">// click "View .gd" to load</pre>
+  </aside>
+
+  <!-- STATUS BAR -->
+  <footer class="statusbar">
+    <span>● <span class="ok" id="st-engine">Godot-runtime parity: ON</span></span>
+    <span>Canvas: <span id="st-canvas">0×0</span></span>
+    <span>Grid: <span id="st-grid">14×10</span></span>
+    <span>Last: <span id="st-last">none</span></span>
+    <span style="margin-left:auto;">Axial coord system · <span style="color: var(--text-1);">Red Blob Games math</span></span>
+  </footer>
+
+</div>
+
+<script>
+/* ============================================================
+   Godot Hexagonal Level Editor — single-file web demo
+   ------------------------------------------------------------
+   This file implements the SAME logic the Godot scene uses:
+   - Axial coordinates (q, r)        -> Godot Vector2i
+   - Pointy-top / flat-top hex layout
+   - Pixel <-> cell round-trip with fractional-cube correction
+   - Tile palette + paint/erase/fill tools
+   - Undo stack, JSON save/load
+   - Mirror export: shows the equivalent GDScript source.
+   ============================================================ */
+
+/* ---------- 1. Math: Hex Grid (Red Blob Games) ---------- */
+const HEX = {
+  // axial to pixel (pointy-top)
+  axialToPixelPointy: (q, r, size) => {
+    const x = size * Math.sqrt(3) * (q + r / 2);
+    const y = size * 1.5 * r;
+    return { x, y };
+  },
+  // axial to pixel (flat-top)
+  axialToPixelFlat: (q, r, size) => {
+    const x = size * 1.5 * q;
+    const y = size * Math.sqrt(3) * (r + q / 2);
+    return { x, y };
+  },
+  // pixel to fractional axial (pointy-top)
+  pixelToAxialPointy: (x, y, size) => {
+    const q = (Math.sqrt(3) / 3 * x - y / 3) / size;
+    const r = (2 / 3 * y) / size;
+    return { q, r };
+  },
+  // pixel to fractional axial (flat-top)
+  pixelToAxialFlat: (x, y, size) => {
+    const q = (2 / 3 * x) / size;
+    const r = (-x / 3 + Math.sqrt(3) / 3 * y) / size;
+    return { q, r };
+  },
+  // round fractional axial to nearest hex (cube-based)
+  hexRound: (qf, rf) => {
+    const xf = qf;
+    const zf = rf;
+    const yf = -xf - zf;
+    let rx = Math.round(xf);
+    let ry = Math.round(yf);
+    let rz = Math.round(zf);
+    const dx = Math.abs(rx - xf);
+    const dy = Math.abs(ry - yf);
+    const dz = Math.abs(rz - zf);
+    if (dx > dy && dx > dz) rx = -ry - rz;
+    else if (dy > dz)       ry = -rx - rz;
+    // else: rz = -rx - ry
+    return { q: rx, r: rz };
+  },
+  // axial distance
+  distance: (a, b) => {
+    return (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) / 2;
+  }
+};
+
+/* ---------- 2. Hex polygon vertices (canvas path) ---------- */
+function hexCorners(cx, cy, size, orientation) {
+  const pts = [];
+  for (let i = 0; i < 6; i++) {
+    const angleDeg = orientation === 'pointy' ? 60 * i - 30 : 60 * i;
+    const angleRad = Math.PI / 180 * angleDeg;
+    pts.push({
+      x: cx + size * Math.cos(angleRad),
+      y: cy + size * Math.sin(angleRad)
+    });
+  }
+  return pts;
+}
+
+/* ---------- 3. Editor state ---------- */
+const TILE_COLORS = {
+  grass:  { fill: '#4ade80', edge: '#16a34a', name: 'Grass' },
+  water:  { fill: '#38bdf8', edge: '#0284c7', name: 'Water' },
+  stone:  { fill: '#94a3b8', edge: '#475569', name: 'Stone' },
+  lava:   { fill: '#fb923c', edge: '#ea580c', name: 'Lava'  },
+  player: { fill: '#facc15', edge: '#a16207', name: 'Player'},
+  goal:   { fill: '#f472b6', edge: '#be185d', name: 'Goal'  }
+};
+
+const state = {
+  cols: 14,
+  rows: 10,
+  size: 28,
+  orientation: 'pointy',
+  showCoords: true,
+  tool: 'paint',
+  tile: 'grass',
+  // grid stored as Map: key = "q,r" -> tile name
+  cells: new Map(),
+  camera: { x: 0, y: 0, zoom: 1 },
+  selectedCell: null,
+  hoveredCell: null,
+  isPainting: false,
+  isPanning: false,
+  isLineDrag: false,
+  lineStart: null,
+  paintTarget: null, // tile name being applied (for line drag)
+  undoStack: [],
+  undoMax: 20,
+  fps: 0,
+  levelName: 'level_01',
+  lastAction: 'none'
+};
+
+/* ---------- 4. Cell <-> key helpers ---------- */
+const cellKey = (q, r) => `${q},${r}`;
+const parseKey = k => { const [q, r] = k.split(',').map(Number); return { q, r }; };
+
+function inBounds(q, r) {
+  // We use offset-style bounds (rectangular) wrapped to a hex range.
+  if (state.orientation === 'pointy') {
+    // for pointy: col = q + (r - (r & 1)) / 2 ; row = r
+    const col = q + Math.floor((r - (r & 1)) / 2);
+    return col >= 0 && col < state.cols && r >= 0 && r < state.rows;
+  } else {
+    const row = r + Math.floor((q - (q & 1)) / 2);
+    return q >= 0 && q < state.cols && row >= 0 && row < state.rows;
+  }
+}
+function toOffset(q, r) {
+  if (state.orientation === 'pointy') {
+    return { col: q + Math.floor((r - (r & 1)) / 2), row: r };
+  } else {
+    return { col: q, row: r + Math.floor((q - (q & 1)) / 2) };
+  }
+}
+function toAxial(col, row) {
+  if (state.orientation === 'pointy') {
+    return { q: col - Math.floor((row - (row & 1)) / 2), r: row };
+  } else {
+    return { q: col, r: row - Math.floor((col - (col & 1)) / 2) };
+  }
+}
+
+/* ---------- 5. Pixel <-> cell conversion (with pan/zoom) ---------- */
+function pixelToCell(px, py) {
+  const wx = (px - state.camera.x) / state.camera.zoom;
+  const wy = (py - state.camera.y) / state.camera.zoom;
+  const frac = state.orientation === 'pointy'
+    ? HEX.pixelToAxialPointy(wx, wy, state.size)
+    : HEX.pixelToAxialFlat(wx, wy, state.size);
+  const { q, r } = HEX.hexRound(frac.q, frac.r);
+  return { q, r };
+}
+
+function cellToPixel(q, r) {
+  const p = state.orientation === 'pointy'
+    ? HEX.axialToPixelPointy(q, r, state.size)
+    : HEX.axialToPixelFlat(q, r, state.size);
+  return { x: p.x * state.camera.zoom + state.camera.x, y: p.y * state.camera.zoom + state.camera.y };
+}
+
+/* ---------- 6. Drawing ---------- */
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let dpr = window.devicePixelRatio || 1;
+
+function resizeCanvas() {
+  const wrap = canvas.parentElement;
+  const w = wrap.clientWidth;
+  const h = wrap.clientHeight;
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
+  canvas.width = Math.floor(w * dpr);
+  canvas.height = Math.floor(h * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  document.getElementById('st-canvas').textContent = `${w}×${h}`;
+}
+
+function drawHex(c, fillColor, edgeColor, edgeWidth = 1) {
+  const corners = hexCorners(c.x, c.y, c.size, state.orientation);
+  ctx.beginPath();
+  ctx.moveTo(corners[0].x, corners[0].y);
+  for (let i = 1; i < 6; i++) ctx.lineTo(corners[i].x, corners[i].y);
+  ctx.closePath();
+  ctx.fillStyle = fillColor;
+  ctx.fill();
+  ctx.lineWidth = edgeWidth;
+  ctx.strokeStyle = edgeColor;
+  ctx.stroke();
+}
+
+function drawTextCentered(text, x, y, color, size) {
+  ctx.fillStyle = color;
+  ctx.font = `${size}px 'JetBrains Mono', monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, x, y);
+}
+
+function draw() {
+  const w = canvas.width / dpr;
+  const h = canvas.height / dpr;
+  ctx.clearRect(0, 0, w, h);
+
+  // grid background
+  const grad = ctx.createRadialGradient(w/2, h/2, 0, w/2, h/2, Math.max(w, h) * 0.7);
+  grad.addColorStop(0, 'rgba(76, 201, 240, 0.04)');
+  grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+
+  // cells
+  for (let row = 0; row < state.rows; row++) {
+    for (let col = 0; col < state.cols; col++) {
+      const { q, r } = toAxial(col, row);
+      const p = cellToPixel(q, r);
+      const tile = state.cells.get(cellKey(q, r));
+      const fill = tile ? TILE_COLORS[tile].fill : 'rgba(40, 50, 60, 0.25)';
+      const edge = tile ? TILE_COLORS[tile].edge : 'rgba(120, 140, 160, 0.35)';
+      drawHex({ x: p.x, y: p.y, size: state.size * state.camera.zoom * 0.95 },
+              fill, edge, 1);
+      if (state.showCoords && state.size * state.camera.zoom > 18) {
+        drawTextCentered(`${q},${r}`, p.x, p.y, 'rgba(255,255,255,0.25)', 9);
+      }
+    }
+  }
+
+  // hover highlight
+  if (state.hoveredCell && inBounds(state.hoveredCell.q, state.hoveredCell.r)) {
+    const p = cellToPixel(state.hoveredCell.q, state.hoveredCell.r);
+    drawHex({ x: p.x, y: p.y, size: state.size * state.camera.zoom * 0.95 },
+            'rgba(76, 201, 240, 0.25)', '#4cc9f0', 2);
+  }
+
+  // selection
+  if (state.selectedCell && inBounds(state.selectedCell.q, state.selectedCell.r)) {
+    const p = cellToPixel(state.selectedCell.q, state.selectedCell.r);
+    drawHex({ x: p.x, y: p.y, size: state.size * state.camera.zoom * 0.95 },
+            'rgba(247, 37, 133, 0.20)', '#f72585', 2);
+  }
+
+  // line-drag preview
+  if (state.isLineDrag && state.lineStart && state.hoveredCell) {
+    const a = state.lineStart, b = state.hoveredCell;
+    const line = hexLine(a, b);
+    ctx.save();
+    for (const c of line) {
+      const p = cellToPixel(c.q, c.r);
+      drawHex({ x: p.x, y: p.y, size: state.size * state.camera.zoom * 0.95 },
+              'rgba(76, 201, 240, 0.30)', '#4cc9f0', 1);
+    }
+    ctx.restore();
+  }
+}
+
+/* ---------- 7. Hex line algorithm (linear interpolation) ---------- */
+function hexLine(a, b) {
+  const N = HEX.distance(a, b);
+  if (N === 0) return [a];
+  const results = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const qf = a.q + (b.q - a.q) * t;
+    const rf = a.r + (b.r - a.r) * t;
+    results.push(HEX.hexRound(qf, rf));
+  }
+  // dedupe
+  const seen = new Set();
+  return results.filter(p => {
+    const k = cellKey(p.q, p.r);
+    if (seen.has(k)) return false;
+    seen.add(k); return true;
+  });
+}
+
+/* ---------- 8. Undo ---------- */
+function pushUndo() {
+  state.undoStack.push(new Map(state.cells));
+  if (state.undoStack.length > state.undoMax) state.undoStack.shift();
+  document.getElementById('stat-undo').textContent = state.undoStack.length;
+  refreshUndoPreview();
+}
+function undo() {
+  if (state.undoStack.length === 0) return;
+  state.cells = state.undoStack.pop();
+  document.getElementById('stat-undo').textContent = state.undoStack.length;
+  refreshUndoPreview();
+  updateStats();
+  draw();
+  flashStatus('Undo');
+}
+function refreshUndoPreview() {
+  const el = document.getElementById('undo-preview');
+  if (state.undoStack.length === 0) { el.textContent = '(empty)'; return; }
+  const last = state.undoStack[state.undoStack.length - 1];
+  const entries = [...last.entries()].filter(([k, v]) => v).slice(0, 4);
+  el.textContent = entries.map(([k, v]) => `  ${k} = ${v}`).join('\n') +
+    (last.size > 4 ? `\n  ...+${last.size - 4} more` : '');
+}
+
+/* ---------- 9. Stats ---------- */
+function updateStats() {
+  const painted = [...state.cells.values()].filter(v => v).length;
+  const total = state.cols * state.rows;
+  const player = [...state.cells.values()].filter(v => v === 'player').length;
+  const goal = [...state.cells.values()].filter(v => v === 'goal').length;
+  document.getElementById('stat-total').textContent = total;
+  document.getElementById('stat-painted').textContent = painted;
+  document.getElementById('stat-empty').textContent = total - painted;
+  document.getElementById('stat-player').textContent = player;
+  document.getElementById('stat-goal').textContent = goal;
+}
+
+/* ---------- 10. Painting ---------- */
+function paintCell(q, r, tile) {
+  if (!inBounds(q, r)) return;
+  const k = cellKey(q, r);
+  if (tile === null) state.cells.delete(k);
+  else state.cells.set(k, tile);
+}
+function commitPaint() {
+  // assume undo was pushed before, so just refresh view
+  updateStats();
+  draw();
+  state.lastAction = `${new Date().toLocaleTimeString()} painted ${state.tile}`;
+  document.getElementById('st-last').textContent = state.lastAction;
+}
+function applyToolAt(q, r) {
+  switch (state.tool) {
+    case 'paint':   paintCell(q, r, state.tile); break;
+    case 'erase':   paintCell(q, r, null); break;
+    case 'fill':    hexFlood(q, r, state.tile); break;
+    case 'picker':  {
+      const t = state.cells.get(cellKey(q, r));
+      if (t) {
+        state.tile = t;
+        document.querySelectorAll('.palette .tile').forEach(el => {
+          el.classList.toggle('active', el.dataset.tile === t);
+        });
+        state.tool = 'paint';
+        document.querySelectorAll('.tool-grid button').forEach(b => b.classList.remove('active'));
+        document.querySelector('[data-tool="paint"]').classList.add('active');
+        flashStatus(`Picked ${t}`);
+      }
+    } break;
+  }
+  commitPaint();
+}
+
+/* ---------- 11. Flood fill (BFS on same-tile region) ---------- */
+function hexFlood(q, r, newTile) {
+  const targetTile = state.cells.get(cellKey(q, r)) || null;
+  if (targetTile === newTile) return;
+  const visited = new Set();
+  const queue = [{ q, r }];
+  while (queue.length) {
+    const c = queue.shift();
+    const k = cellKey(c.q, c.r);
+    if (visited.has(k)) continue;
+    visited.add(k);
+    if (!inBounds(c.q, c.r)) continue;
+    if ((state.cells.get(k) || null) !== targetTile) continue;
+    paintCell(c.q, c.r, newTile);
+    for (const n of hexNeighbors(c.q, c.r)) queue.push(n);
+  }
+}
+function hexNeighbors(q, r) {
+  if (state.orientation === 'pointy') {
+    return [
+      { q: q + 1, r }, { q: q - 1, r },
+      { q: q, r: r - 1 }, { q: q + 1, r: r - 1 },
+      { q: q, r: r + 1 }, { q: q - 1, r: r + 1 }
+    ];
+  } else {
+    return [
+      { q: q + 1, r }, { q: q + 1, r: r - 1 },
+      { q: q - 1, r }, { q: q - 1, r: r + 1 },
+      { q: q, r: r - 1 }, { q: q, r: r + 1 }
+    ];
+  }
+}
+
+/* ---------- 12. Input handling ---------- */
+function getMousePos(e) {
+  const r = canvas.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+canvas.addEventListener('mousedown', e => {
+  const p = getMousePos(e);
+  const cell = pixelToCell(p.x, p.y);
+  if (e.button === 1 || e.button === 2 || (e.button === 0 && (e.shiftKey || window.spaceHeld))) {
+    // pan
+    state.isPanning = true;
+    state.panStart = { x: p.x, y: p.y, camX: state.camera.x, camY: state.camera.y };
+    canvas.style.cursor = 'grabbing';
+    return;
+  }
+  if (e.button === 0) {
+    if (state.tool === 'select') {
+      if (inBounds(cell.q, cell.r)) {
+        state.selectedCell = cell;
+        flashStatus(`Selected ${cellKey(cell.q, cell.r)}`);
+      } else {
+        state.selectedCell = null;
+      }
+      draw();
+      return;
+    }
+    if (e.shiftKey && inBounds(cell.q, cell.r)) {
+      // line drag
+      state.isLineDrag = true;
+      state.lineStart = cell;
+      state.paintTarget = state.tool === 'erase' ? null : state.tile;
+      return;
+    }
+    if (inBounds(cell.q, cell.r)) {
+      pushUndo();
+      state.isPainting = true;
+      applyToolAt(cell.q, cell.r);
+    }
+  }
+});
+
+canvas.addEventListener('mousemove', e => {
+  const p = getMousePos(e);
+  if (state.isPanning) {
+    state.camera.x = state.panStart.camX + (p.x - state.panStart.x);
+    state.camera.y = state.panStart.camY + (p.y - state.panStart.y);
+    draw();
+    return;
+  }
+  const cell = pixelToCell(p.x, p.y);
+  state.hoveredCell = inBounds(cell.q, cell.r) ? cell : null;
+  if (state.isPainting && state.hoveredCell) {
+    applyToolAt(state.hoveredCell.q, state.hoveredCell.r);
+  }
+  document.getElementById('ov-cell').textContent =
+    state.hoveredCell ? cellKey(state.hoveredCell.q, state.hoveredCell.r) : '—';
+  // update inspector live
+  if (state.hoveredCell) {
+    const t = state.cells.get(cellKey(state.hoveredCell.q, state.hoveredCell.r));
+    document.getElementById('sel-cell').textContent = cellKey(state.hoveredCell.q, state.hoveredCell.r);
+    document.getElementById('sel-tile').textContent = t || '(empty)';
+    const px = cellToPixel(state.hoveredCell.q, state.hoveredCell.r);
+    document.getElementById('sel-x').textContent = px.x.toFixed(1);
+    document.getElementById('sel-y').textContent = px.y.toFixed(1);
+  }
+  draw();
+});
+
+window.addEventListener('mouseup', () => {
+  if (state.isPanning) {
+    state.isPanning = false;
+    canvas.style.cursor = state.tool === 'move' ? 'grab' : 'crosshair';
+  }
+  if (state.isLineDrag && state.lineStart && state.hoveredCell) {
+    pushUndo();
+    for (const c of hexLine(state.lineStart, state.hoveredCell)) {
+      paintCell(c.q, c.r, state.paintTarget);
+    }
+    commitPaint();
+    state.isLineDrag = false;
+    state.lineStart = null;
+  }
+  state.isPainting = false;
+});
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const p = getMousePos(e);
+  const worldX = (p.x - state.camera.x) / state.camera.zoom;
+  const worldY = (p.y - state.camera.y) / state.camera.zoom;
+  const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+  state.camera.zoom = Math.max(0.3, Math.min(3, state.camera.zoom * factor));
+  state.camera.x = p.x - worldX * state.camera.zoom;
+  state.camera.y = p.y - worldY * state.camera.zoom;
+  draw();
+}, { passive: false });
+
+window.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  if (e.code === 'Space') { window.spaceHeld = true; canvas.style.cursor = 'grab'; }
+  if (e.key === '1') selectTile('grass');
+  if (e.key === '2') selectTile('water');
+  if (e.key === '3') selectTile('stone');
+  if (e.key === '4') selectTile('lava');
+  if (e.key === '5') selectTile('player');
+  if (e.key === '6') selectTile('goal');
+  if (e.key === 'p' || e.key === 'P') selectTool('paint');
+  if (e.key === 'e' || e.key === 'E') selectTool('erase');
+  if (e.key === 'f' || e.key === 'F') selectTool('fill');
+  if (e.key === 'z' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); undo(); }
+});
+window.addEventListener('keyup', e => {
+  if (e.code === 'Space') { window.spaceHeld = false; canvas.style.cursor = 'crosshair'; }
+});
+
+/* ---------- 13. UI bindings ---------- */
+function selectTool(t) {
+  state.tool = t;
+  document.querySelectorAll('.tool-grid button').forEach(b =>
+    b.classList.toggle('active', b.dataset.tool === t));
+  document.getElementById('ov-tool').textContent = t.charAt(0).toUpperCase() + t.slice(1);
+  canvas.style.cursor = t === 'move' ? 'grab' : 'crosshair';
+}
+function selectTile(t) {
+  state.tile = t;
+  document.querySelectorAll('.palette .tile').forEach(el =>
+    el.classList.toggle('active', el.dataset.tile === t));
+  document.getElementById('ov-tile').textContent = t;
+}
+document.getElementById('tools').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  selectTool(b.dataset.tool);
+});
+document.getElementById('palette').addEventListener('click', e => {
+  const t = e.target.closest('.tile'); if (!t) return;
+  selectTile(t.dataset.tile);
+});
+document.getElementById('orient').addEventListener('change', e => {
+  state.orientation = e.target.value;
+  document.getElementById('st-grid').textContent = `${state.cols}×${state.rows} (${state.orientation})`;
+  recenter();
+  draw();
+});
+document.getElementById('cols').addEventListener('change', e => {
+  state.cols = Math.max(3, Math.min(40, +e.target.value));
+  document.getElementById('st-grid').textContent = `${state.cols}×${state.rows} (${state.orientation})`;
+  recenter(); draw();
+});
+document.getElementById('rows').addEventListener('change', e => {
+  state.rows = Math.max(3, Math.min(40, +e.target.value));
+  document.getElementById('st-grid').textContent = `${state.cols}×${state.rows} (${state.orientation})`;
+  recenter(); draw();
+});
+document.getElementById('hexsize').addEventListener('input', e => {
+  state.size = +e.target.value;
+  recenter(); draw();
+});
+document.getElementById('showcoords').addEventListener('change', e => {
+  state.showCoords = e.target.checked;
+  draw();
+});
+document.getElementById('lvlname').addEventListener('input', e => {
+  state.levelName = e.target.value;
+});
+
+/* ---------- 14. Recenter camera on grid ---------- */
+function recenter() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  // compute grid extents
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (let row = 0; row < state.rows; row++) {
+    for (let col = 0; col < state.cols; col++) {
+      const { q, r } = toAxial(col, row);
+      const p = state.orientation === 'pointy' ? HEX.axialToPixelPointy(q, r, state.size) : HEX.axialToPixelFlat(q, r, state.size);
+      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+      minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+    }
+  }
+  const gridW = maxX - minX + state.size * 2;
+  const gridH = maxY - minY + state.size * 2;
+  const zoomX = w * 0.9 / gridW;
+  const zoomY = h * 0.9 / gridH;
+  state.camera.zoom = Math.min(zoomX, zoomY, 1.5);
+  state.camera.x = w / 2 - ((minX + maxX) / 2) * state.camera.zoom;
+  state.camera.y = h / 2 - ((minY + maxY) / 2) * state.camera.zoom;
+}
+
+/* ---------- 15. Save / Load JSON ---------- */
+function exportJSON() {
+  const tiles = [];
+  for (let row = 0; row < state.rows; row++) {
+    for (let col = 0; col < state.cols; col++) {
+      const { q, r } = toAxial(col, row);
+      const t = state.cells.get(cellKey(q, r));
+      if (t) tiles.push({ q, r, tile: t });
+    }
+  }
+  const data = {
+    name: state.levelName,
+    version: 1,
+    engine: 'godot-hex-editor',
+    orientation: state.orientation,
+    cols: state.cols,
+    rows: state.rows,
+    hex_size: state.size,
+    tiles
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${state.levelName || 'level'}.hex.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  flashStatus('Exported JSON');
+}
+function importJSON(text) {
+  try {
+    const data = JSON.parse(text);
+    state.levelName = data.name || 'level';
+    state.orientation = data.orientation || 'pointy';
+    state.cols = data.cols || 14;
+    state.rows = data.rows || 10;
+    state.size = data.hex_size || 28;
+    document.getElementById('lvlname').value = state.levelName;
+    document.getElementById('orient').value = state.orientation;
+    document.getElementById('cols').value = state.cols;
+    document.getElementById('rows').value = state.rows;
+    document.getElementById('hexsize').value = state.size;
+    state.cells.clear();
+    for (const t of (data.tiles || [])) {
+      state.cells.set(cellKey(t.q, t.r), t.tile);
+    }
+    document.getElementById('st-grid').textContent = `${state.cols}×${state.rows} (${state.orientation})`;
+    recenter();
+    pushUndo();
+    updateStats();
+    draw();
+    flashStatus('Loaded ' + data.tiles.length + ' tiles');
+  } catch (err) {
+    flashStatus('JSON parse error: ' + err.message, 'bad');
+  }
+}
+
+/* ---------- 16. Export as Godot .tscn snippet ---------- */
+function exportGodotScene() {
+  const lines = [];
+  lines.push(`[gd_scene load_steps=2 format=3 uid="uid://b1hex2dlvl${Date.now().toString(36)}"]`);
+  lines.push('');
+  lines.push('[ext_resource type="Script" path="res://hex_grid.gd" id="1_hex"]');
+  lines.push('');
+  lines.push(`[node name="HexLevel_${state.levelName}" type="Node2D"]`);
+  lines.push(`script = ExtResource("1_hex")`);
+  lines.push(`orientation = "${state.orientation}"`);
+  lines.push(`cols = ${state.cols}`);
+  lines.push(`rows = ${state.rows}`);
+  lines.push(`hex_size = ${state.size}`);
+  lines.push(`level_name = "${state.levelName}"`);
+  lines.push('');
+  lines.push('# Tile data (axial coords)');
+  for (let row = 0; row < state.rows; row++) {
+    for (let col = 0; col < state.cols; col++) {
+      const { q, r } = toAxial(col, row);
+      const t = state.cells.get(cellKey(q, r));
+      if (t) lines.push(`tile_data = [${q}, ${r}, "${t}"]`);
+    }
+  }
+  const text = lines.join('\n');
+  const blob = new Blob([text], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${state.levelName}.tscn`;
+  a.click();
+  URL.revokeObjectURL(url);
+  flashStatus('Exported .tscn');
+}
+
+/* ---------- 17. GDScript source viewer ---------- */
+const GDSCRIPT_SOURCE = `# =============================================================================
+# HexGrid.gd  --  Godot 4.x Runtime for the Hexagonal Level Editor
+# =============================================================================
+# Drop this in a Node2D scene. Pair it with the matching .tscn exported from
+# the editor, and your level is ready to play. The math mirrors the web demo
+# 1:1 (Red Blob Games axial coordinates) so behaviour is identical.
+# =============================================================================
+class_name HexGrid
+extends Node2D
+
+signal cell_painted(q: int, r: int, tile: String)
+signal cell_erased(q: int, r: int)
+
+@export var orientation: String = "pointy"     # or "flat"
+@export var cols: int = 14
+@export var rows: int = 10
+@export var hex_size: float = 28.0
+@export var level_name: String = "level_01"
+
+# tile_data := Array of [q, r, tile_name]
+@export var tile_data: Array = []
+
+# Internal: dictionary of { "q,r": tile_name }
+var _cells: Dictionary = {}
+
+# Color palette (mirrors web editor TILE_COLORS)
+const TILE_COLORS := {
+  "grass":  [Color("4ade80"), Color("16a34a")],
+  "water":  [Color("38bdf8"), Color("0284c7")],
+  "stone":  [Color("94a3b8"), Color("475569")],
+  "lava":   [Color("fb923c"), Color("ea580c")],
+  "player": [Color("facc15"), Color("a16207")],
+  "goal":   [Color("f472b6"), Color("be185d")],
+}
+
+func _ready() -> void:
+  _load_tile_data()
+  queue_redraw()
+
+func _load_tile_data() -> void:
+  _cells.clear()
+  for entry in tile_data:
+    var q: int = entry[0]
+    var r: int = entry[1]
+    var t: String = entry[2]
+    _cells["%d,%d" % [q, r]] = t
+
+# -----------------------------------------------------------------------
+# Math: axial -> pixel (pointy-top)
+# -----------------------------------------------------------------------
+func _axial_to_pixel_pointy(q: int, r: int) -> Vector2:
+  var x: float = hex_size * sqrt(3.0) * (q + r / 2.0)
+  var y: float = hex_size * 1.5 * r
+  return Vector2(x, y)
+
+func _axial_to_pixel_flat(q: int, r: int) -> Vector2:
+  var x: float = hex_size * 1.5 * q
+  var y: float = hex_size * sqrt(3.0) * (r + q / 2.0)
+  return Vector2(x, y)
+
+func axial_to_pixel(q: int, r: int) -> Vector2:
+  if orientation == "pointy":
+    return _axial_to_pixel_pointy(q, r)
+  return _axial_to_pixel_flat(q, r)
+
+# -----------------------------------------------------------------------
+# Math: pixel -> fractional axial -> rounded axial (cube round)
+# -----------------------------------------------------------------------
+func pixel_to_axial(p: Vector2) -> Vector2i:
+  var qf: float
+  var rf: float
+  if orientation == "pointy":
+    qf = (sqrt(3.0) / 3.0 * p.x - p.y / 3.0) / hex_size
+    rf = (2.0 / 3.0 * p.y) / hex_size
+  else:
+    qf = (2.0 / 3.0 * p.x) / hex_size
+    rf = (-p.x / 3.0 + sqrt(3.0) / 3.0 * p.y) / hex_size
+  return _hex_round(qf, rf)
+
+func _hex_round(qf: float, rf: float) -> Vector2i:
+  var xf: float = qf
+  var zf: float = rf
+  var yf: float = -xf - zf
+  var rx: int = int(round(xf))
+  var ry: int = int(round(yf))
+  var rz: int = int(round(zf))
+  var dx: float = absf(rx - xf)
+  var dy: float = absf(ry - yf)
+  var dz: float = absf(rz - zf)
+  if dx > dy and dx > dz:
+    rx = -ry - rz
+  elif dy > dz:
+    ry = -rx - rz
+  return Vector2i(rx, rz)
+
+# -----------------------------------------------------------------------
+# Bounds: offset (col,row) <-> axial
+# -----------------------------------------------------------------------
+func to_axial(col: int, row: int) -> Vector2i:
+  if orientation == "pointy":
+    return Vector2i(col - int(floor((row - (row & 1)) / 2.0)), row)
+  return Vector2i(col, row - int(floor((col - (col & 1)) / 2.0)))
+
+func in_bounds(q: int, r: int) -> bool:
+  var col: int
+  var row: int
+  if orientation == "pointy":
+    col = q + int(floor((r - (r & 1)) / 2.0))
+    row = r
+  else:
+    col = q
+    row = r + int(floor((q - (q & 1)) / 2.0))
+  return col >= 0 and col < cols and row >= 0 and row < rows
+
+# -----------------------------------------------------------------------
+# Tile API
+# -----------------------------------------------------------------------
+func get_tile(q: int, r: int) -> String:
+  return _cells.get("%d,%d" % [q, r], "")
+
+func set_tile(q: int, r: int, tile: String) -> void:
+  if not in_bounds(q, r):
+    return
+  if tile == "":
+    _cells.erase("%d,%d" % [q, r])
+    cell_erased.emit(q, r)
+  else:
+    _cells["%d,%d" % [q, r]] = tile
+    cell_painted.emit(q, r, tile)
+  queue_redraw()
+
+func flood_fill(q: int, r: int, new_tile: String) -> void:
+  var target: String = get_tile(q, r)
+  if target == new_tile:
+    return
+  var queue: Array[Vector2i] = [Vector2i(q, r)]
+  while not queue.is_empty():
+    var c: Vector2i = queue.pop_front()
+    if not in_bounds(c.x, c.y):
+      continue
+    if get_tile(c.x, c.y) != target:
+      continue
+    set_tile(c.x, c.y, new_tile)
+    for n in _neighbors(c.x, c.y):
+      queue.append(n)
+
+func _neighbors(q: int, r: int) -> Array[Vector2i]:
+  if orientation == "pointy":
+    return [
+      Vector2i(q + 1, r), Vector2i(q - 1, r),
+      Vector2i(q, r - 1), Vector2i(q + 1, r - 1),
+      Vector2i(q, r + 1), Vector2i(q - 1, r + 1),
+    ]
+  return [
+    Vector2i(q + 1, r), Vector2i(q + 1, r - 1),
+    Vector2i(q - 1, r), Vector2i(q - 1, r + 1),
+    Vector2i(q, r - 1), Vector2i(q, r + 1),
+  ]
+
+# -----------------------------------------------------------------------
+# Hex line (linear interpolation)
+# -----------------------------------------------------------------------
+func hex_line(a: Vector2i, b: Vector2i) -> Array[Vector2i]:
+  var n: int = int(_axial_distance(a, b))
+  if n == 0:
+    return [a]
+  var out: Array[Vector2i] = []
+  for i in range(n + 1):
+    var t: float = float(i) / float(n)
+    var qf: float = a.x + (b.x - a.x) * t
+    var rf: float = a.y + (b.y - a.y) * t
+    out.append(_hex_round(qf, rf))
+  return out
+
+func _axial_distance(a: Vector2i, b: Vector2i) -> int:
+  return (absi(a.x - b.x) + absi(a.x + a.y - b.x - b.y) + absi(a.y - b.y)) / 2
+
+# -----------------------------------------------------------------------
+# Hex corners -> PackedVector2Array for draw_polyon()
+# -----------------------------------------------------------------------
+func hex_corners(cx: float, cy: float, size: float) -> PackedVector2Array:
+  var pts := PackedVector2Array()
+  for i in 6:
+    var angle_deg: float
+    if orientation == "pointy":
+      angle_deg = 60.0 * i - 30.0
+    else:
+      angle_deg = 60.0 * i
+    var angle_rad: float = deg_to_rad(angle_deg)
+    pts.append(Vector2(cx + size * cos(angle_rad), cy + size * sin(angle_rad)))
+  return pts
+
+# -----------------------------------------------------------------------
+# Render
+# -----------------------------------------------------------------------
+func _draw() -> void:
+  for row in rows:
+    for col in cols:
+      var ar: Vector2i = to_axial(col, row)
+      var p: Vector2 = axial_to_pixel(ar.x, ar.y)
+      var t: String = get_tile(ar.x, ar.y)
+      var fill: Color
+      var edge: Color
+      if t != "" and TILE_COLORS.has(t):
+        fill = TILE_COLORS[t][0]
+        edge = TILE_COLORS[t][1]
+      else:
+        fill = Color(0.15, 0.18, 0.22, 0.5)
+        edge = Color(0.30, 0.35, 0.42, 0.5)
+      var corners: PackedVector2Array = hex_corners(p.x, p.y, hex_size * 0.95)
+      draw_colored_polygon(corners, fill)
+      draw_polyline(corners + PackedVector2Array([corners[0]]), edge, 1.0, true)
+`;
+
+function showGDScript() {
+  const el = document.getElementById('gdscript-preview');
+  // 1. escape HTML
+  // 2. protect strings and comments with sentinels
+  // 3. colorize keywords
+  // 4. restore sentinels with the right CSS classes
+  // (Doing it in this order prevents the comment regex from eating "#" inside strings.)
+  let raw = GDSCRIPT_SOURCE
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  const sentinels = [];
+  const stash = (cls, body) => {
+    const key = `\x00${sentinels.length}\x00`;
+    sentinels.push(`<span class="${cls}">${body}</span>`);
+    return key;
+  };
+  // Protect double-quoted strings FIRST.
+  raw = raw.replace(/"([^"\n]*)"/g, m => stash('s', m));
+  // Then single-line comments (whole line).
+  raw = raw.replace(/(^|\n)([ \t]*#[^\n]*)/g, (m, lead, body) => lead + stash('c', body));
+  // Then triple-quoted block comments.
+  raw = raw.replace(/"""[\s\S]*?"""/g, m => stash('c', m));
+
+  // Colorize keywords (whole-word) — wrap with classes; sentinels stay intact.
+  const KEYWORDS = new RegExp(
+    '\\b(' + [
+      'func','class','extends','signal','var','const',
+      '@export','@onready','if','elif','else','for','while','return','in',
+      'not','and','or','true','false','null','self','static','pass',
+      'break','continue','match','enum','class_name'
+    ].join('|') + ')\\b', 'g'
+  );
+  raw = raw.replace(KEYWORDS, '<span class="k">$1</span>');
+
+  // Type names (Godot built-in types)
+  raw = raw.replace(
+    /\b(Vector2|Vector2i|Color|Array|Dictionary|PackedVector2Array|String|int|float|bool|void|Node2D|Node|Resource|RefCounted)\b/g,
+    '<span class="f">$1</span>'
+  );
+
+  // Numbers (after keywords/types so we don't break hex literals)
+  raw = raw.replace(/\b(\d+\.?\d*)\b/g, '<span class="n">$1</span>');
+
+  // Restore sentinels
+  raw = raw.replace(/\x00(\d+)\x00/g, (_, i) => sentinels[+i]);
+
+  el.innerHTML = raw;
+  flashStatus('Loaded GDScript source');
+}
+
+/* ---------- 18. New / Resize / Buttons ---------- */
+document.getElementById('btn-new').addEventListener('click', () => {
+  if (state.cells.size > 0 && !confirm('Clear current level?')) return;
+  state.cells.clear();
+  state.undoStack = [];
+  pushUndo();
+  updateStats();
+  draw();
+  flashStatus('New level created');
+});
+document.getElementById('btn-resize').addEventListener('click', () => {
+  // commit current cells, then resize keeping existing ones that fit
+  flashStatus('Use the Cols/Rows inputs on the left to resize');
+});
+document.getElementById('btn-save').addEventListener('click', exportJSON);
+document.getElementById('btn-load').addEventListener('click', () => {
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'application/json,.json';
+  inp.onchange = e => {
+    const f = e.target.files[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = () => importJSON(r.result);
+    r.readAsText(f);
+  };
+  inp.click();
+});
+document.getElementById('btn-gdscript').addEventListener('click', showGDScript);
+document.getElementById('btn-export-scene').addEventListener('click', exportGodotScene);
+
+/* ---------- 19. Status flash ---------- */
+function flashStatus(msg, kind = 'ok') {
+  const el = document.getElementById('st-last');
+  el.textContent = msg;
+  el.className = kind === 'bad' ? 'bad' : (kind === 'warn' ? 'warn' : 'ok');
+  setTimeout(() => { el.className = ''; }, 1500);
+}
+
+/* ---------- 20. Main loop ---------- */
+let lastTime = performance.now();
+let frames = 0;
+function loop(t) {
+  frames++;
+  if (t - lastTime >= 500) {
+    state.fps = Math.round(frames * 1000 / (t - lastTime));
+    document.getElementById('ov-fps').textContent = state.fps;
+    frames = 0;
+    lastTime = t;
+  }
+  requestAnimationFrame(loop);
+}
+
+/* ---------- 21. Init ---------- */
+window.addEventListener('resize', () => { resizeCanvas(); recenter(); draw(); });
+resizeCanvas();
+pushUndo();
+seedDemo();
+recenter();
+updateStats();
+showGDScript();
+draw();
+requestAnimationFrame(loop);
+
+function seedDemo() {
+  // Build a small showcase map so the editor opens with something visible.
+  const demo = [
+    { q: 0, r: 0, t: 'grass' }, { q: 1, r: 0, t: 'grass' }, { q: 2, r: 0, t: 'grass' },
+    { q: 0, r: 1, t: 'grass' }, { q: 1, r: 1, t: 'stone' }, { q: 2, r: 1, t: 'grass' },
+    { q: 0, r: 2, t: 'water' }, { q: 1, r: 2, t: 'water' }, { q: 2, r: 2, t: 'grass' },
+    { q: 0, r: 3, t: 'water' }, { q: 1, r: 3, t: 'grass' }, { q: 2, r: 3, t: 'lava'  },
+    { q: 0, r: 4, t: 'grass' }, { q: 1, r: 4, t: 'player'}, { q: 2, r: 4, t: 'grass' },
+    { q: 0, r: 5, t: 'stone' }, { q: 1, r: 5, t: 'stone' }, { q: 2, r: 5, t: 'goal'  },
+  ];
+  for (const d of demo) {
+    if (inBounds(d.q, d.r)) state.cells.set(cellKey(d.q, d.r), d.t);
+  }
+}
+
+</script>
+</body>
+</html>

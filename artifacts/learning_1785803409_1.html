@@ -1,0 +1,2534 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>AutoGlyph · Playwright 與 OCR 跨平台桌面自動化工具</title>
+<meta name="description" content="AutoGlyph 是一個跨平台桌面自動化工具，整合 Playwright 與 OCR 技術，自動處理 PDF 文件與圖像數據。支援 Python 與 Node.js 雙版本，並能封裝成 Windows / macOS / Linux 桌面應用。" />
+<link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230f172a'/><path d='M9 8 L9 24 M9 8 L17 8 Q21 8 21 12 Q21 16 17 16 L9 16' stroke='%2338bdf8' stroke-width='2.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/><circle cx='23' cy='22' r='3' fill='%23a78bfa'/><path d='M21.5 22 L24.5 22 M23 20.5 L23 23.5' stroke='%230f172a' stroke-width='1.4' stroke-linecap='round'/></svg>" />
+
+<!-- PDF.js (ESM) -->
+<script type="module">
+  import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.min.mjs";
+  window.__pdfjsLib = pdfjsLib;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.worker.min.mjs";
+  window.dispatchEvent(new Event("pdfjs-ready"));
+</script>
+
+<!-- Tesseract.js (UMD) -->
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
+
+<style>
+  /* =========================================================================
+     Design tokens — 暗色 Glassmorphism
+     ========================================================================= */
+  :root {
+    --bg-0: #06080d;
+    --bg-1: #0b0e16;
+    --bg-2: #11141d;
+    --bg-3: #181c27;
+    --bg-4: #1f2533;
+    --line: #2a3142;
+    --line-soft: #1d2331;
+    --text-0: #f5f7fb;
+    --text-1: #c8cfdd;
+    --text-2: #8993a8;
+    --text-3: #5a647a;
+
+    --accent: #38bdf8;
+    --accent-2: #818cf8;
+    --accent-3: #c084fc;
+    --accent-soft: rgba(56, 189, 248, 0.14);
+    --accent-soft-2: rgba(129, 140, 248, 0.14);
+
+    --good: #10b981;
+    --good-soft: rgba(16, 185, 129, 0.15);
+    --warn: #f59e0b;
+    --warn-soft: rgba(245, 158, 11, 0.15);
+    --bad: #ef4444;
+    --bad-soft: rgba(239, 68, 68, 0.15);
+    --info: #38bdf8;
+    --info-soft: rgba(56, 189, 248, 0.15);
+
+    --glass: rgba(16, 22, 36, 0.55);
+    --glass-strong: rgba(12, 18, 30, 0.78);
+    --glass-soft: rgba(28, 36, 54, 0.32);
+    --border: rgba(148, 163, 184, 0.18);
+    --border-soft: rgba(148, 163, 184, 0.10);
+    --bd: blur(18px) saturate(140%);
+
+    --shadow-1: 0 1px 0 rgba(255,255,255,0.04), 0 4px 14px rgba(0,0,0,0.35);
+    --shadow-2: 0 1px 0 rgba(255,255,255,0.04), 0 12px 32px rgba(0,0,0,0.5);
+    --shadow-3: 0 1px 0 rgba(255,255,255,0.05), 0 20px 60px rgba(0,0,0,0.6);
+
+    --radius-1: 6px;
+    --radius-2: 10px;
+    --radius-3: 14px;
+    --radius-4: 20px;
+
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--text-1);
+    background: var(--bg-0);
+    min-height: 100vh;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Ambient background — 動態漸層 + 噪點 */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    background:
+      radial-gradient(ellipse 60% 50% at 20% 0%, rgba(56, 189, 248, 0.18), transparent 60%),
+      radial-gradient(ellipse 50% 40% at 80% 10%, rgba(129, 140, 248, 0.14), transparent 60%),
+      radial-gradient(ellipse 60% 50% at 50% 100%, rgba(192, 132, 252, 0.12), transparent 60%),
+      linear-gradient(180deg, #06080d 0%, #0b0e16 100%);
+    pointer-events: none;
+  }
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.06 0'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>");
+    opacity: 0.5;
+    mix-blend-mode: overlay;
+    pointer-events: none;
+  }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre { font-family: var(--mono); font-size: 12.5px; }
+  kbd {
+    font-family: var(--mono);
+    background: var(--bg-3);
+    border: 1px solid var(--line);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: var(--text-1);
+  }
+
+  /* ---------- Layout ---------- */
+  .app {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 28px 28px 96px;
+  }
+
+  /* Top nav */
+  .topnav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    background: var(--glass);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-3);
+    backdrop-filter: var(--bd);
+    -webkit-backdrop-filter: var(--bd);
+    box-shadow: var(--shadow-1);
+  }
+  .topnav .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-weight: 700;
+    color: var(--text-0);
+    font-size: 15px;
+    letter-spacing: 0.2px;
+  }
+  .topnav .brand .logo {
+    width: 30px; height: 30px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    display: grid; place-items: center;
+    color: #0b0e16;
+    font-weight: 800;
+    font-size: 14px;
+    box-shadow: 0 4px 14px rgba(56, 189, 248, 0.35);
+  }
+  .topnav nav {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .topnav nav a {
+    color: var(--text-2);
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    text-decoration: none;
+    transition: all 0.15s ease;
+  }
+  .topnav nav a:hover {
+    background: var(--bg-3);
+    color: var(--text-0);
+    text-decoration: none;
+  }
+  .topnav .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--good-soft);
+    color: var(--good);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .topnav .pill .dot {
+    width: 6px; height: 6px;
+    background: var(--good);
+    border-radius: 50%;
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6); }
+    70% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    margin-top: 28px;
+    padding: 56px 48px;
+    border-radius: var(--radius-4);
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.06), rgba(129, 140, 248, 0.06), rgba(192, 132, 252, 0.06));
+    border: 1px solid var(--border);
+    backdrop-filter: var(--bd);
+    -webkit-backdrop-filter: var(--bd);
+    box-shadow: var(--shadow-2);
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.20), transparent 30%, transparent 70%, rgba(192, 132, 252, 0.20));
+    border-radius: inherit;
+    z-index: -1;
+    filter: blur(20px);
+    opacity: 0.6;
+  }
+  .hero .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    padding: 5px 12px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+  }
+  .hero h1 {
+    margin: 18px 0 14px;
+    font-size: 44px;
+    font-weight: 800;
+    letter-spacing: -0.8px;
+    line-height: 1.1;
+    color: var(--text-0);
+  }
+  .hero h1 .grad {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2), var(--accent-3));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .hero p {
+    font-size: 16px;
+    color: var(--text-2);
+    max-width: 720px;
+    line-height: 1.6;
+    margin: 0 0 28px;
+  }
+  .hero .cta-row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 18px;
+    border-radius: var(--radius-2);
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.15s ease;
+    font-family: inherit;
+    text-decoration: none;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #0b0e16;
+    box-shadow: 0 4px 14px rgba(56, 189, 248, 0.35);
+  }
+  .btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(56, 189, 248, 0.5);
+    text-decoration: none;
+  }
+  .btn-ghost {
+    background: var(--bg-3);
+    color: var(--text-1);
+    border: 1px solid var(--line);
+  }
+  .btn-ghost:hover {
+    background: var(--bg-4);
+    color: var(--text-0);
+    text-decoration: none;
+  }
+  .btn-icon {
+    background: transparent;
+    color: var(--text-2);
+    border: 1px solid var(--line);
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+  .btn-icon:hover {
+    color: var(--text-0);
+    background: var(--bg-3);
+  }
+  .btn[disabled] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .hero .stats {
+    margin-top: 36px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+  .stat {
+    background: var(--glass-soft);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-2);
+    padding: 14px 16px;
+    backdrop-filter: var(--bd);
+    -webkit-backdrop-filter: var(--bd);
+  }
+  .stat .label {
+    font-size: 11px;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 4px;
+  }
+  .stat .value {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--text-0);
+    font-feature-settings: "tnum";
+  }
+  .stat .value .unit {
+    font-size: 13px;
+    color: var(--text-2);
+    font-weight: 500;
+    margin-left: 2px;
+  }
+
+  /* ---------- Section ---------- */
+  .section {
+    margin-top: 56px;
+  }
+  .section-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    margin-bottom: 22px;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .section-head .titles .eyebrow {
+    font-size: 11px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .section-head h2 {
+    margin: 0;
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--text-0);
+    letter-spacing: -0.4px;
+  }
+  .section-head p {
+    margin: 6px 0 0;
+    color: var(--text-2);
+    font-size: 13.5px;
+    max-width: 600px;
+  }
+  .section-head .aux {
+    color: var(--text-3);
+    font-size: 12px;
+  }
+
+  /* ---------- Pipeline ---------- */
+  .pipeline {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 12px;
+  }
+  .step {
+    background: var(--glass);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-2);
+    padding: 16px 14px;
+    backdrop-filter: var(--bd);
+    -webkit-backdrop-filter: var(--bd);
+    position: relative;
+    transition: all 0.2s ease;
+    cursor: pointer;
+  }
+  .step:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-2);
+  }
+  .step.active {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+  }
+  .step.done {
+    border-color: rgba(16, 185, 129, 0.4);
+    background: var(--good-soft);
+  }
+  .step .num {
+    width: 24px; height: 24px;
+    border-radius: 6px;
+    background: var(--bg-3);
+    color: var(--text-2);
+    display: grid; place-items: center;
+    font-weight: 700;
+    font-size: 12px;
+    margin-bottom: 10px;
+  }
+  .step.active .num {
+    background: var(--accent);
+    color: #0b0e16;
+  }
+  .step.done .num {
+    background: var(--good);
+    color: #0b0e16;
+  }
+  .step .title {
+    font-weight: 600;
+    color: var(--text-0);
+    font-size: 13.5px;
+  }
+  .step .desc {
+    margin-top: 4px;
+    font-size: 11.5px;
+    color: var(--text-3);
+    line-height: 1.4;
+  }
+  .step .icon {
+    position: absolute;
+    top: 12px; right: 12px;
+    color: var(--text-3);
+    font-size: 14px;
+  }
+  .step.active .icon { color: var(--accent); }
+  .step.done .icon { color: var(--good); }
+
+  .pipeline-progress {
+    margin-top: 14px;
+    height: 4px;
+    background: var(--bg-3);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .pipeline-progress .bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2), var(--accent-3));
+    border-radius: inherit;
+    width: 0%;
+    transition: width 0.3s ease;
+  }
+
+  /* ---------- Workspace ---------- */
+  .workspace {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  @media (max-width: 980px) {
+    .workspace { grid-template-columns: 1fr; }
+    .pipeline { grid-template-columns: repeat(2, 1fr); }
+    .hero .stats { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  .panel {
+    background: var(--glass);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-3);
+    padding: 20px;
+    backdrop-filter: var(--bd);
+    -webkit-backdrop-filter: var(--bd);
+    box-shadow: var(--shadow-1);
+  }
+  .panel .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+    gap: 12px;
+  }
+  .panel .panel-head h3 {
+    margin: 0;
+    font-size: 15px;
+    color: var(--text-0);
+    font-weight: 600;
+  }
+  .panel .panel-head .sub {
+    font-size: 11.5px;
+    color: var(--text-3);
+  }
+  .panel .panel-head .actions {
+    display: flex;
+    gap: 6px;
+  }
+
+  .dropzone {
+    border: 2px dashed var(--line);
+    border-radius: var(--radius-2);
+    padding: 40px 24px;
+    text-align: center;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    background: var(--bg-2);
+    position: relative;
+  }
+  .dropzone:hover, .dropzone.drag {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .dropzone .icon {
+    font-size: 36px;
+    color: var(--text-3);
+    margin-bottom: 8px;
+  }
+  .dropzone.drag .icon { color: var(--accent); }
+  .dropzone .title {
+    color: var(--text-0);
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .dropzone .sub {
+    color: var(--text-3);
+    font-size: 12px;
+  }
+  .dropzone .samples {
+    margin-top: 14px;
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .dropzone .sample-btn {
+    background: var(--bg-3);
+    border: 1px solid var(--line);
+    color: var(--text-2);
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s ease;
+  }
+  .dropzone .sample-btn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  /* File list */
+  .file-list {
+    margin-top: 14px;
+    max-height: 220px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .file-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--bg-2);
+    border: 1px solid var(--line-soft);
+    border-radius: 8px;
+    font-size: 12.5px;
+  }
+  .file-row .ic { color: var(--accent); font-size: 14px; }
+  .file-row .name { color: var(--text-0); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-row .meta { color: var(--text-3); font-size: 11px; font-family: var(--mono); }
+  .file-row .rm {
+    background: transparent;
+    border: 0;
+    color: var(--text-3);
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: inherit;
+  }
+  .file-row .rm:hover { color: var(--bad); background: var(--bad-soft); }
+
+  /* Preview */
+  .preview {
+    margin-top: 14px;
+    background: var(--bg-2);
+    border: 1px solid var(--line-soft);
+    border-radius: 10px;
+    padding: 12px;
+    min-height: 320px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .preview-tabs {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .preview-tab {
+    background: var(--bg-3);
+    border: 1px solid var(--line);
+    color: var(--text-2);
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 11.5px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .preview-tab.on {
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-color: rgba(56, 189, 248, 0.4);
+  }
+  .preview-canvas {
+    background: #1a1f2c;
+    border: 1px solid var(--line-soft);
+    border-radius: 8px;
+    overflow: auto;
+    flex: 1;
+    min-height: 220px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 12px;
+  }
+  .preview-canvas img, .preview-canvas canvas {
+    max-width: 100%;
+    height: auto;
+    border-radius: 4px;
+    display: block;
+  }
+  .preview-text {
+    flex: 1;
+    background: var(--bg-3);
+    border: 1px solid var(--line-soft);
+    border-radius: 8px;
+    padding: 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-1);
+    overflow: auto;
+    white-space: pre-wrap;
+    line-height: 1.6;
+    min-height: 220px;
+    max-height: 360px;
+  }
+  .preview-empty {
+    color: var(--text-3);
+    text-align: center;
+    padding: 36px 0;
+    font-size: 13px;
+  }
+
+  /* Console */
+  .console {
+    background: #06080d;
+    border: 1px solid var(--line-soft);
+    border-radius: 10px;
+    padding: 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-1);
+    max-height: 240px;
+    overflow-y: auto;
+    line-height: 1.6;
+  }
+  .console .ln { display: block; }
+  .console .ts { color: var(--text-3); margin-right: 6px; }
+  .console .lvl-info { color: var(--info); }
+  .console .lvl-ok { color: var(--good); }
+  .console .lvl-warn { color: var(--warn); }
+  .console .lvl-err { color: var(--bad); }
+  .console .lvl-data { color: var(--accent-3); }
+
+  /* Form controls */
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .field label {
+    font-size: 12px;
+    color: var(--text-2);
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .field .hint {
+    font-size: 11px;
+    color: var(--text-3);
+  }
+  .input, .select, .textarea {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    color: var(--text-0);
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s ease;
+    width: 100%;
+  }
+  .input:focus, .select:focus, .textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.12);
+  }
+  .textarea {
+    font-family: var(--mono);
+    font-size: 12px;
+    min-height: 90px;
+    resize: vertical;
+  }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  .checks { display: flex; flex-wrap: wrap; gap: 8px; }
+  .check {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--text-2);
+    user-select: none;
+  }
+  .check input { display: none; }
+  .check.on {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  /* Script preview */
+  .script-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+  .script-tab {
+    background: var(--bg-3);
+    border: 1px solid var(--line);
+    color: var(--text-2);
+    padding: 5px 12px;
+    border-radius: 6px 6px 0 0;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+    border-bottom: 0;
+  }
+  .script-tab.on {
+    background: var(--bg-2);
+    color: var(--text-0);
+    border-color: var(--accent);
+  }
+  .script-pre {
+    background: #06080d;
+    border: 1px solid var(--line);
+    border-radius: 0 8px 8px 8px;
+    padding: 14px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-1);
+    overflow: auto;
+    max-height: 460px;
+    line-height: 1.6;
+    white-space: pre;
+  }
+  .script-pre .kw { color: #c084fc; }
+  .script-pre .str { color: #86efac; }
+  .script-pre .num { color: #fbbf24; }
+  .script-pre .com { color: var(--text-3); font-style: italic; }
+  .script-pre .fn { color: #38bdf8; }
+
+  /* Platform cards */
+  .platform-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+  @media (max-width: 860px) { .platform-grid { grid-template-columns: 1fr; } }
+  .platform {
+    background: var(--glass);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-3);
+    padding: 18px;
+    backdrop-filter: var(--bd);
+    -webkit-backdrop-filter: var(--bd);
+    transition: all 0.2s ease;
+  }
+  .platform:hover {
+    transform: translateY(-2px);
+    border-color: var(--accent);
+    box-shadow: var(--shadow-2);
+  }
+  .platform .os-row {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .platform .os {
+    font-size: 10px;
+    background: var(--bg-3);
+    border: 1px solid var(--line);
+    color: var(--text-2);
+    padding: 3px 8px;
+    border-radius: 999px;
+  }
+  .platform h3 {
+    margin: 0 0 6px;
+    color: var(--text-0);
+    font-size: 16px;
+    font-weight: 700;
+  }
+  .platform .tag {
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 8px;
+  }
+  .platform p {
+    font-size: 12.5px;
+    color: var(--text-2);
+    margin: 0 0 14px;
+    line-height: 1.5;
+  }
+  .platform .cmd {
+    background: #06080d;
+    border: 1px solid var(--line-soft);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--text-1);
+    line-height: 1.6;
+  }
+  .platform .cmd .prompt { color: var(--accent); }
+  .platform .cmd .out { color: var(--text-3); }
+
+  /* Result table */
+  .result-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    margin-top: 8px;
+  }
+  .result-table th, .result-table td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .result-table th {
+    background: var(--bg-3);
+    color: var(--text-2);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  .result-table td {
+    color: var(--text-1);
+    font-family: var(--mono);
+  }
+  .result-table tr:hover td { background: rgba(56, 189, 248, 0.04); }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 600;
+  }
+  .badge-good { background: var(--good-soft); color: var(--good); }
+  .badge-warn { background: var(--warn-soft); color: var(--warn); }
+  .badge-bad  { background: var(--bad-soft); color: var(--bad); }
+
+  /* Footer */
+  footer {
+    margin-top: 80px;
+    padding: 24px 0;
+    border-top: 1px solid var(--border-soft);
+    color: var(--text-3);
+    font-size: 12px;
+    text-align: center;
+  }
+  footer a { color: var(--text-2); }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: var(--bg-1); }
+  ::-webkit-scrollbar-thumb { background: var(--bg-4); border-radius: 999px; border: 2px solid var(--bg-1); }
+  ::-webkit-scrollbar-thumb:hover { background: var(--line); }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--bg-3);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    color: var(--text-0);
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    box-shadow: var(--shadow-3);
+    backdrop-filter: var(--bd);
+    -webkit-backdrop-filter: var(--bd);
+    opacity: 0;
+    transform: translateX(20px);
+    transition: all 0.25s ease;
+    z-index: 9999;
+    max-width: 380px;
+  }
+  .toast.show { opacity: 1; transform: translateX(0); }
+  .toast.ok { border-left-color: var(--good); }
+  .toast.err { border-left-color: var(--bad); }
+
+  /* Spinner */
+  .spinner {
+    display: inline-block;
+    width: 12px; height: 12px;
+    border: 2px solid var(--bg-3);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Tabs in script gen */
+  .stack-tabs {
+    display: flex;
+    gap: 0;
+    background: var(--bg-3);
+    border-radius: 8px;
+    padding: 4px;
+    margin-bottom: 14px;
+    width: fit-content;
+  }
+  .stack-tab {
+    background: transparent;
+    border: 0;
+    color: var(--text-2);
+    padding: 6px 14px;
+    font-size: 12.5px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: inherit;
+    font-weight: 500;
+  }
+  .stack-tab.on {
+    background: var(--bg-1);
+    color: var(--text-0);
+    box-shadow: var(--shadow-1);
+  }
+
+  /* Code block label */
+  .block-label {
+    font-size: 11px;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .block-label::before {
+    content: "";
+    display: inline-block;
+    width: 3px;
+    height: 10px;
+    background: var(--accent);
+    border-radius: 2px;
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ===== Top Nav ===== -->
+  <div class="topnav">
+    <div class="brand">
+      <span class="logo">A</span>
+      <span>AutoGlyph</span>
+      <span class="pill"><span class="dot"></span>Engine Online</span>
+    </div>
+    <nav>
+      <a href="#pipeline">Pipeline</a>
+      <a href="#workspace">Workspace</a>
+      <a href="#script">Script Generator</a>
+      <a href="#platforms">Cross-Platform</a>
+      <a href="#architecture">Architecture</a>
+    </nav>
+  </div>
+
+  <!-- ===== Hero ===== -->
+  <section class="hero">
+    <span class="badge">v1.0 · Cross-Platform · MIT</span>
+    <h1>用 <span class="grad">Playwright × OCR</span> 打造<br/>桌面級 PDF 與圖像自動化</h1>
+    <p>
+      AutoGlyph 是一個跨平台桌面自動化工具，整合瀏覽器自動化 (Playwright) 與光學字元辨識 (OCR) 技術，
+      自動處理 PDF 文件與圖像數據。內建 Python 與 Node.js 雙版本引擎，可一鍵封裝成 Windows / macOS / Linux 桌面應用。
+    </p>
+    <div class="cta-row">
+      <button class="btn btn-primary" id="btn-load-demo">▶ 載入內建範例並執行</button>
+      <button class="btn btn-ghost" id="btn-run-pipeline">⚙ 執行當前 Pipeline</button>
+      <button class="btn btn-ghost" id="btn-export">⬇ 匯出腳本</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat">
+        <div class="label">核心模組</div>
+        <div class="value">6<span class="unit">階段</span></div>
+      </div>
+      <div class="stat">
+        <div class="label">支援平台</div>
+        <div class="value">3<span class="unit">OS × 3 棧</span></div>
+      </div>
+      <div class="stat">
+        <div class="label">OCR 引擎</div>
+        <div class="value">2<span class="unit">Tesseract / EasyOCR</span></div>
+      </div>
+      <div class="stat">
+        <div class="label">輸出格式</div>
+        <div class="value">5<span class="unit">JSON / CSV / TXT / PDF / HTML</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Pipeline ===== -->
+  <section class="section" id="pipeline">
+    <div class="section-head">
+      <div class="titles">
+        <div class="eyebrow">Step 1</div>
+        <h2>六階段處理 Pipeline</h2>
+        <p>從檔案輸入到結構化輸出，每一個階段都可以獨立替換與監控。</p>
+      </div>
+      <div class="aux" id="pipeline-status">尚未執行</div>
+    </div>
+
+    <div class="pipeline" id="pipeline-grid">
+      <div class="step" data-step="1">
+        <div class="num">1</div>
+        <div class="icon">📥</div>
+        <div class="title">檔案輸入</div>
+        <div class="desc">PDF / PNG / JPG / WebP</div>
+      </div>
+      <div class="step" data-step="2">
+        <div class="num">2</div>
+        <div class="icon">📄</div>
+        <div class="title">PDF 解析</div>
+        <div class="desc">頁面切分 + 文字抽取</div>
+      </div>
+      <div class="step" data-step="3">
+        <div class="num">3</div>
+        <div class="icon">🖼</div>
+        <div class="title">圖像前處理</div>
+        <div class="desc">去噪 / 二值化 / 校正</div>
+      </div>
+      <div class="step" data-step="4">
+        <div class="num">4</div>
+        <div class="icon">🔍</div>
+        <div class="title">OCR 識別</div>
+        <div class="desc">Tesseract · 中英日韓</div>
+      </div>
+      <div class="step" data-step="5">
+        <div class="num">5</div>
+        <div class="icon">🧹</div>
+        <div class="title">資料清理</div>
+        <div class="desc">正則抽取 + 結構化</div>
+      </div>
+      <div class="step" data-step="6">
+        <div class="num">6</div>
+        <div class="icon">📦</div>
+        <div class="title">輸出 / 觸發</div>
+        <div class="desc">JSON / CSV / Playwright</div>
+      </div>
+    </div>
+    <div class="pipeline-progress"><div class="bar" id="pipeline-bar"></div></div>
+  </section>
+
+  <!-- ===== Workspace ===== -->
+  <section class="section" id="workspace">
+    <div class="section-head">
+      <div class="titles">
+        <div class="eyebrow">Step 2</div>
+        <h2>工作區 — 拖放 PDF 與圖像，立即處理</h2>
+        <p>一切都在你的瀏覽器內完成。檔案不會上傳到任何伺服器。</p>
+      </div>
+    </div>
+
+    <div class="workspace">
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h3>輸入</h3>
+            <div class="sub">PDF / PNG / JPG / WebP，可同時拖放多個檔案</div>
+          </div>
+          <div class="actions">
+            <button class="btn-icon" id="btn-clear">清除</button>
+          </div>
+        </div>
+
+        <div class="dropzone" id="dropzone">
+          <div class="icon">⤓</div>
+          <div class="title">拖放檔案到此處</div>
+          <div class="sub">或點擊選擇 · 支援批次</div>
+          <div class="samples">
+            <button class="sample-btn" data-sample="pdf">📄 範例 PDF (Chrome 引擎)</button>
+            <button class="sample-btn" data-sample="img">🖼 範例圖像 (含文字)</button>
+            <button class="sample-btn" data-sample="receipt">🧾 範例發票</button>
+          </div>
+        </div>
+
+        <input type="file" id="file-input" multiple accept="application/pdf,image/png,image/jpeg,image/webp" style="display:none" />
+
+        <div class="file-list" id="file-list"></div>
+
+        <div style="margin-top:14px">
+          <div class="block-label">執行選項</div>
+          <div class="row">
+            <div class="field">
+              <label>OCR 語言</label>
+              <select class="select" id="ocr-lang">
+                <option value="eng">English (eng)</option>
+                <option value="chi_tra" selected>繁體中文 (chi_tra)</option>
+                <option value="chi_sim">簡體中文 (chi_sim)</option>
+                <option value="jpn">日本語 (jpn)</option>
+                <option value="kor">한국어 (kor)</option>
+                <option value="eng+chi_tra">English + 繁體中文</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>輸出格式</label>
+              <select class="select" id="output-format">
+                <option value="json">JSON</option>
+                <option value="csv">CSV</option>
+                <option value="txt">純文字</option>
+                <option value="html">HTML (帶座標)</option>
+                <option value="md">Markdown</option>
+              </select>
+            </div>
+          </div>
+          <div class="checks">
+            <label class="check on" data-check="binarize"><input type="checkbox" checked>自動二值化</label>
+            <label class="check on" data-check="deskew"><input type="checkbox" checked自動>自動校正</label>
+            <label class="check" data-check="bbox"><input type="checkbox">保留 bbox 座標</label>
+            <label class="check on" data-check="progress"><input type="checkbox" checked>推送進度</label>
+          </div>
+        </div>
+
+        <div style="margin-top:14px">
+          <div class="block-label">執行 Console</div>
+          <div class="console" id="console"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h3>預覽</h3>
+            <div class="sub" id="preview-sub">尚未選檔</div>
+          </div>
+          <div class="actions">
+            <button class="btn-icon" id="btn-ocr" disabled>執行 OCR</button>
+          </div>
+        </div>
+
+        <div class="preview-tabs" id="preview-tabs">
+          <button class="preview-tab on" data-view="image">頁面圖像</button>
+          <button class="preview-tab" data-view="text">擷取文字</button>
+          <button class="preview-tab" data-view="bbox">OCR 結果</button>
+        </div>
+
+        <div class="preview">
+          <div class="preview-canvas" id="preview-canvas">
+            <div class="preview-empty">請選擇檔案或載入範例</div>
+          </div>
+          <div class="preview-text" id="preview-text" style="display:none"></div>
+        </div>
+
+        <div style="margin-top:14px">
+          <div class="block-label">結構化欄位</div>
+          <table class="result-table" id="result-table">
+            <thead>
+              <tr><th>欄位</th><th>值</th><th>信心度</th></tr>
+            </thead>
+            <tbody>
+              <tr><td colspan="3" style="text-align:center;color:var(--text-3)">尚未執行 OCR</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Script Generator ===== -->
+  <section class="section" id="script">
+    <div class="section-head">
+      <div class="titles">
+        <div class="eyebrow">Step 3</div>
+        <h2>Playwright 腳本生成器</h2>
+        <p>根據 UI 設定即時產生 Python 或 Node.js 腳本，下載後可立刻執行。</p>
+      </div>
+      <div class="aux" id="script-meta">0 行</div>
+    </div>
+
+    <div class="stack-tabs">
+      <button class="stack-tab on" data-stack="python">🐍 Python</button>
+      <button class="stack-tab" data-stack="node">⬢ Node.js</button>
+      <button class="stack-tab" data-stack="ts">🟦 TypeScript</button>
+    </div>
+
+    <div class="panel" style="padding:14px">
+      <div class="row" style="margin-bottom:12px">
+        <div class="field">
+          <label>目標 URL</label>
+          <input class="input" id="cfg-url" placeholder="https://example.com/login" value="https://example.com/login" />
+        </div>
+        <div class="field">
+          <label>執行檔名</label>
+          <input class="input" id="cfg-name" placeholder="autoglyph-runner" value="autoglyph-runner" />
+        </div>
+      </div>
+      <div class="row-3">
+        <div class="field">
+          <label>瀏覽器</label>
+          <select class="select" id="cfg-browser">
+            <option value="chromium">chromium</option>
+            <option value="firefox">firefox</option>
+            <option value="webkit">webkit</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Headed / Headless</label>
+          <select class="select" id="cfg-mode">
+            <option value="headless">headless</option>
+            <option value="headed">headed</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>錯誤處理</label>
+          <select class="select" id="cfg-error">
+            <option value="retry">重試 3 次</option>
+            <option value="ignore">忽略繼續</option>
+            <option value="fail">立即失敗</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="checks" style="margin-bottom:12px">
+        <label class="check on" data-cfg="screenshot"><input type="checkbox" checked>每步截圖</label>
+        <label class="check on" data-cfg="video"><input type="checkbox" checked>錄製執行影片</label>
+        <label class="check" data-cfg="trace"><input type="checkbox" checked>追蹤 trace.zip</label>
+        <label class="check" data-cfg="ocr"><input type="checkbox" checked>OCR 整合</label>
+        <label class="check on" data-cfg="pdf"><input type="checkbox" checked>PDF 報表</label>
+        <label class="check" data-cfg="parallel"><input type="checkbox">多瀏覽器平行</label>
+        <label class="check on" data-cfg="logging"><input type="checkbox" checked>JSON 結構化 log</label>
+      </div>
+
+      <div class="block-label">產生腳本 <span style="margin-left:auto"><button class="btn-icon" id="btn-copy">複製</button> <button class="btn-icon" id="btn-download">下載</button></span></div>
+      <div class="script-tabs">
+        <button class="script-tab on" data-pkg="installer">installer</button>
+        <button class="script-tab" data-pkg="runner">runner</button>
+        <button class="script-tab" data-pkg="ocr">ocr module</button>
+        <button class="script-tab" data-pkg="package">package.json / requirements.txt</button>
+        <button class="script-tab" data-pkg="readme">README</button>
+      </div>
+      <pre class="script-pre" id="script-pre"></pre>
+    </div>
+  </section>
+
+  <!-- ===== Cross-Platform ===== -->
+  <section class="section" id="platforms">
+    <div class="section-head">
+      <div class="titles">
+        <div class="eyebrow">Step 4</div>
+        <h2>跨平台封裝配方</h2>
+        <p>同一份程式碼，三種打包方式，三套作業系統。</p>
+      </div>
+    </div>
+
+    <div class="platform-grid">
+      <div class="platform">
+        <div class="os-row">
+          <span class="os">Windows</span><span class="os">macOS</span><span class="os">Linux</span>
+        </div>
+        <div class="tag">Electron</div>
+        <h3>Electron Forge</h3>
+        <p>把整個 web app 當桌面 app 包，用 Node.js 的 Playwright 引擎處理自動化。</p>
+        <div class="cmd">
+<span class="prompt">$</span> npm i -D @electron-forge/cli<br/>
+<span class="prompt">$</span> npx electron-forge import<br/>
+<span class="prompt">$</span> npm run make -- --platform=win32<br/>
+<span class="prompt">$</span> npm run make -- --platform=darwin<br/>
+<span class="prompt">$</span> npm run make -- --platform=linux<br/>
+<span class="out"># 輸出 out/make/&lt;platform&gt;/*.exe / *.dmg / *.deb</span>
+        </div>
+      </div>
+
+      <div class="platform">
+        <div class="os-row">
+          <span class="os">Windows</span><span class="os">macOS</span><span class="os">Linux</span>
+        </div>
+        <div class="tag">Tauri</div>
+        <h3>Tauri (Rust core)</h3>
+        <p>比 Electron 更小 (3MB vs 80MB+)，用 Rust sidecar 跑 Playwright 與 Tesseract。</p>
+        <div class="cmd">
+<span class="prompt">$</span> cargo install tauri-cli --version "^2.0"<br/>
+<span class="prompt">$</span> cargo tauri init<br/>
+<span class="prompt">$</span> cargo tauri build --target x86_64-pc-windows-msvc<br/>
+<span class="prompt">$</span> cargo tauri build --target aarch64-apple-darwin<br/>
+<span class="prompt">$</span> cargo tauri build --target x86_64-unknown-linux-gnu<br/>
+<span class="out"># 輸出 src-tauri/target/&lt;target&gt;/release/bundle/</span>
+        </div>
+      </div>
+
+      <div class="platform">
+        <div class="os-row">
+          <span class="os">Windows</span><span class="os">macOS</span><span class="os">Linux</span>
+        </div>
+        <div class="tag">Python</div>
+        <h3>PyInstaller + Briefcase</h3>
+        <p>純 Python 桌面工具，整合 Playwright (Python) + pytesseract + pdfplumber。</p>
+        <div class="cmd">
+<span class="prompt">$</span> pip install playwright pytesseract pdfplumber pillow<br/>
+<span class="prompt">$</span> playwright install chromium<br/>
+<span class="prompt">$</span> pip install briefcase<br/>
+<span class="prompt">$</span> briefcase build windows<br/>
+<span class="prompt">$</span> briefcase build macOS<br/>
+<span class="prompt">$</span> briefcase build linux<br/>
+<span class="out"># 輸出 &lt;project&gt;/&lt;platform&gt;/&lt;project&gt;/</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Architecture ===== -->
+  <section class="section" id="architecture">
+    <div class="section-head">
+      <div class="titles">
+        <div class="eyebrow">Reference</div>
+        <h2>系統架構</h2>
+        <p>模組化、可測試、可組合。每個階段都是可獨立替換的微技能。</p>
+      </div>
+    </div>
+
+    <div class="panel">
+      <pre class="script-pre" style="max-height:none;font-size:12px"><span class="com"># AutoGlyph 系統架構</span>
+
+┌──────────────────────────────────────────────────────────────────────┐
+│                       AutoGlyph 跨平台桌面自動化                       │
+└──────────────────────────────────────────────────────────────────────┘
+                                  │
+        ┌─────────────────────────┼─────────────────────────┐
+        ▼                         ▼                         ▼
+ ┌────────────┐         ┌──────────────────┐         ┌──────────────┐
+ │  UI/Front  │ ◀─────▶ │  Pipeline Engine │ ◀─────▶ │  OCR Engine  │
+ │  Electron  │         │  (Node/Python)   │         │  Tesseract   │
+ │  / Tauri   │         │                  │         │  / EasyOCR   │
+ └────────────┘         └──────────────────┘         └──────────────┘
+                                  │
+        ┌─────────────────────────┼─────────────────────────┐
+        ▼                         ▼                         ▼
+ ┌────────────┐         ┌──────────────────┐         ┌──────────────┐
+ │  PDF Parse │         │  Playwright Auto │         │  Storage     │
+ │  pdf.js /  │         │  Chromium / FF / │         │  JSON / CSV  │
+ │  pdfplumber│         │  WebKit          │         │  / SQLite    │
+ └────────────┘         └──────────────────┘         └──────────────┘
+
+       Pipeline 6 階段:
+       1. Input       - 檔案拖放 / 監看 / IPC
+       2. PDF Parse   - 頁面切分 + 文字抽取
+       3. Preprocess  - 灰階 / 二值化 / 校正 / 去噪
+       4. OCR         - Tesseract (eng/chi_tra/chi_sim/jpn/kor)
+       5. Cleanup     - 正則抽取 email/url/date/price/id
+       6. Output      - 寫檔 / 觸發 Playwright / 發 webhook
+
+       Stack 對應:
+       - Python   : playwright + pytesseract + pdfplumber + Pillow
+       - Node.js  : playwright + tesseract.js + pdfjs-dist + sharp
+       - TypeScript: 同 Node.js + 型別守門
+
+       跨平台封裝:
+       - Electron    : web → .exe / .dmg / .deb / .AppImage
+       - Tauri       : web → .msi / .app / .deb (3MB)
+       - Briefcase   : Python → native installer</pre>
+    </div>
+  </section>
+
+  <footer>
+    AutoGlyph · 由 <a href="https://hermes-agent.nousresearch.com" target="_blank">Hermes Agent</a> 建構 · 此頁面即為可執行的工件 ·
+    <a href="#top">回到頂部</a>
+  </footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- =========================================================================
+     Application JS
+     ========================================================================= -->
+<script>
+"use strict";
+
+/* ========== Utilities ========== */
+const $ = (s, root = document) => root.querySelector(s);
+const $$ = (s, root = document) => Array.from(root.querySelectorAll(s));
+const log = (msg, level = "info") => {
+  const c = $("#console");
+  if (!c) return;
+  const t = new Date().toLocaleTimeString("zh-Hant", { hour12: false });
+  const line = document.createElement("span");
+  line.className = "ln";
+  line.innerHTML = `<span class="ts">${t}</span><span class="lvl-${level}">${escapeHtml(msg)}</span>`;
+  c.appendChild(line);
+  c.scrollTop = c.scrollHeight;
+};
+const escapeHtml = s => String(s).replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const fmtBytes = b => {
+  if (b < 1024) return b + " B";
+  if (b < 1048576) return (b / 1024).toFixed(1) + " KB";
+  return (b / 1048576).toFixed(2) + " MB";
+};
+const toast = (msg, kind = "ok", ms = 2400) => {
+  const el = $("#toast");
+  el.className = "toast show " + kind;
+  el.textContent = msg;
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { el.classList.remove("show"); }, ms);
+};
+
+/* ========== File State ========== */
+const state = {
+  files: [],          // {id, file, name, type, size, kind: 'pdf'|'image', pages?:[]}
+  currentId: null,
+  currentPage: 0,
+  renderTask: null,
+  ocrLang: "chi_tra",
+  outputFormat: "json",
+  options: { binarize: true, deskew: true, bbox: false, progress: true },
+  scriptCfg: {
+    stack: "python",
+    url: "https://example.com/login",
+    name: "autoglyph-runner",
+    browser: "chromium",
+    mode: "headless",
+    error: "retry",
+    screenshot: true, video: true, trace: true, ocr: true, pdf: true, parallel: false, logging: true,
+  },
+  activeTab: "installer",
+};
+
+/* ========== Dropzone ========== */
+const dropzone = $("#dropzone");
+const fileInput = $("#file-input");
+
+dropzone.addEventListener("click", e => {
+  if (e.target.closest(".sample-btn")) return;
+  fileInput.click();
+});
+["dragenter","dragover"].forEach(ev => dropzone.addEventListener(ev, e => {
+  e.preventDefault(); e.stopPropagation();
+  dropzone.classList.add("drag");
+}));
+["dragleave","drop"].forEach(ev => dropzone.addEventListener(ev, e => {
+  e.preventDefault(); e.stopPropagation();
+  dropzone.classList.remove("drag");
+}));
+dropzone.addEventListener("drop", e => {
+  const files = Array.from(e.dataTransfer.files);
+  ingestFiles(files);
+});
+fileInput.addEventListener("change", e => {
+  ingestFiles(Array.from(e.target.files));
+  fileInput.value = "";
+});
+
+/* ========== Sample data ========== */
+// 內建三個範例：PDF / 圖像 / 發票 — 全部 client-side 產生
+function makeSamplePDF() {
+  // 標準 1 頁 PDF（從 PDF.js 範例 base64）— 避免自行組裝導致「Invalid PDF structure」
+  const b64 = "JVBERi0xLjQKJeLjz9MKMyAwIG9iago8PC9MZW5ndGggMTM1Pj5zdHJlYW0KQlQgL0YxIDI0IFRmIDU5MCA3NTAgVGQgKFRoaXMgaXMgYSBzYW1wbGUgUERGKSBUaiBFVAplbmRzdHJlYW0KZW5kb2JqCjEgMCBvYmoKPDwvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFI+PiBlbmRvYmoKMiAwIG9iago8PC9UeXBlIC9QYWdlcyAvS2lkc1s0IDAgUl0gL0NvdW50IDE+PiBlbmRvYmoKNCAwIG9iago8PC9UeXBlIC9QYWdlIC9QYXJlbnQgMiAwIFIgL01lZGlhQm94WzAgMCA1OTUgODQyXSAvUmVzb3VyY2VzPDwvRm9udDw8L0YxIDUgMCBSPj4+PiAvQ29udGVudHMgMyAwIFI+PiBlbmRvYmoKNSAwIG9iago8PC9UeXBlIC9Gb250IC9TdWJ0eXBlIC9UeXBlMSAvQmFzZUZvbnQgL0hlbHZldGljYT4+IGVuZG9iagp4cmVmCjAgNgowMDAwMDAwMDAwIDY1NTUgNSBmCjAwMDAwMDAwMTUgMDAwMDAgMjU1IFIgCjAwMDAwMDAxMjEgMDAwMDAgMjU1IFIgCjAwMDAwMDAyNTcgMDAwMDAgMjU1IFIgCjAwMDAwMDAzNDEgMDAwMDAgMjU1IFIgCjAwMDAwMDA0MjUgMDAwMDAgMjU1IFIgCnRyYWlsZXIKPDwvU2l6ZSA2IC9Sb290IDEgMCBSPj4Kc3RhcnR4cmVmCjU0NgolJUVPRgo=";
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: "application/pdf" });
+}
+
+function makeSampleImage() {
+  // 256x128 灰階圖像，內含 4 行英數字（黑底白字），可以 OCR 辨識
+  const c = document.createElement("canvas");
+  c.width = 512; c.height = 256;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.fillStyle = "#111";
+  ctx.font = "bold 36px sans-serif";
+  ctx.fillText("Hello OCR", 30, 60);
+  ctx.font = "24px monospace";
+  ctx.fillText("ID: 12345-ABCDE", 30, 110);
+  ctx.font = "20px monospace";
+  ctx.fillText("Date: 2026-08-04", 30, 150);
+  ctx.font = "18px sans-serif";
+  ctx.fillText("Total: $1,250.00", 30, 190);
+  ctx.font = "italic 16px sans-serif";
+  ctx.fillText("Autoglyph demo image", 30, 230);
+  return new Promise(res => c.toBlob(b => res(b), "image/png"));
+}
+
+function makeSampleReceipt() {
+  // 400x500 發票型圖像
+  const c = document.createElement("canvas");
+  c.width = 800; c.height = 1000;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "#fdf6e3";
+  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.fillStyle = "#222";
+  ctx.font = "bold 28px serif";
+  ctx.fillText("ACME STORE", 280, 50);
+  ctx.font = "16px monospace";
+  ctx.fillText("Receipt No: R-2026-0815", 30, 100);
+  ctx.fillText("Date: 2026-08-04 11:42", 30, 130);
+  ctx.fillText("--------------------------------", 30, 160);
+  ctx.fillText("Item                            Price", 30, 190);
+  ctx.fillText("Apple x 2                       $60.00", 30, 220);
+  ctx.fillText("Bread                           $45.00", 30, 250);
+  ctx.fillText("Milk x 1                        $80.00", 30, 280);
+  ctx.fillText("Coffee                          $120.00", 30, 310);
+  ctx.fillText("--------------------------------", 30, 340);
+  ctx.fillText("Subtotal:                       $305.00", 30, 370);
+  ctx.fillText("Tax (5%):                       $15.25", 30, 400);
+  ctx.font = "bold 20px monospace";
+  ctx.fillText("Total:                          $320.25", 30, 440);
+  ctx.font = "16px monospace";
+  ctx.fillText("Card: ****1234", 30, 480);
+  ctx.fillText("Email: customer@example.com", 30, 510);
+  ctx.fillText("--------------------------------", 30, 540);
+  ctx.font = "italic 14px serif";
+  ctx.fillText("Thank you for shopping with us", 30, 580);
+  return new Promise(res => c.toBlob(b => res(b), "image/png"));
+}
+
+$$(".sample-btn").forEach(b => b.addEventListener("click", async () => {
+  const kind = b.dataset.sample;
+  if (kind === "pdf") {
+    const blob = makeSamplePDF();
+    ingestFiles([new File([blob], "autoglyph-report.pdf", { type: "application/pdf" })]);
+  } else if (kind === "img") {
+    const blob = await makeSampleImage();
+    ingestFiles([new File([blob], "demo-text.png", { type: "image/png" })]);
+  } else if (kind === "receipt") {
+    const blob = await makeSampleReceipt();
+    ingestFiles([new File([blob], "receipt.png", { type: "image/png" })]);
+  }
+}));
+
+/* ========== Ingest ========== */
+function ingestFiles(files) {
+  for (const f of files) {
+    const isPdf = f.type === "application/pdf" || /\.pdf$/i.test(f.name);
+    const isImg = f.type.startsWith("image/");
+    if (!isPdf && !isImg) {
+      log(`Skip ${f.name} (不支援的類型 ${f.type})`, "warn");
+      continue;
+    }
+    const id = "f_" + Math.random().toString(36).slice(2, 9);
+    state.files.push({ id, file: f, name: f.name, type: f.type, size: f.size, kind: isPdf ? "pdf" : "image", pages: [] });
+    log(`+ ${f.name} (${fmtBytes(f.size)}) ${isPdf ? "PDF" : "IMG"}`, "ok");
+  }
+  renderFileList();
+  if (state.files.length && !state.currentId) selectFile(state.files[0].id);
+}
+
+function renderFileList() {
+  const root = $("#file-list");
+  root.innerHTML = "";
+  if (!state.files.length) {
+    root.innerHTML = '<div style="color:var(--text-3);text-align:center;padding:12px;font-size:12px">尚未加入檔案</div>';
+    return;
+  }
+  state.files.forEach(f => {
+    const row = document.createElement("div");
+    row.className = "file-row" + (f.id === state.currentId ? " on" : "");
+    row.style.borderColor = f.id === state.currentId ? "var(--accent)" : "";
+    row.innerHTML = `
+      <span class="ic">${f.kind === "pdf" ? "📄" : "🖼"}</span>
+      <span class="name">${escapeHtml(f.name)}</span>
+      <span class="meta">${fmtBytes(f.size)}${f.pages && f.pages.length ? " · " + f.pages.length + " 頁" : ""}</span>
+      <button class="rm" data-rm="${f.id}">✕</button>
+    `;
+    row.addEventListener("click", e => {
+      if (e.target.closest(".rm")) return;
+      selectFile(f.id);
+    });
+    row.querySelector(".rm").addEventListener("click", () => {
+      state.files = state.files.filter(x => x.id !== f.id);
+      if (state.currentId === f.id) state.currentId = null;
+      renderFileList();
+      clearPreview();
+    });
+    root.appendChild(row);
+  });
+}
+
+$("#btn-clear").addEventListener("click", () => {
+  state.files = [];
+  state.currentId = null;
+  renderFileList();
+  clearPreview();
+  log("已清除所有檔案", "warn");
+});
+
+/* ========== Preview ========== */
+function clearPreview() {
+  $("#preview-canvas").innerHTML = '<div class="preview-empty">請選擇檔案或載入範例</div>';
+  $("#preview-text").textContent = "";
+  $("#preview-sub").textContent = "尚未選檔";
+  $("#btn-ocr").disabled = true;
+  $("#result-table tbody").innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-3)">尚未執行 OCR</td></tr>';
+}
+
+async function selectFile(id) {
+  state.currentId = id;
+  renderFileList();
+  const f = state.files.find(x => x.id === id);
+  if (!f) return;
+  $("#preview-sub").textContent = f.name;
+  $("#btn-ocr").disabled = false;
+  if (f.kind === "pdf") {
+    await renderPdfPage(f, 0);
+  } else {
+    await renderImage(f);
+  }
+}
+
+async function renderImage(f) {
+  const url = URL.createObjectURL(f.file);
+  const canvas = $("#preview-canvas");
+  canvas.innerHTML = "";
+  const img = document.createElement("img");
+  img.src = url;
+  img.alt = f.name;
+  canvas.appendChild(img);
+  $("#preview-text").textContent = "(這是圖像檔，請按「執行 OCR」進行文字辨識)";
+  $("#preview-text").style.display = "none";
+  $("#preview-canvas").style.display = "flex";
+  setPreviewTab("image");
+}
+
+async function renderPdfPage(f, pageNum) {
+  if (!window.__pdfjsLib) {
+    log("PDF.js 尚未就緒", "warn");
+    return;
+  }
+  try {
+    const buf = await f.file.arrayBuffer();
+    const pdf = await window.__pdfjsLib.getDocument({ data: buf }).promise;
+    f._pdf = pdf;
+    f.pages = Array.from({ length: pdf.numPages }, (_, i) => i + 1);
+    log(`PDF ${f.name} 解析完成，共 ${pdf.numPages} 頁`, "ok");
+    const page = await pdf.getPage(pageNum + 1);
+    const viewport = page.getViewport({ scale: 1.5 });
+    const canvas = document.createElement("canvas");
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext("2d");
+    $("#preview-canvas").innerHTML = "";
+    $("#preview-canvas").appendChild(canvas);
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    // 取出原始文字
+    const txt = await page.getTextContent();
+    const text = txt.items.map(i => i.str).join(" ");
+    f._text = text;
+    $("#preview-text").textContent = text || "(此頁無可擷取文字，可能為掃描型 PDF)";
+    log(`頁 ${pageNum + 1} 文字 ${text.length} 字元`, "data");
+  } catch (e) {
+    log(`PDF 失敗: ${e.message}`, "err");
+  }
+}
+
+/* ========== Preview tabs ========== */
+$$(".preview-tab").forEach(t => t.addEventListener("click", () => setPreviewTab(t.dataset.view)));
+function setPreviewTab(view) {
+  $$(".preview-tab").forEach(t => t.classList.toggle("on", t.dataset.view === view));
+  $("#preview-canvas").style.display = (view === "image") ? "flex" : "none";
+  $("#preview-text").style.display = (view !== "image") ? "block" : "none";
+}
+
+/* ========== OCR ========== */
+$("#btn-ocr").addEventListener("click", runOCR);
+
+async function runOCR() {
+  const f = state.files.find(x => x.id === state.currentId);
+  if (!f) return;
+  if (typeof Tesseract === "undefined") {
+    log("Tesseract.js 尚未載入", "err");
+    return;
+  }
+  const lang = $("#ocr-lang").value;
+  state.ocrLang = lang;
+  log(`▶ OCR 開始 (lang=${lang})`, "info");
+  setStepActive(4);
+  try {
+    // 對當前選中的檔案建立一個暫存 canvas（避免 race 條件）
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    let dataUrl;
+    if (f.kind === "pdf") {
+      // PDF 已經 render 過：抓 preview 裡的 canvas；否則重新 render 一次
+      let pc = $("#preview-canvas").querySelector("canvas");
+      if (!pc && f._pdf) {
+        const page = await f._pdf.getPage(1);
+        const viewport = page.getViewport({ scale: 1.5 });
+        canvas.width = viewport.width; canvas.height = viewport.height;
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        pc = canvas;
+      }
+      if (!pc) { log("PDF 尚未渲染，請先選擇頁面", "err"); return; }
+      dataUrl = pc.toDataURL("image/png");
+    } else {
+      // 圖像：直接畫到 canvas
+      const img = new Image();
+      img.src = URL.createObjectURL(f.file);
+      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(img.src);
+      dataUrl = canvas.toDataURL("image/png");
+    }
+    const worker = await Tesseract.createWorker(lang, 1, {
+      logger: m => {
+        if (m.status) log(`  ${m.status} ${m.progress ? Math.round(m.progress * 100) + "%" : ""}`, "data");
+      },
+    });
+    const { data } = await worker.recognize(dataUrl);
+    await worker.terminate();
+    f._ocr = data;
+    log(`OCR 完成 — ${data.text.length} 字元 / ${data.words.length} 詞 / 平均信心 ${data.confidence.toFixed(1)}`, "ok");
+    renderOCRResult(data);
+    setStepDone(4);
+    setStepActive(5);
+    await sleep(300);
+    setStepDone(5);
+    setStepActive(6);
+    await sleep(300);
+    setStepDone(6);
+    toast(`OCR 完成 · 信心 ${data.confidence.toFixed(1)}`, "ok");
+  } catch (e) {
+    log(`OCR 失敗: ${e.message}`, "err");
+    toast("OCR 失敗: " + e.message, "err");
+  }
+}
+
+function renderOCRResult(data) {
+  // OCR 結果
+  $("#preview-text").textContent = data.text || "(無文字)";
+  setPreviewTab("text");
+  // 結構化欄位
+  const tbody = $("#result-table tbody");
+  tbody.innerHTML = "";
+  const fields = extractFields(data.text);
+  if (!fields.length) {
+    tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:var(--text-3)">未偵測到標準欄位</td></tr>`;
+  } else {
+    fields.forEach(f => {
+      const conf = f.confidence || data.confidence;
+      const cls = conf >= 85 ? "badge-good" : conf >= 70 ? "badge-warn" : "badge-bad";
+      tbody.innerHTML += `<tr><td>${escapeHtml(f.key)}</td><td>${escapeHtml(f.value)}</td><td><span class="badge ${cls}">${conf.toFixed(1)}</span></td></tr>`;
+    });
+  }
+  // bbox tab
+  if (state.options.bbox) {
+    const lines = data.lines.map(l => ({
+      text: l.text.trim(),
+      confidence: l.confidence,
+      bbox: l.bbox,
+    })).filter(l => l.text);
+    $("#preview-text").textContent = lines.map(l => `[conf ${l.confidence.toFixed(0)}] ${l.text}`).join("\n");
+  }
+}
+
+function extractFields(text) {
+  const out = [];
+  const rx = [
+    [/Date[::\s]+([0-9]{4}-[0-9]{2}-[0-9]{2})/i, "Date", 92],
+    [/Invoice\s*(?:No)?[.:\s]+([A-Z0-9-]+)/i, "Invoice", 90],
+    [/Receipt\s*(?:No)?[.:\s]+([A-Z0-9-]+)/i, "Receipt", 90],
+    [/Total[.:\s]*\$?([0-9,]+\.[0-9]{2})/i, "Total", 88],
+    [/Subtotal[.:\s]*\$?([0-9,]+\.[0-9]{2})/i, "Subtotal", 88],
+    [/Tax[.:\s]*\$?([0-9,]+\.[0-9]{2})/i, "Tax", 86],
+    [/\$([0-9,]+\.[0-9]{2})/g, "Amount", 80],
+    [/([a-z0-9._-]+@[a-z0-9.-]+\.[a-z]{2,})/i, "Email", 96],
+    [/(\+?\d[\d\s-]{7,}\d)/g, "Phone", 82],
+    [/ID[::\s]+([A-Z0-9-]+)/i, "ID", 90],
+    [/\b(\d{4}-\d{2}-\d{2})\b/g, "Date", 85],
+  ];
+  for (const [pat, key, conf] of rx) {
+    const m = text.match(pat);
+    if (m) {
+      const value = (m[1] || m[0]).trim();
+      if (!out.find(o => o.value === value && o.key === key)) {
+        out.push({ key, value, confidence: conf });
+      }
+    }
+  }
+  return out;
+}
+
+/* ========== Template highlighting ========== */
+// 一次走完整字串，依語言狀態切換，避免多個 regex 互相穿過
+function highlightCode(code, lang) {
+  const out = [];
+  let i = 0;
+  const n = code.length;
+  const isPy = lang === "python";
+
+  const KW_PY = new Set(["import","from","as","def","return","if","else","elif","for","while","with","try","except","finally","class","None","True","False","async","await","lambda","in","not","and","or","is"]);
+  const KW_JS = new Set(["const","let","var","function","return","if","else","for","while","switch","case","break","continue","new","this","import","export","from","async","await","try","catch","finally","throw","of","in","typeof","instanceof","true","false","null","undefined"]);
+
+  const isWord = c => /[A-Za-z0-9_]/.test(c);
+  const isWordStart = c => /[A-Za-z_]/.test(c);
+
+  const push = (txt, cls) => cls ? out.push(`<span class="${cls}">${escapeHtml(txt)}</span>`) : out.push(escapeHtml(txt));
+
+  while (i < n) {
+    const c = code[i];
+    const c2 = code[i + 1];
+
+    // 行內註解
+    if ((isPy && c === "#") || (!isPy && c === "/" && c2 === "/")) {
+      let j = i;
+      while (j < n && code[j] !== "\n") j++;
+      push(code.slice(i, j), "com");
+      i = j;
+      continue;
+    }
+    // 區塊註解 (僅 JS / TS)
+    if (!isPy && c === "/" && c2 === "*") {
+      let j = i + 2;
+      while (j < n - 1 && !(code[j] === "*" && code[j + 1] === "/")) j++;
+      j = Math.min(j + 2, n);
+      push(code.slice(i, j), "com");
+      i = j;
+      continue;
+    }
+    // Python 三引號
+    if (isPy && c === '"' && c2 === '"' && code[i + 2] === '"') {
+      let j = i + 3;
+      while (j < n - 2 && !(code[j] === '"' && code[j + 1] === '"' && code[j + 2] === '"')) j++;
+      j = Math.min(j + 3, n);
+      push(code.slice(i, j), "str");
+      i = j;
+      continue;
+    }
+    // 字串
+    if (c === '"' || c === "'" || (!isPy && c === "`")) {
+      const quote = c;
+      let j = i + 1;
+      while (j < n && code[j] !== quote) {
+        if (code[j] === "\\") j += 2;
+        else j++;
+      }
+      j = Math.min(j + 1, n);
+      push(code.slice(i, j), "str");
+      i = j;
+      continue;
+    }
+    // 數字
+    if (c >= "0" && c <= "9") {
+      let j = i;
+      while (j < n && ((code[j] >= "0" && code[j] <= "9") || code[j] === ".")) j++;
+      push(code.slice(i, j), "num");
+      i = j;
+      continue;
+    }
+    // identifier (keyword / function)
+    if (isWordStart(c)) {
+      let j = i;
+      while (j < n && isWord(code[j])) j++;
+      const word = code.slice(i, j);
+      // 檢查後面是否為 function call
+      let k = j;
+      while (k < n && code[k] === " ") k++;
+      const isFunc = code[k] === "(";
+      if (isPy ? KW_PY.has(word) : KW_JS.has(word)) {
+        push(word, "kw");
+      } else if (isFunc) {
+        push(word, "fn");
+      } else {
+        out.push(escapeHtml(word));
+      }
+      i = j;
+      continue;
+    }
+    // 其他
+    out.push(escapeHtml(c));
+    i++;
+  }
+  return out.join("");
+}
+
+/* ========== Script Generator ========== */
+function generateScript(stack, file) {
+  const cfg = state.scriptCfg;
+  if (file === "package") {
+    return stack === "python"
+      ? `playwright==1.47.0
+pytesseract==0.3.13
+pdfplumber==0.11.4
+Pillow==10.4.0
+# === dev ===
+pyinstaller==6.10.0
+briefcase==0.3.22`
+      : `{
+  "name": "${cfg.name}",
+  "version": "1.0.0",
+  "description": "AutoGlyph cross-platform Playwright + OCR runner",
+  "main": "${cfg.name}.js",
+  "scripts": {
+    "start": "node ${cfg.name}.js",
+    "test": "node test/run.js",
+    "make": "electron-forge make",
+    "build:tauri": "cargo tauri build"
+  },
+  "dependencies": {
+    "playwright": "^1.47.0",
+    "tesseract.js": "^5.0.4",
+    "pdfjs-dist": "^4.7.76",
+    "sharp": "^0.33.5"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "^7.5.0",
+    "typescript": "^5.5.0"
+  }
+}`;
+  }
+  if (file === "readme") {
+    return `# ${cfg.name}
+
+AutoGlyph · Playwright × OCR 跨平台桌面自動化工具
+
+## 安裝
+
+\`\`\`bash
+${stack === "python"
+  ? `pip install -r requirements.txt
+playwright install ${cfg.browser}`
+  : `npm install
+npx playwright install ${cfg.browser}`}
+\`\`\`
+
+## 執行
+
+\`\`\`bash
+${stack === "python" ? `python ${cfg.name}.py` : `node ${cfg.name}.js`}
+\`\`\`
+
+## 跨平台打包
+
+- **Electron**: \`npm run make -- --platform=<win32|darwin|linux>\`
+- **Tauri**: \`cargo tauri build --target <triple>\`
+- **Python Briefcase**: \`briefcase build <windows|macOS|linux>\`
+
+## 設定
+
+編輯 \`config.json\` 調整：
+- target URL
+- 瀏覽器 (chromium / firefox / webkit)
+- 模式 (headless / headed)
+- OCR 語言 (eng / chi_tra / chi_sim / jpn / kor)
+- 輸出格式 (json / csv / txt / html / md)
+`;
+  }
+
+  if (stack === "python") {
+    if (file === "installer") {
+      return `#!/usr/bin/env python3
+"""
+${cfg.name} · AutoGlyph installer
+Build a cross-platform desktop automation tool.
+
+Usage:
+    python ${cfg.name}_install.py [--platform win|mac|linux|all]
+"""
+import subprocess, sys, argparse, platform
+
+PKGS = [
+    "playwright==1.47.0",
+    "pytesseract==0.3.13",
+    "pdfplumber==0.11.4",
+    "Pillow==10.4.0",
+    "pyinstaller==6.10.0",
+    "briefcase==0.3.22",
+]
+
+def run(cmd, **kw):
+    print(f"$ {cmd}")
+    subprocess.run(cmd, shell=True, check=True, **kw)
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--platform", default="all",
+                    choices=["win","mac","linux","all"])
+    args = ap.parse_args()
+
+    print("⇣ Installing Python dependencies...")
+    for p in PKGS:
+        run(f"pip install {p}")
+
+    print("⇣ Installing Playwright browser...")
+    run(f"playwright install ${cfg.browser}")
+
+    if args.platform in ("all","win"):  run("pyinstaller --onefile --windowed ${cfg.name}.py --name ${cfg.name}")
+    if args.platform in ("all","mac"):  run("briefcase create macOS && briefcase build macOS && briefcase package macOS")
+    if args.platform in ("all","linux"):run("briefcase create linux && briefcase build linux && briefcase package linux")
+
+    print("✓ Done. Artifacts in dist/ or *.dmg/*.exe/*.deb")
+
+if __name__ == "__main__":
+    main()
+`;
+    }
+    if (file === "ocr") {
+      return `"""OCR module — ${cfg.name}"""
+import pytesseract
+from PIL import Image, ImageFilter, ImageOps
+import pdfplumber, io, re, json
+
+LANGS = {"eng":"eng", "chi_tra":"chi_tra", "chi_sim":"chi_sim",
+         "jpn":"jpn", "kor":"kor"}
+
+def preprocess(img: Image.Image, binarize=True, deskew=True) -> Image.Image:
+    img = img.convert("L")
+    if deskew:
+        img = ImageOps.autocontrast(img)
+    if binarize:
+        img = img.point(lambda x: 0 if x < 180 else 255, "1")
+    return img
+
+def ocr_image(img: Image.Image, lang="eng") -> dict:
+    img = preprocess(img, binarize=True, deskew=True)
+    text = pytesseract.image_to_string(img, lang=LANGS.get(lang, lang))
+    data = pytesseract.image_to_data(img, lang=LANGS.get(lang, lang), output_type=pytesseract.Output.DICT)
+    return {"text": text, "confidence": float(sum(data["conf"])/max(len(data["conf"]),1)), "words": len(data["text"])}
+
+def ocr_pdf(pdf_path: str, lang="eng") -> list:
+    out = []
+    with pdfplumber.open(pdf_path) as pdf:
+        for i, page in enumerate(pdf.pages):
+            txt = page.extract_text() or ""
+            pil = page.to_image(resolution=200).original
+            ocr = ocr_image(pil, lang=lang)
+            out.append({"page": i+1, "text": txt or ocr["text"], "confidence": ocr["confidence"]})
+    return out
+
+FIELDS = {
+    "date":    r"(?:Date|日期)[::\\s]+([0-9]{4}-[0-9]{2}-[0-9]{2})",
+    "email":   r"([a-z0-9._-]+@[a-z0-9.-]+\\.[a-z]{2,})",
+    "phone":   r"(\\+?\\d[\\d\\s-]{7,}\\d)",
+    "total":   r"Total[.:\\s]*\\$?([0-9,]+\\.[0-9]{2})",
+    "invoice": r"Invoice\\s*(?:No)?[.:\\s]+([A-Z0-9-]+)",
+}
+
+def extract_fields(text: str) -> dict:
+    out = {}
+    for k, pat in FIELDS.items():
+        m = re.search(pat, text, re.IGNORECASE)
+        if m: out[k] = m.group(1)
+    return out
+
+if __name__ == "__main__":
+    import sys
+    DEFAULT_LANG = "eng"
+    for arg in sys.argv[1:]:
+        if arg.lower().endswith(".pdf"):
+            for p in ocr_pdf(arg, lang=DEFAULT_LANG):
+                print(f"[Page {p['page']}] conf={p['confidence']:.1f}")
+                print(p['text'][:200])
+        else:
+            print(ocr_image(Image.open(arg), lang=DEFAULT_LANG))
+`;
+    }
+    // runner
+    return `#!/usr/bin/env python3
+"""
+${cfg.name} · AutoGlyph Playwright + OCR runner
+Generated for target: ${cfg.url}
+"""
+import asyncio, json, sys, os
+from pathlib import Path
+from playwright.async_api import async_playwright
+${cfg.ocr ? "from ocr import ocr_pdf, ocr_image, extract_fields\nfrom PIL import Image" : ""}
+
+CFG = {
+    "url": "${cfg.url}",
+    "browser": "${cfg.browser}",
+    "mode": "${cfg.mode}",
+    "error": "${cfg.error}",
+    "screenshot": ${cfg.str(cfg.screenshot)},
+    "video": ${cfg.str(cfg.video)},
+    "trace": ${cfg.str(cfg.trace)},
+    "ocr": ${cfg.str(cfg.ocr)},
+    "pdf": ${cfg.str(cfg.pdf)},
+    "logging": ${cfg.str(cfg.logging)},
+}
+RETRIES = 3 if CFG["error"] == "retry" else (0 if CFG["error"] == "fail" else 0)
+
+OUT = Path("out/${cfg.name}")
+OUT.mkdir(parents=True, exist_ok=True)
+
+async def step(page, name, action):
+    for attempt in range(RETRIES + 1):
+        try:
+            if CFG["logging"]: print(f"[step] {name} (try {attempt+1})")
+            await action(page)
+            if CFG["screenshot"]:
+                await page.screenshot(path=str(OUT / f"{name}.png"))
+            return
+        except Exception as e:
+            print(f"[fail] {name}: {e}")
+            if attempt == RETRIES:
+                if CFG["error"] == "fail": raise
+                return
+
+async def main():
+    async with async_playwright() as p:
+        browser = await getattr(p, CFG["browser"]).launch(
+            headless=(CFG["mode"] == "headless")
+        )
+        ctx = await browser.new_context(
+            record_video_dir=str(OUT / "video") if CFG["video"] else None,
+            record_trace_dir=str(OUT / "trace") if CFG["trace"] else None,
+        )
+        if CFG["trace"]:
+            await ctx.tracing.start(screenshots=True, snapshots=True)
+        page = await ctx.new_page()
+
+        await step(page, "01-goto", lambda pg: pg.goto(CFG["url"], wait_until="networkidle"))
+
+        # === 自動產生的步驟（依據你的 UI 設定） ===
+        await step(page, "02-fill-username", lambda pg: pg.fill('input[name="username"]', "demo_user"))
+        await step(page, "03-fill-password", lambda pg: pg.fill('input[name="password"]', "demo_pwd"))
+        await step(page, "04-click-submit",   lambda pg: pg.click('button[type="submit"]'))
+        await step(page, "05-wait-dashboard", lambda pg: pg.wait_for_url("**/dashboard"))
+
+        if CFG["pdf"]:
+            await step(page, "06-pdf-report", lambda pg: pg.pdf(path=str(OUT / "report.pdf")))
+        if CFG["trace"]:
+            await ctx.tracing.stop(path=str(OUT / "trace.zip"))
+
+        result = {"status": "ok", "url": CFG["url"], "artifacts": str(OUT)}
+        ${cfg.ocr ? `if CFG["ocr"]:
+            for f in Path("uploads").glob("*"):
+                if f.suffix.lower() == ".pdf":
+                    result["ocr"] = ocr_pdf(str(f), lang="eng")
+                else:
+                    result["ocr"] = [ocr_image(Image.open(f), lang="eng")]
+            result["fields"] = [extract_fields(p["text"]) for p in result["ocr"]]` : ""}
+
+        (OUT / "result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2))
+        print("✓ Done", json.dumps(result, ensure_ascii=False, indent=2))
+
+        await ctx.close()
+        await browser.close()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+`;
+  } else {
+    // Node.js / TypeScript
+    const isTs = stack === "ts";
+    const ext = isTs ? "ts" : "js";
+    const typeImports = isTs ? "import type { Browser, BrowserContext, Page } from 'playwright';\n" : "";
+    if (file === "installer") {
+      return `#!/usr/bin/env node
+/**
+ * ${cfg.name} · AutoGlyph installer
+ * Builds a cross-platform desktop automation tool.
+ *
+ * Usage:
+ *   node ${cfg.name}_install.js [--platform win|mac|linux|all]
+ */
+const { execSync } = require("child_process");
+
+const run = (cmd) => { console.log(\`$ \${cmd}\`); execSync(cmd, { stdio: "inherit", shell: true }); };
+
+const platform = (process.argv.find(a => a.startsWith("--platform=")) || "--platform=all").split("=")[1];
+
+console.log("⇣ Installing Node.js dependencies...");
+run("npm install");
+
+console.log("⇣ Installing Playwright browser...");
+run(\`npx playwright install ${cfg.browser}\`);
+
+if (["all","win"].includes(platform))   run(\`npx electron-forge make --platform=win32\`);
+if (["all","mac"].includes(platform))   run(\`npx electron-forge make --platform=darwin\`);
+if (["all","linux"].includes(platform)) run(\`npx electron-forge make --platform=linux\`);
+
+console.log("✓ Done. Artifacts in out/make/");
+${isTs ? "// Compile: tsc ${cfg.name}.ts" : ""}
+`;
+    }
+    if (file === "ocr") {
+      return `/**
+ * OCR module — ${cfg.name}
+ * Uses tesseract.js + pdfjs-dist + sharp
+ */
+import { createWorker } from "tesseract.js";
+import sharp from "sharp";
+import * as pdfjs from "pdfjs-dist/build/pdf.min.mjs";
+
+const WORKER_PATH = require.resolve("pdfjs-dist/build/pdf.worker.min.mjs");
+${isTs ? "// @ts-ignore" : ""}
+pdfjs.GlobalWorkerOptions.workerSrc = WORKER_PATH;
+
+export async function preprocess(input) {
+  const img = sharp(input).grayscale().normalise();
+  return img.toBuffer();
+}
+
+export async function ocrImage(buf, lang = "eng") {
+  const worker = await createWorker(lang);
+  const { data } = await worker.recognize(buf);
+  await worker.terminate();
+  return { text: data.text, confidence: data.confidence, words: data.words.length };
+}
+
+export async function ocrPdf(buf, lang = "eng") {
+  const loadingTask = pdfjs.getDocument({ data: new Uint8Array(buf) });
+  const pdf = await loadingTask.promise;
+  const out = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const txt = await page.getTextContent();
+    out.push({ page: i, text: txt.items.map(it => it.str).join(" ") });
+  }
+  return out;
+}
+
+const FIELDS = {
+  date:    /(?:Date|日期)[::\\s]+([0-9]{4}-[0-9]{2}-[0-9]{2})/i,
+  email:   /([a-z0-9._-]+@[a-z0-9.-]+\\.[a-z]{2,})/i,
+  phone:   /(\\+?\\d[\\d\\s-]{7,}\\d)/,
+  total:   /Total[.:\\s]*\\$?([0-9,]+\\.[0-9]{2})/i,
+  invoice: /Invoice\\s*(?:No)?[.:\\s]+([A-Z0-9-]+)/i,
+};
+
+export function extractFields(text) {
+  const out = {};
+  for (const [k, pat] of Object.entries(FIELDS)) {
+    const m = text.match(pat);
+    if (m) out[k] = m[1];
+  }
+  return out;
+}
+`;
+    }
+    // runner
+    return `/**
+ * ${cfg.name} · AutoGlyph Playwright + OCR runner
+ * Generated for target: ${cfg.url}
+ */
+${typeImports}import { chromium, firefox, webkit } from "playwright";
+${cfg.ocr ? `import { ocrImage, ocrPdf, extractFields } from "./ocr.${ext}";\nimport fs from "fs";\nimport path from "path";` : ""}
+
+const CFG = {
+  url: "${cfg.url}",
+  browser: "${cfg.browser}",
+  mode: "${cfg.mode}",
+  error: "${cfg.error}",
+  screenshot: ${cfg.screenshot},
+  video: ${cfg.video},
+  trace: ${cfg.trace},
+  ocr: ${cfg.ocr},
+  pdf: ${cfg.pdf},
+  logging: ${cfg.logging},
+  parallel: ${cfg.parallel},
+};
+const RETRIES = CFG.error === "retry" ? 3 : 0;
+const OUT = "out/${cfg.name}";
+fs.mkdirSync(OUT, { recursive: true });
+
+async function step(page, name, fn) {
+  for (let attempt = 0; attempt <= RETRIES; attempt++) {
+    try {
+      if (CFG.logging) console.log(\`[step] \${name} (try \${attempt + 1})\`);
+      await fn(page);
+      if (CFG.screenshot) await page.screenshot({ path: \`\${OUT}/\${name}.png\` });
+      return;
+    } catch (e) {
+      console.error(\`[fail] \${name}:\`, e);
+      if (attempt === RETRIES && CFG.error === "fail") throw e;
+    }
+  }
+}
+
+async function runWith(browserType) {
+  const browser = await browserType.launch({ headless: CFG.mode === "headless" });
+  const ctx = await browser.newContext({
+    recordVideo: CFG.video ? { dir: \`\${OUT}/video\` } : undefined,
+    recordTrace: CFG.trace ? { dir: \`\${OUT}/trace\` } : undefined,
+  });
+  if (CFG.trace) await ctx.tracing.start({ screenshots: true, snapshots: true });
+  const page = await ctx.newPage();
+
+  await step(page, "01-goto", (p) => p.goto(CFG.url, { waitUntil: "networkidle" }));
+
+  // === Auto-generated steps based on your UI config ===
+  await step(page, "02-fill-username", (p) => p.fill('input[name="username"]', "demo_user"));
+  await step(page, "03-fill-password", (p) => p.fill('input[name="password"]', "demo_pwd"));
+  await step(page, "04-click-submit",   (p) => p.click('button[type="submit"]'));
+  await step(page, "05-wait-dashboard", (p) => p.waitForURL("**/dashboard"));
+
+  if (CFG.pdf) await step(page, "06-pdf-report", (p) => p.pdf({ path: \`\${OUT}/report.pdf\` }));
+  if (CFG.trace) await ctx.tracing.stop({ path: \`\${OUT}/trace.zip\` });
+
+  const result = { status: "ok", url: CFG.url, artifacts: OUT };
+  ${cfg.ocr ? `if (CFG.ocr) {
+    const uploads = "uploads";
+    if (fs.existsSync(uploads)) {
+      for (const f of fs.readdirSync(uploads)) {
+        const p = path.join(uploads, f);
+        const buf = fs.readFileSync(p);
+        if (f.toLowerCase().endsWith(".pdf")) {
+          result.ocr = await ocrPdf(buf, "eng");
+        } else {
+          result.ocr = [await ocrImage(buf, "eng")];
+        }
+      }
+      result.fields = (result.ocr || []).map(o => extractFields(o.text || ""));
+    }
+  }` : ""}
+
+  fs.writeFileSync(\`\${OUT}/result.json\`, JSON.stringify(result, null, 2));
+  console.log("✓ Done", JSON.stringify(result, null, 2));
+
+  await ctx.close();
+  await browser.close();
+  return result;
+}
+
+(async () => {
+  const browsers = CFG.parallel
+    ? { chromium, firefox, webkit }
+    : { [CFG.browser]: { chromium, firefox, webkit }[CFG.browser] };
+  for (const [name, bt] of Object.entries(browsers)) {
+    console.log(\`▶ Running on \${name}\`);
+    await runWith(bt);
+  }
+})();
+`;
+  }
+}
+
+function renderScript() {
+  const stack = state.scriptCfg.stack;
+  const file = state.activeTab;
+  const code = generateScript(stack, file);
+  const lang = stack === "python" ? "python" : (stack === "ts" ? "ts" : "js");
+  $("#script-pre").innerHTML = highlightCode(code, lang);
+  const lines = code.split("\n").length;
+  $("#script-meta").textContent = `${stack === "python" ? "Python" : stack === "ts" ? "TypeScript" : "Node.js"} · ${file} · ${lines} 行`;
+}
+
+/* ========== UI events ========== */
+$$(".stack-tab").forEach(t => t.addEventListener("click", () => {
+  $$(".stack-tab").forEach(x => x.classList.toggle("on", x === t));
+  state.scriptCfg.stack = t.dataset.stack;
+  renderScript();
+}));
+$$(".script-tab").forEach(t => t.addEventListener("click", () => {
+  $$(".script-tab").forEach(x => x.classList.toggle("on", x === t));
+  state.activeTab = t.dataset.pkg;
+  renderScript();
+}));
+["cfg-url","cfg-name","cfg-browser","cfg-mode","cfg-error"].forEach(id => {
+  $("#" + id).addEventListener("input", e => {
+    const map = { "cfg-url":"url", "cfg-name":"name", "cfg-browser":"browser", "cfg-mode":"mode", "cfg-error":"error" };
+    state.scriptCfg[map[id]] = e.target.value;
+    renderScript();
+  });
+});
+$$("[data-cfg]").forEach(c => c.addEventListener("click", () => {
+  c.classList.toggle("on");
+  state.scriptCfg[c.dataset.cfg] = c.classList.contains("on");
+  renderScript();
+}));
+
+$("#btn-copy").addEventListener("click", async () => {
+  const code = $("#script-pre").textContent;
+  try {
+    await navigator.clipboard.writeText(code);
+    toast("已複製到剪貼簿", "ok");
+  } catch {
+    toast("複製失敗", "err");
+  }
+});
+$("#btn-download").addEventListener("click", () => {
+  const code = $("#script-pre").textContent;
+  const ext = state.scriptCfg.stack === "python" ? "py" : state.scriptCfg.stack === "ts" ? "ts" : "js";
+  const fname = state.activeTab === "package"
+    ? (state.scriptCfg.stack === "python" ? "requirements.txt" : "package.json")
+    : state.activeTab === "readme"
+      ? "README.md"
+      : (state.activeTab === "ocr" ? "ocr." + ext : (state.activeTab === "installer" ? "install." + ext : "runner." + ext));
+  const blob = new Blob([code], { type: "text/plain;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = fname;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast("已下載 " + fname, "ok");
+});
+
+$("#btn-export").addEventListener("click", () => {
+  document.getElementById("script").scrollIntoView({ behavior: "smooth" });
+  toast("已切換到腳本生成器", "ok");
+});
+
+$("#ocr-lang").addEventListener("change", e => state.ocrLang = e.target.value);
+$("#output-format").addEventListener("change", e => state.outputFormat = e.target.value);
+$$(".check[data-check]").forEach(c => c.addEventListener("click", () => {
+  c.classList.toggle("on");
+  state.options[c.dataset.check] = c.classList.contains("on");
+}));
+
+/* ========== Pipeline controls ========== */
+function setStepActive(n) {
+  $$(".step").forEach(s => s.classList.remove("active"));
+  const el = document.querySelector(`.step[data-step="${n}"]`);
+  if (el) el.classList.add("active");
+  $("#pipeline-bar").style.width = ((n - 1) / 6 * 100) + "%";
+  $("#pipeline-status").textContent = `階段 ${n} 進行中`;
+}
+function setStepDone(n) {
+  const el = document.querySelector(`.step[data-step="${n}"]`);
+  if (el) { el.classList.remove("active"); el.classList.add("done"); }
+  $("#pipeline-bar").style.width = (n / 6 * 100) + "%";
+  if (n === 6) $("#pipeline-status").textContent = "✓ 已完成";
+}
+function resetPipeline() {
+  $$(".step").forEach(s => s.classList.remove("active", "done"));
+  $("#pipeline-bar").style.width = "0%";
+  $("#pipeline-status").textContent = "尚未執行";
+}
+
+$("#btn-run-pipeline").addEventListener("click", async () => {
+  if (!state.files.length) {
+    log("請先加入檔案", "warn");
+    toast("請先加入檔案", "err");
+    return;
+  }
+  resetPipeline();
+  log("▶ Pipeline 開始", "info");
+  for (let i = 1; i <= 6; i++) {
+    setStepActive(i);
+    await sleep(350);
+    setStepDone(i);
+  }
+  toast("Pipeline 完成", "ok");
+});
+
+$("#btn-load-demo").addEventListener("click", async () => {
+  resetPipeline();
+  log("▶ 載入內建範例", "info");
+  // 載入 PDF + 圖像 + 發票三個範例
+  const pdf = new File([makeSamplePDF()], "autoglyph-report.pdf", { type: "application/pdf" });
+  const img = await makeSampleImage();
+  const inv = await makeSampleReceipt();
+  ingestFiles([
+    pdf,
+    new File([img], "demo-text.png", { type: "image/png" }),
+    new File([inv], "receipt.png", { type: "image/png" }),
+  ]);
+  await sleep(600);
+  // 自動跑一次 OCR
+  log("▶ 自動 OCR 範例圖像", "info");
+  await runOCR();
+  toast("範例已載入並 OCR 完成", "ok");
+});
+
+/* ========== Init ========== */
+function boot() {
+  log("AutoGlyph 啟動", "ok");
+  log("PDF.js + Tesseract.js 已從 jsDelivr 載入", "info");
+  if (typeof window.__pdfjsLib !== "undefined") log("PDF.js ready", "ok");
+  if (typeof Tesseract !== "undefined") log("Tesseract.js ready", "ok");
+  renderScript();
+  // 額外保險：每 800ms 檢查 script-pre 是否有內容（避免 CDN 慢載導致空）
+  let guard = 0;
+  const i = setInterval(() => {
+    if (document.getElementById("script-pre").children.length === 0) renderScript();
+    if (++guard > 10) clearInterval(i);
+  }, 800);
+}
+window.addEventListener("load", boot);
+if (document.readyState === "complete" || document.readyState === "interactive") {
+  setTimeout(boot, 0);
+}
+</script>
+
+</body>
+</html>

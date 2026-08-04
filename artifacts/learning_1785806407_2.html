@@ -1,0 +1,1219 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Next.js RBAC 細粒度權限控制系統 — 完整實作展示</title>
+<style>
+:root {
+  --bg: #0a0e1a;
+  --bg2: #0f1424;
+  --panel: #131a2e;
+  --panel2: #0d1326;
+  --line: #1f2a48;
+  --line-strong: #2a3a5e;
+  --text: #e6edf7;
+  --muted: #8b9bbf;
+  --muted2: #5d6d92;
+  --accent: #5eead4;
+  --accent2: #60a5fa;
+  --accent3: #c084fc;
+  --warn: #fbbf24;
+  --err: #f87171;
+  --ok: #34d399;
+  --purple: #a78bfa;
+  --pink: #f472b6;
+  --orange: #fb923c;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --mono: "JetBrains Mono", "SF Mono", "Consolas", "Menlo", monospace;
+  --sans: "Inter", "PingFang TC", "Noto Sans TC", "Helvetica Neue", Arial, sans-serif;
+  --shadow: 0 14px 40px rgba(0, 0, 0, .45);
+  --shadow-sm: 0 4px 14px rgba(0, 0, 0, .3);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  color: var(--text);
+  background:
+    radial-gradient(ellipse 800px 500px at 12% -10%, rgba(94, 234, 212, .08), transparent 70%),
+    radial-gradient(ellipse 900px 600px at 95% 8%, rgba(192, 132, 252, .07), transparent 65%),
+    radial-gradient(ellipse 700px 400px at 50% 100%, rgba(96, 165, 250, .06), transparent 60%),
+    var(--bg);
+  font-family: var(--sans);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+a { color: var(--accent); text-decoration: none; border-bottom: 1px dashed transparent; }
+a:hover { border-bottom-color: var(--accent); }
+code, pre { font-family: var(--mono); font-size: 13px; }
+code { color: var(--accent); background: rgba(94, 234, 212, .08); padding: 2px 6px; border-radius: 4px; }
+pre { background: var(--panel2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px 16px; overflow-x: auto; line-height: 1.55; }
+pre code { color: var(--text); background: transparent; padding: 0; font-size: 12.5px; }
+button { font-family: inherit; cursor: pointer; }
+
+/* Layout */
+.app { display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; }
+.sidebar {
+  background: var(--panel2);
+  border-right: 1px solid var(--line);
+  padding: 22px 16px;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+}
+.brand { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; padding: 0 8px; }
+.brand-mark {
+  width: 36px; height: 36px; border-radius: 10px;
+  background: linear-gradient(135deg, var(--accent), var(--accent3));
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; color: #08111c; font-size: 16px;
+}
+.brand-text { font-weight: 600; font-size: 14px; letter-spacing: .3px; }
+.brand-sub { font-size: 11px; color: var(--muted2); letter-spacing: .4px; text-transform: uppercase; }
+.nav-group { margin-bottom: 18px; }
+.nav-group-title { font-size: 10.5px; font-weight: 600; color: var(--muted2); letter-spacing: 1.2px; text-transform: uppercase; padding: 0 10px; margin-bottom: 6px; }
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: var(--radius-sm);
+  color: var(--muted); cursor: pointer; transition: all .15s;
+  font-size: 13.5px;
+}
+.nav-item:hover { background: rgba(255, 255, 255, .04); color: var(--text); }
+.nav-item.active { background: rgba(94, 234, 212, .12); color: var(--accent); }
+.nav-item .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .55; }
+
+.main { padding: 28px 36px 60px; max-width: 1280px; }
+.page-header { margin-bottom: 26px; }
+.eyebrow { font-size: 11px; font-weight: 600; color: var(--accent); letter-spacing: 1.4px; text-transform: uppercase; }
+.page-title { font-size: 28px; font-weight: 700; margin: 6px 0 4px; letter-spacing: -.5px; }
+.page-sub { color: var(--muted); font-size: 14px; max-width: 720px; }
+
+/* Tabs */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 22px; overflow-x: auto; }
+.tab { padding: 10px 16px; color: var(--muted); font-size: 13.5px; font-weight: 500; cursor: pointer; border-bottom: 2px solid transparent; transition: all .15s; white-space: nowrap; background: transparent; border-top: none; border-left: none; border-right: none; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* Card / Panels */
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px 22px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
+}
+.card-title { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+.card-sub { font-size: 12.5px; color: var(--muted); margin-bottom: 14px; }
+.card-title .pill { font-size: 10px; padding: 2px 8px; border-radius: 999px; background: rgba(94, 234, 212, .12); color: var(--accent); font-weight: 600; letter-spacing: .4px; text-transform: uppercase; }
+
+/* Grid */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+
+/* Stat */
+.stat { padding: 16px 18px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+.stat-label { font-size: 11.5px; color: var(--muted); letter-spacing: .6px; text-transform: uppercase; }
+.stat-value { font-size: 26px; font-weight: 700; margin-top: 4px; }
+.stat-sub { font-size: 12px; color: var(--muted2); margin-top: 2px; }
+
+/* Permission Matrix */
+.matrix-wrap { overflow-x: auto; }
+.matrix { border-collapse: collapse; font-size: 12.5px; width: 100%; }
+.matrix th, .matrix td { padding: 10px 12px; text-align: center; border: 1px solid var(--line); white-space: nowrap; }
+.matrix th { background: var(--panel2); color: var(--muted); font-weight: 600; letter-spacing: .4px; text-transform: uppercase; font-size: 10.5px; position: sticky; top: 0; }
+.matrix th.row-h { text-align: left; background: var(--panel2); color: var(--text); font-weight: 600; text-transform: none; letter-spacing: 0; font-size: 12.5px; }
+.matrix td.row-h { text-align: left; color: var(--text); font-weight: 600; background: var(--panel2); }
+.matrix td.cell { color: var(--muted2); font-size: 14px; }
+.matrix td.cell.allow { color: var(--ok); background: rgba(52, 211, 153, .06); }
+.matrix td.cell.deny { color: var(--err); background: rgba(248, 113, 113, .04); }
+.matrix td.cell.cond { color: var(--warn); background: rgba(251, 191, 36, .06); }
+.matrix td.cell.owner { color: var(--accent3); background: rgba(192, 132, 252, .06); }
+.matrix td.cell:hover { filter: brightness(1.4); }
+.matrix th.row-h { min-width: 110px; }
+
+/* Identity switcher */
+.id-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 14px 18px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 18px; }
+.id-bar-label { font-size: 12px; color: var(--muted); letter-spacing: .4px; text-transform: uppercase; margin-right: 4px; }
+.id-chip { padding: 7px 13px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line-strong); color: var(--muted); font-size: 12.5px; cursor: pointer; transition: all .15s; display: flex; align-items: center; gap: 6px; }
+.id-chip:hover { color: var(--text); border-color: var(--accent); }
+.id-chip.active { background: rgba(94, 234, 212, .12); border-color: var(--accent); color: var(--accent); }
+.id-chip .role { font-size: 10px; color: var(--muted2); }
+.id-chip.active .role { color: var(--accent); opacity: .75; }
+
+/* Resource list */
+.res-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.res-item { padding: 14px 16px; background: var(--panel2); border: 1px solid var(--line); border-radius: var(--radius-sm); transition: all .15s; }
+.res-item:hover { border-color: var(--line-strong); transform: translateY(-1px); }
+.res-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.res-name { font-weight: 600; font-size: 13.5px; }
+.res-id { font-size: 11px; color: var(--muted2); font-family: var(--mono); }
+.res-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.action-btn {
+  padding: 5px 10px; border-radius: 6px; border: 1px solid var(--line-strong);
+  background: var(--panel); color: var(--muted);
+  font-size: 11.5px; cursor: pointer; transition: all .12s;
+  display: flex; align-items: center; gap: 5px;
+}
+.action-btn:hover { color: var(--text); border-color: var(--accent); }
+.action-btn.allowed { border-color: rgba(52, 211, 153, .4); color: var(--ok); background: rgba(52, 211, 153, .06); }
+.action-btn.denied { opacity: .4; cursor: not-allowed; }
+.action-btn.cond-allowed { border-color: rgba(251, 191, 36, .4); color: var(--warn); background: rgba(251, 191, 36, .06); }
+.action-btn .mark { font-weight: 700; font-size: 11px; }
+.action-btn.allowed .mark::before { content: "✓"; }
+.action-btn.denied .mark::before { content: "✕"; color: var(--err); }
+.action-btn.cond-allowed .mark::before { content: "◐"; color: var(--warn); }
+
+/* Audit log */
+.log-stream {
+  background: var(--panel2); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 10px 0; max-height: 360px; overflow-y: auto; font-family: var(--mono); font-size: 12px;
+}
+.log-line { padding: 7px 16px; display: flex; gap: 12px; align-items: flex-start; border-left: 3px solid transparent; }
+.log-line.allow { border-left-color: var(--ok); }
+.log-line.deny { border-left-color: var(--err); }
+.log-line.cond { border-left-color: var(--warn); }
+.log-time { color: var(--muted2); white-space: nowrap; font-size: 11px; padding-top: 1px; min-width: 80px; }
+.log-user { color: var(--accent2); min-width: 110px; }
+.log-action { color: var(--accent3); min-width: 180px; }
+.log-resource { color: var(--text); }
+.log-reason { color: var(--muted); margin-left: auto; font-style: italic; font-size: 11.5px; }
+
+/* Decision panel */
+.dec-panel { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.dec-input { display: flex; flex-direction: column; gap: 10px; }
+.dec-field { display: flex; flex-direction: column; gap: 4px; }
+.dec-label { font-size: 11px; color: var(--muted); letter-spacing: .4px; text-transform: uppercase; }
+.dec-input input, .dec-input select {
+  background: var(--panel2); border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+  padding: 9px 12px; color: var(--text); font-family: inherit; font-size: 13px; outline: none; transition: border-color .15s;
+}
+.dec-input input:focus, .dec-input select:focus { border-color: var(--accent); }
+.dec-btn {
+  margin-top: 4px; padding: 10px 14px; border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, var(--accent), var(--accent3));
+  color: #08111c; border: none; font-weight: 700; font-size: 13px;
+  letter-spacing: .3px;
+}
+.dec-btn:hover { filter: brightness(1.08); }
+.dec-out { padding: 16px 18px; background: var(--panel2); border: 1px solid var(--line); border-radius: var(--radius); min-height: 220px; }
+.dec-out-title { font-size: 11px; color: var(--muted); letter-spacing: .4px; text-transform: uppercase; margin-bottom: 8px; }
+.dec-verdict { font-size: 28px; font-weight: 700; margin-bottom: 12px; }
+.dec-verdict.allow { color: var(--ok); }
+.dec-verdict.deny { color: var(--err); }
+.dec-verdict.cond { color: var(--warn); }
+.dec-trace { font-family: var(--mono); font-size: 11.5px; }
+.dec-trace-step { padding: 6px 0; display: flex; gap: 8px; align-items: flex-start; }
+.dec-trace-step .ts-marker { color: var(--accent); font-weight: 700; }
+.dec-trace-step .ts-detail { color: var(--muted); }
+
+/* Code blocks area */
+.code-tabs { display: flex; gap: 2px; padding-bottom: 0; border-bottom: 1px solid var(--line); margin-bottom: 0; }
+.code-tab { padding: 7px 14px; color: var(--muted); font-size: 12px; font-family: var(--mono); background: transparent; border: 1px solid transparent; border-bottom: none; border-radius: 6px 6px 0 0; cursor: pointer; }
+.code-tab:hover { color: var(--text); }
+.code-tab.active { color: var(--accent); background: var(--panel2); border-color: var(--line); }
+.code-block { display: none; }
+.code-block.active { display: block; }
+
+/* Architecture diagram */
+.arch-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 18px;
+}
+.arch-node {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.arch-node.flow { border-left: 3px solid var(--accent); }
+.arch-node.gate { border-left: 3px solid var(--warn); }
+.arch-node.decision { border-left: 3px solid var(--ok); }
+.arch-node.deny { border-left: 3px solid var(--err); }
+.arch-title { font-size: 12.5px; font-weight: 600; color: var(--text); }
+.arch-meta { font-size: 11.5px; color: var(--muted); font-family: var(--mono); }
+
+/* Badges */
+.badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; letter-spacing: .3px; }
+.badge.ok { background: rgba(52, 211, 153, .14); color: var(--ok); }
+.badge.err { background: rgba(248, 113, 113, .14); color: var(--err); }
+.badge.warn { background: rgba(251, 191, 36, .14); color: var(--warn); }
+.badge.accent { background: rgba(94, 234, 212, .14); color: var(--accent); }
+.badge.purple { background: rgba(192, 132, 252, .14); color: var(--accent3); }
+.badge.muted { background: rgba(139, 155, 191, .1); color: var(--muted); }
+
+/* Flow */
+.flow-arrow { text-align: center; color: var(--muted2); margin: -4px 0; font-size: 14px; }
+
+/* Inline help */
+.kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; background: var(--panel2); border: 1px solid var(--line-strong); border-radius: 4px; color: var(--accent); }
+
+/* Footer note */
+.note { font-size: 12px; color: var(--muted); padding: 14px 16px; background: rgba(94, 234, 212, .04); border: 1px dashed rgba(94, 234, 212, .25); border-radius: var(--radius-sm); margin-top: 14px; }
+
+/* Responsive */
+@media (max-width: 980px) {
+  .app { grid-template-columns: 1fr; }
+  .sidebar { position: relative; height: auto; }
+  .grid-2, .grid-3, .grid-4, .dec-panel { grid-template-columns: 1fr; }
+  .main { padding: 20px; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">R</div>
+      <div>
+        <div class="brand-text">Raphael RBAC Lab</div>
+        <div class="brand-sub">Next.js · Fine-Grained</div>
+      </div>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-group-title">概覽</div>
+      <div class="nav-item active" data-tab="overview"><span class="dot"></span>系統總覽</div>
+      <div class="nav-item" data-tab="matrix"><span class="dot"></span>權限矩陣</div>
+      <div class="nav-item" data-tab="resources"><span class="dot"></span>資源保護</div>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-group-title">程式碼</div>
+      <div class="nav-item" data-tab="policy"><span class="dot"></span>策略層</div>
+      <div class="nav-item" data-tab="middleware"><span class="dot"></span>Middleware</div>
+      <div class="nav-item" data-tab="apiroute"><span class="dot"></span>API Route</div>
+      <div class="nav-item" data-tab="react"><span class="dot"></span>React Hook</div>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-group-title">模擬與稽核</div>
+      <div class="nav-item" data-tab="decision"><span class="dot"></span>即時決策</div>
+      <div class="nav-item" data-tab="audit"><span class="dot"></span>稽核日誌</div>
+      <div class="nav-item" data-tab="arch"><span class="dot"></span>請求流程</div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+
+    <!-- ========== Identity Bar ========== -->
+    <div class="id-bar">
+      <span class="id-bar-label">模擬身份</span>
+      <div id="id-chips"></div>
+    </div>
+
+    <!-- ========== Overview ========== -->
+    <section data-section="overview">
+      <div class="page-header">
+        <div class="eyebrow">Next.js · RBAC · Fine-Grained Access Control</div>
+        <h1 class="page-title">細粒度權限控制系統</h1>
+        <p class="page-sub">本系統展示一個生產等級的 RBAC (Role-Based Access Control) + ABAC (Attribute-Based) 混合授權框架,整合於 Next.js 13+ App Router。以 <code>resource:action</code> 為最小授權單位,搭配屬性策略 (所有者、時段、IP),在 Middleware、API Route、React 三層一致執行。</p>
+      </div>
+
+      <div class="grid-4">
+        <div class="stat"><div class="stat-label">角色數量</div><div class="stat-value">5</div><div class="stat-sub">guest / user / manager / admin / superadmin</div></div>
+        <div class="stat"><div class="stat-label">受保護資源</div><div class="stat-value" id="res-count">—</div><div class="stat-sub">含細粒度動作</div></div>
+        <div class="stat"><div class="stat-label">動作策略</div><div class="stat-value" id="action-count">—</div><div class="stat-sub">read / write / delete / share / ...</div></div>
+        <div class="stat"><div class="stat-label">執行層</div><div class="stat-value">3</div><div class="stat-sub">Middleware / API / UI</div></div>
+      </div>
+
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-title">邊緣守衛 <span class="pill">middleware.ts</span></div>
+          <p class="card-sub">在 Edge Runtime 阻擋未授權請求,連 API 都不用進到應用層。保護靜態路徑與受保護路由 prefix。</p>
+          <div><span class="badge accent">Edge</span> <span class="badge muted">pre-render</span> <span class="badge warn">token check</span></div>
+        </div>
+        <div class="card">
+          <div class="card-title">API 守衛 <span class="pill">getServerSession</span></div>
+          <p class="card-sub">每個 Route Handler 透過 <code>authorize()</code> helper 顯式宣告需求,缺權限直接 <code>403 Forbidden</code>。</p>
+          <div><span class="badge accent">Server</span> <span class="badge purple">policy</span> <span class="badge muted">audit</span></div>
+        </div>
+        <div class="card">
+          <div class="card-title">UI 控制 <span class="pill">useCan()</span></div>
+          <p class="card-sub">React Hook 統一介面,根據當前身份決定是否渲染或禁用元件,避免按鈕穿透風險。</p>
+          <div><span class="badge accent">Client</span> <span class="badge ok">DRY</span> <span class="badge muted">hydration</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">設計原則</div>
+        <ul style="margin: 6px 0 0 0; padding-left: 18px; color: var(--muted); font-size: 13.5px;">
+          <li><strong style="color:var(--text)">拒絕為預設</strong> — 所有動作預設 deny,只在策略明確 allow 時才放行 (fail-closed)。</li>
+          <li><strong style="color:var(--text)">策略與機制分離</strong> — <code>policy.ts</code> 集中定義; <code>authorize()</code> 為唯一執行點。</li>
+          <li><strong style="color:var(--text)">RBAC + ABAC 雙軌</strong> — 角色給予基底能力,屬性條件處理細節 (owner、時間窗、IP、地域)。</li>
+          <li><strong style="color:var(--text)">可審計</strong> — 每次決策都寫入 audit log (who / what / when / why),有助合規追查。</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ========== Matrix ========== -->
+    <section data-section="matrix" style="display:none;">
+      <div class="page-header">
+        <div class="eyebrow">Permission Matrix</div>
+        <h2 class="page-title">角色 × 資源 權限矩陣</h2>
+        <p class="page-sub">下表顯示「基底角色能力」;實際授權仍會疊加屬性條件 (例如 <code>own_only</code>、<code>business_hours</code>)。滑鼠移到儲存格可看決策原因。</p>
+      </div>
+      <div class="card">
+        <div class="matrix-wrap" id="matrix-wrap"></div>
+        <div class="note">
+          <strong>圖例:</strong>
+          <span class="badge ok">✓ Allow</span>
+          <span class="badge err">✕ Deny</span>
+          <span class="badge warn">◐ Conditional</span>
+          <span class="badge purple">◎ Owner-only</span>
+          <span style="margin-left: 12px;">Conditional / Owner 需疊加 ABAC 條件才通過。</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== Resources ========== -->
+    <section data-section="resources" style="display:none;">
+      <div class="page-header">
+        <div class="eyebrow">Resource-level authorization</div>
+        <h2 class="page-title">資源保護實況</h2>
+        <p class="page-sub">以當前身份檢視每個資源可執行的動作。點擊動作按鈕可看決策 trace 與 audit log 增量。</p>
+      </div>
+      <div class="res-list" id="res-list"></div>
+    </section>
+
+    <!-- ========== Policy Code ========== -->
+    <section data-section="policy" style="display:none;">
+      <div class="page-header">
+        <div class="eyebrow">policy.ts</div>
+        <h2 class="page-title">策略層 (Single Source of Truth)</h2>
+        <p class="page-sub">所有授權規則集中於 <code>lib/rbac/policy.ts</code>,由 <code>authorize()</code> 讀取。改規則不必碰 middleware / API / UI。</p>
+      </div>
+      <div class="card">
+        <div class="code-tabs" id="policy-tabs">
+          <button class="code-tab active" data-f="policy">policy.ts</button>
+          <button class="code-tab" data-f="roles">roles.ts</button>
+          <button class="code-tab" data-f="abac">abac.ts</button>
+        </div>
+<pre class="code-block active" id="cb-policy"><code>// lib/rbac/policy.ts
+import { rolePermissions, ABAC_RULES } from './roles';
+import type { Session, Action, Resource, DecisionTrace } from './types';
+
+export interface AuthorizeInput {
+  session: Session;
+  resource: Resource;     // { type: 'document' | 'project' | 'billing' | ..., ownerId: string }
+  action: Action;         // 'read' | 'write' | 'delete' | 'share' | 'export'
+  context?: {
+    ip?: string;
+    now?: Date;
+    sameOrg?: boolean;
+  };
+}
+
+export interface AuthorizeResult {
+  allowed: boolean;
+  reason: string;
+  trace: DecisionTrace[];
+}
+
+export function authorize(input: AuthorizeInput): AuthorizeResult {
+  const trace: DecisionTrace[] = [];
+  const { session, resource, action, context = {} } = input;
+  const basePerms = rolePermissions[session.role] || [];
+
+  // Step 1 — 角色基底檢查
+  const baseKey = `${resource.type}:${action}`;
+  const baseDecision = basePerms.includes(baseKey)
+    || basePerms.includes(`${resource.type}:*`)
+    || basePerms.includes(`*:${action}`);
+  trace.push({ step: 'base-role', allow: baseDecision, detail: \`\${session.role} → \${baseKey} = \${baseDecision}\` });
+  if (!baseDecision) {
+    return { allowed: false, reason: 'role-mismatch', trace };
+  }
+
+  // Step 2 — ABAC 屬性條件 (deny-overrides)
+  const rules = ABAC_RULES[resource.type] || [];
+  for (const rule of rules) {
+    const result = rule({ session, resource, action, context, now: context.now ?? new Date() });
+    trace.push({ step: \`abac:\${rule.name}\`, allow: result.allow, detail: result.detail });
+    if (!result.allow) {
+      return { allowed: false, reason: \`abac:\${rule.name}\`, trace };
+    }
+  }
+
+  // Step 3 — Owner-only override
+  if (resource.ownerOnly && resource.ownerId !== session.userId && !session.isAdmin) {
+    trace.push({ step: 'owner-check', allow: false, detail: 'non-owner' });
+    return { allowed: false, reason: 'owner-only', trace };
+  }
+
+  return { allowed: true, reason: 'granted', trace };
+}</code></pre>
+<pre class="code-block" id="cb-roles"><code>// lib/rbac/roles.ts
+export const ROLE_HIERARCHY = ['guest', 'user', 'manager', 'admin', 'superadmin'] as const;
+export type Role = typeof ROLE_HIERARCHY[number];
+
+export const rolePermissions: Record<Role, string[]> = {
+  guest: [
+    'home:read', 'public:read',
+  ],
+  user: [
+    'home:read', 'public:read',
+    'document:read', 'document:write', 'document:share',
+    'project:read',
+    'profile:read', 'profile:write',
+  ],
+  manager: [
+    'home:read', 'public:read',
+    'document:read', 'document:write', 'document:share',
+    'project:read', 'project:write',
+    'profile:read', 'profile:write',
+    'team:read', 'team:write',
+    'billing:read',
+  ],
+  admin: [
+    '*:*',  // admin 全部資源動作皆可(仍受 owner / 時間窗 ABAC 約束)
+  ],
+  superadmin: [
+    '*:*',
+    'audit:read', 'audit:export',
+    'system:rotate-key',
+  ],
+};
+
+// lib/rbac/abac.ts
+import type { Session, Resource, Action } from './types';
+interface Ctx { session: Session; resource: Resource; action: Action; context: any; now: Date; }
+type ABAC = (c: Ctx) => { allow: boolean; detail: string };
+
+export const ABAC_RULES: Record<string, ABAC[]> = {
+  billing: [
+    ({ session, context }) => ({
+      allow: context.ip !== undefined && !context.ip.startsWith('192.168.'),
+      detail: 'billing action restricted to non-internal IPs',
+    }),
+  ],
+  document: [
+    ({ session, resource, context }) => ({
+      allow: context.now.getHours() >= 8 && context.now.getHours() < 20,
+      detail: 'document write restricted to business hours 08:00–20:00',
+    }),
+  ],
+  audit: [
+    ({ session }) => ({
+      allow: session.role === 'superadmin',
+      detail: 'audit log export requires superadmin',
+    }),
+  ],
+};</code></pre>
+<pre class="code-block" id="cb-abac"><code>// lib/rbac/types.ts
+export interface Session {
+  userId: string;
+  role: 'guest' | 'user' | 'manager' | 'admin' | 'superadmin';
+  orgId?: string;
+  isAdmin?: boolean;
+}
+export type Action = 'read' | 'write' | 'delete' | 'share' | 'export' | 'rotate';
+export type ResourceType = 'home' | 'public' | 'document' | 'project' | 'profile' | 'team' | 'billing' | 'audit' | 'system';
+
+export interface Resource {
+  type: ResourceType;
+  id: string;
+  ownerId: string;
+  ownerOnly?: boolean;
+}
+
+export interface DecisionTrace {
+  step: string;
+  allow: boolean;
+  detail: string;
+}</code></pre>
+      </div>
+    </section>
+
+    <!-- ========== Middleware Code ========== -->
+    <section data-section="middleware" style="display:none;">
+      <div class="page-header">
+        <div class="eyebrow">middleware.ts</div>
+        <h2 class="page-title">邊緣中介層</h2>
+        <p class="page-sub">在 Edge Runtime 透過 <code>getToken()</code> 解析 session,直接擋掉未授權路由,連 API handler 都不用啟動。</p>
+      </div>
+      <div class="card">
+<pre><code>// middleware.ts
+import { NextResponse, type NextRequest } from 'next/server';
+import { getToken } from 'next-auth/jwt';
+import { ROLE_HIERARCHY } from './lib/rbac/roles';
+
+const ROUTE_RULES: Array<{ prefix: string; minRole: string }> = [
+  { prefix: '/admin',     minRole: 'admin' },
+  { prefix: '/manager',   minRole: 'manager' },
+  { prefix: '/dashboard', minRole: 'user' },
+  { prefix: '/profile',   minRole: 'user' },
+  // 公開路由 guest 也可
+];
+
+const ROLE_RANK: Record&lt;string, number&gt; = Object.fromEntries(
+  ROLE_HIERARCHY.map((r, i) =&gt; [r, i])
+);
+
+export async function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+  const rule = ROUTE_RULES.find(r =&gt; pathname.startsWith(r.prefix));
+  if (!rule) return NextResponse.next();
+
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  if (!token) {
+    const url = req.nextUrl.clone();
+    url.pathname = '/login';
+    url.searchParams.set('next', pathname);
+    return NextResponse.redirect(url);
+  }
+
+  const userRank = ROLE_RANK[token.role as string] ?? -1;
+  const minRank  = ROLE_RANK[rule.minRole] ?? Infinity;
+  if (userRank &lt; minRank) {
+    return NextResponse.json(
+      { error: 'forbidden', required: rule.minRole, actual: token.role },
+      { status: 403 }
+    );
+  }
+
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: ['/admin/:path*', '/manager/:path*', '/dashboard/:path*', '/profile/:path*'],
+};</code></pre>
+        <div class="note">
+          邊緣層只能做「粗粒度角色檢查」;真正的資源級別 (例如「使用者 A 可刪除文件 123 但不能刪除文件 456」) 必須在 API Route 內透過 <code>authorize()</code> 執行,以避免在 Edge 把整個 policy 邏輯搬進來造成 bundle size 暴增。
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== API Route Code ========== -->
+    <section data-section="apiroute" style="display:none;">
+      <div class="page-header">
+        <div class="eyebrow">app/api/documents/[id]/route.ts</div>
+        <h2 class="page-title">API Route 守衛</h2>
+        <p class="page-sub">每個 handler 在第一行呼叫 <code>requireAuth()</code> + <code>authorize()</code>。任何環節不通過即回 403,並寫 audit log。</p>
+      </div>
+      <div class="card">
+<pre><code>// app/api/documents/[id]/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { authorize } from '@/lib/rbac/policy';
+import { loadDocument } from '@/lib/db';
+import { audit } from '@/lib/audit';
+
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+
+  const doc = await loadDocument(params.id);
+  if (!doc) return NextResponse.json({ error: 'not-found' }, { status: 404 });
+
+  const decision = authorize({
+    session,
+    resource: { type: 'document', id: doc.id, ownerId: doc.ownerId, ownerOnly: true },
+    action: 'delete',
+    context: { ip: req.headers.get('x-forwarded-for') ?? undefined, sameOrg: doc.orgId === session.orgId },
+  });
+
+  audit({
+    actor: session.userId,
+    action: 'document:delete',
+    resource: \`document:\${doc.id}\`,
+    allowed: decision.allowed,
+    reason: decision.reason,
+    trace: decision.trace,
+  });
+
+  if (!decision.allowed) {
+    return NextResponse.json({ error: 'forbidden', reason: decision.reason }, { status: 403 });
+  }
+
+  await deleteDocument(params.id);
+  return NextResponse.json({ ok: true });
+}
+
+export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  const session = await getServerSession(authOptions);
+  if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+
+  const doc = await loadDocument(params.id);
+  if (!doc) return NextResponse.json({ error: 'not-found' }, { status: 404 });
+
+  const decision = authorize({
+    session,
+    resource: { type: 'document', id: doc.id, ownerId: doc.ownerId, ownerOnly: true },
+    action: 'write',
+    context: { ip: req.headers.get('x-forwarded-for') ?? undefined },
+  });
+
+  if (!decision.allowed) {
+    audit({ actor: session.userId, action: 'document:write', resource: \`document:\${doc.id}\`, allowed: false, reason: decision.reason });
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  }
+
+  // ... update document ...
+  audit({ actor: session.userId, action: 'document:write', resource: \`document:\${doc.id}\`, allowed: true });
+  return NextResponse.json({ ok: true });
+}</code></pre>
+        <div class="note">
+          <strong>注意:</strong> <code>requireAuth()</code> 只確認「有登入」,真正檢查權限的是 <code>authorize()</code>。兩者分離,讓 401 (未登入) 與 403 (已登入但沒權限) 的語意正確。
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== React Hook Code ========== -->
+    <section data-section="react" style="display:none;">
+      <div class="page-header">
+        <div class="eyebrow">components/Can.tsx + hooks/useCan.ts</div>
+        <h2 class="page-title">React Hook & 元件</h2>
+        <p class="page-sub">前端透過 <code>useSession()</code> 取得身份,再以 <code>useCan()</code> 詢問策略層。但 UI 永遠不能作為唯一防線 — 真正的保護在 API。</p>
+      </div>
+      <div class="card">
+<pre><code>// hooks/useCan.ts
+'use client';
+import { useSession } from 'next-auth/react';
+import { authorize } from '@/lib/rbac/policy';
+import type { Action, Resource } from '@/lib/rbac/types';
+
+export function useCan(resource: Resource, action: Action, context?: Record&lt;string, any&gt;) {
+  const { data: session, status } = useSession();
+  if (status !== 'authenticated' || !session) return { allowed: false, reason: 'unauthenticated' };
+  return authorize({ session, resource, action, context });
+}
+
+// components/Can.tsx
+'use client';
+import { useCan } from '@/hooks/useCan';
+import type { Action, Resource } from '@/lib/rbac/types';
+
+interface Props {
+  resource: Resource;
+  action: Action;
+  fallback?: React.ReactNode;
+  children: React.ReactNode;
+}
+
+export function Can({ resource, action, fallback = null, children }: Props) {
+  const { allowed } = useCan(resource, action);
+  return &lt;&gt;{allowed ? children : fallback}&lt;/&gt;;
+}
+
+// usage example
+function DocumentActions({ doc }: { doc: Document }) {
+  return (
+    &lt;div className="actions"&gt;
+      &lt;Can resource={{ type: 'document', id: doc.id, ownerId: doc.ownerId }} action="write"&gt;
+        &lt;Button&gt;編輯&lt;/Button&gt;
+      &lt;/Can&gt;
+      &lt;Can resource={{ type: 'document', id: doc.id, ownerId: doc.ownerId, ownerOnly: true }} action="delete"&gt;
+        &lt;Button variant="danger"&gt;刪除&lt;/Button&gt;
+      &lt;/Can&gt;
+    &lt;/div&gt;
+  );
+}</code></pre>
+        <div class="note">
+          <strong>SSR / Hydration:</strong> <code>useCan()</code> 在 server component 不適用;若需要 SSR 渲染決定,可在 server component 直接呼叫 <code>authorize()</code>(它無副作用、可安全在 RSC 跑)。
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== Decision Simulator ========== -->
+    <section data-section="decision" style="display:none;">
+      <div class="page-header">
+        <div class="eyebrow">Live Decision Simulator</div>
+        <h2 class="page-title">即時授權決策模擬</h2>
+        <p class="page-sub">模擬一次 API 請求,展示 <code>authorize()</code> 內部逐步決策 trace。可切換身份 / 資源 / 動作 / IP / 時間,即時看到 allow / deny 結果。</p>
+      </div>
+      <div class="card">
+        <div class="dec-panel">
+          <div class="dec-input">
+            <div class="dec-field"><label class="dec-label">身份</label><select id="dec-role"></select></div>
+            <div class="dec-field"><label class="dec-label">資源類型</label><select id="dec-resource"></select></div>
+            <div class="dec-field"><label class="dec-label">動作</label><select id="dec-action"></select></div>
+            <div class="dec-field"><label class="dec-label">資源擁有者</label><select id="dec-owner"></select></div>
+            <div class="dec-field"><label class="dec-label">來源 IP (billing 限制用)</label><input id="dec-ip" value="203.0.113.42" /></div>
+            <div class="dec-field"><label class="dec-label">現在時間 (小時 0-23)</label><input id="dec-hour" type="number" min="0" max="23" value="14" /></div>
+            <button class="dec-btn" id="dec-go">▶ 執行 authorize()</button>
+          </div>
+          <div class="dec-out">
+            <div class="dec-out-title">Decision Result</div>
+            <div id="dec-verdict" class="dec-verdict">—</div>
+            <div class="dec-out-title">Trace</div>
+            <div id="dec-trace" class="dec-trace"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== Audit Log ========== -->
+    <section data-section="audit" style="display:none;">
+      <div class="page-header">
+        <div class="eyebrow">Audit Log</div>
+        <h2 class="page-title">授權稽核日誌</h2>
+        <p class="page-sub">所有決策結果即時寫入 audit log。production 可接 ELK / Loki / CloudWatch,本展示以 in-memory stream 模擬。</p>
+      </div>
+      <div class="card">
+        <div class="log-stream" id="audit-stream"></div>
+        <div style="margin-top: 12px; display:flex; gap: 8px;">
+          <button class="action-btn" id="audit-clear" style="cursor:pointer">清空日誌</button>
+          <button class="action-btn" id="audit-seed" style="cursor:pointer">隨機觸發 30 筆</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== Architecture ========== -->
+    <section data-section="arch" style="display:none;">
+      <div class="page-header">
+        <div class="eyebrow">Request Flow</div>
+        <h2 class="page-title">請求生命週期 — 三層守衛</h2>
+        <p class="page-sub">從 Edge 到 Server Component 再到 API Route,RBAC 在每一層都執行,做到「defense in depth」。</p>
+      </div>
+
+      <div class="card">
+        <div class="arch-grid">
+          <div class="arch-node flow"><div class="arch-title">① Edge — middleware.ts</div><div class="arch-meta">getToken() → role prefix 檢查</div></div>
+          <div class="arch-node gate"><div class="arch-title">② Server Component — page.tsx</div><div class="arch-meta">await auth() + authorize() 預渲染</div></div>
+          <div class="arch-node decision"><div class="arch-title">③ API Route — route.ts</div><div class="arch-meta">getServerSession() + authorize()</div></div>
+          <div class="arch-node flow"><div class="arch-title">④ Client — useCan() / &lt;Can&gt;</div><div class="arch-meta">隱藏/禁用按鈕,但不作為唯一防線</div></div>
+        </div>
+        <div class="flow-arrow">↓</div>
+        <div class="card" style="margin: 0; background: var(--panel2);">
+          <div class="card-title">每層負責的範圍</div>
+          <table class="matrix" style="width:100%">
+            <thead><tr><th class="row-h">層</th><th>角色</th><th>資源</th><th>屬性 (ABAC)</th><th>寫 Audit</th></tr></thead>
+            <tbody>
+              <tr><td class="row-h">Edge Middleware</td><td class="cell allow">✓ 粗粒度</td><td class="cell deny">✕</td><td class="cell deny">✕</td><td class="cell deny">✕ (只 log denied)</td></tr>
+              <tr><td class="row-h">Server Component</td><td class="cell allow">✓</td><td class="cell allow">✓</td><td class="cell cond">◐ (限 IP/時段)</td><td class="cell deny">✕</td></tr>
+              <tr><td class="row-h">API Route</td><td class="cell allow">✓</td><td class="cell allow">✓</td><td class="cell allow">✓</td><td class="cell allow">✓</td></tr>
+              <tr><td class="row-h">React Hook</td><td class="cell allow">✓</td><td class="cell allow">✓</td><td class="cell allow">✓</td><td class="cell deny">✕</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+/* ============================================================
+ * RBAC system — interactive simulation
+ * Models the same logic as the production code shown above.
+ * ============================================================ */
+
+const ROLE_HIERARCHY = ['guest', 'user', 'manager', 'admin', 'superadmin'];
+const ROLE_RANK = Object.fromEntries(ROLE_HIERARCHY.map((r, i) => [r, i]));
+
+/* --- 1. Identity registry --- */
+const IDENTITIES = [
+  { id: 'u-anon',     userId: 'u-anon',     role: 'guest',       name: '訪客 (未登入)' },
+  { id: 'u-alice',    userId: 'u-alice',    role: 'user',        name: 'Alice (一般使用者)' },
+  { id: 'u-bob',      userId: 'u-bob',      role: 'user',        name: 'Bob (一般使用者)' },
+  { id: 'u-carol',    userId: 'u-carol',    role: 'manager',     name: 'Carol (團隊主管)' },
+  { id: 'u-dave',     userId: 'u-dave',     role: 'admin',       name: 'Dave (管理員)' },
+  { id: 'u-eve',      userId: 'u-eve',      role: 'superadmin',  name: 'Eve (超級管理員)' },
+];
+
+let currentIdentity = IDENTITIES[1]; // default = Alice (user)
+
+/* --- 2. Role permissions matrix (resource:action) --- */
+const rolePermissions = {
+  guest: [
+    'home:read', 'public:read',
+  ],
+  user: [
+    'home:read', 'public:read',
+    'document:read', 'document:write', 'document:share',
+    'project:read',
+    'profile:read', 'profile:write',
+  ],
+  manager: [
+    'home:read', 'public:read',
+    'document:read', 'document:write', 'document:share',
+    'project:read', 'project:write',
+    'profile:read', 'profile:write',
+    'team:read', 'team:write',
+    'billing:read',
+  ],
+  admin: [
+    'home:read', 'public:read',
+    'document:read', 'document:write', 'document:delete', 'document:share',
+    'project:read', 'project:write', 'project:delete',
+    'profile:read', 'profile:write',
+    'team:read', 'team:write', 'team:delete',
+    'billing:read', 'billing:write',
+    'system:rotate',
+  ],
+  superadmin: [
+    '*:*',
+  ],
+};
+
+/* --- 3. Resources to protect (sample data) --- */
+const RESOURCES = [
+  { id: 'doc-101', type: 'document', name: '季度報告 Q3', ownerId: 'u-alice', orgId: 'org-1', confidential: false },
+  { id: 'doc-202', type: 'document', name: '薪資資料表',   ownerId: 'u-carol', orgId: 'org-1', confidential: true  },
+  { id: 'prj-001', type: 'project',  name: 'Raphael Portal', ownerId: 'u-carol', orgId: 'org-1' },
+  { id: 'prj-002', type: 'project',  name: '外部客戶專案',  ownerId: 'u-dave',  orgId: 'org-1' },
+  { id: 'team-eng', type: 'team',    name: '工程團隊',      ownerId: 'u-carol', orgId: 'org-1' },
+  { id: 'bill-may', type: 'billing', name: '5 月帳單',       ownerId: 'u-dave',  orgId: 'org-1' },
+  { id: 'audit-30d',type: 'audit',   name: '近 30 天稽核紀錄', ownerId: 'system', orgId: 'org-1' },
+  { id: 'sys-key',  type: 'system',  name: 'API 金鑰輪換',   ownerId: 'system', orgId: 'org-1' },
+];
+
+/* --- 4. ABAC rules --- */
+const ABAC_RULES = {
+  billing: [
+    ({ context }) => ({
+      allow: !(context.ip || '').startsWith('192.168.'),
+      detail: 'billing 動作需來自外部 IP (拒絕 192.168.* 內網)',
+    }),
+  ],
+  document: [
+    ({ action, now }) => {
+      if (action === 'read') return { allow: true, detail: 'document read 不限時段' };
+      const h = now.getHours();
+      return {
+        allow: h >= 8 && h < 20,
+        detail: `document write 限制為營業時間 08:00–20:00 (現在 ${h}:00)`,
+      };
+    },
+  ],
+  audit: [
+    ({ session }) => ({
+      allow: session.role === 'superadmin',
+      detail: 'audit 讀取/匯出僅 superadmin',
+    }),
+  ],
+  system: [
+    ({ session }) => ({
+      allow: session.role === 'superadmin',
+      detail: 'system.rotate 僅 superadmin',
+    }),
+  ],
+};
+
+/* --- 5. authorize() implementation (mirror of policy.ts) --- */
+function authorize(input) {
+  const trace = [];
+  const { session, resource, action, context = {} } = input;
+  const now = context.now || new Date();
+  const perms = rolePermissions[session.role] || [];
+  const exactKey = `${resource.type}:${action}`;
+  const wildcardType = `${resource.type}:*`;
+  const wildcardAction = `*:${action}`;
+  const superPerm = perms.includes('*:*');
+
+  const baseDecision = superPerm || perms.includes(exactKey) || perms.includes(wildcardType) || perms.includes(wildcardAction);
+  trace.push({ step: 'base-role', allow: baseDecision, detail: `${session.role} has [${perms.includes('*:*') ? '*:*' : perms.filter(p => p.startsWith(resource.type + ':') || p.startsWith('*:')).join(', ') || 'none'}] → check ${exactKey}` });
+  if (!baseDecision) {
+    return { allowed: false, reason: 'role-mismatch', trace };
+  }
+
+  // ABAC
+  const rules = ABAC_RULES[resource.type] || [];
+  for (const rule of rules) {
+    const result = rule({ session, resource, action, context, now });
+    trace.push({ step: `abac:${resource.type}`, allow: result.allow, detail: result.detail });
+    if (!result.allow) {
+      return { allowed: false, reason: `abac:${resource.type}`, trace };
+    }
+  }
+
+  // Owner check for write/delete/share on user-owned resources
+  if (['write', 'delete', 'share'].includes(action) && resource.ownerId && resource.ownerId !== 'system') {
+    const isOwner = resource.ownerId === session.userId;
+    const isAdmin = session.role === 'admin' || session.role === 'superadmin';
+    if (!isOwner && !isAdmin) {
+      trace.push({ step: 'owner-check', allow: false, detail: `resource owned by ${resource.ownerId}, session is ${session.userId}` });
+      return { allowed: false, reason: 'owner-only', trace };
+    }
+    trace.push({ step: 'owner-check', allow: true, detail: isAdmin ? 'admin override' : 'is owner' });
+  }
+
+  return { allowed: true, reason: 'granted', trace };
+}
+
+/* --- 6. Audit log (in-memory) --- */
+const auditLog = [];
+
+function pushAudit(actor, action, resourceId, allowed, reason) {
+  auditLog.unshift({
+    time: new Date(),
+    actor: actor.name + ' [' + actor.role + ']',
+    action,
+    resource: resourceId,
+    allowed,
+    reason,
+  });
+  if (auditLog.length > 200) auditLog.pop();
+  renderAudit();
+}
+
+/* --- 7. Render functions --- */
+function renderIdentityChips() {
+  const host = document.getElementById('id-chips');
+  host.innerHTML = '';
+  IDENTITIES.forEach(id => {
+    const chip = document.createElement('button');
+    chip.className = 'id-chip' + (id.id === currentIdentity.id ? ' active' : '');
+    chip.innerHTML = `<span>${id.name}</span><span class="role">${id.role}</span>`;
+    chip.onclick = () => { currentIdentity = id; renderAll(); };
+    host.appendChild(chip);
+  });
+}
+
+function renderMatrix() {
+  const wrap = document.getElementById('matrix-wrap');
+  const allResources = ['document', 'project', 'team', 'billing', 'audit', 'system'];
+  const allActions = ['read', 'write', 'delete', 'share', 'export', 'rotate'];
+
+  let html = '<table class="matrix"><thead><tr><th class="row-h">role \\ resource:action</th>';
+  allResources.forEach(r => {
+    allActions.forEach(a => {
+      html += `<th>${r}<br><span style="color:var(--accent); opacity:.6">:${a}</span></th>`;
+    });
+  });
+  html += '</tr></thead><tbody>';
+
+  ROLE_HIERARCHY.forEach(role => {
+    html += `<tr><td class="row-h">${role}</td>`;
+    allResources.forEach(r => {
+      allActions.forEach(a => {
+        const session = { userId: 'u-test', role, isAdmin: role === 'admin' || role === 'superadmin' };
+        const resource = { type: r, id: 'x', ownerId: session.userId };
+        const result = authorize({ session, resource, action: a });
+        let cls = 'cell ';
+        let mark = '✕';
+        if (result.allowed) {
+          if (result.reason === 'granted') { cls += 'allow'; mark = '✓'; }
+          else { cls += 'cond'; mark = '◐'; }
+        } else if (result.reason === 'role-mismatch') {
+          cls += 'deny'; mark = '✕';
+        } else if (result.reason === 'owner-only') {
+          cls += 'owner'; mark = '◎';
+        } else {
+          cls += 'deny'; mark = '✕';
+        }
+        const title = result.trace.map(t => `${t.step}: ${t.detail}`).join('\n');
+        html += `<td class="${cls}" title="${title.replace(/"/g, '&quot;')}">${mark}</td>`;
+      });
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+function renderResources() {
+  const host = document.getElementById('res-list');
+  host.innerHTML = '';
+  const actions = ['read', 'write', 'delete', 'share'];
+  RESOURCES.forEach(r => {
+    const card = document.createElement('div');
+    card.className = 'res-item';
+    const ownerName = IDENTITIES.find(i => i.userId === r.ownerId)?.name || r.ownerId;
+    const head = `<div class="res-head">
+        <div class="res-name">${r.name}</div>
+        <div class="res-id">${r.id}</div>
+      </div>
+      <div style="font-size:11.5px; color:var(--muted2)">
+        <span class="badge purple">${r.type}</span>
+        owner: ${ownerName}
+        ${r.confidential ? ' <span class="badge warn">機密</span>' : ''}
+      </div>`;
+    const actionsHtml = actions.filter(a => {
+      // UI hint: skip actions that are not defined for this resource type
+      return ['read','write','delete','share'].includes(a);
+    }).map(a => {
+      const decision = authorize({
+        session: currentIdentity,
+        resource: { type: r.type, id: r.id, ownerId: r.ownerId },
+        action: a,
+        context: { ip: '203.0.113.42' },
+      });
+      const cls = decision.allowed ? 'allowed' : (decision.reason === 'role-mismatch' ? 'denied' : 'cond-allowed');
+      const btn = `<button class="action-btn ${cls}" data-res="${r.id}" data-action="${a}"><span class="mark"></span>${a}</button>`;
+      return btn;
+    }).join('');
+    card.innerHTML = head + `<div class="res-actions">${actionsHtml}</div>`;
+    host.appendChild(card);
+  });
+  // bind clicks
+  host.querySelectorAll('.action-btn').forEach(btn => {
+    btn.onclick = () => {
+      const resId = btn.dataset.res;
+      const action = btn.dataset.action;
+      const r = RESOURCES.find(x => x.id === resId);
+      const decision = authorize({
+        session: currentIdentity,
+        resource: { type: r.type, id: r.id, ownerId: r.ownerId },
+        action,
+        context: { ip: '203.0.113.42' },
+      });
+      pushAudit(currentIdentity, `${r.type}:${action}`, r.id, decision.allowed, decision.reason);
+      // visually flash
+      btn.style.transition = 'all .15s';
+      btn.style.transform = 'scale(1.06)';
+      setTimeout(() => { btn.style.transform = 'scale(1)'; }, 120);
+    };
+  });
+}
+
+function renderDecision() {
+  const roleSel = document.getElementById('dec-role');
+  roleSel.innerHTML = IDENTITIES.map(i => `<option value="${i.id}">${i.name} (${i.role})</option>`).join('');
+  roleSel.value = currentIdentity.id;
+
+  const resSel = document.getElementById('dec-resource');
+  resSel.innerHTML = RESOURCES.map(r => `<option value="${r.id}">${r.type} — ${r.name}</option>`).join('');
+
+  const actSel = document.getElementById('dec-action');
+  actSel.innerHTML = ['read','write','delete','share','export','rotate'].map(a => `<option value="${a}">${a}</option>`).join('');
+
+  const ownerSel = document.getElementById('dec-owner');
+  ownerSel.innerHTML = IDENTITIES.map(i => `<option value="${i.userId}">${i.name}</option>`).join('');
+  ownerSel.value = 'u-alice';
+
+  document.getElementById('dec-ip').value = '203.0.113.42';
+  document.getElementById('dec-hour').value = 14;
+
+  runDecision();
+}
+
+function runDecision() {
+  const roleId = document.getElementById('dec-role').value;
+  const resId = document.getElementById('dec-resource').value;
+  const action = document.getElementById('dec-action').value;
+  const ownerId = document.getElementById('dec-owner').value;
+  const ip = document.getElementById('dec-ip').value;
+  const hour = parseInt(document.getElementById('dec-hour').value, 10);
+
+  const session = IDENTITIES.find(i => i.id === roleId);
+  const res = RESOURCES.find(r => r.id === resId);
+  const decision = authorize({
+    session,
+    resource: { type: res.type, id: res.id, ownerId },
+    action,
+    context: { ip, now: new Date(2026, 7, 4, hour, 0, 0) },
+  });
+
+  const verdict = document.getElementById('dec-verdict');
+  verdict.className = 'dec-verdict ' + (decision.allowed ? 'allow' : (decision.reason === 'role-mismatch' ? 'deny' : 'cond'));
+  verdict.textContent = decision.allowed ? '✓ ALLOW — ' + decision.reason : '✕ DENY — ' + decision.reason;
+
+  const traceHtml = decision.trace.map(t => {
+    const marker = t.allow ? '✓' : '✕';
+    const color = t.allow ? 'var(--ok)' : 'var(--err)';
+    return `<div class="dec-trace-step">
+      <span class="ts-marker" style="color:${color}">[${marker}]</span>
+      <span class="ts-detail"><strong>${t.step}</strong> — ${t.detail}</span>
+    </div>`;
+  }).join('');
+  document.getElementById('dec-trace').innerHTML = traceHtml;
+
+  pushAudit(session, `${res.type}:${action}`, `${res.id} (owner=${ownerId})`, decision.allowed, decision.reason);
+}
+
+function renderAudit() {
+  const host = document.getElementById('audit-stream');
+  if (auditLog.length === 0) {
+    host.innerHTML = '<div style="padding:14px 18px; color:var(--muted2); font-size:12px;">尚無日誌;點擊「隨機觸發 30 筆」生成模擬資料,或在「資源保護」/「即時決策」執行操作。</div>';
+    return;
+  }
+  host.innerHTML = auditLog.slice(0, 100).map(e => {
+    const cls = e.allowed ? 'allow' : 'deny';
+    const t = e.time.toTimeString().slice(0, 8);
+    return `<div class="log-line ${cls}">
+      <span class="log-time">${t}</span>
+      <span class="log-user">${e.actor}</span>
+      <span class="log-action">${e.action}</span>
+      <span class="log-resource">${e.resource}</span>
+      <span class="log-reason">${e.allowed ? 'allowed' : 'denied: ' + e.reason}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderStats() {
+  document.getElementById('res-count').textContent = RESOURCES.length;
+  document.getElementById('action-count').textContent = 6; // read/write/delete/share/export/rotate
+}
+
+/* --- 8. Tab navigation --- */
+function bindTabs() {
+  document.querySelectorAll('.nav-item').forEach(el => {
+    el.onclick = () => {
+      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+      el.classList.add('active');
+      const tab = el.dataset.tab;
+      document.querySelectorAll('main [data-section]').forEach(s => {
+        s.style.display = (s.dataset.section === tab) ? '' : 'none';
+      });
+      // code sub-tabs: also reset
+      if (tab === 'policy') {
+        // ensure first sub-tab is active
+        const subs = document.querySelectorAll('#policy-tabs .code-tab');
+        subs.forEach(s => s.classList.toggle('active', s.dataset.f === 'policy'));
+        document.querySelectorAll('.code-block').forEach(c => {
+          c.classList.toggle('active', c.id === 'cb-policy');
+        });
+      }
+    };
+  });
+
+  document.querySelectorAll('#policy-tabs .code-tab').forEach(t => {
+    t.onclick = () => {
+      document.querySelectorAll('#policy-tabs .code-tab').forEach(s => s.classList.remove('active'));
+      t.classList.add('active');
+      const f = t.dataset.f;
+      document.querySelectorAll('.code-block').forEach(c => {
+        c.classList.toggle('active', c.id === 'cb-' + f);
+      });
+    };
+  });
+}
+
+function bindDecisionControls() {
+  document.getElementById('dec-go').onclick = runDecision;
+  ['dec-role','dec-resource','dec-action','dec-owner','dec-ip','dec-hour'].forEach(id => {
+    document.getElementById(id).addEventListener('change', runDecision);
+    document.getElementById(id).addEventListener('input', runDecision);
+  });
+}
+
+function bindAudit() {
+  document.getElementById('audit-clear').onclick = () => { auditLog.length = 0; renderAudit(); };
+  document.getElementById('audit-seed').onclick = () => {
+    const identities = IDENTITIES.filter(i => i.role !== 'guest');
+    const actions = ['read','write','delete','share','export'];
+    for (let i = 0; i < 30; i++) {
+      const id = identities[Math.floor(Math.random() * identities.length)];
+      const res = RESOURCES[Math.floor(Math.random() * RESOURCES.length)];
+      const a = actions[Math.floor(Math.random() * actions.length)];
+      const decision = authorize({
+        session: id,
+        resource: { type: res.type, id: res.id, ownerId: res.ownerId },
+        action: a,
+        context: { ip: Math.random() < 0.85 ? '203.0.113.42' : '192.168.1.5', now: new Date(2026, 7, 4, Math.floor(Math.random() * 24), 0, 0) },
+      });
+      pushAudit(id, `${res.type}:${a}`, res.id, decision.allowed, decision.reason);
+    }
+  };
+}
+
+function renderAll() {
+  renderIdentityChips();
+  renderStats();
+  renderMatrix();
+  renderResources();
+  renderDecision();
+  renderAudit();
+}
+
+/* --- 9. Boot --- */
+bindTabs();
+bindDecisionControls();
+bindAudit();
+renderAll();
+</script>
+</body>
+</html>

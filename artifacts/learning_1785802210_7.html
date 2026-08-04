@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能網頁爬蟲控制台 — BeautifulSoup + Selenium</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-elev: #161b22;
+    --bg-elev-2: #1c2128;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --accent-2: #7ee787;
+    --warn: #f0883e;
+    --err: #ff7b72;
+    --purple: #d2a8ff;
+    --yellow: #d29922;
+    --code-bg: #161b22;
+    --code-text: #c9d1d9;
+    --link: #58a6ff;
+    --link-hover: #79c0ff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 14px; line-height: 1.6; }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { color: var(--link-hover); text-decoration: underline; }
+  code, pre { font-family: "JetBrains Mono", "Fira Code", "Source Code Pro", "Cascadia Code", Consolas, monospace; font-size: 13px; }
+  code { background: var(--code-bg); padding: 1px 6px; border-radius: 3px; color: var(--code-text); }
+  pre { background: var(--code-bg); padding: 12px; border-radius: 6px; overflow-x: auto; border: 1px solid var(--border); color: var(--code-text); }
+
+  /* Layout */
+  .app { max-width: 1400px; margin: 0 auto; padding: 24px; }
+  header.hero { margin-bottom: 32px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+  header.hero h1 { font-size: 28px; font-weight: 700; margin-bottom: 6px; background: linear-gradient(90deg, var(--accent), var(--purple)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  header.hero p.subtitle { color: var(--text-dim); font-size: 15px; }
+  header.hero .badges { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  header.hero .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 999px; background: var(--bg-elev); border: 1px solid var(--border); font-size: 12px; color: var(--text-dim); }
+  header.hero .badge.ok { color: var(--accent-2); border-color: rgba(126, 231, 135, 0.3); }
+  header.hero .badge.static { color: var(--accent); border-color: rgba(88, 166, 255, 0.3); }
+  header.hero .badge.dynamic { color: var(--purple); border-color: rgba(210, 168, 255, 0.3); }
+
+  /* Control panel */
+  .control-panel { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 24px; }
+  .control-panel h2 { font-size: 16px; font-weight: 600; margin-bottom: 14px; color: var(--text); display: flex; align-items: center; gap: 8px; }
+  .control-panel h2::before { content: ""; display: inline-block; width: 4px; height: 16px; background: var(--accent); border-radius: 2px; }
+  .control-row { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; margin-bottom: 12px; }
+  .control-row.secondary { grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  label.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-dim); }
+  input[type="text"], input[type="number"], select { background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 8px 12px; border-radius: 6px; font-size: 14px; font-family: inherit; }
+  input[type="text"]:focus, input[type="number"]:focus, select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.2); }
+  button { background: var(--accent); color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer; transition: background 0.15s; }
+  button:hover { background: var(--link-hover); }
+  button:disabled { background: var(--border); cursor: not-allowed; }
+  button.secondary { background: var(--bg-elev-2); color: var(--text); border: 1px solid var(--border); }
+  button.secondary:hover { background: var(--border); }
+  .preset-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .preset { background: var(--bg-elev-2); color: var(--text-dim); border: 1px solid var(--border); padding: 4px 10px; border-radius: 999px; font-size: 12px; cursor: pointer; transition: all 0.15s; }
+  .preset:hover { color: var(--text); border-color: var(--accent); }
+
+  /* Stats grid */
+  .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 24px; }
+  .stat-card { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .stat-card .label { font-size: 12px; color: var(--text-dim); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-card .value { font-size: 22px; font-weight: 700; color: var(--text); }
+  .stat-card .value.accent { color: var(--accent); }
+  .stat-card .value.green { color: var(--accent-2); }
+  .stat-card .value.purple { color: var(--purple); }
+  .stat-card .value.warn { color: var(--warn); }
+
+  /* Page list */
+  .page-list { display: flex; flex-direction: column; gap: 16px; }
+  .page-card { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .page-card-head { padding: 14px 18px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .page-card-head:hover { background: var(--bg-elev-2); }
+  .page-card-title { font-size: 15px; font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .page-card-url { font-size: 12px; color: var(--text-dim); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .page-card-meta { display: flex; gap: 12px; align-items: center; flex-shrink: 0; }
+  .meta-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; }
+  .meta-chip.mode-static { background: rgba(88, 166, 255, 0.1); color: var(--accent); border: 1px solid rgba(88, 166, 255, 0.3); }
+  .meta-chip.mode-dynamic { background: rgba(210, 168, 255, 0.1); color: var(--purple); border: 1px solid rgba(210, 168, 255, 0.3); }
+  .meta-chip.stat { background: var(--bg-elev-2); color: var(--text-dim); border: 1px solid var(--border); }
+  .meta-chip.status-200 { background: rgba(126, 231, 135, 0.1); color: var(--accent-2); }
+  .meta-chip.status-0 { background: rgba(255, 123, 114, 0.1); color: var(--err); }
+  .toggle-icon { color: var(--text-dim); transition: transform 0.2s; font-size: 12px; }
+  .page-card.open .toggle-icon { transform: rotate(90deg); }
+  .page-card-body { display: none; padding: 0 18px 18px; border-top: 1px solid var(--border); }
+  .page-card.open .page-card-body { display: block; padding-top: 16px; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+  .tab { padding: 8px 14px; background: transparent; color: var(--text-dim); border: none; border-bottom: 2px solid transparent; cursor: pointer; font-size: 13px; font-weight: 500; border-radius: 0; }
+  .tab:hover { color: var(--text); background: transparent; }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* Result lists */
+  .result-list { display: flex; flex-direction: column; gap: 6px; max-height: 500px; overflow-y: auto; padding-right: 4px; }
+  .result-list::-webkit-scrollbar { width: 8px; }
+  .result-list::-webkit-scrollbar-track { background: var(--bg); }
+  .result-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .result-list .item { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 8px 10px; font-size: 13px; }
+  .result-list .item .href { color: var(--text-dim); font-size: 11px; word-break: break-all; margin-top: 2px; }
+  .result-list .item .meta { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+  .result-list .item.truncated { color: var(--text-dim); font-style: italic; }
+  .result-list .img-item { display: flex; gap: 8px; align-items: center; }
+  .result-list .img-item img { max-width: 60px; max-height: 40px; object-fit: cover; border-radius: 3px; border: 1px solid var(--border); background: var(--bg-elev-2); }
+  .result-list .img-item .img-info { flex: 1; min-width: 0; }
+  .external-tag { font-size: 10px; padding: 1px 5px; background: var(--warn); color: #000; border-radius: 3px; margin-left: 6px; font-weight: 600; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { padding: 6px 8px; border: 1px solid var(--border); text-align: left; }
+  th { background: var(--bg-elev-2); font-weight: 600; }
+  tr:nth-child(even) td { background: var(--bg); }
+
+  /* Action log */
+  .action-log { font-family: monospace; font-size: 12px; }
+  .action-log .action { padding: 4px 0; border-bottom: 1px dashed var(--border); }
+  .action-log .action:last-child { border-bottom: none; }
+  .action-log .action .ts { color: var(--text-dim); margin-right: 8px; }
+
+  /* Empty state */
+  .empty { padding: 24px; text-align: center; color: var(--text-dim); font-size: 13px; font-style: italic; }
+
+  /* Modal */
+  .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; align-items: center; justify-content: center; padding: 20px; }
+  .modal-backdrop.open { display: flex; }
+  .modal { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; max-width: 900px; width: 100%; max-height: 80vh; overflow: hidden; display: flex; flex-direction: column; }
+  .modal-head { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+  .modal-head h3 { font-size: 15px; }
+  .modal-body { padding: 16px 18px; overflow-y: auto; flex: 1; }
+  .modal-close { background: transparent; color: var(--text-dim); font-size: 18px; padding: 4px 10px; }
+
+  /* Toast */
+  .toast { position: fixed; bottom: 24px; right: 24px; background: var(--accent-2); color: #000; padding: 10px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; box-shadow: 0 4px 12px rgba(0,0,0,0.4); z-index: 200; opacity: 0; transform: translateY(20px); transition: all 0.3s; pointer-events: none; }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.error { background: var(--err); color: #fff; }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .control-row, .control-row.secondary { grid-template-columns: 1fr; }
+    .result-list { max-height: 300px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header class="hero">
+    <h1>🕷️ 智能網頁爬蟲控制台</h1>
+    <p class="subtitle">BeautifulSoup 靜態解析 + Selenium 動態渲染 + 智能自動偵測 — 支援 infinite scroll / click-to-load / XHR 等待</p>
+    <div class="badges">
+      <span class="badge ok">● Python 3.12</span>
+      <span class="badge static">BeautifulSoup 4.13.5</span>
+      <span class="badge dynamic">Selenium 4.43.0</span>
+      <span class="badge">Chrome 151 headless</span>
+      <span class="badge ok">✓ 4 demo pages</span>
+    </div>
+  </header>
+
+  <!-- Control panel: live crawl -->
+  <section class="control-panel">
+    <h2>執行新爬取</h2>
+    <div class="control-row">
+      <label class="field">
+        目標 URL
+        <input type="text" id="urlInput" placeholder="https://example.com" value="https://news.ycombinator.com/">
+      </label>
+      <label class="field" style="min-width:120px;">
+        模式
+        <select id="modeSelect">
+          <option value="auto">auto（自動偵測）</option>
+          <option value="static">static（純 BS4）</option>
+          <option value="dynamic">dynamic（Selenium）</option>
+        </select>
+      </label>
+      <div class="field" style="justify-content:flex-end;">
+        <span style="visibility:hidden;">執行</span>
+        <button id="runBtn">▶ 執行爬取</button>
+      </div>
+    </div>
+    <div class="control-row secondary">
+      <label class="field">
+        Wait Selector（dynamic 用）
+        <input type="text" id="waitSel" placeholder=".content 或留空">
+      </label>
+      <label class="field">
+        Scroll 輪數（infinite scroll）
+        <input type="number" id="scrollRounds" value="3" min="0" max="20">
+      </label>
+      <label class="field">
+        Click More Selector
+        <input type="text" id="clickMore" placeholder="button.load-more">
+      </label>
+      <label class="field">
+        Click 最大次數
+        <input type="number" id="clickRounds" value="3" min="0" max="20">
+      </label>
+    </div>
+    <div class="preset-row">
+      <span style="color:var(--text-dim);font-size:12px;align-self:center;">快速 preset：</span>
+      <button class="preset" data-url="https://example.com" data-mode="static">example.com</button>
+      <button class="preset" data-url="https://www.iana.org/" data-mode="static">iana.org</button>
+      <button class="preset" data-url="https://en.wikipedia.org/wiki/Web_scraping" data-mode="auto">Wikipedia (auto)</button>
+      <button class="preset" data-url="https://quotes.toscrape.com/" data-mode="dynamic" data-scroll="3">quotes (scroll)</button>
+      <button class="preset" data-url="https://news.ycombinator.com/" data-mode="dynamic" data-scroll="2">HN (scroll)</button>
+    </div>
+    <div id="runStatus" style="margin-top:12px;font-size:12px;color:var(--text-dim);"></div>
+  </section>
+
+  <!-- Stats -->
+  <div class="stats" id="statsGrid"></div>
+
+  <!-- Page list -->
+  <div class="page-list" id="pageList"></div>
+
+</div>
+
+<!-- Modal for raw JSON -->
+<div class="modal-backdrop" id="jsonModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="jsonModalTitle">原始 JSON</h3>
+      <button class="modal-close" id="jsonModalClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <pre id="jsonModalContent" style="max-height:65vh;overflow:auto;"></pre>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// 內嵌 demo 資料（執行期可由 control panel 觸發新爬取並 append）
+const DEMO_DATA = {"started_at":"2026-08-04T00:15:16.022235+00:00","finished_at":"2026-08-04T00:15:25.067775+00:00","seed_url":"https://example.com","mode":"demo-multi","max_pages":4,"pages":[{"url":"https://example.com","final_url":"https://example.com","status":200,"mode":"static","title":"Example Domain","description":"","headings":["Example Domain"],"links":[{"text":"Learn more","href":"https://iana.org/domains/example","external":true}],"images":[],"paragraphs":["This domain is for use in documentation examples without needing permission. Avoid use in operations."],"tables":[],"json_ld":[],"meta":{},"dom_size":559,"load_ms":277,"dynamic_actions":[],"timestamp":"2026-08-04T00:15:16.022235+00:00"},{"url":"https://www.iana.org/","final_url":"https://www.iana.org/","status":200,"mode":"static","title":"Internet Assigned Numbers Authority","description":"","headings":["Internet Assigned Numbers Authority","Domain Names","Number Resources","Protocol Assignments"],"links":[{"text":"Learn more.","href":"https://www.iana.org/about","external":false},{"text":"Domain Names","href":"https://www.iana.org/domains","external":false},{"text":"Root Zone Management","href":"https://www.iana.org/domains/root","external":false},{"text":"Database of Top Level Domains","href":"https://www.iana.org/domains/root/db","external":false},{"text":".int Registry","href":"https://www.iana.org/domains/int","external":false},{"text":".arpa Registry","href":"https://www.iana.org/domains/arpa","external":false},{"text":"IDN Practices Repository","href":"https://www.iana.org/domains/idn-tables","external":false},{"text":"Number Resources","href":"https://www.iana.org/numbers","external":false},{"text":"Network abuse information","href":"https://www.iana.org/help/abuse","external":false},{"text":"Protocol Assignments","href":"https://www.iana.org/protocols","external":false},{"text":"Apply for an assignment","href":"https://www.iana.org/protocols/apply","external":false},{"text":"Time Zone Database","href":"https://www.iana.org/time-zones","external":false},{"text":"Number Registries","href":"https://www.iana.org/numbers/registries","external":false},{"text":"RIR Allocation Data","href":"https://www.iana.org/numbers/allocations/","external":false},{"text":"News","href":"https://www.iana.org/news","external":false},{"text":"Performance","href":"https://www.iana.org/performance","external":false},{"text":"The Organization","href":"https://www.iana.org/about/organization","external":false},{"text":"Archive","href":"https://www.iana.org/archive","external":false},{"text":"Contact Us","href":"https://www.iana.org/contact","external":false},{"text":"Public Technical Identifiers","href":"https://pti.icann.org","external":true},{"text":"ICANN","href":"https://www.icann.org/","external":true},{"text":"Privacy Policy","href":"https://www.icann.org/privacy/policy","external":true},{"text":"Terms of Service","href":"https://www.icann.org/privacy/tos","external":true}],"images":[],"paragraphs":["The global coordination of the DNS Root, IP addressing,\n            and other Internet protocol resources is performed as the\n            Internet Assigned Numbers Authority (IANA) functions.Learn more.","Management of the DNS Root Zone (assignments of ccTLDs and gTLDs) along with other functions such as the .int and .arpa zones.","Coordination of the global IP and AS number spaces, such as allocations made to Regional Internet Registries.","The central repository for protocol name and number registries used in many Internet protocols.","The IANA functions coordinate the Internet’s globally unique identifiers, and\n                are provided byPublic Technical Identifiers, an affiliate ofICANN."],"tables":[{"rows":[["Domain Names","Root Zone Registry.INT Registry.ARPA RegistryIDN Repository"],["Number Resources","Number RegistriesRIR Allocation DataAbuse Information"],["Protocols","Protocol RegistriesTime Zone Database"],["About Us","NewsPerformanceThe OrganizationArchiveContact Us"]]}],"json_ld":[],"meta":{},"dom_size":6253,"load_ms":201,"dynamic_actions":[],"timestamp":"2026-08-04T00:15:16.223714+00:00"},{"url":"https://en.wikipedia.org/wiki/Web_scraping","final_url":"https://en.wikipedia.org/wiki/Web_scraping","status":200,"mode":"static","title":"Web scraping - Wikipedia","description":"","headings":["Web scraping","Contents","History","Techniques","Legal issues","Methods to prevent web scraping","See also","References","Human copy-and-paste","Text pattern matching","HTTP programming","HTML parsing","DOM parsing","Vertical aggregation","Semantic annotation recognizing","Computer vision web-page analysis","United States","European Union","Australia","India"],"links":[{"text":"Main page","href":"https://en.wikipedia.org/wiki/Main_Page","external":false},{"text":"Contents","href":"https://en.wikipedia.org/wiki/Wikipedia:Contents","external":false},{"text":"Current events","href":"https://en.wikipedia.org/wiki/Portal:Current_events","external":false},{"text":"Random article","href":"https://en.wikipedia.org/wiki/Special:Random","external":false},{"text":"About Wikipedia","href":"https://en.wikipedia.org/wiki/Wikipedia:About","external":false},{"text":"Contact us","href":"https://en.wikipedia.org/wiki/Wikipedia:Contact_us","external":false},{"text":"Help","href":"https://en.wikipedia.org/wiki/Help:Contents","external":false},{"text":"Learn to edit","href":"https://en.wikipedia.org/wiki/Help:Introduction","external":false},{"text":"Community portal","href":"https://en.wikipedia.org/wiki/Wikipedia:Community_portal","external":false},{"text":"Recent changes","href":"https://en.wikipedia.org/wiki/Special:RecentChanges","external":false},{"text":"Upload file","href":"https://en.wikipedia.org/wiki/Wikipedia:File_upload_wizard","external":false},{"text":"Special pages","href":"https://en.wikipedia.org/wiki/Special:SpecialPages","external":false},{"text":"Search","href":"https://en.wikipedia.org/wiki/Special:Search","external":false},{"text":"Donate","href":"https://donate.wikimedia.org/?wmf_source=donate&wmf_medium=sidebar&wmf_campaign=en.wikipedia.org&uselang=en","external":true},{"text":"Create account","href":"https://en.wikipedia.org/w/index.php?title=Special:CreateAccount&returnto=Web+scraping","external":false},{"text":"Log in","href":"https://en.wikipedia.org/w/index.php?title=Special:UserLogin&returnto=Web+scraping","external":false},{"text":"العربية","href":"https://ar.wikipedia.org/wiki/%D8%AA%D8%AC%D8%B1%D9%8A%D9%81_%D9%88%D9%8A%D8%A8","external":true},{"text":"الدارجة","href":"https://ary.wikipedia.org/wiki/%D8%AA%D8%BA%D8%B1%D8%A7%D9%81_%D9%84%D9%88%D9%8A%D8%A8","external":true},{"text":"Català","href":"https://ca.wikipedia.org/wiki/Web_scraping","external":true},{"text":"Čeština","href":"https://cs.wikipedia.org/wiki/Web_scraping","external":true},{"text":"Deutsch","href":"https://de.wikipedia.org/wiki/Screen_Scraping","external":true},{"text":"Español","href":"https://es.wikipedia.org/wiki/Web_scraping","external":true},{"text":"Euskara","href":"https://eu.wikipedia.org/wiki/Web_scraping","external":true},{"text":"فارسی","href":"https://fa.wikipedia.org/wiki/%D8%AA%D8%B1%D8%A7%D8%B4%DB%8C%D8%AF%D9%86_%D9%88%D8%A8","external":true},{"text":"Français","href":"https://fr.wikipedia.org/wiki/Web_scraping","external":true},{"text":"Bahasa Indonesia","href":"https://id.wikipedia.org/wiki/Penggalian_web","external":true},{"text":"Íslenska","href":"https://is.wikipedia.org/wiki/Vefs%C3%B6fnun","external":true},{"text":"Italiano","href":"https://it.wikipedia.org/wiki/Web_scraping","external":true},{"text":"日本語","href":"https://ja.wikipedia.org/wiki/%E3%82%A6%E3%82%A7%E3%83%96%E3%82%B9%E3%82%AF%E3%83%AC%E3%82%A4%E3%83%94%E3%83%B3%E3%82%B0","external":true},{"text":"한국어","href":"https://ko.wikipedia.org/wiki/%EC%9B%B9_%EC%8A%A4%ED%81%AC%EB%9E%98%ED%95%91","external":true},{"text":"Latviešu","href":"https://lv.wikipedia.org/wiki/Rasmo%C5%A1ana","external":true},{"text":"Nederlands","href":"https://nl.wikipedia.org/wiki/Scrapen","external":true},{"text":"Português","href":"https://pt.wikipedia.org/wiki/Web_scraping","external":true},{"text":"Русский","href":"https://ru.wikipedia.org/wiki/%D0%92%D0%B5%D0%B1-%D1%81%D0%BA%D1%80%D0%B5%D0%B9%D0%BF%D0%B8%D0%BD%D0%B3","external":true},{"text":"Türkçe","href":"https://tr.wikipedia.org/wiki/Web_kaz%C4%B1ma","external":true},{"text":"Українська","href":"https://uk.wikipedia.org/wiki/Web_scraping","external":true},{"text":"粵語","href":"https://zh-yue.wikipedia.org/wiki/%E7%B6%B2%E9%A0%81%E5%88%AE%E6%96%99","external":true},{"text":"中文","href":"https://zh.wikipedia.org/wiki/%E7%BD%91%E9%A1%B5%E6%8A%93%E5%8F%96","external":true},{"text":"Edit links","href":"https://www.wikidata.org/wiki/Special:EntityPage/Q665452#sitelinks-wikipedia","external":true},{"text":"Article","href":"https://en.wikipedia.org/wiki/Web_scraping","external":false},{"text":"Talk","href":"https://en.wikipedia.org/wiki/Talk:Web_scraping","external":false},{"text":"Edit","href":"https://en.wikipedia.org/w/index.php?title=Web_scraping&action=edit","external":false},{"text":"View history","href":"https://en.wikipedia.org/w/index.php?title=Web_scraping&action=history","external":false},{"text":"What links here","href":"https://en.wikipedia.org/wiki/Special:WhatLinksHere/Web_scraping","external":false},{"text":"Related changes","href":"https://en.wikipedia.org/wiki/Special:RecentChangesLinked/Web_scraping","external":false},{"text":"Upload file","href":"https://en.wikipedia.org/wiki/Wikipedia:File_Upload_Wizard","external":false},{"text":"Permanent link","href":"https://en.wikipedia.org/w/index.php?title=Web_scraping&oldid=1367063064","external":false},{"text":"Page information","href":"https://en.wikipedia.org/w/index.php?title=Web_scraping&action=info","external":false},{"text":"Cite this page","href":"https://en.wikipedia.org/w/index.php?title=Special:CiteThisPage&page=Web_scraping&id=1367063064&wpFormIdentifier=titleform","external":false},{"text":"Get shortened URL","href":"https://en.wikipedia.org/w/index.php?title=Special:UrlShortener&url=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FWeb_scraping","external":false},{"text":"Switch to legacy parser","href":"https://en.wikipedia.org/w/index.php?title=Web_scraping&useparsoid=0","external":false},{"text":"Download as PDF","href":"https://en.wikipedia.org/w/index.php?title=Special:DownloadAsPdf&page=Web_scraping&action=show-download-screen","external":false},{"text":"Printable version","href":"https://en.wikipedia.org/w/index.php?title=Web_scraping&printable=yes","external":false},{"text":"Wikimedia Commons","href":"https://commons.wikimedia.org/wiki/Category:Web_scraping","external":true},{"text":"Wikidata item","href":"https://www.wikidata.org/wiki/Special:EntityPage/Q665452","external":true},{"text":"Data scraping","href":"https://en.wikipedia.org/wiki/Data_scraping","external":false},{"text":"Scraper site","href":"https://en.wikipedia.org/wiki/Scraper_site","external":false},{"text":"","href":"https://en.wikipedia.org/wiki/File:Question_book-new.svg","external":false},{"text":"more citations","href":"https://en.wikipedia.org/wiki/Wikipedia:Verifiability","external":false},{"text":"improve this article","href":"https://en.wikipedia.org/wiki/Special:EditPage/Web_scraping","external":false},{"text":"adding citations to reliable sources","href":"https://en.wikipedia.org/wiki/Help:Referencing_for_beginners","external":false},{"text":"removed","href":"https://en.wikipedia.org/wiki/Wikipedia:Verifiability#Burden_of_evidence","external":false},{"text":"\"Web scraping\"","href":"https://www.google.com/search?as_eq=wikipedia&q=%22Web+scraping%22","external":true},{"text":"news","href":"https://www.google.com/search?tbm=nws&q=%22Web+scraping%22+-wikipedia&tbs=ar:1","external":true},{"text":"newspapers","href":"https://www.google.com/search?&q=%22Web+scraping%22&tbs=bkt:s&tbm=bks","external":true},{"text":"books","href":"https://www.google.com/search?tbs=bks:1&q=%22Web+scraping%22+-wikipedia","external":true},{"text":"scholar","href":"https://scholar.google.com/scholar?q=%22Web+scraping%22","external":true},{"text":"JSTOR","href":"https://www.jstor.org/action/doBasicSearch?Query=%22Web+scraping%22&acc=on&wc=on","external":true},{"text":"Learn how and when to remove this message","href":"https://en.wikipedia.org/wiki/Help:Maintenance_template_removal","external":false},{"text":"extracting data","href":"https://en.wikipedia.org/wiki/Data_extraction","external":false},{"text":"websites","href":"https://en.wikipedia.org/wiki/Website","external":false},{"text":"World Wide Web","href":"https://en.wikipedia.org/wiki/World_Wide_Web","external":false},{"text":"Hypertext Transfer Protocol","href":"https://en.wikipedia.org/wiki/Hypertext_Transfer_Protocol","external":false},{"text":"bot","href":"https://en.wikipedia.org/wiki/Internet_bot","external":false},{"text":"web crawler","href":"https://en.wikipedia.org/wiki/Web_crawler","external":false},{"text":"database","href":"https://en.wikipedia.org/wiki/Database","external":false},{"text":"spreadsheet","href":"https://en.wikipedia.org/wiki/Spreadsheet","external":false},{"text":"retrieval","href":"https://en.wikipedia.org/wiki/Data_retrieval","external":false},{"text":"analysis","href":"https://en.wikipedia.org/wiki/Data_analysis","external":false},{"text":"parsed","href":"https://en.wikipedia.org/wiki/Parsing","external":false},{"_truncated":"...248 more links"}],"images":[{"src":"https://en.wikipedia.org/static/images/icons/enwiki-25.svg","alt":"","width":"50","height":"50"},{"src":"https://en.wikipedia.org/static/images/mobile/copyright/wikipedia-wordmark-en-25.svg","alt":"Wikipedia","width":"","height":""},{"src":"https://en.wikipedia.org/static/images/mobile/copyright/wikipedia-tagline-en-25.svg","alt":"The Free Encyclopedia","width":"140","height":"11"},{"src":"https://upload.wikimedia.org/wikipedia/en/thumb/9/99/Question_book-new.svg/60px-Question_book-new.svg.png","alt":"icon","width":"50","height":"39"},{"src":"https://upload.wikimedia.org/wikipedia/en/thumb/b/b4/Ambox_important.svg/40px-Ambox_important.svg.png","alt":"","width":"40","height":"40"},{"src":"https://upload.wikimedia.org/wikipedia/commons/thumb/b/bd/Ambox_globe_content.svg/60px-Ambox_globe_content.svg.png","alt":"Globe icon.","width":"48","height":"40"},{"src":"https://upload.wikimedia.org/wikipedia/commons/thumb/f/f9/Crystal_Clear_app_linneighborhood.svg/40px-Crystal_Clear_app_linneighborhood.svg.png","alt":"icon","width":"28","height":"28"},{"src":"https://en.wikipedia.org/wiki/Special:CentralAutoLogin/start?useformat=desktop&type=1x1&usesul3=1","alt":"","width":"1","height":"1"},{"src":"https://en.wikipedia.org/static/images/footer/wikimedia.svg","alt":"Wikimedia Foundation","width":"25","height":"25"},{"src":"https://en.wikipedia.org/w/resources/assets/mediawiki_compact.svg","alt":"Powered by MediaWiki","width":"25","height":"25"}],"paragraphs":["Web scraping,web harvesting, orweb data extractionisdata scrapingused forextracting datafromwebsites.[1]Web scraping software may directly access theWorld Wide Webusing theHypertext Transfer Protocolor a web browser. While web scraping can be done manually by a software user, the term typically refers to automated processes implemented using abotorweb crawler. It is a form of copying in which specific data is gathered and copied from the web, typically into a central localdatabaseorspreadsheet, ","Scraping a web page involves fetching it and then extracting data from it. Fetching is the downloading of a page (which a browser does when a user views a page). Therefore, web crawling is a main component of web scraping, to fetch pages for later processing. Having fetched, extraction can take place. The content of a page may beparsed, searched and reformatted, and its data copied into a spreadsheet or loaded into a database. Web scrapers typically take something out of a page, to make use of i","Contact scrapingis a type of web scraping that is used as a component of applications used forweb indexing,web mininganddata mining, online price change monitoring andprice comparison, product review scraping (to watch the competition), gathering real estate listings, weather data monitoring,website change detection, research, tracking online presence and reputation,web mashup, andweb data integration.","Web pagesare built using text-basedmarkup languages(HTMLandXHTML), and frequently contain a wealth of data in text form. However, most web pages are designed for humanend-usersand not for ease of automated use. As a result, specialized tools and software have been developed to facilitate the scraping of web pages. Web scraping applications includemarket research, price comparison, content monitoring andartificial intelligence. Businesses rely on web scraping services to efficiently gather and us","There are methods that some websites use to prevent web scraping, such as detecting and disallowing bots from crawling (viewing) their pages. In response, web scraping systems use techniques involvingDOMparsing,computer visionandnatural language processingto simulate human-like browsing to enable gathering web page content for offline parsing.","After thebirth of the World Wide Webin 1989, the first web robot,[2]World Wide Web Wanderer, was created in June 1993, which was intended only to measure the size of the web.","In December 1993, the first crawler-based web search engine,JumpStation, was launched.[citation needed]As there were fewer websites available on the web, search engines at that time used to rely on human administrators to collect and format links. In comparison, Jump Station was the first WWW search engine to rely on a web robot.","In 2000, the first WebAPIandAPIcrawler were created. In 2000,SalesforceandeBaylaunched their own API, with which programmers could access and download some of the data available to the public.[3]Since then, many websites offer web APIs for people to access their public database.","In the mid 2020s, the web scrapers ofLLMvendors have become a major source of web traffic, using distributed web crawling to avoid detection.[4][5][6]","Data extraction techniques range from manual collection to sophisticated automated systems. Web scraping tools can be code-based or no-code. Commercial no-code tools such as Octoparse, Import.io, ParseHub, and WebHarvy use visual interfaces to configure data collection.[7]Advanced methods analyze the underlying structure of web pages to transform unstructured content into amachine-readable format. These techniques usetext processingorartificial intelligence, aligning with the technical goals of ","The simplest form of web scraping is manual copying and pasting of data from a web page into a text file or spreadsheet. This approach requires no technical tools and can be used when automated scraping is blocked by website restrictions or when human judgment is necessary to interpret complex content. However, manual scraping is highly inefficient for large datasets, as it is time-consuming, prone to human error, and mentally exhausting. For this reason, it is generally considered impractical c","A simple approach to extract information from web pages is to use the UNIXgrepcommand orregular expression-matching facilities of programming languages (for instancePerlorPython), in order to find text matching a specified pattern.","Staticanddynamic web pagescan be retrieved by posting HTTP requests to the remote web server usingsocket programming.","Many websites have large collections of pages generated dynamically from an underlying structured source, like a database. Data of the same category are typically encoded into similar pages by a common script or template. In data mining, a program that detects such templates in a particular information source, extracts its content, and translates it into a relational form, is called awrapper. Wrapper generation algorithms assume that input pages of a wrapper induction system conform to a common ","By using a program such asSeleniumorPlaywright, developers can control a web browser such asChromeorFirefoxto load, navigate, and retrieve data from websites. This method can be especially useful for scraping data from dynamic sites since a web browser will fully load each page. Once an entire page is loaded, developers can access and parse theDOMusing an expression language such asXPath.","There are several companies that have developed vertical specific harvesting platforms. These platforms create and monitor a multitude of \"bots\" for specific verticals with no \"man in the loop\" (no direct human involvement), and no work related to a specific target site. The preparation involves establishing the knowledge base for the entire vertical and then the platform creates the bots automatically. The platform's robustness is measured by the quality of the information it retrieves (usually","The pages being scraped may embracemetadataor semantic markups and annotations, which can be used to locate specific data snippets. If the annotations are embedded in the pages, asMicroformatdoes, this technique can be viewed as a special case of DOM parsing. In another case, the annotations, organized into a semantic layer,[9]are stored and managed separately from the web pages, so the scrapers can retrieve data schema and instructions from this layer before scraping the pages.","There are efforts usingmachine learningandcomputer visionthat attempt to identify and extract information from web pages by interpreting pages visually as a human being might.[10]","The legality of web scraping varies across the world. In general, web scraping may be against theterms of serviceof some websites, but the enforceability of these terms is unclear.[11]","In the United States, website owners can use three majorlegal claimsto prevent undesired web scraping: (1) copyright infringement (compilation), (2) violation of theComputer Fraud and Abuse Act(\"CFAA\"), and (3)trespass to chattel.[12]However, the effectiveness of these claims relies upon meeting various criteria, and the case law is still evolving. For example, with regard to copyright, while outright duplication of original expression will in many cases be illegal, in the United States the cour","... 16 more paragraphs"],"tables":[{"rows":[["","This articleneedsmore citations.Please helpimprove this articlebyadding citations to reliable sources. Unsourced material may be challenged andremoved.Find sources:\"Web scraping\"–news·newspapers·books·scholar·JSTOR(April 2023)(Learn how and when to remove this message)"]]},{"rows":[["","This sectioncontainsinstructions or advice.Wikipedia is not a guidebook; please helprewrite such contentto be encyclopedic or move it toWikiversity,Wikibooks, orWikivoyage.(October 2025)(Learn how and when to remove this message)"]]},{"rows":[["","The examples and perspectives in this sectiondeal primarily with the United States and do not represent aworldwide viewof the subject.You mayimprove this section, discuss the issue on thetalk page, or create a new section, as appropriate.(October 2015)(Learn how and when to remove this message)"]]}],"json_ld":[{"@context":"https://schema.org","@type":"Article","name":"Web scraping","url":"https://en.wikipedia.org/wiki/Web_scraping","sameAs":"http://www.wikidata.org/entity/Q665452","mainEntity":"http://www.wikidata.org/entity/Q665452","author":{"@type":"Organization","name":"Contributors to Wikimedia projects"},"publisher":{"@type":"Organization","name":"Wikimedia Foundation, Inc.","logo":{"@type":"ImageObject","url":"https://www.wikimedia.org/static/images/wmf-hor-googpub.png"}},"datePublished":"2005-09-17T18:57:30Z","dateModified":"2026-07-31T19:05:00Z","headline":"data scraping used for extracting data from websites"}],"meta":{"og:title":"Web scraping - Wikipedia","og:type":"website"},"dom_size":239569,"load_ms":969,"dynamic_actions":[],"timestamp":"2026-08-04T00:15:17.193704+00:00"},{"url":"https://quotes.toscrape.com/","final_url":"https://quotes.toscrape.com/","status":200,"mode":"dynamic","title":"Quotes to Scrape","description":"","headings":["Quotes to Scrape","Top Ten tags"],"links":[{"text":"Quotes to Scrape","href":"https://quotes.toscrape.com/","external":false},{"text":"Login","href":"https://quotes.toscrape.com/login","external":false},{"text":"(about)","href":"https://quotes.toscrape.com/author/Albert-Einstein","external":false},{"text":"change","href":"https://quotes.toscrape.com/tag/change/page/1/","external":false},{"text":"deep-thoughts","href":"https://quotes.toscrape.com/tag/deep-thoughts/page/1/","external":false},{"text":"thinking","href":"https://quotes.toscrape.com/tag/thinking/page/1/","external":false},{"text":"world","href":"https://quotes.toscrape.com/tag/world/page/1/","external":false},{"text":"(about)","href":"https://quotes.toscrape.com/author/J-K-Rowling","external":false},{"text":"abilities","href":"https://quotes.toscrape.com/tag/abilities/page/1/","external":false},{"text":"choices","href":"https://quotes.toscrape.com/tag/choices/page/1/","external":false},{"text":"inspirational","href":"https://quotes.toscrape.com/tag/inspirational/page/1/","external":false},{"text":"life","href":"https://quotes.toscrape.com/tag/life/page/1/","external":false},{"text":"live","href":"https://quotes.toscrape.com/tag/live/page/1/","external":false},{"text":"miracle","href":"https://quotes.toscrape.com/tag/miracle/page/1/","external":false},{"text":"miracles","href":"https://quotes.toscrape.com/tag/miracles/page/1/","external":false},{"text":"(about)","href":"https://quotes.toscrape.com/author/Jane-Austen","external":false},{"text":"aliteracy","href":"https://quotes.toscrape.com/tag/aliteracy/page/1/","external":false},{"text":"books","href":"https://quotes.toscrape.com/tag/books/page/1/","external":false},{"text":"classic","href":"https://quotes.toscrape.com/tag/classic/page/1/","external":false},{"text":"humor","href":"https://quotes.toscrape.com/tag/humor/page/1/","external":false},{"text":"(about)","href":"https://quotes.toscrape.com/author/Marilyn-Monroe","external":false},{"text":"be-yourself","href":"https://quotes.toscrape.com/tag/be-yourself/page/1/","external":false},{"text":"adulthood","href":"https://quotes.toscrape.com/tag/adulthood/page/1/","external":false},{"text":"success","href":"https://quotes.toscrape.com/tag/success/page/1/","external":false},{"text":"value","href":"https://quotes.toscrape.com/tag/value/page/1/","external":false},{"text":"(about)","href":"https://quotes.toscrape.com/author/Andre-Gide","external":false},{"text":"love","href":"https://quotes.toscrape.com/tag/love/page/1/","external":false},{"text":"(about)","href":"https://quotes.toscrape.com/author/Thomas-A-Edison","external":false},{"text":"edison","href":"https://quotes.toscrape.com/tag/edison/page/1/","external":false},{"text":"failure","href":"https://quotes.toscrape.com/tag/failure/page/1/","external":false},{"text":"paraphrased","href":"https://quotes.toscrape.com/tag/paraphrased/page/1/","external":false},{"text":"(about)","href":"https://quotes.toscrape.com/author/Eleanor-Roosevelt","external":false},{"text":"misattributed-eleanor-roosevelt","href":"https://quotes.toscrape.com/tag/misattributed-eleanor-roosevelt/page/1/","external":false},{"text":"(about)","href":"https://quotes.toscrape.com/author/Steve-Martin","external":false},{"text":"obvious","href":"https://quotes.toscrape.com/tag/obvious/page/1/","external":false},{"text":"simile","href":"https://quotes.toscrape.com/tag/simile/page/1/","external":false},{"text":"Next→","href":"https://quotes.toscrape.com/page/2/","external":false},{"text":"love","href":"https://quotes.toscrape.com/tag/love/","external":false},{"text":"inspirational","href":"https://quotes.toscrape.com/tag/inspirational/","external":false},{"text":"life","href":"https://quotes.toscrape.com/tag/life/","external":false},{"text":"humor","href":"https://quotes.toscrape.com/tag/humor/","external":false},{"text":"books","href":"https://quotes.toscrape.com/tag/books/","external":false},{"text":"reading","href":"https://quotes.toscrape.com/tag/reading/","external":false},{"text":"friendship","href":"https://quotes.toscrape.com/tag/friendship/","external":false},{"text":"friends","href":"https://quotes.toscrape.com/tag/friends/","external":false},{"text":"truth","href":"https://quotes.toscrape.com/tag/truth/","external":false},{"text":"simile","href":"https://quotes.toscrape.com/tag/simile/","external":false},{"text":"GoodReads.com","href":"https://www.goodreads.com/quotes","external":true},{"text":"Zyte","href":"https://www.zyte.com","external":true}],"images":[],"paragraphs":["Quotes by:GoodReads.com"],"tables":[],"json_ld":[],"meta":{},"dom_size":10998,"load_ms":7442,"dynamic_actions":["GET https://quotes.toscrape.com/","WAIT selector:.quote","SCROLL 1: height 0→1740","SCROLL 2: height 1740→1740","SCROLL 3: height 1740→1740","SCROLL stopped:stagnant @3"],"timestamp":"2026-08-04T00:15:25.067775+00:00"}],"errors":[],"total_load_ms":8889};
+
+let pages = [...DEMO_DATA.pages];
+let expandedCards = new Set();
+
+// =========================================================
+// Rendering
+// =========================================================
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function formatMs(ms) {
+  if (ms < 1000) return ms + 'ms';
+  return (ms / 1000).toFixed(2) + 's';
+}
+
+function formatBytes(b) {
+  if (b < 1024) return b + 'B';
+  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + 'KB';
+  return (b / 1024 / 1024).toFixed(2) + 'MB';
+}
+
+function renderStats() {
+  const totalLinks = pages.reduce((a, p) => a + (p.links?.length || 0), 0);
+  const totalImgs = pages.reduce((a, p) => a + (p.images?.length || 0), 0);
+  const totalLoad = pages.reduce((a, p) => a + (p.load_ms || 0), 0);
+  const dynamicCount = pages.filter(p => p.mode === 'dynamic').length;
+
+  document.getElementById('statsGrid').innerHTML = `
+    <div class="stat-card">
+      <div class="label">頁面總數</div>
+      <div class="value accent">${pages.length}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">總連結數</div>
+      <div class="value">${totalLinks.toLocaleString()}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">總圖片數</div>
+      <div class="value purple">${totalImgs.toLocaleString()}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">總耗時</div>
+      <div class="value green">${formatMs(totalLoad)}</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">動態頁</div>
+      <div class="value warn">${dynamicCount} / ${pages.length}</div>
+    </div>
+  `;
+}
+
+function renderPageCard(p, idx) {
+  const isOpen = expandedCards.has(idx);
+  const statusChip = p.status === 200
+    ? `<span class="meta-chip status-200">HTTP ${p.status}</span>`
+    : `<span class="meta-chip status-0">HTTP ${p.status || 'ERR'}</span>`;
+  const modeChip = `<span class="meta-chip mode-${p.mode}">${p.mode}</span>`;
+  const truncatedLinks = p.links?.find(l => l._truncated);
+  const truncatedImgs = p.images?.find(l => l._truncated);
+  const truncatedParas = Array.isArray(p.paragraphs) && p.paragraphs.find(x => typeof x === 'string' && x.startsWith('... '));
+
+  return `
+    <div class="page-card ${isOpen ? 'open' : ''}" data-idx="${idx}">
+      <div class="page-card-head" data-action="toggle">
+        <div style="flex:1; min-width:0;">
+          <div class="page-card-title">${escapeHtml(p.title || '(no title)')}</div>
+          <div class="page-card-url">${escapeHtml(p.final_url || p.url)}</div>
+        </div>
+        <div class="page-card-meta">
+          ${modeChip}
+          ${statusChip}
+          <span class="meta-chip stat">${formatBytes(p.dom_size)}</span>
+          <span class="meta-chip stat">${formatMs(p.load_ms)}</span>
+          <span class="meta-chip stat">L ${p.links?.length || 0}</span>
+          <span class="meta-chip stat">I ${p.images?.length || 0}</span>
+          <span class="toggle-icon">▶</span>
+        </div>
+      </div>
+      <div class="page-card-body">
+        <div class="tabs" data-tabset="${idx}">
+          <button class="tab active" data-tab="overview">總覽</button>
+          <button class="tab" data-tab="headings">標題 (${p.headings?.length || 0})</button>
+          <button class="tab" data-tab="links">連結 (${p.links?.length || 0})</button>
+          <button class="tab" data-tab="images">圖片 (${p.images?.length || 0})</button>
+          <button class="tab" data-tab="paragraphs">段落 (${p.paragraphs?.length || 0})</button>
+          <button class="tab" data-tab="tables">表格 (${p.tables?.length || 0})</button>
+          <button class="tab" data-tab="jsonld">JSON-LD (${p.json_ld?.length || 0})</button>
+          ${p.dynamic_actions?.length ? `<button class="tab" data-tab="actions">動態軌跡 (${p.dynamic_actions.length})</button>` : ''}
+        </div>
+
+        <div class="tab-panel active" data-panel="overview">
+          ${p.description ? `<p style="margin-bottom:10px;color:var(--text-dim);">${escapeHtml(p.description)}</p>` : ''}
+          ${p.meta && Object.keys(p.meta).length ? `
+            <details style="margin-bottom:10px;">
+              <summary style="cursor:pointer;color:var(--text-dim);font-size:12px;">Meta tags (${Object.keys(p.meta).length})</summary>
+              <table style="margin-top:8px;">
+                ${Object.entries(p.meta).map(([k,v]) => `<tr><td><code>${escapeHtml(k)}</code></td><td>${escapeHtml(v).slice(0, 100)}</td></tr>`).join('')}
+              </table>
+            </details>` : ''}
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+            <button class="secondary" data-action="view-json" data-idx="${idx}">查看原始 JSON</button>
+            <button class="secondary" data-action="copy-url" data-url="${escapeHtml(p.final_url || p.url)}">複製 URL</button>
+            <button class="secondary" data-action="open-url" data-url="${escapeHtml(p.final_url || p.url)}">↗ 在新分頁開啟</button>
+          </div>
+        </div>
+
+        <div class="tab-panel" data-panel="headings">
+          ${p.headings?.length ? `<div class="result-list">${p.headings.map(h => `<div class="item">${escapeHtml(h)}</div>`).join('')}</div>` : '<div class="empty">沒有標題</div>'}
+        </div>
+
+        <div class="tab-panel" data-panel="links">
+          ${p.links?.length ? `<div class="result-list">${p.links.map(l => {
+            if (l._truncated) return `<div class="item truncated">${escapeHtml(l._truncated)}</div>`;
+            return `<div class="item">
+              <div>${escapeHtml(l.text || '(no text)')}${l.external ? '<span class="external-tag">EXT</span>' : ''}</div>
+              <div class="href">${escapeHtml(l.href)}</div>
+            </div>`;
+          }).join('')}</div>` : '<div class="empty">沒有連結</div>'}
+        </div>
+
+        <div class="tab-panel" data-panel="images">
+          ${p.images?.length ? `<div class="result-list">${p.images.map(img => {
+            if (img._truncated) return `<div class="item truncated">${escapeHtml(img._truncated)}</div>`;
+            return `<div class="item img-item">
+              <img src="${escapeHtml(img.src)}" alt="" loading="lazy" onerror="this.style.display='none'">
+              <div class="img-info">
+                <div>${escapeHtml(img.alt || '(no alt)')}</div>
+                <div class="href">${escapeHtml(img.src)}</div>
+              </div>
+            </div>`;
+          }).join('')}</div>` : '<div class="empty">沒有圖片</div>'}
+        </div>
+
+        <div class="tab-panel" data-panel="paragraphs">
+          ${p.paragraphs?.length ? `<div class="result-list">${p.paragraphs.map(par => {
+            if (typeof par === 'string' && par.startsWith('... ')) return `<div class="item truncated">${escapeHtml(par)}</div>`;
+            return `<div class="item">${escapeHtml(par)}</div>`;
+          }).join('')}</div>` : '<div class="empty">沒有段落</div>'}
+        </div>
+
+        <div class="tab-panel" data-panel="tables">
+          ${p.tables?.length ? p.tables.map((t, ti) => `
+            <div style="margin-bottom:16px;">
+              <div style="font-size:12px;color:var(--text-dim);margin-bottom:4px;">Table ${ti+1} (${t.rows.length} 列)</div>
+              <table>
+                <thead><tr>${(t.rows[0] || []).map(c => `<th>${escapeHtml(c)}</th>`).join('')}</tr></thead>
+                <tbody>${t.rows.slice(1).map(row => `<tr>${row.map(c => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody>
+              </table>
+            </div>
+          `).join('') : '<div class="empty">沒有表格</div>'}
+        </div>
+
+        <div class="tab-panel" data-panel="jsonld">
+          ${p.json_ld?.length ? `<div class="result-list">${p.json_ld.map(j => `<div class="item"><pre style="margin:0;background:transparent;border:none;padding:0;">${escapeHtml(JSON.stringify(j, null, 2))}</pre></div>`).join('')}</div>` : '<div class="empty">沒有 JSON-LD</div>'}
+        </div>
+
+        ${p.dynamic_actions?.length ? `
+        <div class="tab-panel" data-panel="actions">
+          <div class="result-list action-log">
+            ${p.dynamic_actions.map((a, i) => `<div class="action"><span class="ts">#${i+1}</span>${escapeHtml(a)}</div>`).join('')}
+          </div>
+        </div>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function renderAll() {
+  renderStats();
+  document.getElementById('pageList').innerHTML = pages.map((p, i) => renderPageCard(p, i)).join('');
+}
+
+// =========================================================
+// Interactions
+// =====================================
+document.addEventListener('click', (e) => {
+  const target = e.target;
+
+  // Toggle card open/close
+  const head = target.closest('[data-action="toggle"]');
+  if (head) {
+    const card = head.closest('.page-card');
+    const idx = parseInt(card.dataset.idx);
+    if (expandedCards.has(idx)) {
+      expandedCards.delete(idx);
+      card.classList.remove('open');
+    } else {
+      expandedCards.add(idx);
+      card.classList.add('open');
+    }
+    return;
+  }
+
+  // Tabs
+  const tab = target.closest('.tab');
+  if (tab) {
+    const tabset = tab.closest('[data-tabset]');
+    const targetTab = tab.dataset.tab;
+    tabset.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === tab));
+    const card = tab.closest('.page-card');
+    card.querySelectorAll('.tab-panel').forEach(p => {
+      p.classList.toggle('active', p.dataset.panel === targetTab);
+    });
+    return;
+  }
+
+  // View raw JSON
+  const viewJson = target.closest('[data-action="view-json"]');
+  if (viewJson) {
+    const idx = parseInt(viewJson.dataset.idx);
+    const p = pages[idx];
+    document.getElementById('jsonModalTitle').textContent = p.title || p.url;
+    document.getElementById('jsonModalContent').textContent = JSON.stringify(p, null, 2);
+    document.getElementById('jsonModal').classList.add('open');
+    return;
+  }
+
+  // Copy URL
+  const copyBtn = target.closest('[data-action="copy-url"]');
+  if (copyBtn) {
+    navigator.clipboard.writeText(copyBtn.dataset.url).then(() => {
+      showToast('URL 已複製');
+    }).catch(() => showToast('複製失敗', true));
+    return;
+  }
+
+  // Open URL in new tab
+  const openBtn = target.closest('[data-action="open-url"]');
+  if (openBtn) {
+    window.open(openBtn.dataset.url, '_blank', 'noopener');
+    return;
+  }
+
+  // Modal close
+  if (target.id === 'jsonModalClose' || target.id === 'jsonModal') {
+    document.getElementById('jsonModal').classList.remove('open');
+    return;
+  }
+
+  // Preset
+  const preset = target.closest('.preset');
+  if (preset) {
+    document.getElementById('urlInput').value = preset.dataset.url;
+    document.getElementById('modeSelect').value = preset.dataset.mode || 'auto';
+    if (preset.dataset.scroll) document.getElementById('scrollRounds').value = preset.dataset.scroll;
+    if (preset.dataset.click) document.getElementById('clickMore').value = preset.dataset.click;
+  }
+});
+
+document.getElementById('runBtn').addEventListener('click', async () => {
+  const url = document.getElementById('urlInput').value.trim();
+  if (!url) { showToast('請輸入 URL', true); return; }
+  const mode = document.getElementById('modeSelect').value;
+  const waitSel = document.getElementById('waitSel').value.trim() || null;
+  const scrollRounds = parseInt(document.getElementById('scrollRounds').value) || 0;
+  const clickMore = document.getElementById('clickMore').value.trim() || null;
+  const clickRounds = parseInt(document.getElementById('clickRounds').value) || 0;
+
+  const btn = document.getElementById('runBtn');
+  const status = document.getElementById('runStatus');
+  btn.disabled = true;
+  btn.textContent = '⏳ 爬取中...';
+  status.innerHTML = `<span style="color:var(--warn);">正在爬取 ${escapeHtml(url)}（${mode} 模式）— 這會花 1-30 秒</span>`;
+
+  try {
+    // 這個前端是 demo — 真正的爬取需要後端 API。
+    // 在 demo 環境中我們模擬「重新從 URL 觸發 localStorage 暫存」，但 demo 模式
+    // 我們用一個簡單的提示：告訴使用者怎麼從 CLI 執行。
+    await new Promise(r => setTimeout(r, 600));
+    status.innerHTML = `<span style="color:var(--text-dim);">ℹ️ 這是純前端 demo。新爬取請從 CLI 執行：</span><br>
+      <code style="display:block;margin-top:6px;padding:8px;background:var(--bg);border-radius:4px;">python3 crawler.py ${mode === 'auto' ? '' : '--mode ' + mode} ${scrollRounds ? '--scroll ' + scrollRounds : ''} ${clickMore ? '--click-more ' + shellQuote(clickMore) : ''} ${waitSel ? '--wait-selector ' + shellQuote(waitSel) : ''} ${shellQuote(url)} --out report_new.json</code>
+      <span style="color:var(--text-dim);font-size:11px;">然後把 report_new.json 內容貼到「查看原始 JSON」模組可預覽結構。</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '▶ 執行爬取';
+  }
+});
+
+function shellQuote(s) {
+  return "'" + String(s).replace(/'/g, "'\\''") + "'";
+}
+
+let toastTimer;
+function showToast(msg, isError = false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.toggle('error', isError);
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+// Expand first card by default
+expandedCards.add(0);
+
+// Initial render
+renderAll();
+
+// Expand all button helper (for power users — double-click title)
+document.querySelector('header.hero h1').addEventListener('dblclick', () => {
+  if (expandedCards.size === pages.length) {
+    expandedCards.clear();
+  } else {
+    pages.forEach((_, i) => expandedCards.add(i));
+  }
+  renderAll();
+});
+
+</script>
+</body>
+</html>

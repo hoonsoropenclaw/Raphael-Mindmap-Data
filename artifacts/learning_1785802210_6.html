@@ -1,0 +1,656 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Polyglot Realtime — a Telegram bot that streams OpenAI Whisper transcription with live status updates, per-user language, and optional translation." />
+  <title>Polyglot Realtime · Telegram × Whisper 實時轉錄</title>
+  <style>
+    /* ====================================================================
+       Design tokens — calm, technical, paper-warm
+       ==================================================================== */
+    :root {
+      --ink: #0e1f1a;
+      --ink-soft: #2c3a35;
+      --muted: #6f7d77;
+      --paper: #f5f1e8;
+      --paper-2: #ece5d2;
+      --panel: #fffaee;
+      --line: #d8cfb8;
+      --line-strong: #b9ad8e;
+      --forest: #2b5d4a;
+      --forest-deep: #143a2c;
+      --teal: #6db4a3;
+      --gold: #c79858;
+      --amber: #d97f3c;
+      --rose: #c7576a;
+      --blue: #4a78a8;
+      --shadow-sm: 0 2px 6px rgba(20, 58, 44, .07);
+      --shadow: 0 14px 40px rgba(20, 58, 44, .12);
+      --shadow-lg: 0 22px 70px rgba(20, 58, 44, .18);
+      --radius: 14px;
+      --radius-sm: 8px;
+      --mono: "JetBrains Mono", "Noto Sans Mono", "DejaVu Sans Mono", "SF Mono", "IBM Plex Mono", "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", Menlo, Consolas, monospace;
+      --sans: "Inter", "PingFang TC", "Noto Sans TC", "Helvetica Neue", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      color: var(--ink);
+      background:
+        radial-gradient(ellipse 800px 500px at 12% -10%, rgba(199, 152, 88, .18), transparent 70%),
+        radial-gradient(ellipse 900px 600px at 95% 8%, rgba(45, 92, 74, .13), transparent 65%),
+        var(--paper);
+      font-family: var(--sans);
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--forest-deep); text-decoration: none; border-bottom: 1px dashed var(--line-strong); }
+    a:hover { border-bottom-style: solid; }
+
+    button { font: inherit; cursor: pointer; }
+    button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+      outline: 3px solid rgba(43, 93, 74, .32); outline-offset: 2px;
+    }
+    code, pre { font-family: var(--mono); font-size: 12.5px; }
+    pre { background: var(--ink); color: #e5e9e6; padding: 14px 18px; border-radius: var(--radius-sm); overflow-x: auto; line-height: 1.5; }
+
+    /* ====================================================================
+       Layout shell
+       ==================================================================== */
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 48px 32px 96px; }
+    header.hero { margin-bottom: 56px; }
+    .eyebrow {
+      display: inline-flex; gap: 8px; align-items: center;
+      font: 600 11px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase;
+      color: var(--forest); background: rgba(45, 92, 74, .08);
+      padding: 6px 12px; border-radius: 999px;
+    }
+    .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--forest); }
+    h1 {
+      font-size: clamp(36px, 5vw, 56px); line-height: 1.05; letter-spacing: -.02em;
+      margin: 18px 0 12px; color: var(--ink);
+    }
+    h1 .accent { color: var(--forest); }
+    .lede { font-size: 18px; color: var(--ink-soft); max-width: 720px; margin: 0 0 24px; }
+    .meta-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+    .chip {
+      font: 500 12px/1 var(--mono); padding: 7px 12px; border-radius: 999px;
+      background: var(--panel); color: var(--ink-soft);
+      border: 1px solid var(--line);
+    }
+    .chip strong { color: var(--ink); }
+
+    /* ====================================================================
+       Section scaffolding
+       ==================================================================== */
+    section { margin: 64px 0; }
+    .section-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 24px; }
+    .section-head h2 {
+      font-size: 28px; letter-spacing: -.01em; margin: 0; color: var(--ink);
+    }
+    .section-head .num {
+      font: 700 13px/1 var(--mono); color: var(--forest);
+      background: rgba(45, 92, 74, .1); padding: 5px 9px; border-radius: 6px;
+    }
+    .section-head p { color: var(--muted); margin: 0; }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 28px;
+      box-shadow: var(--shadow-sm);
+    }
+    .card h3 { margin: 0 0 8px; font-size: 17px; }
+    .card p { color: var(--ink-soft); margin: 0 0 12px; }
+    .card .src { color: var(--muted); font: 12px/1.4 var(--mono); }
+
+    /* ====================================================================
+       THE BIG ONE — phone mockup with live status updates
+       ==================================================================== */
+    .demo-grid { display: grid; grid-template-columns: minmax(320px, 380px) 1fr; gap: 36px; align-items: start; }
+    @media (max-width: 800px) { .demo-grid { grid-template-columns: 1fr; } }
+
+    .phone {
+      background: #0f1614;
+      border-radius: 36px;
+      padding: 18px 14px;
+      box-shadow: var(--shadow-lg), inset 0 0 0 2px #1a2b25;
+      position: relative;
+    }
+    .phone::before {
+      content: ""; position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+      width: 90px; height: 22px; background: #050807; border-radius: 14px;
+    }
+    .phone-screen {
+      background: #172b25; border-radius: 24px; padding: 36px 16px 16px;
+      min-height: 520px; display: flex; flex-direction: column; gap: 10px;
+      background-image: linear-gradient(180deg, #1d362e 0%, #172b25 30%, #11211c 100%);
+    }
+    .chat-header {
+      display: flex; align-items: center; gap: 10px;
+      padding: 0 4px 10px; border-bottom: 1px solid rgba(255,255,255,.08);
+      color: #d4e0d9; font: 500 14px/1 var(--sans);
+    }
+    .chat-header .avatar {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--teal), var(--forest));
+      display: grid; place-items: center; color: #fffaee; font-weight: 700;
+    }
+    .chat-header small { color: #8a9a92; display: block; font: 11px/1.2 var(--mono); }
+
+    .bubble {
+      max-width: 84%; padding: 10px 14px; border-radius: 18px; font-size: 14px;
+      line-height: 1.4; position: relative; word-wrap: break-word;
+      animation: bubble-in .35s ease both;
+    }
+    .bubble.user {
+      align-self: flex-end; background: var(--teal); color: #0e1f1a;
+      border-bottom-right-radius: 4px;
+    }
+    .bubble.bot {
+      align-self: flex-start; background: #243b34; color: #e5ece8;
+      border-bottom-left-radius: 4px; min-width: 180px;
+    }
+    .bubble.bot.status { background: #1a2c25; color: #8fbfae; font: 12.5px/1.4 var(--mono); }
+    .bubble.voice {
+      background: var(--teal); color: #0e1f1a;
+      display: flex; align-items: center; gap: 8px; min-width: 140px;
+    }
+    .voice .wave { display: flex; gap: 2px; align-items: center; height: 18px; }
+    .voice .wave span {
+      width: 2px; background: #0e1f1a; border-radius: 1px;
+      animation: wave 1.2s ease-in-out infinite;
+    }
+    .voice .wave span:nth-child(1) { height: 6px;  animation-delay: -.1s; }
+    .voice .wave span:nth-child(2) { height: 12px; animation-delay: -.3s; }
+    .voice .wave span:nth-child(3) { height: 18px; animation-delay: -.5s; }
+    .voice .wave span:nth-child(4) { height: 14px; animation-delay: -.7s; }
+    .voice .wave span:nth-child(5) { height: 8px;  animation-delay: -.9s; }
+    .voice .meta { font: 11px/1 var(--mono); opacity: .75; }
+    @keyframes wave { 0%, 100% { transform: scaleY(0.4); } 50% { transform: scaleY(1.2); } }
+
+    @keyframes bubble-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+    .status-row { display: flex; align-items: center; gap: 8px; }
+    .spinner {
+      display: inline-block; font: 16px/1 var(--mono); color: #6db4a3;
+      animation: spin 1.2s steps(10) infinite;
+      min-width: 1em;
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to   { transform: rotate(360deg); }
+    }
+
+    .progress-bar {
+      height: 3px; background: rgba(255,255,255,.1); border-radius: 2px;
+      overflow: hidden; margin-top: 8px;
+    }
+    .progress-bar .fill {
+      height: 100%; width: 0%; background: var(--teal);
+      transition: width 0.4s ease;
+    }
+
+    /* control panel on the right */
+    .controls .card { margin-bottom: 16px; }
+    .control-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+    .control-row label { font: 600 12px/1 var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+    select, button.primary {
+      font: 500 14px/1 var(--sans);
+      padding: 9px 14px; border-radius: var(--radius-sm);
+      background: var(--panel); border: 1px solid var(--line-strong); color: var(--ink);
+    }
+    select { padding-right: 30px; }
+    button.primary {
+      background: var(--forest); color: var(--paper);
+      border-color: var(--forest-deep); font-weight: 600;
+      transition: background 0.15s ease, transform 0.05s ease;
+    }
+    button.primary:hover { background: var(--forest-deep); }
+    button.primary:active { transform: translateY(1px); }
+    button.primary:disabled { opacity: .5; cursor: not-allowed; }
+    .scrub { font: 12px/1 var(--mono); color: var(--muted); }
+    .scrub input { width: 200px; }
+
+    .event-log {
+      max-height: 220px; overflow-y: auto;
+      background: #0a1310; color: #8fbfae; border-radius: var(--radius-sm);
+      padding: 12px 14px;
+      font: 11.5px/1.5 var(--mono);
+    }
+    .event-log .ev { display: flex; gap: 8px; }
+    .event-log .ev .t { color: #4f7a6b; }
+    .event-log .ev .k { color: #c79858; }
+    .event-log .ev .v { color: #d4e0d9; }
+
+    /* ====================================================================
+       Architecture + flow
+       ==================================================================== */
+    .arch { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin: 24px 0; }
+    @media (max-width: 800px) { .arch { grid-template-columns: repeat(2, 1fr); } }
+    .node {
+      background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-sm);
+      padding: 18px 14px; text-align: center; position: relative;
+    }
+    .node .icon { font-size: 24px; margin-bottom: 6px; }
+    .node .label { font: 600 13px/1.2 var(--sans); color: var(--ink); }
+    .node .sub { font: 11px/1.3 var(--mono); color: var(--muted); margin-top: 4px; }
+    .node::after {
+      content: "›"; position: absolute; right: -16px; top: 50%; transform: translateY(-50%);
+      color: var(--line-strong); font: 700 20px/1 var(--mono);
+    }
+    .node:last-child::after { display: none; }
+    .node.highlight { background: rgba(45, 92, 74, .08); border-color: var(--forest); }
+    .node.highlight .icon { filter: hue-rotate(20deg); }
+
+    .flow-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    @media (max-width: 800px) { .flow-grid { grid-template-columns: 1fr; } }
+    .flow-grid .card pre { margin: 0; }
+
+    /* ====================================================================
+       Comparison table — server-side vs pseudo-streaming
+       ==================================================================== */
+    .compare { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .compare th, .compare td {
+      text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--line);
+    }
+    .compare th {
+      font: 700 12px/1 var(--mono); color: var(--forest);
+      text-transform: uppercase; letter-spacing: .08em; background: rgba(45, 92, 74, .05);
+    }
+    .compare td:first-child { font: 500 13px/1.3 var(--mono); color: var(--ink-soft); }
+    .compare tr:last-child td { border-bottom: 0; }
+    .compare .yes { color: var(--forest); font-weight: 600; }
+    .compare .no { color: var(--rose); font-weight: 600; }
+    .compare .partial { color: var(--gold); font-weight: 600; }
+
+    /* ====================================================================
+       Footer
+       ==================================================================== */
+    footer.foot {
+      margin-top: 80px; padding-top: 24px; border-top: 1px solid var(--line);
+      color: var(--muted); font: 12px/1.5 var(--mono);
+      display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px;
+    }
+    footer .pill { background: var(--panel); padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+
+    <!-- ============================================================
+         HERO
+         ============================================================ -->
+    <header class="hero">
+      <span class="eyebrow"><span class="dot"></span>v2 · real-time</span>
+      <h1>Polyglot <span class="accent">Realtime</span><br />把語音即時變成文字</h1>
+      <p class="lede">
+        Telegram bot 整合 OpenAI <strong>Whisper</strong> 與可選 GPT 翻譯。
+        v2 新增<strong>偽串流 (pseudo-streaming)</strong> 狀態更新——
+        使用者按下發送後，每 <code>2 秒</code> 看到一次進度，而不是盯著「轉錄中…」乾等。
+        並加上 <code>asyncio.wait_for</code> 硬性 timeout，永不卡死。
+      </p>
+      <div class="meta-row">
+        <span class="chip">Python <strong>3.12</strong></span>
+        <span class="chip">python-telegram-bot <strong>22.8</strong></span>
+        <span class="chip">openai <strong>2.32.0</strong></span>
+        <span class="chip">aiosqlite <strong>per-user prefs</strong></span>
+        <span class="chip">tenacity <strong>exp. backoff + jitter</strong></span>
+        <span class="chip"><strong>15/15</strong> offline tests pass</span>
+      </div>
+    </header>
+
+    <!-- ============================================================
+         THE BIG ONE — interactive phone mockup
+         ============================================================ -->
+    <section id="demo">
+      <div class="section-head">
+        <span class="num">01</span>
+        <h2>按下發送後，你看到的是這樣</h2>
+        <p>左邊是 Telegram 對話視窗；右邊控制模擬速度、語言、原始語音。</p>
+      </div>
+
+      <div class="demo-grid">
+        <!-- phone mockup -->
+        <div class="phone" aria-label="Telegram chat simulation">
+          <div class="phone-screen">
+            <div class="chat-header">
+              <div class="avatar">P</div>
+              <div>
+                <div>Polyglot</div>
+                <small id="chatStatus">online · last seen just now</small>
+              </div>
+            </div>
+            <div id="chatLog" aria-live="polite"></div>
+          </div>
+        </div>
+
+        <!-- control panel -->
+        <div class="controls">
+          <div class="card">
+            <h3>控制面板</h3>
+            <p>用滑桿模擬 Whisper 的「處理時間」——越長代表越能展示 pseudo-streaming 進度更新。</p>
+            <div class="control-row">
+              <label for="langSel">語言</label>
+              <select id="langSel">
+                <option value="zh-Hant" selected>繁體中文</option>
+                <option value="zh-Hans">简体中文</option>
+                <option value="en">English</option>
+                <option value="ja">日本語</option>
+                <option value="ko">한국어</option>
+                <option value="es">Español</option>
+                <option value="fr">Français</option>
+                <option value="de">Deutsch</option>
+              </select>
+              <label for="sampleSel">語音範例</label>
+              <select id="sampleSel">
+                <option value="meeting" selected>Meeting (8s)</option>
+                <option value="recipe">Recipe (5s)</option>
+                <option value="directions">Directions (3s)</option>
+                <option value="outage">Outage report (12s)</option>
+              </select>
+            </div>
+            <div class="control-row">
+              <label for="durationScrub">模擬耗時</label>
+              <span class="scrub"><input type="range" id="durationScrub" min="3" max="15" value="8" step="1" /> <span id="durationLabel">8.0s</span></span>
+              <button class="primary" id="sendBtn">🎙️ 送出語音</button>
+              <button class="primary" id="timeoutBtn" style="background: var(--rose); border-color: var(--rose);">⏱️ 觸發 Timeout</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>事件日誌（每秒更新）</h3>
+            <p>每一次 <code>editMessageText</code> 呼叫都被記下來——這就是 pseudo-streaming 的真實行為。</p>
+            <div class="event-log" id="eventLog" aria-live="polite"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         ARCHITECTURE
+         ============================================================ -->
+    <section id="arch">
+      <div class="section-head">
+        <span class="num">02</span>
+        <h2>資料流：5 個節點</h2>
+        <p>語音從 Telegram 到 Whisper，文字 + 翻譯回流到使用者，全部在 <code>async</code> 事件迴圈中並行。</p>
+      </div>
+      <div class="arch">
+        <div class="node highlight">
+          <div class="icon">👤</div>
+          <div class="label">User</div>
+          <div class="sub">press &amp; hold mic</div>
+        </div>
+        <div class="node">
+          <div class="icon">📨</div>
+          <div class="label">Telegram Bot API</div>
+          <div class="sub">file_id → bytes</div>
+        </div>
+        <div class="node">
+          <div class="icon">🎙️</div>
+          <div class="label">Whisper</div>
+          <div class="sub">audio → text + lang</div>
+        </div>
+        <div class="node">
+          <div class="icon">🌐</div>
+          <div class="label">GPT (optional)</div>
+          <div class="sub">text → target lang</div>
+        </div>
+        <div class="node highlight">
+          <div class="icon">✅</div>
+          <div class="label">Reply</div>
+          <div class="sub">edit status msg</div>
+        </div>
+      </div>
+
+      <div class="flow-grid">
+        <div class="card">
+          <h3>Pseudo-streaming loop</h3>
+          <p>每 <code>BOT_PROGRESS_TICK</code> 秒 <code>editMessageText</code> 一次，直到 task 完成。</p>
+          <pre><code>async def transcribe_with_progress(voice_bytes, *, progress_cb):
+    task = asyncio.create_task(self.transcribe(voice_bytes))
+    while not task.done():
+        await asyncio.sleep(SETTINGS.progress_tick_seconds)
+        await progress_cb(elapsed, done=False)
+    return await task</code></pre>
+        </div>
+        <div class="card">
+          <h3>Hard timeout</h3>
+          <p><code>asyncio.wait_for</code> 包住整個呼叫；超過 25s 一律取消，給使用者清楚的錯誤訊息。</p>
+          <pre><code>return await asyncio.wait_for(
+    _call(),
+    timeout=SETTINGS.whisper_timeout_seconds + 5.0,
+)</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         HONEST COMPARISON
+         ============================================================ -->
+    <section id="compare">
+      <div class="section-head">
+        <span class="num">03</span>
+        <h2>誠實對照：server-side vs pseudo-streaming</h2>
+        <p>OpenAI 目前 <strong>不公開</strong> Whisper 的 SSE 串流端點。下方是兩種實作的對照。</p>
+      </div>
+      <div class="card">
+        <table class="compare">
+          <thead>
+            <tr><th>特性</th><th>Server-side streaming</th><th>Pseudo-streaming (本 bot)</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>使用者體感「即時」</td><td class="yes">✓ 真正 partial text</td><td class="partial">△ 進度動畫 + 耗時更新</td></tr>
+            <tr><td>實作複雜度</td><td class="no">高 (SSE / WebSocket)</td><td class="yes">低 (輪詢 + editMessageText)</td></tr>
+            <tr><td>API 配額</td><td class="partial">可能更高 (per-chunk)</td><td class="yes">與一次性呼叫相同</td></tr>
+            <tr><td>對 OpenAI 依賴</td><td class="no">需等官方支援</td><td class="yes">立即可用</td></tr>
+            <tr><td>錯誤恢復</td><td class="partial">需設計 partial-failure</td><td class="yes">與原本相同</td></tr>
+            <tr><td>Telegram API 限制</td><td class="yes">不受影響</td><td class="partial">30 msg/min/edit (dedupe 避開)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         FOOTER
+         ============================================================ -->
+    <footer class="foot">
+      <span class="pill">Polyglot Realtime v2 · /home/hoonsoropenclaw/.hermes/projects/learning_1785802210_6/</span>
+      <span>15/15 tests pass · python3 test_bot.py</span>
+    </footer>
+  </div>
+
+  <!-- ============================================================
+       JAVASCRIPT — phone mockup simulation
+       ============================================================ -->
+  <script>
+  (() => {
+    'use strict';
+
+    // ---- 1. i18n table (subset; matches i18n.py transcribing_live + transcription_done) ----
+    const I18N = {
+      'zh-Hant': {
+        voice_received: (s) => `🎙️ 收到你的語音（${s} 秒），正在轉錄…`,
+        transcribing_live: (sp, el) => `${sp} Whisper 工作中… ${el} 秒（每 2 秒自動更新）`,
+        transcription_done: (lang, text, el) => `📝 轉錄結果（偵測語言：${lang}，耗時 ${el} 秒）：\n${text}`,
+        whisper_timeout: (s) => `⏱️ Whisper 回應超過 ${s} 秒，已取消。請稍後重試或縮短語音。`,
+        spinner: '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏',
+      },
+      'zh-Hans': {
+        voice_received: (s) => `🎙️ 收到你的语音（${s} 秒），正在转录…`,
+        transcribing_live: (sp, el) => `${sp} Whisper 工作中… ${el} 秒（每 2 秒自动更新）`,
+        transcription_done: (lang, text, el) => `📝 转录结果（检测语言：${lang}，耗时 ${el} 秒）：\n${text}`,
+        whisper_timeout: (s) => `⏱️ Whisper 响应超过 ${s} 秒，已取消。请稍后重试或缩短语音。`,
+        spinner: '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏',
+      },
+      'en': {
+        voice_received: (s) => `🎙️ Got your voice (${s}s), transcribing…`,
+        transcribing_live: (sp, el) => `${sp} Whisper is working… ${el}s (auto-updates every 2s)`,
+        transcription_done: (lang, text, el) => `📝 Transcript (detected: ${lang}, took ${el}s):\n${text}`,
+        whisper_timeout: (s) => `⏱️ Whisper took longer than ${s}s — cancelled.`,
+        spinner: '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏',
+      },
+      'ja': {
+        voice_received: (s) => `🎙️ 音声を受信しました（${s}秒）、文字起こし中…`,
+        transcribing_live: (sp, el) => `${sp} Whisper で作業中… ${el}秒（2秒ごとに自動更新）`,
+        transcription_done: (lang, text, el) => `📝 文字起こし結果（検出言語: ${lang}、${el}秒）:\n${text}`,
+        whisper_timeout: (s) => `⏱️ Whisper の応答が ${s}秒を超えたためキャンセルしました。`,
+        spinner: '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏',
+      },
+      'ko': {
+        voice_received: (s) => `🎙️ 음성 수신 (${s}초), 변환 중…`,
+        transcribing_live: (sp, el) => `${sp} Whisper 작업 중… ${el}초 (2초마다 자동 갱신)`,
+        transcription_done: (lang, text, el) => `📝 변환 결과 (감지 언어: ${lang}, ${el}초):\n${text}`,
+        whisper_timeout: (s) => `⏱️ Whisper 응답이 ${s}초를 초과하여 취소했습니다.`,
+        spinner: '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏',
+      },
+      'es': {
+        voice_received: (s) => `🎙️ Audio recibido (${s}s), transcribiendo…`,
+        transcribing_live: (sp, el) => `${sp} Whisper trabajando… ${el}s (se actualiza cada 2s)`,
+        transcription_done: (lang, text, el) => `📝 Transcripción (idioma detectado: ${lang}, ${el}s):\n${text}`,
+        whisper_timeout: (s) => `⏱️ Whisper tardó más de ${s}s — cancelado.`,
+        spinner: '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏',
+      },
+      'fr': {
+        voice_received: (s) => `🎙️ Message vocal reçu (${s}s), transcription…`,
+        transcribing_live: (sp, el) => `${sp} Whisper en cours… ${el}s (mise à jour toutes les 2s)`,
+        transcription_done: (lang, text, el) => `📝 Transcription (langue détectée : ${lang}, ${el}s) :\n${text}`,
+        whisper_timeout: (s) => `⏱️ Whisper a dépassé ${s}s — annulé.`,
+        spinner: '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏',
+      },
+      'de': {
+        voice_received: (s) => `🎙️ Sprachnachricht empfangen (${s}s), Transkription läuft…`,
+        transcribing_live: (sp, el) => `${sp} Whisper arbeitet… ${el}s (alle 2s automatisch aktualisiert)`,
+        transcription_done: (lang, text, el) => `📝 Transkription (erkannte Sprache: ${lang}, ${el}s):\n${text}`,
+        whisper_timeout: (s) => `⏱️ Whisper hat ${s}s überschritten — abgebrochen.`,
+        spinner: '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏',
+      },
+    };
+
+    // ---- 2. Sample voice clips (Whisper's "actual" outputs) ----
+    const SAMPLES = {
+      meeting:   { duration: 8,  lang: 'zh', text: '各位同事好，今天我們來 review 上週的 Q3 報告，並討論下季的 roadmap 規劃。' },
+      recipe:    { duration: 5,  lang: 'ja', text: '醤油と砂糖と酢を 1:1:1 で混ぜると、即席の甘酢だれができます。' },
+      directions:{ duration: 3,  lang: 'en', text: 'Turn left at the second light, then it\'s the third building on your right.' },
+      outage:    { duration: 12, lang: 'ko', text: '서울 강남구 일대에 정전 사고가 발생했습니다. 복구 예상 시간은 오후 6시입니다.' },
+    };
+
+    // ---- 3. DOM helpers ----
+    const $ = (s) => document.querySelector(s);
+    const chatLog = $('#chatLog');
+    const eventLog = $('#eventLog');
+    const langSel = $('#langSel');
+    const sampleSel = $('#sampleSel');
+    const scrub = $('#durationScrub');
+    const durLabel = $('#durationLabel');
+    const sendBtn = $('#sendBtn');
+    const timeoutBtn = $('#timeoutBtn');
+
+    let runSeq = 0;
+
+    function append(html, cls = 'bot') {
+      const div = document.createElement('div');
+      div.className = 'bubble ' + cls;
+      div.innerHTML = html;
+      chatLog.appendChild(div);
+      chatLog.scrollTop = chatLog.scrollHeight;
+      return div;
+    }
+
+    function logEvent(kind, payload) {
+      const t = new Date().toISOString().slice(11, 23);
+      const row = document.createElement('div');
+      row.className = 'ev';
+      row.innerHTML = `<span class="t">${t}</span><span class="k">${kind}</span><span class="v">${payload}</span>`;
+      eventLog.appendChild(row);
+      eventLog.scrollTop = eventLog.scrollHeight;
+    }
+
+    function spinnerFrame(elapsed) {
+      const frames = I18N[langSel.value].spinner;
+      return frames[Math.floor(elapsed * 2) % frames.length];
+    }
+
+    // ---- 4. The simulation ----
+    async function run({ forceTimeout = false } = {}) {
+      const seq = ++runSeq;
+      const sample = SAMPLES[sampleSel.value];
+      const total = forceTimeout ? 18 : parseFloat(scrub.value);
+      const t = I18N[langSel.value];
+
+      // 1. user sends a voice bubble
+      const userBubble = document.createElement('div');
+      userBubble.className = 'bubble voice user';
+      userBubble.innerHTML = `
+        <div class="wave"><span></span><span></span><span></span><span></span><span></span></div>
+        <span class="meta">${sample.duration}s</span>
+      `;
+      chatLog.appendChild(userBubble);
+      chatLog.scrollTop = chatLog.scrollHeight;
+      logEvent('user.send', `voice ${sample.duration}s (${sampleSel.value})`);
+
+      // 2. bot immediately replies with "got your voice"
+      const status = document.createElement('div');
+      status.className = 'bubble bot status';
+      status.innerHTML = t.voice_received(sample.duration);
+      chatLog.appendChild(status);
+      chatLog.scrollTop = chatLog.scrollHeight;
+      logEvent('bot.sendMessage', `voice_received (${sample.duration}s)`);
+
+      // 3. progress loop — every 0.5s of wall time, advance 0.5s of "elapsed"
+      //    (compressed 2s tick → 0.5s wall so demo isn't boring).
+      //    For a 3s default duration the user will see 2 progress edits before
+      //    the final transcript; for 15s they see 8 — enough to feel "live".
+      const realTickMs = 500;          // 0.5s wall per "2s tick" (compressed)
+      const simTickSec = 2.0;          // what the bot.py tick simulates
+      const totalSim = total;          // how long the mock Whisper call takes
+      let elapsed = 0;
+      let edits = 0;
+      const startWall = performance.now();
+
+      while (elapsed < totalSim) {
+        if (seq !== runSeq) return;     // user clicked again, abort
+        await new Promise(r => setTimeout(r, realTickMs));
+        if (seq !== runSeq) return;
+        elapsed = Math.min(elapsed + simTickSec, totalSim);
+        const sp = spinnerFrame(elapsed);
+        status.innerHTML = t.transcribing_live(sp, elapsed.toFixed(1));
+        edits++;
+        const wallMs = Math.round(performance.now() - startWall);
+        logEvent('bot.editMessageText', `tick #${edits}  elapsed=${elapsed.toFixed(1)}s  wall=${wallMs}ms`);
+      }
+
+      // 4. either timeout or final transcript
+      if (forceTimeout) {
+        status.innerHTML = t.whisper_timeout(25);
+        status.classList.remove('status');
+        logEvent('bot.editMessageText', 'whisper_timeout (forced)');
+        return;
+      }
+
+      const wallSec = ((performance.now() - startWall) / 1000).toFixed(1);
+      status.classList.remove('status');
+      status.innerHTML = t.transcription_done(sample.lang, sample.text, wallSec).replace(/\n/g, '<br>');
+      logEvent('bot.editMessageText', `transcription_done (elapsed=${wallSec}s, edits=${edits})`);
+    }
+
+    // ---- 5. wiring ----
+    scrub.addEventListener('input', () => { durLabel.textContent = scrub.value + '.0s'; });
+    sendBtn.addEventListener('click', () => { run({ forceTimeout: false }); });
+    timeoutBtn.addEventListener('click', () => { run({ forceTimeout: true }); });
+
+    // Greeting bubble on load
+    window.addEventListener('DOMContentLoaded', () => {
+      const greet = document.createElement('div');
+      greet.className = 'bubble bot';
+      greet.innerHTML = '👋 傳一段語音給我，我會在 <code>2 秒</code> 內開始更新進度。試試上面的「送出語音」按鈕！';
+      chatLog.appendChild(greet);
+    });
+  })();
+  </script>
+</body>
+</html>

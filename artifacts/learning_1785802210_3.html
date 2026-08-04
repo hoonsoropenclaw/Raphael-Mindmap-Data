@@ -1,0 +1,1342 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AsyncFlow · 基於 React Flow 的異步事件驅動工作流引擎</title>
+<!-- React 18 UMD (生產穩定版) -->
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<!-- React Flow 11 UMD (v11 是穩定 LTS, v12 還在 RC) -->
+<script crossorigin src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+<!-- Babel for in-browser JSX (demo 用,生產請用 Vite) -->
+<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css" />
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #14181f;
+    --panel-2: #1c2230;
+    --border: #2a3142;
+    --text: #e6e9ef;
+    --text-dim: #8b94a7;
+    --accent: #5eead4;
+    --accent-2: #818cf8;
+    --ok: #34d399;
+    --warn: #fbbf24;
+    --err: #f87171;
+    --running: #60a5fa;
+    --queued: #94a3b8;
+  }
+  * { box-sizing: border-box; }
+  html, body, #root { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+  }
+  .app { display: grid; grid-template-columns: 280px 1fr 360px; height: 100vh; }
+  .sidebar {
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    padding: 16px;
+    overflow-y: auto;
+  }
+  .sidebar h2 {
+    margin: 0 0 8px;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+  }
+  .sidebar h1 {
+    margin: 0 0 16px;
+    font-size: 18px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .node-palette { display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; }
+  .palette-item {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    cursor: grab;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.15s;
+    font-size: 13px;
+  }
+  .palette-item:hover {
+    border-color: var(--accent);
+    transform: translateX(2px);
+  }
+  .palette-item:active { cursor: grabbing; }
+  .palette-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .btn {
+    background: var(--accent);
+    color: #0b0d12;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 13px;
+    transition: opacity 0.15s;
+  }
+  .btn:hover { opacity: 0.85; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-secondary {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-danger { background: var(--err); color: #0b0d12; }
+  .toolbar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .canvas-wrap {
+    position: relative;
+    background:
+      radial-gradient(circle at 20% 20%, rgba(94, 234, 212, 0.04), transparent 50%),
+      radial-gradient(circle at 80% 80%, rgba(129, 140, 248, 0.04), transparent 50%),
+      var(--bg);
+  }
+  .canvas-overlay {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    z-index: 10;
+    background: rgba(20, 24, 31, 0.85);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 12px;
+    color: var(--text-dim);
+    pointer-events: none;
+  }
+  .canvas-overlay .status-line { display: flex; gap: 8px; align-items: center; }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--queued);
+    box-shadow: 0 0 8px currentColor;
+  }
+  .status-dot.running { background: var(--running); color: var(--running); animation: pulse 1.5s infinite; }
+  .status-dot.success { background: var(--ok); color: var(--ok); }
+  .status-dot.error { background: var(--err); color: var(--err); }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(1.2); }
+  }
+  .inspector {
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    padding: 16px;
+    overflow-y: auto;
+  }
+  .inspector h3 {
+    margin: 0 0 12px;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+  }
+  .field { margin-bottom: 12px; }
+  .field label {
+    display: block;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .field input, .field textarea, .field select {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 12px;
+    font-family: inherit;
+  }
+  .field textarea { resize: vertical; min-height: 60px; }
+  .log-panel {
+    margin-top: 16px;
+    background: #060810;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px;
+    height: 240px;
+    overflow-y: auto;
+    font-family: "SF Mono", Monaco, monospace;
+    font-size: 11px;
+    line-height: 1.5;
+  }
+  .log-entry {
+    display: flex;
+    gap: 8px;
+    padding: 2px 0;
+  }
+  .log-time { color: var(--text-dim); flex-shrink: 0; }
+  .log-msg { flex: 1; word-break: break-word; }
+  .log-msg.info { color: var(--text); }
+  .log-msg.ok { color: var(--ok); }
+  .log-msg.warn { color: var(--warn); }
+  .log-msg.err { color: var(--err); }
+  .log-msg.event { color: var(--accent); }
+  /* React Flow node 自訂樣式 */
+  .async-node {
+    background: var(--panel-2);
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    min-width: 180px;
+    color: var(--text);
+    font-size: 12px;
+    transition: all 0.2s;
+  }
+  .async-node.running {
+    border-color: var(--running);
+    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
+  }
+  .async-node.success { border-color: var(--ok); }
+  .async-node.error { border-color: var(--err); animation: shake 0.4s; }
+  .async-node.queued { border-color: var(--queued); opacity: 0.7; }
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-3px); }
+    75% { transform: translateX(3px); }
+  }
+  .node-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .node-icon {
+    width: 16px; height: 16px; border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px;
+  }
+  .node-subtitle {
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+  .node-status-bar {
+    height: 2px;
+    background: var(--border);
+    border-radius: 1px;
+    margin-top: 6px;
+    overflow: hidden;
+  }
+  .node-status-bar.running {
+    background: linear-gradient(90deg, transparent, var(--running), transparent);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+  .event-indicator {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    background: var(--accent);
+    color: var(--bg);
+    border-radius: 50%;
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: bold;
+    animation: ping 0.6s ease-out;
+  }
+  @keyframes ping {
+    0% { transform: scale(0); opacity: 1; }
+    100% { transform: scale(1.5); opacity: 0; }
+  }
+  .react-flow__handle {
+    background: var(--accent);
+    border: 2px solid var(--bg);
+    width: 10px;
+    height: 10px;
+  }
+  .react-flow__edge-path { stroke: var(--text-dim); stroke-width: 2; }
+  .react-flow__edge.selected .react-flow__edge-path { stroke: var(--accent); stroke-width: 3; }
+  .react-flow__edge.animated .react-flow__edge-path { stroke: var(--accent-2); }
+  .react-flow__controls {
+    background: var(--panel);
+    border: 1px solid var(--border);
+  }
+  .react-flow__controls button {
+    background: var(--panel-2);
+    color: var(--text);
+    border-bottom: 1px solid var(--border);
+  }
+  .react-flow__controls button:hover { background: var(--panel); }
+  .react-flow__minimap {
+    background: var(--panel);
+    border: 1px solid var(--border);
+  }
+  .react-flow__attribution { display: none; }
+  .stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .stat-card {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px;
+  }
+  .stat-label {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+  .stat-value {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    background: var(--panel-2);
+    color: var(--text-dim);
+    margin-right: 4px;
+  }
+  .hint {
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 8px;
+    background: var(--panel-2);
+    border-radius: 6px;
+    border-left: 2px solid var(--accent);
+    margin-bottom: 12px;
+    line-height: 1.5;
+  }
+  .empty-state {
+    color: var(--text-dim);
+    font-size: 12px;
+    text-align: center;
+    padding: 20px;
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+window.addEventListener('error', e => {
+  const pre = document.createElement('pre');
+  pre.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#f87171;color:#000;padding:12px;z-index:9999;white-space:pre-wrap;font-size:11px;';
+  pre.textContent = '[ERR] ' + (e.message || e.error) + '\n' + (e.error && e.error.stack || '');
+  document.body.appendChild(pre);
+  window._capturedError = e.error || e.message;
+});
+window.addEventListener('unhandledrejection', e => {
+  const pre = document.createElement('pre');
+  pre.style.cssText = 'position:fixed;top:120px;left:0;right:0;background:#fbbf24;color:#000;padding:12px;z-index:9999;white-space:pre-wrap;font-size:11px;';
+  pre.textContent = '[REJ] ' + (e.reason && e.reason.message || e.reason);
+  document.body.appendChild(pre);
+});
+</script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useCallback, useEffect, useRef, useMemo, memo } = React;
+// ReactFlow UMD 把自己掛到 globalThis.ReactFlow
+// 重要: 解構出來的變數不能叫 ReactFlow,否則會跟 global 同名撞 TDZ
+const _RF = (typeof window !== 'undefined' && window.ReactFlow) || {};
+const ReactFlow = _RF.ReactFlow;
+const ReactFlowProvider = _RF.ReactFlowProvider;
+const Background = _RF.Background;
+const Controls = _RF.Controls;
+const MiniMap = _RF.MiniMap;
+const addEdge = _RF.addEdge;
+const useNodesState = _RF.useNodesState;
+const useEdgesState = _RF.useEdgesState;
+const Handle = _RF.Handle;
+const Position = _RF.Position;
+const MarkerType = _RF.MarkerType;
+
+// ============================================================================
+// SECTION 1: Node Type Registry
+// 設計原則: 每個節點類型描述其「事件介面」(input topics + output topics + 副作用)
+// 這是事件驅動架構的核心 - 節點不直接呼叫彼此,而是訂閱/發布事件
+// ============================================================================
+
+const NODE_TYPES = {
+  trigger_http: {
+    label: 'HTTP 觸發器',
+    icon: '🌐',
+    color: '#5eead4',
+    category: 'trigger',
+    description: '接收 HTTP 請求作為 workflow 起點',
+    inputs: [],
+    outputs: ['request.received'],
+    configSchema: ['endpoint', 'method'],
+    defaults: { endpoint: '/webhook', method: 'POST' },
+  },
+  trigger_cron: {
+    label: '定時觸發器',
+    icon: '⏰',
+    color: '#5eead4',
+    category: 'trigger',
+    description: '定時週期性觸發 (模擬 cron)',
+    inputs: [],
+    outputs: ['tick'],
+    configSchema: ['intervalMs'],
+    defaults: { intervalMs: 2000 },
+  },
+  action_http: {
+    label: 'HTTP 動作',
+    icon: '📡',
+    color: '#818cf8',
+    category: 'action',
+    description: '發出 HTTP 請求 (async fetch)',
+    inputs: ['request.received', 'tick'],
+    outputs: ['http.response', 'http.error'],
+    configSchema: ['url', 'method', 'simulateLatency'],
+    defaults: { url: 'https://jsonplaceholder.typicode.com/posts/1', method: 'GET', simulateLatency: 800 },
+  },
+  transform: {
+    label: '資料轉換',
+    icon: '🔄',
+    color: '#fbbf24',
+    category: 'transform',
+    description: '純函式轉換 payload',
+    inputs: ['*'],
+    outputs: ['transformed'],
+    configSchema: ['mapping'],
+    defaults: { mapping: 'uppercase' },
+  },
+  condition: {
+    label: '條件分支',
+    icon: '🔀',
+    color: '#fbbf24',
+    category: 'logic',
+    description: '根據條件路由到不同分支',
+    inputs: ['*'],
+    outputs: ['branch.true', 'branch.false'],
+    configSchema: ['expression'],
+    defaults: { expression: 'payload.value > 0' },
+  },
+  delay: {
+    label: '延遲節點',
+    icon: '⏳',
+    color: '#a78bfa',
+    category: 'logic',
+    description: 'setTimeout 異步等待',
+    inputs: ['*'],
+    outputs: ['delayed'],
+    configSchema: ['ms'],
+    defaults: { ms: 1000 },
+  },
+  retry: {
+    label: '重試包裝器',
+    icon: '🔁',
+    color: '#f87171',
+    category: 'logic',
+    description: '失敗時指數退避重試 (教訓: anti_pattern_blocking_io)',
+    inputs: ['*'],
+    outputs: ['retry.success', 'retry.exhausted'],
+    configSchema: ['maxAttempts', 'baseDelayMs'],
+    defaults: { maxAttempts: 3, baseDelayMs: 200 },
+  },
+  sink: {
+    label: '事件匯聚',
+    icon: '📥',
+    color: '#34d399',
+    category: 'sink',
+    description: '終端節點 - 收集事件結果',
+    inputs: ['*'],
+    outputs: [],
+    configSchema: ['label'],
+    defaults: { label: '完成' },
+  },
+};
+
+// ============================================================================
+// SECTION 2: Async Event Bus
+// 核心設計: 每個節點都是非同步 actor, 訂閱 input topic, 執行副作用, 發布 output topic
+// 這是 Reactive Manifesto 的核心思想 - 事件驅動 + 非阻塞 + 錯誤隔離
+// ============================================================================
+
+class AsyncEventBus {
+  constructor() {
+    this.subscribers = new Map(); // topic -> Set<handler>
+    this.eventLog = [];
+  }
+
+  subscribe(topicPattern, handler) {
+    if (!this.subscribers.has(topicPattern)) {
+      this.subscribers.set(topicPattern, new Set());
+    }
+    this.subscribers.get(topicPattern).add(handler);
+    return () => this.subscribers.get(topicPattern)?.delete(handler);
+  }
+
+  async publish(topic, payload, sourceNodeId) {
+    const event = {
+      id: crypto.randomUUID(),
+      topic,
+      payload,
+      sourceNodeId,
+      timestamp: Date.now(),
+    };
+    this.eventLog.push(event);
+    if (this.eventLog.length > 500) this.eventLog.shift();
+
+    // 廣播給所有符合的訂閱者 (支援 wildcard '*')
+    const matchingHandlers = [];
+    for (const [pattern, handlers] of this.subscribers.entries()) {
+      if (this._matchTopic(pattern, topic)) {
+        matchingHandlers.push(...handlers);
+      }
+    }
+    if (matchingHandlers.length) console.log('[BUS publish]', topic, 'from', sourceNodeId, '-> handlers:', matchingHandlers.length);
+
+    // 非阻塞 fan-out (不 await,讓子任務並行)
+    matchingHandlers.forEach(handler => {
+      try {
+        const result = handler(event);
+        if (result && typeof result.catch === 'function') {
+          result.catch(err => {
+            console.error(`[EventBus] handler error for ${topic}:`, err);
+          });
+        }
+      } catch (e) {
+        console.error(`[EventBus] sync handler error for ${topic}:`, e);
+      }
+    });
+
+    return event;
+  }
+
+  _matchTopic(pattern, topic) {
+    if (pattern === '*') return true;
+    if (pattern === topic) return true;
+    // 支援前綴萬用字元 e.g. "http.*"
+    if (pattern.endsWith('.*')) {
+      return topic.startsWith(pattern.slice(0, -1));
+    }
+    return false;
+  }
+
+  getRecentEvents(limit = 20) {
+    return this.eventLog.slice(-limit).reverse();
+  }
+}
+
+// ============================================================================
+// SECTION 3: Async Node Handlers
+// 每個 handler 必須是 async,內部 I/O 用 setTimeout/fetch 模擬,不能阻塞 event loop
+// 對應教訓: anti_pattern_blocking_io - handler 內禁止同步 sleep/sync I/O
+// ============================================================================
+
+const NODE_HANDLERS = {
+  trigger_http: async function* (node, bus, inputGen) {
+    // trigger 類型不訂閱,只暴露手動 trigger API
+    yield { type: 'idle' };
+  },
+
+  trigger_cron: async function* (node, bus, inputGen) {
+    let cancelled = false;
+    const interval = node.config?.intervalMs || 2000;
+    const tick = async () => {
+      if (cancelled) return;
+      await bus.publish('tick', { count: Date.now() }, node.id);
+      if (!cancelled) setTimeout(tick, interval);
+    };
+    setTimeout(tick, 200);
+    try {
+      while (!cancelled) {
+        const next = await inputGen.next();
+        if (next.done) break;
+      }
+    } finally {
+      cancelled = true;
+    }
+  },
+
+  action_http: async function* (node, bus, inputGen) {
+    for await (const event of inputGen) {
+      const latency = node.config?.simulateLatency || 500;
+      // 模擬異步 HTTP,實際應用可替換成 fetch
+      await new Promise(r => setTimeout(r, latency));
+
+      // 模擬 10% 失敗率以展示 retry 機制
+      if (Math.random() < 0.1 && event.topic === 'tick') {
+        await bus.publish('http.error', { error: 'Network timeout' }, node.id);
+      } else {
+        await bus.publish('http.response', {
+          status: 200,
+          data: { received: event.payload, from: node.id },
+        }, node.id);
+      }
+    }
+  },
+
+  transform: async function* (node, bus, inputGen) {
+    for await (const event of inputGen) {
+      let result = event.payload;
+      const mapping = node.config?.mapping || 'uppercase';
+      if (mapping === 'uppercase' && typeof result === 'object') {
+        result = Object.fromEntries(
+          Object.entries(result).map(([k, v]) =>
+            [k, typeof v === 'string' ? v.toUpperCase() : v]
+          )
+        );
+      } else if (mapping === 'double' && result.value !== undefined) {
+        result = { ...result, value: result.value * 2 };
+      }
+      await bus.publish('transformed', result, node.id);
+    }
+  },
+
+  condition: async function* (node, bus, inputGen) {
+    for await (const event of inputGen) {
+      const expr = node.config?.expression || 'true';
+      let result = true;
+      try {
+        // 安全沙盒: 只允許讀取 payload
+        const fn = new Function('payload', `return (${expr});`);
+        result = !!fn(event.payload);
+      } catch (e) {
+        result = false;
+      }
+      await bus.publish(result ? 'branch.true' : 'branch.false', event.payload, node.id);
+    }
+  },
+
+  delay: async function* (node, bus, inputGen) {
+    for await (const event of inputGen) {
+      await new Promise(r => setTimeout(r, node.config?.ms || 1000));
+      await bus.publish('delayed', event.payload, node.id);
+    }
+  },
+
+  retry: async function* (node, bus, inputGen) {
+    for await (const event of inputGen) {
+      const maxAttempts = node.config?.maxAttempts || 3;
+      const baseDelay = node.config?.baseDelayMs || 200;
+      let attempt = 0;
+      let lastError = null;
+      // 嘗試執行下游邏輯 (簡化: 重試只在發布失敗時)
+      while (attempt < maxAttempts) {
+        try {
+          await bus.publish('retry.success', { ...event.payload, attempts: attempt + 1 }, node.id);
+          lastError = null;
+          break;
+        } catch (e) {
+          lastError = e;
+          attempt++;
+          if (attempt < maxAttempts) {
+            // 教訓: 指數退避,不是固定 delay
+            const delay = baseDelay * Math.pow(2, attempt - 1);
+            await new Promise(r => setTimeout(r, delay));
+          }
+        }
+      }
+      if (lastError && attempt >= maxAttempts) {
+        await bus.publish('retry.exhausted', { error: String(lastError), attempts: attempt }, node.id);
+      }
+    }
+  },
+
+  sink: async function* (node, bus, inputGen) {
+    for await (const event of inputGen) {
+      // sink 收到事件就 log,不發新事件
+      console.log(`[SINK ${node.id}] received ${event.topic}`, event.payload);
+    }
+  },
+};
+
+// ============================================================================
+// SECTION 4: Workflow Engine - DAG Executor
+// 核心: 每個 node 用 generator function 模擬,內部異步循環
+// 連線決定 topic 路由: edge source 的 output topic -> target 的 input topic
+// ============================================================================
+
+class WorkflowEngine {
+  constructor() {
+    this.bus = new AsyncEventBus();
+    this.runningNodes = new Map(); // nodeId -> { cancel, status }
+    this.eventListeners = new Set();
+    this.statusListeners = new Set();
+  }
+
+  onEvent(fn) {
+    this.eventListeners.add(fn);
+    return () => this.eventListeners.delete(fn);
+  }
+
+  onStatusChange(fn) {
+    this.statusListeners.add(fn);
+    return () => this.statusListeners.delete(fn);
+  }
+
+  _emitEvent(evt) {
+    this.eventListeners.forEach(fn => fn(evt));
+  }
+
+  _emitStatus(nodeId, status) {
+    this.statusListeners.forEach(fn => fn({ nodeId, status }));
+  }
+
+  async start(nodes, edges) {
+    // 為每個節點建立 input queue
+    const nodeQueues = new Map();
+    for (const node of nodes) {
+      nodeQueues.set(node.id, []);
+    }
+
+    // 訂閱 bus: 根據 edges 路由 (sourceType 與 targetType 從 node.data.type 取)
+    const unsubs = [];
+    for (const edge of edges) {
+      const sourceNode = nodes.find(n => n.id === edge.source);
+      const targetNode = nodes.find(n => n.id === edge.target);
+      if (!sourceNode || !targetNode) continue;
+
+      const sourceType = NODE_TYPES[sourceNode.data && sourceNode.data.type];
+      const targetType = NODE_TYPES[targetNode.data && targetNode.data.type];
+      if (!sourceType || !targetType) continue;
+
+      const targetQueue = nodeQueues.get(targetNode.id);
+      if (!targetQueue) continue;
+
+      const unsub = this.bus.subscribe('*', (event) => {
+        if (event.sourceNodeId !== sourceNode.id) return;
+        const sourceEmits = sourceType.outputs.includes('*') || sourceType.outputs.includes(event.topic);
+        if (!sourceEmits) return;
+        const targetAccepts = targetType.inputs.includes('*') || targetType.inputs.includes(event.topic);
+        if (!targetAccepts) return;
+        targetQueue.push(event);
+      });
+      unsubs.push(unsub);
+    }
+
+    // 為每個節點啟動統一的 consumer loop
+    // trigger 節點在第一步自己 publish 事件;其他節點純消費
+    const consumerTasks = [];
+    for (const node of nodes) {
+      const task = this._startNode(node, nodeQueues.get(node.id));
+      consumerTasks.push(task);
+      this.runningNodes.set(node.id, { task });
+    }
+
+    return {
+      stop: () => {
+        consumerTasks.forEach(t => { try { t.cancelled = true; } catch(e){} });
+        this.runningNodes.clear();
+      }
+    };
+  }
+
+  async _startNode(node, queue) {
+    const cancelled = { value: false };
+    const businessType = node.data && node.data.type;
+    const cfg = (node.data && node.data.config) || {};
+
+    // trigger 節點: 啟動一個 background publisher loop
+    if (businessType === 'trigger_cron') {
+      const interval = cfg.intervalMs || 2000;
+      this._emitStatus(node.id, 'running');
+      const pubLoop = async () => {
+        await new Promise(r => setTimeout(r, 300));
+        let count = 0;
+        while (!cancelled.value) {
+          count++;
+          this._emitEvent({ type: 'node-start', nodeId: node.id, topic: 'tick' });
+          await this.bus.publish('tick', { count, at: Date.now() }, node.id);
+          await new Promise(r => setTimeout(r, interval));
+        }
+      };
+      pubLoop().catch(e => console.error('[cron trigger]', e));
+      return cancelled;
+    }
+
+    // 一般節點: consumer loop
+    const loop = async () => {
+      await new Promise(r => setTimeout(r, 200));
+      while (!cancelled.value) {
+        if (queue.length === 0) {
+          await new Promise(r => setTimeout(r, 80));
+          continue;
+        }
+        const event = queue.shift();
+        await this._executeNodeStep(node, event);
+        await new Promise(r => setTimeout(r, 100));
+      }
+    };
+    loop().catch(e => console.error(`[consumer ${node.id}]`, e));
+    return cancelled;
+  }
+
+  async _executeNodeStep(node, event) {
+    this._emitStatus(node.id, 'running');
+    this._emitEvent({ type: 'node-start', nodeId: node.id, topic: event.topic });
+
+    // 重要: node.type 是 React Flow 視覺類型 ('async'),真實業務類型在 node.data.type
+    const businessType = node.data && node.data.type ? node.data.type : node.type;
+    const handler = NODE_HANDLERS[businessType];
+    if (!handler) {
+      this._emitStatus(node.id, 'error');
+      return;
+    }
+
+    try {
+      // 簡化執行: 依節點類型直接處理一個事件
+      await this._dispatchSingle(node, event, businessType);
+      this._emitStatus(node.id, 'success');
+    } catch (e) {
+      this._emitStatus(node.id, 'error');
+      this._emitEvent({ type: 'node-error', nodeId: node.id, error: String(e) });
+    }
+  }
+
+  async _dispatchSingle(node, event, businessType) {
+    // config 也存在 node.data.config
+    const cfg = (node.data && node.data.config) || node.config || {};
+    switch (businessType) {
+      case 'action_http': {
+        const latency = cfg.simulateLatency || 500;
+        await new Promise(r => setTimeout(r, latency));
+        if (Math.random() < 0.15) {
+          await this.bus.publish('http.error', { error: 'simulated' }, node.id);
+        } else {
+          await this.bus.publish('http.response', { status: 200, data: { from: node.id, in: event.payload } }, node.id);
+        }
+        break;
+      }
+      case 'transform': {
+        let result = event.payload;
+        if (cfg.mapping === 'uppercase' && result && typeof result === 'object') {
+          result = Object.fromEntries(Object.entries(result).map(([k, v]) => [k, typeof v === 'string' ? v.toUpperCase() : v]));
+        } else if (cfg.mapping === 'double' && result?.value !== undefined) {
+          result = { ...result, value: result.value * 2 };
+        }
+        await this.bus.publish('transformed', result, node.id);
+        break;
+      }
+      case 'condition': {
+        const expr = cfg.expression || 'true';
+        let r = true;
+        try {
+          r = !!new Function('payload', `return (${expr});`)(event.payload);
+        } catch (e) { r = false; }
+        await this.bus.publish(r ? 'branch.true' : 'branch.false', event.payload, node.id);
+        break;
+      }
+      case 'delay': {
+        await new Promise(r => setTimeout(r, cfg.ms || 500));
+        await this.bus.publish('delayed', event.payload, node.id);
+        break;
+      }
+      case 'retry': {
+        const max = cfg.maxAttempts || 3;
+        const base = cfg.baseDelayMs || 200;
+        let attempt = 0;
+        while (attempt < max) {
+          attempt++;
+          try {
+            await this.bus.publish('retry.success', { ...event.payload, attempts: attempt }, node.id);
+            return;
+          } catch (e) {
+            if (attempt >= max) {
+              await this.bus.publish('retry.exhausted', { error: String(e) }, node.id);
+              return;
+            }
+            await new Promise(r => setTimeout(r, base * Math.pow(2, attempt - 1)));
+          }
+        }
+        break;
+      }
+      case 'sink': {
+        this._emitEvent({ type: 'sink-received', nodeId: node.id, topic: event.topic, payload: event.payload });
+        break;
+      }
+      // trigger_http 與 trigger_cron 由 start() 中的獨立 loop 處理,不會到這裡
+    }
+  }
+
+  // 手動觸發 HTTP trigger
+  triggerHttp(nodeId, payload) {
+    return this.bus.publish('request.received', payload, nodeId);
+  }
+}
+
+// ============================================================================
+// SECTION 5: React Flow 自訂節點元件
+// ============================================================================
+
+const AsyncNode = memo(({ data, selected }) => {
+  const type = NODE_TYPES[data.type] || {};
+  const status = data.status || 'idle';
+
+  return (
+    <div className={`async-node ${status} ${selected ? 'selected' : ''}`}
+         style={{ borderColor: selected ? type.color : undefined }}>
+      <Handle type="target" position={Position.Left} />
+      <div className="node-header">
+        <div className="node-icon" style={{ background: type.color, color: '#0b0d12' }}>
+          {type.icon}
+        </div>
+        <div style={{ flex: 1 }}>{type.label}</div>
+        {status === 'running' && <div className="status-dot running" />}
+        {status === 'success' && <div className="status-dot success" />}
+        {status === 'error' && <div className="status-dot error" />}
+      </div>
+      <div className="node-subtitle">{data.label || type.description}</div>
+      {status === 'running' && <div className="node-status-bar running" />}
+      <Handle type="source" position={Position.Right} />
+    </div>
+  );
+});
+
+const nodeTypes = { async: AsyncNode };
+
+// ============================================================================
+// SECTION 6: Main App Component
+// ============================================================================
+
+function App() {
+  const reactFlowWrapper = useRef(null);
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [rfInstance, setRfInstance] = useState(null);
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [logs, setLogs] = useState([]);
+  const [running, setRunning] = useState(false);
+  const [engine] = useState(() => new WorkflowEngine());
+  const [nodeStatus, setNodeStatus] = useState({});
+  const [stats, setStats] = useState({ events: 0, errors: 0, successes: 0 });
+  const stopRef = useRef(null);
+
+  // 初始化預設 workflow demo
+  useEffect(() => {
+    const initialNodes = [
+      {
+        id: 'cron-1', type: 'async', position: { x: 50, y: 100 },
+        data: { type: 'trigger_cron', label: '每 2 秒觸發', config: { intervalMs: 2000 } },
+      },
+      {
+        id: 'http-1', type: 'async', position: { x: 320, y: 100 },
+        data: { type: 'action_http', label: '呼叫 API', config: { url: '/api/data', simulateLatency: 600 } },
+      },
+      {
+        id: 'transform-1', type: 'async', position: { x: 600, y: 100 },
+        data: { type: 'transform', label: '大寫轉換', config: { mapping: 'uppercase' } },
+      },
+      {
+        id: 'retry-1', type: 'async', position: { x: 600, y: 280 },
+        data: { type: 'retry', label: '重試包裝', config: { maxAttempts: 3, baseDelayMs: 200 } },
+      },
+      {
+        id: 'sink-1', type: 'async', position: { x: 900, y: 100 },
+        data: { type: 'sink', label: '成功匯聚', config: { label: 'OK' } },
+      },
+      {
+        id: 'sink-err', type: 'async', position: { x: 900, y: 280 },
+        data: { type: 'sink', label: '錯誤匯聚', config: { label: 'ERROR' } },
+      },
+    ];
+    const initialEdges = [
+      { id: 'e1', source: 'cron-1', target: 'http-1', animated: true, style: { stroke: '#5eead4' } },
+      { id: 'e2', source: 'http-1', target: 'transform-1', label: 'http.response', style: { stroke: '#34d399' } },
+      { id: 'e3', source: 'http-1', target: 'retry-1', label: 'http.error', style: { stroke: '#f87171' } },
+      { id: 'e4', source: 'transform-1', target: 'sink-1', style: { stroke: '#34d399' } },
+      { id: 'e5', source: 'retry-1', target: 'sink-1', label: 'retry.success', style: { stroke: '#34d399' } },
+      { id: 'e6', source: 'retry-1', target: 'sink-err', label: 'retry.exhausted', style: { stroke: '#f87171' } },
+    ];
+    setNodes(initialNodes);
+    setEdges(initialEdges);
+    addLog('info', '已載入預設 workflow 範本 (cron → http → transform/retry → sink)');
+  }, []);
+
+  // 訂閱 engine 事件
+  useEffect(() => {
+    const offEvent = engine.onEvent(evt => {
+      if (evt.type === 'node-start') {
+        addLog('event', `▶ ${evt.nodeId} 開始處理 [${evt.topic}]`);
+        setNodeStatus(s => ({ ...s, [evt.nodeId]: 'running' }));
+        setStats(s => ({ ...s, events: s.events + 1 }));
+      } else if (evt.type === 'node-error') {
+        addLog('err', `✗ ${evt.nodeId} 失敗: ${evt.error}`);
+        setNodeStatus(s => ({ ...s, [evt.nodeId]: 'error' }));
+        setStats(s => ({ ...s, errors: s.errors + 1 }));
+      } else if (evt.type === 'sink-received') {
+        addLog('ok', `📥 ${evt.nodeId} 收到 [${evt.topic}]`);
+        setNodeStatus(s => ({ ...s, [evt.nodeId]: 'success' }));
+        setStats(s => ({ ...s, successes: s.successes + 1 }));
+        // 1.5s 後自動清除 success 狀態以便看到新事件
+        setTimeout(() => {
+          setNodeStatus(s => ({ ...s, [evt.nodeId]: 'idle' }));
+        }, 1500);
+      }
+    });
+    return () => offEvent();
+  }, [engine]);
+
+  // 同步 nodeStatus 到 node.data
+  useEffect(() => {
+    setNodes(nds => nds.map(n => ({ ...n, data: { ...n.data, status: nodeStatus[n.id] || 'idle' } })));
+  }, [nodeStatus]);
+
+  const addLog = (level, msg) => {
+    setLogs(prev => {
+      const time = new Date().toLocaleTimeString('zh-TW', { hour12: false });
+      const next = [{ time, level, msg }, ...prev];
+      return next.slice(0, 100);
+    });
+  };
+
+  const onConnect = useCallback(params => {
+    setEdges(eds => addEdge({ ...params, animated: true, style: { stroke: '#5eead4' } }, eds));
+  }, [setEdges]);
+
+  const onDragStart = (event, nodeType) => {
+    event.dataTransfer.setData('application/reactflow', nodeType);
+    event.dataTransfer.effectAllowed = 'move';
+  };
+
+  const onDragOver = useCallback(event => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const onDrop = useCallback(event => {
+    event.preventDefault();
+    const type = event.dataTransfer.getData('application/reactflow');
+    if (!type || !NODE_TYPES[type]) return;
+    if (!rfInstance) return;
+    const position = rfInstance.screenToFlowPosition({
+      x: event.clientX,
+      y: event.clientY,
+    });
+    const newNode = {
+      id: `${type}-${Date.now()}`,
+      type: 'async',
+      position,
+      data: {
+        type,
+        label: NODE_TYPES[type].label,
+        config: { ...NODE_TYPES[type].defaults },
+      },
+    };
+    setNodes(nds => nds.concat(newNode));
+    addLog('info', `+ 新增節點: ${NODE_TYPES[type].label}`);
+  }, [rfInstance, setNodes]);
+
+  const onNodeClick = useCallback((event, node) => {
+    setSelectedNode(node);
+  }, []);
+
+  const updateSelectedNodeConfig = (key, value) => {
+    if (!selectedNode) return;
+    setNodes(nds => nds.map(n =>
+      n.id === selectedNode.id
+        ? { ...n, data: { ...n.data, config: { ...n.data.config, [key]: value } } }
+        : n
+    ));
+    setSelectedNode(prev => ({
+      ...prev,
+      data: { ...prev.data, config: { ...prev.data.config, [key]: value } },
+    }));
+  };
+
+  const startWorkflow = async () => {
+    if (running) return;
+    setRunning(true);
+    addLog('info', '▶ 啟動 workflow 引擎');
+    const handle = await engine.start(nodes, edges);
+    stopRef.current = handle.stop;
+  };
+
+  const stopWorkflow = () => {
+    if (stopRef.current) stopRef.current();
+    engine.runningNodes.clear();
+    setRunning(false);
+    setNodeStatus({});
+    addLog('warn', '■ 停止 workflow');
+  };
+
+  const clearAll = () => {
+    if (running) stopWorkflow();
+    setNodes([]);
+    setEdges([]);
+    setSelectedNode(null);
+    addLog('info', '🗑 已清空畫布');
+  };
+
+  const loadTemplate = () => {
+    setNodes([
+      { id: 'cron-1', type: 'async', position: { x: 50, y: 100 }, data: { type: 'trigger_cron', label: '每 2 秒觸發', config: { intervalMs: 2000 } } },
+      { id: 'http-1', type: 'async', position: { x: 320, y: 100 }, data: { type: 'action_http', label: '呼叫 API', config: { url: '/api/data', simulateLatency: 600 } } },
+      { id: 'transform-1', type: 'async', position: { x: 600, y: 100 }, data: { type: 'transform', label: '大寫轉換', config: { mapping: 'uppercase' } } },
+      { id: 'retry-1', type: 'async', position: { x: 600, y: 280 }, data: { type: 'retry', label: '重試包裝', config: { maxAttempts: 3, baseDelayMs: 200 } } },
+      { id: 'sink-1', type: 'async', position: { x: 900, y: 100 }, data: { type: 'sink', label: '成功匯聚', config: { label: 'OK' } } },
+      { id: 'sink-err', type: 'async', position: { x: 900, y: 280 }, data: { type: 'sink', label: '錯誤匯聚', config: { label: 'ERROR' } } },
+    ]);
+    setEdges([
+      { id: 'e1', source: 'cron-1', target: 'http-1', animated: true, style: { stroke: '#5eead4' } },
+      { id: 'e2', source: 'http-1', target: 'transform-1', label: 'http.response', style: { stroke: '#34d399' } },
+      { id: 'e3', source: 'http-1', target: 'retry-1', label: 'http.error', style: { stroke: '#f87171' } },
+      { id: 'e4', source: 'transform-1', target: 'sink-1', style: { stroke: '#34d399' } },
+      { id: 'e5', source: 'retry-1', target: 'sink-1', label: 'retry.success', style: { stroke: '#34d399' } },
+      { id: 'e6', source: 'retry-1', target: 'sink-err', label: 'retry.exhausted', style: { stroke: '#f87171' } },
+    ]);
+    addLog('info', '已載入預設 workflow 範本');
+  };
+
+  const triggerManualHttp = () => {
+    const triggerNode = nodes.find(n => n.data.type === 'trigger_http');
+    if (!triggerNode) {
+      addLog('warn', '找不到 HTTP 觸發器節點,請先拖一個到畫布');
+      return;
+    }
+    engine.triggerHttp(triggerNode.id, { manual: true, time: Date.now() });
+    addLog('event', `🌐 手動觸發 HTTP: ${triggerNode.id}`);
+  };
+
+  return (
+    <div className="app">
+      {/* === Left Sidebar: 節點面板 === */}
+      <div className="sidebar">
+        <h1>⚡ AsyncFlow</h1>
+        <div className="hint">
+          基於 React Flow 的異步事件驅動工作流引擎。<br/>
+          拖拽節點到畫布 → 連線 → 啟動執行。
+        </div>
+
+        <h2>節點類型</h2>
+        <div className="node-palette">
+          {Object.entries(NODE_TYPES).map(([key, def]) => (
+            <div
+              key={key}
+              className="palette-item"
+              draggable
+              onDragStart={e => onDragStart(e, key)}
+              title={def.description}
+            >
+              <div className="palette-dot" style={{ background: def.color }} />
+              <span>{def.icon}</span>
+              <span>{def.label}</span>
+            </div>
+          ))}
+        </div>
+
+        <h2>控制</h2>
+        <div className="toolbar">
+          {!running ? (
+            <button className="btn" onClick={startWorkflow} style={{ flex: 1 }}>
+              ▶ 啟動
+            </button>
+          ) : (
+            <button className="btn btn-danger" onClick={stopWorkflow} style={{ flex: 1 }}>
+              ■ 停止
+            </button>
+          )}
+          <button className="btn btn-secondary" onClick={triggerManualHttp} title="手動發送 HTTP 觸發">
+            🌐
+          </button>
+        </div>
+        <div className="toolbar">
+          <button className="btn btn-secondary" onClick={loadTemplate} style={{ flex: 1 }}>
+            載入範本
+          </button>
+          <button className="btn btn-secondary" onClick={clearAll}>
+            清空
+          </button>
+        </div>
+
+        <h2>統計</h2>
+        <div className="stats-grid">
+          <div className="stat-card">
+            <div className="stat-label">事件</div>
+            <div className="stat-value">{stats.events}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">成功</div>
+            <div className="stat-value" style={{ color: 'var(--ok)' }}>{stats.successes}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">錯誤</div>
+            <div className="stat-value" style={{ color: 'var(--err)' }}>{stats.errors}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-label">節點</div>
+            <div className="stat-value">{nodes.length}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* === Center: Canvas === */}
+      <div className="canvas-wrap" ref={reactFlowWrapper}>
+        <div className="canvas-overlay">
+          <div className="status-line">
+            <div className={`status-dot ${running ? 'running' : ''}`} />
+            <span>{running ? '執行中' : '待機'} · {nodes.length} 節點 · {edges.length} 連線</span>
+          </div>
+          <div style={{ marginTop: 4, fontSize: 10 }}>
+            拖拽左側節點到畫布 · 連接 handle 建立事件路由
+          </div>
+        </div>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onInit={setRfInstance}
+          onDrop={onDrop}
+          onDragOver={onDragOver}
+          onNodeClick={onNodeClick}
+          nodeTypes={nodeTypes}
+          fitView
+          proOptions={{ hideAttribution: true }}
+        >
+          <Background color="#1c2230" gap={20} />
+          <Controls />
+          <MiniMap
+            nodeColor={n => NODE_TYPES[n.data?.type]?.color || '#5eead4'}
+            maskColor="rgba(11, 13, 18, 0.7)"
+          />
+        </ReactFlow>
+      </div>
+
+      {/* === Right: Inspector + Logs === */}
+      <div className="inspector">
+        <h3>節點設定</h3>
+        {selectedNode ? (
+          <div>
+            <div className="field">
+              <label>類型</label>
+              <div>
+                <span className="badge" style={{ background: NODE_TYPES[selectedNode.data.type]?.color }}>
+                  {NODE_TYPES[selectedNode.data.type]?.icon}
+                </span>
+                {NODE_TYPES[selectedNode.data.type]?.label}
+              </div>
+            </div>
+            <div className="field">
+              <label>說明</label>
+              <div style={{ fontSize: 11, color: 'var(--text-dim)' }}>
+                {NODE_TYPES[selectedNode.data.type]?.description}
+              </div>
+            </div>
+            <div className="field">
+              <label>訂閱 Topics (input)</label>
+              <div>
+                {(NODE_TYPES[selectedNode.data.type]?.inputs || []).map(t => (
+                  <span key={t} className="badge">{t}</span>
+                ))}
+              </div>
+            </div>
+            <div className="field">
+              <label>發布 Topics (output)</label>
+              <div>
+                {(NODE_TYPES[selectedNode.data.type]?.outputs || []).map(t => (
+                  <span key={t} className="badge" style={{ borderColor: 'var(--accent)' }}>{t}</span>
+                ))}
+              </div>
+            </div>
+            <h3 style={{ marginTop: 16 }}>配置</h3>
+            {Object.entries(selectedNode.data.config || {}).map(([key, value]) => (
+              <div className="field" key={key}>
+                <label>{key}</label>
+                <input
+                  type={typeof value === 'number' ? 'number' : 'text'}
+                  value={value}
+                  onChange={e => {
+                    const v = typeof value === 'number' ? Number(e.target.value) : e.target.value;
+                    updateSelectedNodeConfig(key, v);
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state">點擊畫布上任一節點以編輯配置</div>
+        )}
+
+        <h3 style={{ marginTop: 16 }}>事件日誌 (即時)</h3>
+        <div className="log-panel">
+          {logs.length === 0 ? (
+            <div className="empty-state">尚無事件。點擊「啟動」開始執行 workflow</div>
+          ) : (
+            logs.map((log, i) => (
+              <div key={i} className="log-entry">
+                <span className="log-time">{log.time}</span>
+                <span className={`log-msg ${log.level}`}>{log.msg}</span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// SECTION 7: 架構說明面板 (教學用)
+// ============================================================================
+
+function ArchitectureHelp() {
+  return (
+    <div style={{
+      position: 'fixed', bottom: 16, left: 16, zIndex: 100,
+      background: 'rgba(20, 24, 31, 0.95)', border: '1px solid var(--border)',
+      borderRadius: 8, padding: 12, maxWidth: 400, fontSize: 11,
+      color: 'var(--text-dim)', lineHeight: 1.6,
+    }}>
+      <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>
+        🏗 架構核心 (5 個組件)
+      </div>
+      ① <b>NodeType Registry</b> - 描述每個節點的 input/output topic<br/>
+      ② <b>AsyncEventBus</b> - 主題訂閱/發布 + wildcard routing<br/>
+      ③ <b>NodeHandlers</b> - 純 async function,內部用 setTimeout 模擬 I/O<br/>
+      ④ <b>WorkflowEngine</b> - 把 edges 翻譯成 bus routing,啟動每個 node 的異步 loop<br/>
+      ⑤ <b>ReactFlow UI</b> - 視覺化拓樸 + 即時狀態反饋 (running/success/error 動畫)
+    </div>
+  );
+}
+
+// ============================================================================
+// Mount
+// ============================================================================
+
+function Root() {
+  return (
+    <ReactFlowProvider>
+      <App />
+      <ArchitectureHelp />
+    </ReactFlowProvider>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<Root />);
+</script>
+</body>
+</html>

@@ -1,0 +1,672 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<title>React Flow 自動化工作流 — 動態視覺化流程映射</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="https://unpkg.com/@xyflow/react@12.3.5/dist/style.css" />
+<style>
+  :root {
+    --bg: #0b1020;
+    --bg2: #0f172a;
+    --panel: #111a2e;
+    --panel2: #0d1426;
+    --line: #1e2a44;
+    --text: #e6edf7;
+    --muted: #8a99b8;
+    --accent: #5eead4;
+    --accent2: #60a5fa;
+    --warn: #fbbf24;
+    --err: #f87171;
+    --ok: #34d399;
+    --node-bg: #0e1830;
+    --node-border: #243150;
+  }
+  * { box-sizing: border-box; }
+  html, body, #root { height: 100%; margin: 0; }
+  body {
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    color: var(--text);
+    background: radial-gradient(1200px 800px at 20% 0%, #11224a 0%, var(--bg) 55%);
+  }
+  .app { display: grid; grid-template-columns: 260px 1fr 320px; grid-template-rows: 56px 1fr; height: 100vh; }
+  .topbar { grid-column: 1 / 4; display: flex; align-items: center; gap: 12px; padding: 0 16px; background: linear-gradient(180deg, #0d1832, #0a1226); border-bottom: 1px solid var(--line); z-index: 5; }
+  .topbar h1 { font-size: 14px; margin: 0; letter-spacing: 0.4px; color: var(--muted); font-weight: 600; }
+  .topbar h1 b { color: var(--text); }
+  .pill { padding: 4px 10px; border-radius: 999px; font-size: 11px; border: 1px solid var(--line); background: #0e1a36; color: var(--muted); }
+  .btn { appearance: none; border: 1px solid var(--line); background: #0e1a36; color: var(--text); padding: 6px 12px; border-radius: 8px; font-size: 12px; cursor: pointer; transition: 120ms; }
+  .btn:hover { background: #142349; border-color: #2c3a60; }
+  .btn.primary { background: linear-gradient(180deg, #1e3a8a, #1e293b); border-color: #2c4a8a; color: #e0e7ff; }
+  .btn.ok { background: linear-gradient(180deg, #064e3b, #052e23); border-color: #065f46; color: #d1fae5; }
+  .btn.danger { background: linear-gradient(180deg, #7f1d1d, #4c1212); border-color: #8b1d1d; color: #fee2e2; }
+  .btn.ghost { background: transparent; }
+
+  .sidebar { background: var(--panel); border-right: 1px solid var(--line); padding: 12px; overflow: auto; }
+  .sidebar h2 { font-size: 11px; margin: 8px 0 6px; color: var(--muted); letter-spacing: 0.6px; text-transform: uppercase; }
+  .palette { display: grid; grid-template-columns: 1fr; gap: 6px; }
+  .palette .item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: var(--panel2); border: 1px dashed #2a3a60; cursor: grab; font-size: 12.5px; user-select: none; }
+  .palette .item:hover { border-color: var(--accent); }
+  .palette .dot { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
+
+  .canvas { position: relative; background: #07091a; }
+  .props { background: var(--panel); border-left: 1px solid var(--line); padding: 14px; overflow: auto; }
+  .props h2 { font-size: 12px; margin: 0 0 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; }
+  .field { display: grid; grid-template-columns: 96px 1fr; gap: 8px; align-items: center; margin: 8px 0; font-size: 12.5px; }
+  .field input, .field select, .field textarea { width: 100%; background: #0b1530; border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 6px 8px; font: inherit; }
+  .field textarea { min-height: 64px; resize: vertical; }
+  .field label { color: var(--muted); }
+  .kv { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+  .kv span:last-child { color: var(--accent); }
+
+  .rf-node { background: var(--node-bg); border: 1.5px solid var(--node-border); border-radius: 10px; padding: 10px 12px; min-width: 180px; color: var(--text); font-size: 12.5px; box-shadow: 0 6px 18px rgba(0,0,0,0.35); transition: border-color 200ms, box-shadow 200ms, transform 200ms; }
+  .rf-node:hover { border-color: #3b4d7a; }
+  .rf-node.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(94,234,212,0.25), 0 6px 18px rgba(0,0,0,0.45); }
+  .rf-node .head { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .rf-node .sub { color: var(--muted); font-size: 11px; margin-top: 4px; }
+  .rf-node .meta { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+  .rf-node .chip { font-size: 10px; padding: 2px 6px; border-radius: 999px; background: #0b1530; border: 1px solid var(--line); color: var(--muted); }
+  .rf-node .status { width: 8px; height: 8px; border-radius: 50%; background: #475569; }
+  .rf-node.running .status { background: var(--accent2); box-shadow: 0 0 8px var(--accent2); }
+  .rf-node.success .status { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .rf-node.error .status   { background: var(--err); box-shadow: 0 0 8px var(--err); }
+  .rf-node.skipped .status { background: var(--warn); }
+  .rf-node.running { border-color: var(--accent2); }
+  .rf-node.success { border-color: var(--ok); }
+  .rf-node.error   { border-color: var(--err); }
+  .rf-node.skipped { border-color: var(--warn); }
+
+  .rf-node .stripe { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 10px 0 0 10px; }
+  .rf-node { position: relative; padding-left: 16px; }
+  .rf-node.t-trigger .stripe { background: #38bdf8; }
+  .rf-node.t-ai .stripe     { background: #a78bfa; }
+  .rf-node.t-tool .stripe   { background: #34d399; }
+  .rf-node.t-decision .stripe { background: #fbbf24; }
+  .rf-node.t-output .stripe { background: #f472b6; }
+
+  .react-flow__background { background-color: #07091a; }
+  .react-flow__controls { background: #0d1733; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .react-flow__controls button { background: transparent; color: var(--text); border-bottom: 1px solid var(--line); }
+  .react-flow__controls button:hover { background: #142349; }
+  .react-flow__minimap { background: #0b1228 !important; border: 1px solid var(--line); border-radius: 8px; }
+  .react-flow__edge-path { stroke: #64748b; stroke-width: 1.6; }
+  .react-flow__edge.selected .react-flow__edge-path,
+  .react-flow__edge:focus .react-flow__edge-path { stroke: var(--accent); }
+  .react-flow__edge.edge-running .react-flow__edge-path {
+    stroke: var(--accent2);
+    stroke-dasharray: 6 4;
+    animation: dash 0.6s linear infinite;
+  }
+  .react-flow__edge.edge-success .react-flow__edge-path { stroke: var(--ok); }
+  .react-flow__edge.edge-error   .react-flow__edge-path { stroke: var(--err); }
+  @keyframes dash { to { stroke-dashoffset: -20; } }
+
+  .legend { position: absolute; left: 12px; bottom: 12px; background: rgba(8, 14, 32, 0.85); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 11px; color: var(--muted); z-index: 4; backdrop-filter: blur(4px); }
+  .legend .row { display: flex; align-items: center; gap: 6px; }
+  .legend .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .toast { position: absolute; right: 14px; bottom: 14px; background: #0e1a36; border: 1px solid var(--line); padding: 8px 12px; border-radius: 8px; font-size: 12px; opacity: 0; transition: opacity 200ms; pointer-events: none; z-index: 6; }
+  .toast.show { opacity: 1; }
+
+  .empty { color: var(--muted); font-size: 12.5px; text-align: center; padding: 30px 12px; }
+  details { margin-top: 10px; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  pre { background: #050912; border: 1px solid var(--line); border-radius: 6px; padding: 8px; font-size: 11px; color: #cbd5e1; max-height: 200px; overflow: auto; }
+</style>
+
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/stable/react@18.3.1/es2022/react.mjs",
+    "react/jsx-runtime": "https://esm.sh/stable/react@18.3.1/es2022/jsx-runtime.mjs",
+    "react-dom": "https://esm.sh/v135/react-dom@18.3.1/es2022/react-dom.mjs",
+    "react-dom/": "https://esm.sh/v135/react-dom@18.3.1&target=es2022/es2022/",
+    "react-dom/client": "https://esm.sh/v135/react-dom@18.3.1/es2022/client.mjs",
+    "scheduler": "https://esm.sh/v135/scheduler@0.23.2/es2022/scheduler.mjs",
+    "@xyflow/react": "https://esm.sh/@xyflow/react@12.3.5?target=es2022&deps=react@18.3.1,react-dom@18.3.1&external=react,react-dom,scheduler",
+    "@xyflow/system": "https://esm.sh/@xyflow/system@0.0.46?target=es2022&deps=react@18.3.1&external=react,react-dom,scheduler",
+    "reactflow": "https://esm.sh/@xyflow/react@12.3.5?target=es2022&deps=react@18.3.1,react-dom@18.3.1&external=react,react-dom,scheduler",
+    "htm": "https://esm.sh/htm@3.1.1"
+  }
+}
+</script>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <h1>⚡ <b>React Flow</b> · 自動化工作流 — 動態視覺化流程映射</h1>
+    <span class="pill" id="stat">節點 0 · 邊 0</span>
+    <div style="flex:1"></div>
+    <button class="btn" id="btn-load">載入範例</button>
+    <button class="btn" id="btn-export">匯出 JSON</button>
+    <button class="btn" id="btn-import">匯入 JSON</button>
+    <button class="btn danger" id="btn-clear">清空</button>
+    <button class="btn ok" id="btn-run">▶ Run</button>
+    <button class="btn ghost" id="btn-stop" style="display:none;">■ Stop</button>
+    <input type="file" id="file-input" accept="application/json" style="display:none;" />
+  </div>
+
+  <aside class="sidebar">
+    <h2>節點 Palette</h2>
+    <div class="palette" id="palette">
+      <div class="item" draggable="true" data-type="trigger">
+        <span class="dot" style="background:#38bdf8"></span>Trigger · 觸發來源
+      </div>
+      <div class="item" draggable="true" data-type="ai">
+        <span class="dot" style="background:#a78bfa"></span>AI Agent · LLM 推理
+      </div>
+      <div class="item" draggable="true" data-type="tool">
+        <span class="dot" style="background:#34d399"></span>Tool · 工具呼叫
+      </div>
+      <div class="item" draggable="true" data-type="decision">
+        <span class="dot" style="background:#fbbf24"></span>Decision · 條件分支
+      </div>
+      <div class="item" draggable="true" data-type="output">
+        <span class="dot" style="background:#f472b6"></span>Output · 輸出/通知
+      </div>
+    </div>
+
+    <h2>互動說明</h2>
+    <div class="kv"><span>新增節點</span><span>從上方拖入畫布</span></div>
+    <div class="kv"><span>連線</span><span>從節點右側把手拖到下一個</span></div>
+    <div class="kv"><span>編輯</span><span>點選節點 → 右側面板</span></div>
+    <div class="kv"><span>執行</span><span>按 ▶ Run 模擬動態流程</span></div>
+    <div class="kv"><span>分支標籤</span><span>Decision 的邊可標 true/false</span></div>
+
+    <details>
+      <summary>JSON 預覽</summary>
+      <pre id="json-preview">(空)</pre>
+    </details>
+  </aside>
+
+  <main class="canvas">
+    <div id="root" style="width:100%;height:100%"></div>
+    <div class="legend">
+      <div class="row"><span class="dot" style="background:#475569"></span>idle</div>
+      <div class="row"><span class="dot" style="background:#60a5fa;box-shadow:0 0 8px #60a5fa"></span>running</div>
+      <div class="row"><span class="dot" style="background:#34d399;box-shadow:0 0 8px #34d399"></span>success</div>
+      <div class="row"><span class="dot" style="background:#f87171;box-shadow:0 0 8px #f87171"></span>error</div>
+      <div class="row"><span class="dot" style="background:#fbbf24"></span>skipped</div>
+    </div>
+    <div class="toast" id="toast"></div>
+  </main>
+
+  <aside class="props" id="props">
+    <h2>屬性面板</h2>
+    <div class="empty" id="props-empty">← 點選畫布中的節點或邊以編輯</div>
+    <div id="props-content" style="display:none;"></div>
+  </aside>
+</div>
+
+<script type="module">
+import React, { useState, useCallback, useEffect, useRef } from "react";
+import { createRoot } from "react-dom/client";
+import {
+  ReactFlow,
+  Background, Controls, MiniMap, Panel,
+  ReactFlowProvider, useNodesState, useEdgesState, addEdge,
+  Handle, Position, useReactFlow,
+  MarkerType,
+} from "reactflow";
+import htm from "htm";
+// React Flow's base styles are loaded via <link> in <head> to keep ESM resolution clean.
+// (esm.sh's CSS ?url endpoint is not always available; we ship a minimal shim below.)
+
+const html = htm.bind(React.createElement);
+
+/* ---------- Node type registry ---------- */
+const TYPE_META = {
+  trigger:  { label: "Trigger",  color: "#38bdf8", desc: "工作流入口，事件 / webhook / schedule" },
+  ai:       { label: "AI Agent", color: "#a78bfa", desc: "LLM 推理節點，可指定模型與 prompt" },
+  tool:     { label: "Tool",     color: "#34d399", desc: "呼叫外部 API / 工具函式" },
+  decision: { label: "Decision", color: "#fbbf24", desc: "條件分支，依條件選擇 true/false 邊" },
+  output:   { label: "Output",   color: "#f472b6", desc: "最終輸出 / 通知 / 寫回" },
+};
+
+const DEFAULT_DATA = {
+  trigger:  { label: "Webhook 觸發", sub: "POST /incoming",  model: "—",       tool: "—",        condition: "" },
+  ai:       { label: "GPT 推理",     sub: "分析與決策",       model: "gpt-4o",  tool: "—",        condition: "" },
+  tool:     { label: "HTTP 工具",    sub: "呼叫外部 API",     model: "—",       tool: "http_get", condition: "" },
+  decision: { label: "條件判斷",     sub: "if / else",        model: "—",       tool: "—",        condition: "score > 0.5" },
+  output:   { label: "送出通知",     sub: "Slack / Email",    model: "—",       tool: "slack",    condition: "" },
+};
+
+let idSeq = 1;
+const nid = (p) => `${p}_${Date.now().toString(36)}_${idSeq++}`;
+
+/* ---------- Custom Node component (htm) ---------- */
+function WfNode({ id, data, type, selected }) {
+  const meta = TYPE_META[type] || TYPE_META.tool;
+  return html`
+    <div class=${`rf-node t-${type} ${data.status || ""} ${selected ? "selected" : ""}`}
+         style=${{ borderColor: selected ? meta.color : undefined }}>
+      <div class="stripe" style=${{ background: meta.color }}></div>
+      <${Handle} type="target" position=${Position.Left}
+                 style=${{ background: meta.color, width: 8, height: 8 }} />
+      <div class="head">
+        <span class="status"></span>
+        <span>${data.label || meta.label}</span>
+      </div>
+      <div class="sub">${data.sub || meta.desc}</div>
+      <div class="meta">
+        ${data.model && data.model !== "—" ? html`<span class="chip">🤖 ${data.model}</span>` : null}
+        ${data.tool  && data.tool  !== "—" ? html`<span class="chip">🛠 ${data.tool}</span>` : null}
+        ${data.condition ? html`<span class="chip">⚖ ${data.condition}</span>` : null}
+        <span class="chip" style=${{ borderColor: meta.color, color: meta.color }}>${meta.label}</span>
+      </div>
+      <${Handle} type="source" position=${Position.Right}
+                 style=${{ background: meta.color, width: 8, height: 8 }} />
+    </div>
+  `;
+}
+const nodeTypes = { trigger: WfNode, ai: WfNode, tool: WfNode, decision: WfNode, output: WfNode };
+
+/* ---------- Example workflow ---------- */
+function exampleWorkflow() {
+  const trigger = nid("trigger");
+  const ai1     = nid("ai");
+  const dec     = nid("decision");
+  const tool1   = nid("tool");
+  const tool2   = nid("tool");
+  const ai2     = nid("ai");
+  const out     = nid("output");
+  return {
+    nodes: [
+      { id: trigger, type: "trigger",  position: { x: 40,   y: 220 }, data: { ...DEFAULT_DATA.trigger } },
+      { id: ai1,     type: "ai",       position: { x: 280,  y: 220 }, data: { ...DEFAULT_DATA.ai, label: "意圖分類", sub: "判斷意圖類型" } },
+      { id: dec,     type: "decision", position: { x: 520,  y: 220 }, data: { ...DEFAULT_DATA.decision, label: "是否為緊急", condition: "intent == 'urgent'" } },
+      { id: tool1,   type: "tool",     position: { x: 760,  y: 100 }, data: { ...DEFAULT_DATA.tool,    label: "發 Slack 高優先", tool: "slack_urgent" } },
+      { id: tool2,   type: "tool",     position: { x: 760,  y: 340 }, data: { ...DEFAULT_DATA.tool,    label: "寫入 CRM",         tool: "crm_update" } },
+      { id: ai2,     type: "ai",       position: { x: 1000, y: 340 }, data: { ...DEFAULT_DATA.ai,      label: "摘要",            sub: "產生對話摘要" } },
+      { id: out,     type: "output",   position: { x: 1240, y: 340 }, data: { ...DEFAULT_DATA.output,  label: "回覆使用者",      sub: "Slack DM" } },
+    ],
+    edges: [
+      { id: nid("e"), source: trigger, target: ai1,     animated: true },
+      { id: nid("e"), source: ai1,     target: dec,     animated: true },
+      { id: nid("e"), source: dec,     target: tool1,   label: "true",  data: { branch: "true" } },
+      { id: nid("e"), source: dec,     target: tool2,   label: "false", data: { branch: "false" } },
+      { id: nid("e"), source: tool1,   target: out,     animated: true },
+      { id: nid("e"), source: tool2,   target: ai2,     animated: true },
+      { id: nid("e"), source: ai2,     target: out,     animated: true },
+    ],
+  };
+}
+
+/* ---------- Execution simulator (BFS from triggers) ---------- */
+function buildAdj(edges) {
+  const m = new Map();
+  for (const e of edges) {
+    if (!m.has(e.source)) m.set(e.source, []);
+    m.get(e.source).push(e);
+  }
+  return m;
+}
+
+function simulate(nodes, edges, onUpdate, onEdge, onDone) {
+  const adj = buildAdj(edges);
+  const visited = new Set();
+  const queue = [];
+  for (const n of nodes) {
+    if (n.type === "trigger") queue.push({ id: n.id, edgeIn: null });
+  }
+  if (queue.length === 0 && nodes[0]) queue.push({ id: nodes[0].id, edgeIn: null });
+
+  const decisionTaken = new Set();
+  const stepMs = 750;
+
+  function tick() {
+    if (queue.length === 0) { onDone(); return; }
+    const { id, edgeIn } = queue.shift();
+    if (visited.has(id)) { tick(); return; }
+    visited.add(id);
+    const node = nodes.find(n => n.id === id);
+    if (!node) { tick(); return; }
+
+    if (edgeIn) onEdge(edgeIn, "edge-success");
+    onUpdate(id, "running");
+
+    setTimeout(() => {
+      let nextEdges = adj.get(id) || [];
+      if (node.type === "decision") {
+        if (decisionTaken.has(id)) { onUpdate(id, "skipped"); tick(); return; }
+        decisionTaken.add(id);
+        const branchChoice = Math.random() < 0.5 ? "true" : "false";
+        nextEdges = nextEdges.filter(e => (e.data?.branch || "true") === branchChoice);
+        if (nextEdges.length === 0) nextEdges = adj.get(id) || [];
+        onUpdate(id, "success");
+        nextEdges.forEach((e, idx) => {
+          setTimeout(() => {
+            onEdge(e.id, "edge-running");
+            queue.push({ id: e.target, edgeIn: e.id });
+          }, idx * 150);
+        });
+        tick();
+      } else {
+        onUpdate(id, "success");
+        nextEdges.forEach((e, idx) => {
+          setTimeout(() => {
+            onEdge(e.id, "edge-running");
+            queue.push({ id: e.target, edgeIn: e.id });
+          }, idx * 200);
+        });
+        tick();
+      }
+    }, stepMs);
+  }
+
+  tick();
+}
+
+/* ---------- App ---------- */
+function FlowApp() {
+  const reactFlowWrapper = useRef(null);
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState(null);
+  const [running, setRunning] = useState(false);
+  const { screenToFlowPosition } = useReactFlow();
+  const runIdRef = useRef(0);
+  // Mirror nodes/edges to a ref so background topbar buttons always see latest values
+  const stateRef = useRef({ nodes: [], edges: [] });
+  stateRef.current.nodes = nodes;
+  stateRef.current.edges = edges;
+
+  const onDragOver = useCallback((e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }, []);
+  const onDrop = useCallback((event) => {
+    event.preventDefault();
+    const type = event.dataTransfer.getData("application/wf-type");
+    if (!type || !TYPE_META[type]) return;
+    const pos = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+    const newNode = {
+      id: nid(type),
+      type,
+      position: pos,
+      data: { ...DEFAULT_DATA[type], status: "" },
+    };
+    setNodes((nds) => nds.concat(newNode));
+    const t = document.getElementById("toast");
+    t.textContent = `已新增 ${TYPE_META[type].label} 節點`;
+    t.classList.add("show");
+    clearTimeout(window._toastT);
+    window._toastT = setTimeout(() => t.classList.remove("show"), 1600);
+  }, [screenToFlowPosition, setNodes]);
+
+  const onConnect = useCallback((params) => {
+    setEdges((eds) => addEdge({
+      ...params,
+      animated: true,
+      markerEnd: { type: MarkerType.ArrowClosed, color: "#94a3b8" },
+      style: { stroke: "#94a3b8", strokeWidth: 1.6 },
+    }, eds));
+  }, [setEdges]);
+
+  const onNodeClick = useCallback((_, n) => { setSelectedNodeId(n.id); setSelectedEdgeId(null); }, []);
+  const onEdgeClick = useCallback((_, e) => { setSelectedEdgeId(e.id); setSelectedNodeId(null); }, []);
+  const onPaneClick  = useCallback(() => { setSelectedNodeId(null); setSelectedEdgeId(null); }, []);
+
+  const addNode = (type) => {
+    const pos = { x: 120 + Math.random()*400, y: 120 + Math.random()*200 };
+    const newNode = { id: nid(type), type, position: pos, data: { ...DEFAULT_DATA[type], status: "" } };
+    setNodes((nds) => nds.concat(newNode));
+  };
+
+  const updateNode = (id, patch) => {
+    setNodes((nds) => nds.map(n => n.id === id ? { ...n, data: { ...n.data, ...patch } } : n));
+  };
+  const updateEdge = (id, patch) => {
+    setEdges((eds) => eds.map(e => e.id === id
+      ? { ...e, ...patch, data: { ...(e.data||{}), ...(patch.data||{}) } }
+      : e));
+  };
+
+  // Delete selected via keyboard
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (selectedNodeId) {
+          setNodes((nds) => nds.filter(n => n.id !== selectedNodeId));
+          setEdges((eds) => eds.filter(e => e.source !== selectedNodeId && e.target !== selectedNodeId));
+          setSelectedNodeId(null);
+        } else if (selectedEdgeId) {
+          setEdges((eds) => eds.filter(e => e.id !== selectedEdgeId));
+          setSelectedEdgeId(null);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedNodeId, selectedEdgeId, setNodes, setEdges]);
+
+  const clearStatuses = useCallback(() => {
+    runIdRef.current += 1;
+    setNodes((nds) => nds.map(n => ({ ...n, data: { ...n.data, status: "" } })));
+    setEdges((eds) => eds.map(e => ({ ...e, className: "" })));
+  }, [setNodes, setEdges]);
+
+  const runSimulation = () => {
+    if (stateRef.current.nodes.length === 0) {
+      const t = document.getElementById("toast");
+      t.textContent = "請先載入範例或拖入節點"; t.classList.add("show");
+      clearTimeout(window._toastT); window._toastT = setTimeout(() => t.classList.remove("show"), 1600);
+      return;
+    }
+    clearStatuses();
+    setRunning(true);
+    document.getElementById("btn-run").style.display = "none";
+    document.getElementById("btn-stop").style.display = "";
+    const myRun = runIdRef.current;
+
+    const snapNodes = stateRef.current.nodes.map(n => ({ ...n, data: { ...n.data } }));
+    const snapEdges = stateRef.current.edges.map(e => ({ ...e }));
+
+    simulate(
+      snapNodes, snapEdges,
+      (id, status) => {
+        if (myRun !== runIdRef.current) return;
+        setNodes((nds) => nds.map(n => n.id === id ? { ...n, data: { ...n.data, status } } : n));
+      },
+      (eid, cls) => {
+        if (myRun !== runIdRef.current) return;
+        setEdges((eds) => eds.map(e => e.id === eid ? { ...e, className: cls } : e));
+      },
+      () => {
+        if (myRun !== runIdRef.current) return;
+        setRunning(false);
+        document.getElementById("btn-run").style.display = "";
+        document.getElementById("btn-stop").style.display = "none";
+        const t = document.getElementById("toast");
+        t.textContent = "執行完成"; t.classList.add("show");
+        clearTimeout(window._toastT); window._toastT = setTimeout(() => t.classList.remove("show"), 1600);
+      }
+    );
+  };
+  const stopSimulation = () => {
+    runIdRef.current += 1;
+    setRunning(false);
+    clearStatuses();
+    document.getElementById("btn-run").style.display = "";
+    document.getElementById("btn-stop").style.display = "none";
+  };
+
+  /* --- Wire topbar buttons & palette drag (once) --- */
+  useEffect(() => {
+    document.getElementById("btn-run").onclick   = runSimulation;
+    document.getElementById("btn-stop").onclick  = stopSimulation;
+    document.getElementById("btn-load").onclick  = () => {
+      const ex = exampleWorkflow();
+      setNodes(ex.nodes.map(x => ({ ...x, data: { ...x.data, status: "" } })));
+      setEdges(ex.edges);
+      const t = document.getElementById("toast");
+      t.textContent = "已載入範例 workflow"; t.classList.add("show");
+      clearTimeout(window._toastT); window._toastT = setTimeout(() => t.classList.remove("show"), 1600);
+    };
+    document.getElementById("btn-export").onclick = () => {
+      const cur = stateRef.current;
+      const data = {
+        nodes: cur.nodes.map(({ id, type, position, data }) => ({ id, type, position, data: { label: data.label, sub: data.sub, model: data.model, tool: data.tool, condition: data.condition, hint: data.hint } })),
+        edges: cur.edges.map(({ id, source, target, sourceHandle, targetHandle, label, data, animated }) =>
+          ({ id, source, target, sourceHandle, targetHandle, label, data, animated })),
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "workflow.json";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    };
+    document.getElementById("btn-import").onclick = () => document.getElementById("file-input").click();
+    document.getElementById("btn-clear").onclick = () => {
+      if (!confirm("確定清空所有節點與邊？")) return;
+      setNodes([]); setEdges([]);
+      setSelectedNodeId(null); setSelectedEdgeId(null);
+    };
+    document.getElementById("file-input").onchange = (ev) => {
+      const f = ev.target.files?.[0]; if (!f) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = JSON.parse(e.target.result);
+          if (!data.nodes || !data.edges) throw new Error("格式不正確");
+          setNodes(data.nodes.map(n => ({ ...n, data: { ...n.data, status: "" } })));
+          setEdges(data.edges.map(e => ({ ...e, className: "" })));
+        } catch (err) { alert("匯入失敗：" + err.message); }
+      };
+      reader.readAsText(f);
+      ev.target.value = "";
+    };
+    document.querySelectorAll("#palette .item").forEach(el => {
+      el.addEventListener("dragstart", (e) => {
+        e.dataTransfer.setData("application/wf-type", el.dataset.type);
+        e.dataTransfer.effectAllowed = "move";
+      });
+    });
+  }, []);  // bind once; handlers read state from stateRef and setters
+
+  /* --- Right panel: re-render side-panel whenever selection changes --- */
+  const selNode = nodes.find(n => n.id === selectedNodeId) || null;
+  const selEdge = edges.find(e => e.id === selectedEdgeId) || null;
+  useEffect(() => {
+    const empty = document.getElementById("props-empty");
+    const ctn   = document.getElementById("props-content");
+    const preview = document.getElementById("json-preview");
+    const esc = (s) => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    if (selNode) {
+      empty.style.display = "none";
+      ctn.style.display = "";
+      const d = selNode.data;
+      ctn.innerHTML = `
+        <div class="kv"><span>類型</span><span>${esc(TYPE_META[selNode.type]?.label || selNode.type)}</span></div>
+        <div class="kv"><span>ID</span><span style="font-family:monospace;font-size:11px">${esc(selNode.id)}</span></div>
+        <div class="field"><label>名稱</label><input id="p-label" value="${esc(d.label)}" /></div>
+        <div class="field"><label>副標題</label><input id="p-sub" value="${esc(d.sub)}" /></div>
+        ${selNode.type === "ai" ? `<div class="field"><label>模型</label><input id="p-model" value="${esc(d.model)}" placeholder="gpt-4o / claude-3.5..." /></div>` : ""}
+        ${selNode.type === "tool" ? `<div class="field"><label>工具</label><input id="p-tool" value="${esc(d.tool)}" placeholder="http_get / slack..." /></div>` : ""}
+        ${selNode.type === "decision" ? `<div class="field"><label>條件</label><input id="p-cond" value="${esc(d.condition)}" placeholder="score > 0.5" /></div>` : ""}
+        <div class="field"><label>備註</label><textarea id="p-hint" placeholder="備註 / 細節">${esc(d.hint)}</textarea></div>
+        <div style="display:flex;gap:6px;margin-top:10px;">
+          <button class="btn danger" id="p-del">刪除節點</button>
+        </div>
+      `;
+      const wire = (id, key) => {
+        const el = document.getElementById(id);
+        if (el) el.oninput = (e) => updateNode(selNode.id, { [key]: e.target.value });
+      };
+      wire("p-label", "label");
+      wire("p-sub",   "sub");
+      wire("p-model", "model");
+      wire("p-tool",  "tool");
+      wire("p-cond",  "condition");
+      wire("p-hint",  "hint");
+      document.getElementById("p-del").onclick = () => {
+        setNodes((nds) => nds.filter(n => n.id !== selNode.id));
+        setEdges((eds) => eds.filter(e => e.source !== selNode.id && e.target !== selNode.id));
+        setSelectedNodeId(null);
+      };
+    } else if (selEdge) {
+      empty.style.display = "none";
+      ctn.style.display = "";
+      ctn.innerHTML = `
+        <div class="kv"><span>Edge ID</span><span style="font-family:monospace;font-size:11px">${esc(selEdge.id)}</span></div>
+        <div class="kv"><span>From → To</span><span>${esc(selEdge.source)} → ${esc(selEdge.target)}</span></div>
+        <div class="field"><label>標籤</label><input id="e-label" value="${esc(selEdge.label)}" placeholder="可填 true / false / 其他" /></div>
+        <div class="field"><label>分支語意</label>
+          <select id="e-branch">
+            <option value="">(一般)</option>
+            <option value="true">true</option>
+            <option value="false">false</option>
+          </select>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:10px;">
+          <button class="btn danger" id="e-del">刪除邊</button>
+        </div>
+      `;
+      const sel = document.getElementById("e-branch");
+      sel.value = selEdge.data?.branch || "";
+      document.getElementById("e-label").oninput = (e) => updateEdge(selEdge.id, { label: e.target.value });
+      sel.onchange = (e) => updateEdge(selEdge.id, { data: { branch: e.target.value } });
+      document.getElementById("e-del").onclick = () => {
+        setEdges((eds) => eds.filter(e => e.id !== selEdge.id));
+        setSelectedEdgeId(null);
+      };
+    } else {
+      empty.style.display = "";
+      ctn.style.display = "none";
+    }
+    preview.textContent = JSON.stringify({
+      nodes: nodes.length, edges: edges.length,
+      sampleNode: nodes[0] && { id: nodes[0].id, type: nodes[0].type, data: nodes[0].data }
+    }, null, 2);
+  }, [selNode, selEdge, nodes, edges]);
+
+  useEffect(() => {
+    document.getElementById("stat").textContent = `節點 ${nodes.length} · 邊 ${edges.length}`;
+  }, [nodes.length, edges.length]);
+
+  return html`
+    <div ref=${reactFlowWrapper} style=${{ width: "100%", height: "100%" }}
+         onDrop=${onDrop} onDragOver=${onDragOver}>
+      <${ReactFlow}
+        nodes=${nodes}
+        edges=${edges}
+        onNodesChange=${onNodesChange}
+        onEdgesChange=${onEdgesChange}
+        onConnect=${onConnect}
+        onNodeClick=${onNodeClick}
+        onEdgeClick=${onEdgeClick}
+        onPaneClick=${onPaneClick}
+        nodeTypes=${nodeTypes}
+        defaultEdgeOptions=${{ animated: true, markerEnd: { type: MarkerType.ArrowClosed, color: "#94a3b8" } }}
+        fitView
+        proOptions=${{ hideAttribution: true }}
+      >
+        <${Background} gap=${20} size=${1} color="#1a2542" />
+        <${Controls} position="bottom-right" />
+        <${MiniMap}
+          position="bottom-left"
+          nodeColor=${(n) => TYPE_META[n.type]?.color || "#94a3b8"}
+          maskColor="rgba(2,6,23,0.7)"
+          pannable=${true} zoomable=${true}
+        />
+        <${Panel} position="top-right">
+          <div style=${{ display: "flex", gap: 6 }}>
+            <button className="btn ghost" onClick=${() => addNode("trigger")}>+ Trigger</button>
+            <button className="btn ghost" onClick=${() => addNode("ai")}>+ AI</button>
+            <button className="btn ghost" onClick=${() => addNode("tool")}>+ Tool</button>
+            <button className="btn ghost" onClick=${() => addNode("decision")}>+ Decision</button>
+            <button className="btn ghost" onClick=${() => addNode("output")}>+ Output</button>
+          </div>
+        <//>
+      <//>
+    </div>
+  `;
+}
+
+function App() {
+  return html`<${ReactFlowProvider}><${FlowApp} /><//>`;
+}
+
+const root = createRoot(document.getElementById("root"));
+root.render(html`<${App} />`);
+</script>
+</body>
+</html>

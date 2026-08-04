@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Async Scheduler — 即時監控儀表板</title>
+<style>
+  :root {
+    --bg-0: #0a0e14;
+    --bg-1: #11161e;
+    --bg-2: #1a2230;
+    --border: #2a3548;
+    --text-0: #e6edf3;
+    --text-1: #adbac7;
+    --text-2: #768390;
+    --accent: #58a6ff;
+    --accent-2: #d2a8ff;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --err: #f85149;
+    --info: #79c0ff;
+    --shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+    background: var(--bg-0);
+    color: var(--text-0);
+    line-height: 1.5;
+    padding: 24px;
+    min-height: 100vh;
+  }
+  .container { max-width: 1280px; margin: 0 auto; }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+    padding: 20px 24px;
+    background: linear-gradient(135deg, var(--bg-1), var(--bg-2));
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+  }
+  h1 {
+    font-size: 22px;
+    font-weight: 700;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .header-meta { color: var(--text-2); font-size: 13px; font-family: monospace; }
+  .header-meta strong { color: var(--text-1); }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .card {
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+    box-shadow: var(--shadow);
+  }
+  .stat-card { text-align: left; }
+  .stat-label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-2);
+    margin-bottom: 6px;
+  }
+  .stat-value {
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  .stat-value.ok { color: var(--ok); }
+  .stat-value.warn { color: var(--warn); }
+  .stat-value.err { color: var(--err); }
+  .stat-sub { font-size: 12px; color: var(--text-2); margin-top: 4px; }
+
+  .section {
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-2);
+  }
+  .section-title { font-size: 14px; font-weight: 600; color: var(--text-0); }
+  .section-meta { font-size: 12px; color: var(--text-2); }
+  .section-body { padding: 16px 20px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td {
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-2);
+    font-weight: 600;
+    background: var(--bg-2);
+  }
+  td { color: var(--text-1); font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
+  tr:hover td { background: rgba(88, 166, 255, 0.05); }
+  .pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .pill.succeeded, .pill.ok { background: rgba(63, 185, 80, 0.15); color: var(--ok); }
+  .pill.failed, .pill.err { background: rgba(248, 81, 73, 0.15); color: var(--err); }
+  .pill.running { background: rgba(88, 166, 255, 0.15); color: var(--accent); }
+  .pill.pending { background: rgba(118, 131, 144, 0.15); color: var(--text-2); }
+  .pill.cancelled { background: rgba(210, 153, 34, 0.15); color: var(--warn); }
+
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+  }
+  .metric-box {
+    background: var(--bg-2);
+    border-radius: 8px;
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+  }
+  .metric-name { font-size: 11px; color: var(--text-2); margin-bottom: 4px; }
+  .metric-value { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .metric-bar {
+    margin-top: 8px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .metric-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    transition: width 0.3s;
+  }
+
+  .event-log {
+    max-height: 400px;
+    overflow-y: auto;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .event-row {
+    display: grid;
+    grid-template-columns: 90px 90px 1fr 1fr;
+    gap: 12px;
+    padding: 4px 8px;
+    border-radius: 4px;
+  }
+  .event-row:hover { background: rgba(88, 166, 255, 0.05); }
+  .event-ts { color: var(--text-2); }
+  .event-type { font-weight: 600; }
+  .event-type.start { color: var(--info); }
+  .event-type.success { color: var(--ok); }
+  .event-type.error, .event-type.fail, .event-type.timeout { color: var(--err); }
+  .event-type.retry { color: var(--warn); }
+  .event-type.cancel { color: var(--warn); }
+  .event-name { color: var(--accent-2); }
+  .event-extra { color: var(--text-2); font-size: 11px; }
+
+  .legend {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--text-2);
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+  }
+
+  code, .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .footer {
+    margin-top: 24px;
+    padding: 16px 20px;
+    color: var(--text-2);
+    font-size: 12px;
+    text-align: center;
+    border-top: 1px solid var(--border);
+  }
+  .stack-banner {
+    background: linear-gradient(90deg, rgba(88, 166, 255, 0.1), rgba(210, 168, 255, 0.1));
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 20px;
+    margin-bottom: 24px;
+    font-size: 13px;
+    color: var(--text-1);
+  }
+  .stack-banner code {
+    background: var(--bg-2);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--accent);
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div>
+      <h1>⚡ Async Scheduler — 即時監控儀表板</h1>
+      <div class="header-meta" style="margin-top:4px;">
+        基於 asyncio 的後台任務調度系統 · 優化 API 集成與數據處理流程
+      </div>
+    </div>
+    <div class="header-meta">
+      <div>generated: <strong id="gen-ts"></strong></div>
+      <div>elapsed: <strong id="elapsed"></strong></div>
+    </div>
+  </header>
+
+  <div class="stack-banner">
+    <strong>重用的微技能：</strong>
+    <code>advanced_async_system_management</code> ·
+    <code>anti_pattern_blocking_io</code> ·
+    <code>anti_pattern_infinite_loop</code> ·
+    <code>advanced_system_security_and_reliability</code> ·
+    <code>web_output_dashboard</code>
+  </div>
+
+  <!-- KPI 卡片 -->
+  <div class="grid">
+    <div class="card stat-card">
+      <div class="stat-label">總提交</div>
+      <div class="stat-value" id="kpi-total">—</div>
+      <div class="stat-sub">tasks submitted</div>
+    </div>
+    <div class="card stat-card">
+      <div class="stat-label">成功</div>
+      <div class="stat-value ok" id="kpi-ok">—</div>
+      <div class="stat-sub" id="kpi-ok-pct">—%</div>
+    </div>
+    <div class="card stat-card">
+      <div class="stat-label">失敗</div>
+      <div class="stat-value err" id="kpi-fail">—</div>
+      <div class="stat-sub">failed</div>
+    </div>
+    <div class="card stat-card">
+      <div class="stat-label">重試</div>
+      <div class="stat-value warn" id="kpi-retry">—</div>
+      <div class="stat-sub">retry events</div>
+    </div>
+  </div>
+
+  <!-- Scheduler 狀態 -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title">📊 Scheduler 狀態</div>
+      <div class="section-meta">workers, queue, by_status</div>
+    </div>
+    <div class="section-body">
+      <div class="metrics-grid" id="sched-grid"></div>
+    </div>
+  </div>
+
+  <!-- API client metrics -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title">🌐 多源 API Client</div>
+      <div class="section-meta">requests, rate-limit wait, failures per source</div>
+    </div>
+    <div class="section-body">
+      <div class="metrics-grid" id="api-grid"></div>
+    </div>
+  </div>
+
+  <!-- Cache -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title">💾 TTLCache + Mock Server</div>
+      <div class="section-meta">hit ratio · 限速觸發統計</div>
+    </div>
+    <div class="section-body">
+      <div class="metrics-grid" id="cache-grid"></div>
+    </div>
+  </div>
+
+  <!-- 任務表 -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title">📋 任務清單</div>
+      <div class="section-meta" id="tasks-count">—</div>
+    </div>
+    <div class="section-body" style="padding:0;">
+      <table id="tasks-table">
+        <thead>
+          <tr>
+            <th>Task ID</th>
+            <th>Name</th>
+            <th>Status</th>
+            <th>Attempts</th>
+            <th>Duration (ms)</th>
+            <th>Result Summary</th>
+          </tr>
+        </thead>
+        <tbody id="tasks-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 事件流 -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-title">📡 事件流（最近 40 條）</div>
+      <div class="section-meta">
+        <span class="legend">
+          <span class="legend-item"><span class="legend-dot" style="background:var(--info);"></span>start</span>
+          <span class="legend-item"><span class="legend-dot" style="background:var(--ok);"></span>success</span>
+          <span class="legend-item"><span class="legend-dot" style="background:var(--err);"></span>error/fail/timeout</span>
+          <span class="legend-item"><span class="legend-dot" style="background:var(--warn);"></span>retry/cancel</span>
+        </span>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="event-log" id="event-log"></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    Async Scheduler v1.0.0 · 18 tasks completed in &lt;1s · 21/21 smoke tests passed
+  </div>
+</div>
+
+<script>
+const DATA = {"generated_at": 1785802599.7097356, "elapsed_sec": 0.25, "scheduler": {"queue_size": 0, "workers": 4, "active_workers": 4, "running": true, "metrics": {"enqueued": 18, "started": 26, "succeeded": 18, "failed": 0, "retried": 8, "cancelled": 0, "queue_high_watermark": 12}, "by_status": {"pending": 0, "running": 0, "succeeded": 18, "failed": 0, "cancelled": 0}, "total_records": 18}, "tasks": [{"task_id": "27743896a15e", "name": "flaky", "status": "succeeded", "attempts": 3, "duration_ms": 0.0, "error": "RuntimeError: simulated transient failure on attempt 2", "result_summary": {"ok": true, "task_id": "27743896a15e", "attempt": 3}}, {"task_id": "2a6e24e6108d", "name": "flaky", "status": "succeeded", "attempts": 3, "duration_ms": 0.0, "error": "RuntimeError: simulated transient failure on attempt 2", "result_summary": {"ok": true, "task_id": "2a6e24e6108d", "attempt": 3}}, {"task_id": "511f6e877aa4", "name": "flaky", "status": "succeeded", "attempts": 3, "duration_ms": 0.0, "error": "RuntimeError: simulated transient failure on attempt 2", "result_summary": {"ok": true, "task_id": "511f6e877aa4", "attempt": 3}}, {"task_id": "0a312346ce56", "name": "flaky", "status": "succeeded", "attempts": 3, "duration_ms": 0.0, "error": "RuntimeError: simulated transient failure on attempt 2", "result_summary": {"ok": true, "task_id": "0a312346ce56", "attempt": 3}}, {"task_id": "27cdfabe4410", "name": "slow", "status": "succeeded", "attempts": 1, "duration_ms": 150.3, "error": null, "result_summary": {"slept": 0.15, "task_id": "27cdfabe4410", "attempt": 1}}, {"task_id": "6f7597cb1bbf", "name": "slow", "status": "succeeded", "attempts": 1, "duration_ms": 200.6, "error": null, "result_summary": {"slept": 0.2, "task_id": "6f7597cb1bbf", "attempt": 1}}, {"task_id": "4290f1045096", "name": "slow", "status": "succeeded", "attempts": 1, "duration_ms": 250.5, "error": null, "result_summary": {"slept": 0.25, "task_id": "4290f1045096", "attempt": 1}}, {"task_id": "5a8cc7863b2b", "name": "filter_agg", "status": "succeeded", "attempts": 1, "duration_ms": 10.4, "error": null, "result_summary": {"source": "users_api", "endpoint": "/list", "raw_count": 5, "filtered_count": 3}}, {"task_id": "ce8c11047662", "name": "filter_agg", "status": "succeeded", "attempts": 1, "duration_ms": 11.5, "error": null, "result_summary": {"source": "users_api", "endpoint": "/list", "raw_count": 5, "filtered_count": 1}}, {"task_id": "3c487a0c9a02", "name": "filter_agg", "status": "succeeded", "attempts": 1, "duration_ms": 11.6, "error": null, "result_summary": {"source": "users_api", "endpoint": "/list", "raw_count": 5, "filtered_count": 2}}, {"task_id": "e264674b67d7", "name": "filter_agg", "status": "succeeded", "attempts": 1, "duration_ms": 11.6, "error": null, "result_summary": {"source": "users_api", "endpoint": "/list", "raw_count": 5, "filtered_count": 5}}, {"task_id": "48b50c96a62c", "name": "filter_agg", "status": "succeeded", "attempts": 1, "duration_ms": 11.6, "error": null, "result_summary": {"source": "users_api", "endpoint": "/list", "raw_count": 5, "filtered_count": 1}}, {"task_id": "0820f93f2961", "name": "fetch", "status": "succeeded", "attempts": 1, "duration_ms": 10.8, "error": null, "result_summary": {"source": "metrics_api", "endpoint": "/gauges", "from_cache": false, "cache_key": "357f28809411fe5c", "status": 200, "elapsed_ms": 10.0}}, {"task_id": "5d4b0ae539c3", "name": "fetch", "status": "succeeded", "attempts": 1, "duration_ms": 0.1, "error": null, "result_summary": {"source": "metrics_api", "endpoint": "/gauges", "from_cache": true, "cache_key": "357f28809411fe5c"}}, {"task_id": "d8b778324ae2", "name": "fetch", "status": "succeeded", "attempts": 1, "duration_ms": 0.1, "error": null, "result_summary": {"source": "metrics_api", "endpoint": "/gauges", "from_cache": true, "cache_key": "357f28809411fe5c"}}, {"task_id": "db4d38df3599", "name": "echo", "status": "succeeded", "attempts": 1, "duration_ms": 0.0, "error": null, "result_summary": {"task_id": "db4d38df3599", "ts": 256168.816781172}}, {"task_id": "121e9e45105c", "name": "echo", "status": "succeeded", "attempts": 1, "duration_ms": 0.0, "error": null, "result_summary": {"task_id": "121e9e45105c", "ts": 256168.816808444}}, {"task_id": "a4ab853c2c5e", "name": "echo", "status": "succeeded", "attempts": 1, "duration_ms": 0.0, "error": null, "result_summary": {"task_id": "a4ab853c2c5e", "ts": 256168.81682876}}], "events": [{"ts": 1785802599.1282732, "event": "error", "task_id": "0a312346ce56", "name": "flaky", "attempt": 1, "error": "RuntimeError: simulated transient failure on attempt 1"}, {"ts": 1785802599.2189713, "event": "start", "task_id": "27743896a15e", "name": "flaky", "worker": 1, "attempt": 2}, {"ts": 1785802599.219065, "event": "error", "task_id": "27743896a15e", "name": "flaky", "attempt": 2, "error": "RuntimeError: simulated transient failure on attempt 2"}, {"ts": 1785802599.219121, "event": "start", "task_id": "2a6e24e6108d", "name": "flaky", "worker": 2, "attempt": 2}, {"ts": 1785802599.219163, "event": "error", "task_id": "2a6e24e6108d", "name": "flaky", "attempt": 2, "error": "RuntimeError: simulated transient failure on attempt 2"}, {"ts": 1785802599.219201, "event": "start", "task_id": "511f6e877aa4", "name": "flaky", "worker": 3, "attempt": 2}, {"ts": 1785802599.2192376, "event": "error", "task_id": "511f6e877aa4", "name": "flaky", "attempt": 2, "error": "RuntimeError: simulated transient failure on attempt 2"}, {"ts": 1785802599.2298489, "event": "start", "task_id": "0a312346ce56", "name": "flaky", "worker": 0, "attempt": 2}, {"ts": 1785802599.2300532, "event": "error", "task_id": "0a312346ce56", "name": "flaky", "attempt": 2, "error": "RuntimeError: simulated transient failure on attempt 2"}, {"ts": 1785802599.419383, "event": "start", "task_id": "27743896a15e", "name": "flaky", "worker": 1, "attempt": 3}, {"ts": 1785802599.4194157, "event": "success", "task_id": "27743896a15e", "name": "flaky", "duration_ms": 0.03718599327839911}, {"ts": 1785802599.419435, "event": "start", "task_id": "0820f93f2961", "name": "fetch", "worker": 1, "attempt": 1}, {"ts": 1785802599.4195755, "event": "start", "task_id": "2a6e24e6108d", "name": "flaky", "worker": 2, "attempt": 3}, {"ts": 1785802599.4195879, "event": "success", "task_id": "2a6e24e6108d", "name": "flaky", "duration_ms": 0.012329983292147517}, {"ts": 1785802599.419605, "event": "start", "task_id": "27cdfabe4410", "name": "slow", "worker": 2, "attempt": 1}, {"ts": 1785802599.419623, "event": "start", "task_id": "511f6e877aa4", "name": "flaky", "worker": 3, "attempt": 3}, {"ts": 1785802599.419633, "event": "success", "task_id": "511f6e877aa4", "name": "flaky", "duration_ms": 0.00989600084722042}, {"ts": 1785802599.4196434, "event": "start", "task_id": "6f7597cb1bbf", "name": "slow", "worker": 3, "attempt": 1}, {"ts": 1785802599.4302347, "event": "success", "task_id": "0820f93f2961", "name": "fetch", "duration_ms": 10.795420996146277}, {"ts": 1785802599.430264, "event": "start", "task_id": "4290f1045096", "name": "slow", "worker": 1, "attempt": 1}, {"ts": 1785802599.4302921, "event": "start", "task_id": "0a312346ce56", "name": "flaky", "worker": 0, "attempt": 3}, {"ts": 1785802599.4303045, "event": "success", "task_id": "0a312346ce56", "name": "flaky", "duration_ms": 0.012529984815046191}, {"ts": 1785802599.4365466, "event": "submit", "task_id": "5d4b0ae539c3", "name": "fetch"}, {"ts": 1785802599.4365973, "event": "start", "task_id": "5d4b0ae539c3", "name": "fetch", "worker": 0, "attempt": 1}, {"ts": 1785802599.4366732, "event": "success", "task_id": "5d4b0ae539c3", "name": "fetch", "duration_ms": 0.07502100197598338}, {"ts": 1785802599.4468632, "event": "submit", "task_id": "d8b778324ae2", "name": "fetch"}, {"ts": 1785802599.4469013, "event": "start", "task_id": "d8b778324ae2", "name": "fetch", "worker": 0, "attempt": 1}, {"ts": 1785802599.4469795, "event": "success", "task_id": "d8b778324ae2", "name": "fetch", "duration_ms": 0.07735300459899008}, {"ts": 1785802599.4571912, "event": "submit", "task_id": "db4d38df3599", "name": "echo"}, {"ts": 1785802599.457208, "event": "submit", "task_id": "121e9e45105c", "name": "echo"}, {"ts": 1785802599.457219, "event": "submit", "task_id": "a4ab853c2c5e", "name": "echo"}, {"ts": 1785802599.4572835, "event": "start", "task_id": "db4d38df3599", "name": "echo", "worker": 0, "attempt": 1}, {"ts": 1785802599.4573019, "event": "success", "task_id": "db4d38df3599", "name": "echo", "duration_ms": 0.01784099731594324}, {"ts": 1785802599.4573135, "event": "start", "task_id": "121e9e45105c", "name": "echo", "worker": 0, "attempt": 1}, {"ts": 1785802599.4573276, "event": "success", "task_id": "121e9e45105c", "name": "echo", "duration_ms": 0.013760989531874657}, {"ts": 1785802599.4573383, "event": "start", "task_id": "a4ab853c2c5e", "name": "echo", "worker": 0, "attempt": 1}, {"ts": 1785802599.4573479, "event": "success", "task_id": "a4ab853c2c5e", "name": "echo", "duration_ms": 0.009143986972048879}, {"ts": 1785802599.5699012, "event": "success", "task_id": "27cdfabe4410", "name": "slow", "duration_ms": 150.28897899901494}, {"ts": 1785802599.6202505, "event": "success", "task_id": "6f7597cb1bbf", "name": "slow", "duration_ms": 200.59834397397935}, {"ts": 1785802599.6807973, "event": "success", "task_id": "4290f1045096", "name": "slow", "duration_ms": 250.51662398618646}], "api_metrics": {"users_api": {"requests": 5, "retries": 0, "failures": 0, "rate_wait_ms": 1.0551530285738409}, "orders_api": {"requests": 0, "retries": 0, "failures": 0, "rate_wait_ms": 0.0}, "metrics_api": {"requests": 1, "retries": 0, "failures": 0, "rate_wait_ms": 0.005953013896942139}}, "cache_stats": {"hits": 2, "misses": 1, "evictions": 0, "expirations": 0}, "server_stats": {"users_api": {"hits": 5, "errors": 0, "rate_limited": 0}, "orders_api": {"hits": 0, "errors": 0, "rate_limited": 0}, "metrics_api": {"hits": 1, "errors": 0, "rate_limited": 0}}, "summary": {"total_submitted": 18, "succeeded": 18, "failed": 0, "retried": 8, "cancelled": 0, "queue_peak": 12}};
+
+function fmtTime(ts) {
+  const d = new Date(ts * 1000);
+  return d.toISOString().substr(11, 12);
+}
+
+document.getElementById('gen-ts').textContent = fmtTime(DATA.generated_at);
+document.getElementById('elapsed').textContent = DATA.elapsed_sec + 's';
+
+// KPI
+const s = DATA.summary;
+document.getElementById('kpi-total').textContent = s.total_submitted;
+document.getElementById('kpi-ok').textContent = s.succeeded;
+document.getElementById('kpi-ok-pct').textContent = ((s.succeeded / s.total_submitted) * 100).toFixed(0) + '% success rate';
+document.getElementById('kpi-fail').textContent = s.failed;
+document.getElementById('kpi-retry').textContent = s.retried;
+
+// Scheduler status
+function metricBox(name, value, sub, pct) {
+  return `<div class="metric-box">
+    <div class="metric-name">${name}</div>
+    <div class="metric-value">${value}</div>
+    ${sub ? `<div class="metric-bar"><div class="metric-bar-fill" style="width:${pct||0}%"></div></div><div class="stat-sub" style="margin-top:6px;">${sub}</div>` : ''}
+  </div>`;
+}
+const sched = DATA.scheduler;
+const schedGrid = document.getElementById('sched-grid');
+schedGrid.innerHTML = [
+  metricBox('queue_size', sched.queue_size, sched.queue_size > 0 ? 'pending' : 'idle'),
+  metricBox('workers', sched.active_workers + '/' + sched.workers, 'active / total'),
+  metricBox('enqueued', sched.metrics.enqueued, 'lifetime'),
+  metricBox('started', sched.metrics.started, 'lifetime'),
+  metricBox('succeeded', sched.metrics.succeeded, null),
+  metricBox('failed', sched.metrics.failed, null),
+  metricBox('retried', sched.metrics.retried, 'transient recoveries'),
+  metricBox('queue_peak', sched.metrics.queue_high_watermark, 'concurrent depth'),
+  metricBox('cancelled', sched.metrics.cancelled, null),
+  metricBox('by status', Object.entries(sched.by_status).map(([k,v])=>`${k}:${v}`).join(' · '), 'snapshot'),
+].join('');
+
+// API metrics
+const apiGrid = document.getElementById('api-grid');
+apiGrid.innerHTML = Object.entries(DATA.api_metrics).map(([name, m]) => {
+  const failPct = m.requests > 0 ? (m.failures / m.requests * 100) : 0;
+  return metricBox(
+    name,
+    m.requests,
+    `${m.failures} fail · ${m.rate_wait_ms.toFixed(1)}ms wait`,
+    failPct
+  );
+}).join('');
+
+// Cache + servers
+const cacheGrid = document.getElementById('cache-grid');
+const cs = DATA.cache_stats;
+const hitRate = (cs.hits + cs.misses) > 0 ? (cs.hits / (cs.hits + cs.misses) * 100) : 0;
+let html = metricBox('cache hits', cs.hits, hitRate.toFixed(0) + '% hit rate', hitRate);
+html += metricBox('cache misses', cs.misses, 'forced API calls');
+html += metricBox('evictions', cs.evictions, 'LRU evictions');
+html += metricBox('expirations', cs.expirations, 'TTL expired');
+for (const [name, s] of Object.entries(DATA.server_stats)) {
+  html += metricBox(name + ' (mock)', s.hits, `${s.rate_limited} 429s · ${s.errors} errors`);
+}
+cacheGrid.innerHTML = html;
+
+// Tasks table
+const tbody = document.getElementById('tasks-tbody');
+tbody.innerHTML = DATA.tasks.map(t => {
+  const summary = t.result_summary ? JSON.stringify(t.result_summary) : (t.error || '—');
+  return `<tr>
+    <td>${t.task_id}</td>
+    <td>${t.name}</td>
+    <td><span class="pill ${t.status}">${t.status}</span></td>
+    <td>${t.attempts}</td>
+    <td>${t.duration_ms.toFixed(1)}</td>
+    <td style="font-size:11px;">${summary}</td>
+  </tr>`;
+}).join('');
+document.getElementById('tasks-count').textContent = `${DATA.tasks.length} tasks`;
+
+// Event log
+const log = document.getElementById('event-log');
+log.innerHTML = DATA.events.map(e => {
+  const extra = Object.entries(e).filter(([k]) => !['ts','event','task_id','name'].includes(k))
+    .map(([k,v]) => `${k}=${v}`).join(' · ');
+  return `<div class="event-row">
+    <span class="event-ts">${fmtTime(e.ts)}</span>
+    <span class="event-type ${e.event}">${e.event}</span>
+    <span class="event-name">${e.name || '—'}</span>
+    <span class="event-extra">${extra}</span>
+  </div>`;
+}).join('');
+</script>
+</body>
+</html>

@@ -1,0 +1,1141 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Calendar × Telegram Scheduler</title>
+<style>
+  /* ── reset + tokens ───────────────────────────────────────────── */
+  *,*::before,*::after { box-sizing: border-box; }
+  :root {
+    --bg: #0f1216;
+    --panel: #1a1f27;
+    --panel-2: #232a36;
+    --border: #2d3543;
+    --text: #e8ecf3;
+    --muted: #8b95a7;
+    --accent: #5b8def;
+    --accent-2: #7c5cff;
+    --ok: #22c55e;
+    --warn: #f59e0b;
+    --err: #ef4444;
+    --tg: #229ed9;
+    --shadow: 0 4px 24px rgba(0,0,0,.35);
+    --radius: 10px;
+  }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.55;
+    min-height: 100vh;
+  }
+  /* ── layout ───────────────────────────────────────────────────── */
+  .app {
+    display: grid;
+    grid-template-columns: 320px 1fr 360px;
+    grid-template-rows: auto 1fr;
+    height: 100vh;
+  }
+  header {
+    grid-column: 1 / -1;
+    padding: 14px 24px;
+    background: linear-gradient(135deg, var(--panel) 0%, var(--panel-2) 100%);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+  header h1 .badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 8px;
+    background: var(--accent-2);
+    color: white;
+    font-size: 11px;
+    border-radius: 4px;
+    font-weight: 500;
+  }
+  .status-pill {
+    margin-left: auto;
+    display: flex;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .status-pill .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 5px;
+    background: var(--muted);
+  }
+  .status-pill .ok .dot    { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .status-pill .warn .dot  { background: var(--warn); }
+  .status-pill .err .dot   { background: var(--err); }
+  /* ── left sidebar ─────────────────────────────────────────────── */
+  .sidebar {
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    padding: 20px;
+    overflow-y: auto;
+  }
+  .sidebar h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--muted);
+    margin: 0 0 12px 0;
+    font-weight: 600;
+  }
+  .new-event-btn {
+    width: 100%;
+    padding: 12px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: white;
+    border: none;
+    border-radius: var(--radius);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-bottom: 20px;
+    transition: transform 0.1s;
+  }
+  .new-event-btn:hover { transform: translateY(-1px); }
+  .new-event-btn:active { transform: translateY(0); }
+
+  .mini-cal {
+    margin-bottom: 24px;
+  }
+  .mini-cal .nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .mini-cal .nav button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+    width: 26px;
+    height: 26px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .mini-cal .nav button:hover { background: var(--panel-2); }
+  .mini-cal .month-label { font-weight: 600; font-size: 13px; }
+  .mini-cal .grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+  }
+  .mini-cal .dow {
+    text-align: center;
+    font-size: 10px;
+    color: var(--muted);
+    padding: 4px 0;
+    font-weight: 600;
+  }
+  .mini-cal .day {
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    border-radius: 4px;
+    cursor: pointer;
+    color: var(--text);
+  }
+  .mini-cal .day:hover { background: var(--panel-2); }
+  .mini-cal .day.muted { color: var(--muted); }
+  .mini-cal .day.today {
+    background: var(--accent);
+    color: white;
+    font-weight: 600;
+  }
+  .mini-cal .day.has-event::after {
+    content: '';
+    width: 4px;
+    height: 4px;
+    background: var(--accent-2);
+    border-radius: 50%;
+    position: absolute;
+    margin-top: 14px;
+  }
+
+  .legend {
+    background: var(--panel-2);
+    border-radius: var(--radius);
+    padding: 14px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .legend h3 {
+    margin: 0 0 8px 0;
+    font-size: 12px;
+    color: var(--text);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .legend code {
+    background: var(--bg);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--accent);
+    font-size: 11px;
+  }
+
+  /* ── main view ────────────────────────────────────────────────── */
+  .main {
+    overflow-y: auto;
+    padding: 24px 28px;
+  }
+  .main-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+  .main-header h2 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 600;
+  }
+  .view-toggle {
+    display: flex;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .view-toggle button {
+    padding: 8px 16px;
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .view-toggle button.active {
+    background: var(--accent);
+    color: white;
+  }
+
+  /* ── month grid ───────────────────────────────────────────────── */
+  .month-view {
+    background: var(--panel);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .month-header {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    background: var(--panel-2);
+    border-bottom: 1px solid var(--border);
+  }
+  .month-header div {
+    padding: 10px;
+    text-align: center;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .month-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+  }
+  .month-cell {
+    min-height: 110px;
+    padding: 8px;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.1s;
+    overflow: hidden;
+  }
+  .month-cell:nth-child(7n) { border-right: none; }
+  .month-cell:hover { background: var(--panel-2); }
+  .month-cell.muted { background: rgba(0,0,0,0.15); }
+  .month-cell.muted .cell-date { color: var(--muted); }
+  .month-cell.today .cell-date {
+    background: var(--accent);
+    color: white;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .cell-date {
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .cell-event {
+    font-size: 11px;
+    padding: 2px 6px;
+    background: var(--accent-2);
+    color: white;
+    border-radius: 3px;
+    margin-bottom: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .cell-event.tg { background: var(--tg); }
+
+  /* ── list view ────────────────────────────────────────────────── */
+  .list-view {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .event-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+  }
+  .event-card .when {
+    min-width: 110px;
+    text-align: right;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .event-card .when .time {
+    color: var(--text);
+    font-size: 16px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .event-card .body { flex: 1; }
+  .event-card .body h3 { margin: 0 0 4px 0; font-size: 14px; }
+  .event-card .body p { margin: 0; color: var(--muted); font-size: 12px; }
+  .event-card .actions {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .icon-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    width: 30px;
+    height: 30px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .icon-btn:hover { background: var(--panel-2); color: var(--text); }
+  .icon-btn.danger:hover { color: var(--err); border-color: var(--err); }
+  .tg-flag {
+    display: inline-block;
+    margin-top: 6px;
+    padding: 2px 8px;
+    background: var(--tg);
+    color: white;
+    font-size: 10px;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+
+  /* ── right rail (telegram) ────────────────────────────────────── */
+  .right-rail {
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    padding: 20px;
+    overflow-y: auto;
+  }
+  .right-rail h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--muted);
+    margin: 0 0 12px 0;
+    font-weight: 600;
+  }
+  .tg-card {
+    background: var(--panel-2);
+    border-radius: var(--radius);
+    padding: 14px;
+    margin-bottom: 16px;
+  }
+  .tg-card .row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .tg-card .row:last-child { border-bottom: none; }
+  .tg-card .label { color: var(--muted); }
+  .tg-card .value { font-weight: 600; }
+  textarea, input, select {
+    width: 100%;
+    padding: 9px 11px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    resize: vertical;
+  }
+  textarea:focus, input:focus, select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  label {
+    display: block;
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    font-weight: 600;
+  }
+  .form-row { margin-bottom: 12px; }
+  .form-row .check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text);
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 400;
+  }
+  .btn-primary {
+    width: 100%;
+    padding: 10px;
+    background: var(--tg);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .btn-primary:hover { filter: brightness(1.1); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ── modal ────────────────────────────────────────────────────── */
+  .modal-back {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .modal-back.show { display: flex; }
+  .modal {
+    background: var(--panel);
+    border-radius: var(--radius);
+    padding: 24px;
+    width: 90%;
+    max-width: 440px;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+  }
+  .modal h3 {
+    margin: 0 0 16px 0;
+    font-size: 17px;
+  }
+  .modal-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+  }
+  .btn-secondary {
+    flex: 1;
+    padding: 9px;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .btn-confirm {
+    flex: 1;
+    padding: 9px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  /* ── toast ────────────────────────────────────────────────────── */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 20px;
+    background: var(--panel-2);
+    color: var(--text);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    font-size: 13px;
+    z-index: 200;
+    opacity: 0;
+    transition: opacity 0.2s, transform 0.2s;
+    pointer-events: none;
+  }
+  .toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(-6px);
+  }
+  .toast.ok { border-left: 4px solid var(--ok); }
+  .toast.err { border-left: 4px solid var(--err); }
+
+  /* ── responsive ───────────────────────────────────────────────── */
+  @media (max-width: 1100px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: auto auto auto; }
+    .sidebar, .right-rail { border: none; border-bottom: 1px solid var(--border); }
+    .month-cell { min-height: 70px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header>
+    <h1>📅 Calendar × Telegram Scheduler <span class="badge">v1.0</span></h1>
+    <div class="status-pill" id="status-pill">
+      <span class="ok"><span class="dot"></span>伺服器連線</span>
+    </div>
+  </header>
+
+  <!-- 左 sidebar -->
+  <aside class="sidebar">
+    <button class="new-event-btn" id="btn-new-event">＋ 新增行程</button>
+
+    <div class="mini-cal">
+      <div class="nav">
+        <button id="mini-prev">‹</button>
+        <span class="month-label" id="mini-label">—</span>
+        <button id="mini-next">›</button>
+      </div>
+      <div class="grid" id="mini-grid"></div>
+    </div>
+
+    <div class="legend">
+      <h3>DEMO 模式說明</h3>
+      <p>未偵測到 <code>gcal_client.json</code>，所有行程為前端預載示範資料。後端走 <code>DEMO_MODE</code>，可直接新增 / 刪除（in-memory）。</p>
+      <p style="margin-top: 10px;">要串真實 Google Calendar：</p>
+      <p>1. GCP Console 建立 OAuth Desktop client<br>2. JSON 存到 <code>~/.local/share/hermes/secrets/gcal_client.json</code><br>3. 重啟 server.py，瀏覽器會自動開啟授權頁</p>
+    </div>
+  </aside>
+
+  <!-- 主視圖 -->
+  <main class="main">
+    <div class="main-header">
+      <h2 id="main-title">本月行程</h2>
+      <div class="view-toggle">
+        <button class="active" data-view="month">月曆</button>
+        <button data-view="list">列表</button>
+      </div>
+    </div>
+    <div id="view-root"></div>
+  </main>
+
+  <!-- 右 rail (Telegram) -->
+  <aside class="right-rail">
+    <h2>📨 Telegram 廣播</h2>
+    <div class="tg-card">
+      <div class="row"><span class="label">連線狀態</span><span class="value" id="tg-status">—</span></div>
+      <div class="row"><span class="label">訂閱人數</span><span class="value" id="tg-subs">0</span></div>
+      <div class="row"><span class="label">伺服器時間</span><span class="value" id="tg-time" style="font-variant-numeric:tabular-nums;">—</span></div>
+    </div>
+
+    <h2 style="margin-top:24px;">✉️ 立即推送訊息</h2>
+    <div class="form-row">
+      <label>訊息內容</label>
+      <textarea id="broadcast-text" rows="4" placeholder="例：明天下午 3 點的會議改到 4 點..."></textarea>
+    </div>
+    <button class="btn-primary" id="btn-broadcast">發送至 Telegram</button>
+
+    <h2 style="margin-top:24px;">🔌 訂閱測試</h2>
+    <div class="form-row">
+      <label>Chat ID</label>
+      <input id="sub-chat-id" placeholder="123456789" />
+    </div>
+    <button class="btn-primary" id="btn-subscribe" style="background:var(--accent);">＋ 加入訂閱</button>
+    <button class="btn-secondary" id="btn-unsubscribe" style="margin-top:6px;">－ 移除</button>
+  </aside>
+</div>
+
+<!-- 新增行程 modal -->
+<div class="modal-back" id="modal-back">
+  <div class="modal">
+    <h3 id="modal-title">新增行程</h3>
+    <div class="form-row">
+      <label>標題</label>
+      <input id="ev-summary" placeholder="例：產品週會" />
+    </div>
+    <div class="form-row">
+      <label>開始時間</label>
+      <input id="ev-start" type="datetime-local" />
+    </div>
+    <div class="form-row">
+      <label>結束時間</label>
+      <input id="ev-end" type="datetime-local" />
+    </div>
+    <div class="form-row">
+      <label>地點</label>
+      <input id="ev-location" placeholder="會議室 / 連結" />
+    </div>
+    <div class="form-row">
+      <label>備註</label>
+      <textarea id="ev-desc" rows="2"></textarea>
+    </div>
+    <div class="form-row">
+      <label class="check"><input type="checkbox" id="ev-tg" /> 建立時同步推 Telegram 通知</label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="modal-cancel">取消</button>
+      <button class="btn-confirm" id="modal-save">儲存</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ─────────────────────────────────────────────────────────────────
+   狀態管理
+   ───────────────────────────────────────────────────────────────── */
+const state = {
+  view: 'month',
+  cursor: new Date(),           // 主視圖當月
+  miniCursor: new Date(),       // mini-cal 當月
+  selectedDate: null,
+  events: [],
+  status: null,
+};
+
+const $ = (id) => document.getElementById(id);
+
+/* ─────────────────────────────────────────────────────────────────
+   API
+   ───────────────────────────────────────────────────────────────── */
+const api = {
+  async status() {
+    const r = await fetch('/api/status');
+    return r.json();
+  },
+  async listEvents(timeMin, timeMax) {
+    const params = new URLSearchParams();
+    if (timeMin) params.set('time_min', timeMin);
+    if (timeMax) params.set('time_max', timeMax);
+    const r = await fetch('/api/events?' + params.toString());
+    if (!r.ok) throw new Error('list failed');
+    return r.json();
+  },
+  async createEvent(ev) {
+    const r = await fetch('/api/events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(ev),
+    });
+    if (!r.ok) throw new Error('create failed');
+    return r.json();
+  },
+  async deleteEvent(id) {
+    const r = await fetch('/api/events/' + encodeURIComponent(id), { method: 'DELETE' });
+    if (!r.ok) throw new Error('delete failed');
+  },
+  async broadcast(text) {
+    const r = await fetch('/api/telegram/broadcast', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    return r.json();
+  },
+  async subscribe(chatId) {
+    const r = await fetch('/api/telegram/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId }),
+    });
+    return r.json();
+  },
+  async unsubscribe(chatId) {
+    const r = await fetch('/api/telegram/unsubscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId }),
+    });
+    return r.json();
+  },
+};
+
+/* ─────────────────────────────────────────────────────────────────
+   Toast
+   ───────────────────────────────────────────────────────────────── */
+let toastTimer = null;
+function toast(msg, type='ok') {
+  const el = $('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + type;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = 'toast'; }, 3000);
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   日期工具
+   ───────────────────────────────────────────────────────────────── */
+function pad(n) { return n < 10 ? '0' + n : '' + n; }
+function ymd(d) {
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+}
+function toLocalISO(d) {
+  // 轉成 ISO 8601 (保留本地時區)
+  const tz = -d.getTimezoneOffset();
+  const sign = tz >= 0 ? '+' : '-';
+  const th = Math.floor(Math.abs(tz) / 60);
+  const tm = Math.abs(tz) % 60;
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+    + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':00' + sign + pad(th) + ':' + pad(tm);
+}
+function parseISO(s) {
+  if (!s) return new Date();
+  return new Date(s);
+}
+function fmtTime(s) {
+  const d = parseISO(s);
+  return pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+function fmtDate(s) {
+  const d = parseISO(s);
+  return (d.getMonth() + 1) + '/' + d.getDate();
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   渲染 - Mini-cal (sidebar)
+   ───────────────────────────────────────────────────────────────── */
+function renderMiniCal() {
+  const c = state.miniCursor;
+  const year = c.getFullYear(), month = c.getMonth();
+  $('mini-label').textContent = `${year} 年 ${month + 1} 月`;
+  const grid = $('mini-grid');
+  grid.innerHTML = '';
+
+  const dows = ['日','一','二','三','四','五','六'];
+  dows.forEach(d => {
+    const el = document.createElement('div');
+    el.className = 'dow';
+    el.textContent = d;
+    grid.appendChild(el);
+  });
+
+  const firstDay = new Date(year, month, 1);
+  const startOffset = firstDay.getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const prevMonthDays = new Date(year, month, 0).getDate();
+
+  const today = new Date();
+  const todayKey = ymd(today);
+
+  const eventsByDay = {};
+  state.events.forEach(ev => {
+    const key = ymd(parseISO(ev.start));
+    (eventsByDay[key] = eventsByDay[key] || []).push(ev);
+  });
+
+  // 上月補位
+  for (let i = startOffset - 1; i >= 0; i--) {
+    const dayNum = prevMonthDays - i;
+    const el = document.createElement('div');
+    el.className = 'day muted';
+    el.textContent = dayNum;
+    grid.appendChild(el);
+  }
+  // 本月
+  for (let d = 1; d <= daysInMonth; d++) {
+    const el = document.createElement('div');
+    el.className = 'day';
+    const key = `${year}-${pad(month+1)}-${pad(d)}`;
+    if (key === todayKey) el.className += ' today';
+    if (eventsByDay[key]) el.className += ' has-event';
+    el.textContent = d;
+    el.addEventListener('click', () => {
+      state.cursor = new Date(year, month, d);
+      state.selectedDate = state.cursor;
+      render();
+    });
+    grid.appendChild(el);
+  }
+  // 下月補位（湊滿 6 週）
+  const totalCells = grid.children.length - 7;
+  const fill = (7 - (totalCells % 7)) % 7;
+  for (let i = 1; i <= fill; i++) {
+    const el = document.createElement('div');
+    el.className = 'day muted';
+    el.textContent = i;
+    grid.appendChild(el);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   渲染 - Month view
+   ───────────────────────────────────────────────────────────────── */
+function renderMonthView() {
+  const c = state.cursor;
+  const year = c.getFullYear(), month = c.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const startOffset = firstDay.getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const today = new Date();
+
+  const eventsByDay = {};
+  state.events.forEach(ev => {
+    const k = ymd(parseISO(ev.start));
+    (eventsByDay[k] = eventsByDay[k] || []).push(ev);
+  });
+
+  const root = $('view-root');
+  root.innerHTML = '';
+  const view = document.createElement('div');
+  view.className = 'month-view';
+
+  const header = document.createElement('div');
+  header.className = 'month-header';
+  ['日','一','二','三','四','五','六'].forEach(d => {
+    const el = document.createElement('div');
+    el.textContent = d;
+    header.appendChild(el);
+  });
+  view.appendChild(header);
+
+  const grid = document.createElement('div');
+  grid.className = 'month-grid';
+
+  // 上月補位
+  const prevMonthDays = new Date(year, month, 0).getDate();
+  for (let i = startOffset - 1; i >= 0; i--) {
+    const cell = document.createElement('div');
+    cell.className = 'month-cell muted';
+    cell.innerHTML = `<div class="cell-date">${prevMonthDays - i}</div>`;
+    grid.appendChild(cell);
+  }
+  // 本月
+  for (let d = 1; d <= daysInMonth; d++) {
+    const cell = document.createElement('div');
+    cell.className = 'month-cell';
+    const key = `${year}-${pad(month+1)}-${pad(d)}`;
+    const todayKey = ymd(today);
+    if (key === todayKey) cell.className += ' today';
+
+    const evs = eventsByDay[key] || [];
+    let html = `<div class="cell-date">${d}</div>`;
+    evs.slice(0, 3).forEach(ev => {
+      html += `<div class="cell-event${ev.remind_telegram ? ' tg' : ''}">${fmtTime(ev.start)} ${escapeHtml(ev.summary)}</div>`;
+    });
+    if (evs.length > 3) html += `<div class="cell-event" style="background:var(--panel-2);color:var(--muted);">+${evs.length - 3} more</div>`;
+    cell.innerHTML = html;
+    cell.addEventListener('click', () => openNewEventModal(new Date(year, month, d, 9, 0)));
+    grid.appendChild(cell);
+  }
+  // 下月補位
+  const totalCells = grid.children.length;
+  const fill = (7 - (totalCells % 7)) % 7;
+  for (let i = 1; i <= fill; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'month-cell muted';
+    cell.innerHTML = `<div class="cell-date">${i}</div>`;
+    grid.appendChild(cell);
+  }
+  view.appendChild(grid);
+  root.appendChild(view);
+}
+
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   渲染 - List view
+   ───────────────────────────────────────────────────────────────── */
+function renderListView() {
+  const root = $('view-root');
+  root.innerHTML = '';
+  const view = document.createElement('div');
+  view.className = 'list-view';
+
+  if (state.events.length === 0) {
+    view.innerHTML = '<div style="text-align:center;color:var(--muted);padding:40px;">目前沒有行程</div>';
+    root.appendChild(view);
+    return;
+  }
+
+  // 按日期分組
+  const groups = {};
+  state.events.forEach(ev => {
+    const d = parseISO(ev.start);
+    const k = d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
+    (groups[k] = groups[k] || []).push(ev);
+  });
+
+  Object.keys(groups).sort().forEach(key => {
+    const evs = groups[key];
+    const dateLabel = key;
+    const groupDiv = document.createElement('div');
+    groupDiv.innerHTML = `<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin:14px 0 8px 0;">📆 ${dateLabel}</div>`;
+
+    evs.sort((a,b) => parseISO(a.start) - parseISO(b.start)).forEach(ev => {
+      const card = document.createElement('div');
+      card.className = 'event-card';
+      card.innerHTML = `
+        <div class="when">
+          <div class="time">${fmtTime(ev.start)}</div>
+          <div>${fmtTime(ev.end)}</div>
+        </div>
+        <div class="body">
+          <h3>${escapeHtml(ev.summary)}</h3>
+          ${ev.location ? `<p>📍 ${escapeHtml(ev.location)}</p>` : ''}
+          ${ev.description ? `<p>${escapeHtml(ev.description)}</p>` : ''}
+          ${ev.remind_telegram ? '<span class="tg-flag">TG 通知</span>' : ''}
+        </div>
+        <div class="actions">
+          <button class="icon-btn danger" data-id="${ev.id}" title="刪除">🗑</button>
+        </div>
+      `;
+      card.querySelector('.icon-btn').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!confirm('刪除「' + ev.summary + '」？')) return;
+        try {
+          await api.deleteEvent(ev.id);
+          toast('已刪除', 'ok');
+          await loadEvents();
+        } catch (err) {
+          toast('刪除失敗：' + err.message, 'err');
+        }
+      });
+      groupDiv.appendChild(card);
+    });
+    view.appendChild(groupDiv);
+  });
+  root.appendChild(view);
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   Modal
+   ───────────────────────────────────────────────────────────────── */
+function openNewEventModal(date) {
+  $('modal-title').textContent = '新增行程';
+  $('ev-summary').value = '';
+  $('ev-location').value = '';
+  $('ev-desc').value = '';
+  $('ev-tg').checked = false;
+
+  const start = new Date(date);
+  start.setHours(9, 0, 0, 0);
+  const end = new Date(start);
+  end.setHours(10, 0, 0, 0);
+
+  $('ev-start').value = toLocalDatetime(start);
+  $('ev-end').value = toLocalDatetime(end);
+  $('modal-back').classList.add('show');
+  $('ev-summary').focus();
+}
+
+function toLocalDatetime(d) {
+  return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate())
+    + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+
+function closeModal() {
+  $('modal-back').classList.remove('show');
+}
+
+async function saveEvent() {
+  const summary = $('ev-summary').value.trim();
+  if (!summary) { toast('標題必填', 'err'); return; }
+  const start = $('ev-start').value;
+  const end = $('ev-end').value;
+  if (!start || !end) { toast('時間必填', 'err'); return; }
+  const payload = {
+    summary,
+    description: $('ev-desc').value,
+    location: $('ev-location').value,
+    start: toISOFromLocal(start),
+    end: toISOFromLocal(end),
+    remind_telegram: $('ev-tg').checked,
+  };
+  try {
+    await api.createEvent(payload);
+    toast('已建立行程', 'ok');
+    closeModal();
+    await loadEvents();
+  } catch (err) {
+    toast('建立失敗：' + err.message, 'err');
+  }
+}
+
+function toISOFromLocal(localDT) {
+  // "2026-08-04T09:00" → ISO with local TZ
+  const d = new Date(localDT);
+  return toLocalISO(d);
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   View 切換
+   ───────────────────────────────────────────────────────────────── */
+function setView(v) {
+  state.view = v;
+  document.querySelectorAll('.view-toggle button').forEach(b => {
+    b.classList.toggle('active', b.dataset.view === v);
+  });
+  render();
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   主 render
+   ───────────────────────────────────────────────────────────────── */
+function render() {
+  // title
+  const c = state.cursor;
+  $('main-title').textContent = `${c.getFullYear()} 年 ${c.getMonth() + 1} 月`;
+
+  if (state.view === 'month') renderMonthView();
+  else renderListView();
+  renderMiniCal();
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   載入資料
+   ───────────────────────────────────────────────────────────────── */
+async function loadEvents() {
+  const c = state.cursor;
+  const tmin = new Date(c.getFullYear(), c.getMonth(), 1).toISOString();
+  const tmax = new Date(c.getFullYear(), c.getMonth() + 1, 0, 23, 59, 59).toISOString();
+  try {
+    state.events = await api.listEvents(tmin, tmax);
+    render();
+  } catch (err) {
+    toast('行程載入失敗：' + err.message, 'err');
+  }
+}
+
+async function loadStatus() {
+  try {
+    const s = await api.status();
+    state.status = s;
+    $('tg-status').textContent = s.telegram_connected ? '已連線 ✓' : (s.telegram_connected === false ? '未連線' : '—');
+    $('tg-status').style.color = s.telegram_connected ? 'var(--ok)' : 'var(--muted)';
+    $('tg-subs').textContent = s.telegram_subscribers;
+    $('tg-time').textContent = new Date(s.server_time).toLocaleTimeString('zh-TW');
+  } catch (err) {
+    $('tg-status').textContent = '伺服器離線';
+    $('tg-status').style.color = 'var(--err)';
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   事件綁定
+   ───────────────────────────────────────────────────────────────── */
+$('btn-new-event').addEventListener('click', () => openNewEventModal(new Date()));
+$('modal-cancel').addEventListener('click', closeModal);
+$('modal-save').addEventListener('click', saveEvent);
+$('modal-back').addEventListener('click', (e) => { if (e.target.id === 'modal-back') closeModal(); });
+
+document.querySelectorAll('.view-toggle button').forEach(b => {
+  b.addEventListener('click', () => setView(b.dataset.view));
+});
+
+$('mini-prev').addEventListener('click', () => {
+  state.miniCursor = new Date(state.miniCursor.getFullYear(), state.miniCursor.getMonth() - 1, 1);
+  state.cursor = new Date(state.miniCursor);
+  loadEvents();
+});
+$('mini-next').addEventListener('click', () => {
+  state.miniCursor = new Date(state.miniCursor.getFullYear(), state.miniCursor.getMonth() + 1, 1);
+  state.cursor = new Date(state.miniCursor);
+  loadEvents();
+});
+
+$('btn-broadcast').addEventListener('click', async () => {
+  const text = $('broadcast-text').value.trim();
+  if (!text) { toast('請輸入訊息', 'err'); return; }
+  try {
+    const res = await api.broadcast(text);
+    if (res.demo) {
+      toast('（DEMO）訊息會送到 ' + res.subscribers + ' 位訂閱者', 'ok');
+    } else {
+      toast('已送出給 ' + res.sent + ' 位訂閱者', 'ok');
+    }
+    $('broadcast-text').value = '';
+  } catch (err) {
+    toast('發送失敗：' + err.message, 'err');
+  }
+});
+
+$('btn-subscribe').addEventListener('click', async () => {
+  const cid = $('sub-chat-id').value.trim();
+  if (!cid) { toast('請輸入 Chat ID', 'err'); return; }
+  try {
+    const res = await api.subscribe(cid);
+    $('tg-subs').textContent = res.subscribers;
+    toast('已加入訂閱：' + cid, 'ok');
+  } catch (err) {
+    toast('訂閱失敗：' + err.message, 'err');
+  }
+});
+
+$('btn-unsubscribe').addEventListener('click', async () => {
+  const cid = $('sub-chat-id').value.trim();
+  if (!cid) { toast('請輸入 Chat ID', 'err'); return; }
+  try {
+    const res = await api.unsubscribe(cid);
+    $('tg-subs').textContent = res.subscribers;
+    toast('已移除訂閱：' + cid, 'ok');
+  } catch (err) {
+    toast('移除失敗：' + err.message, 'err');
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeModal();
+});
+
+/* ─────────────────────────────────────────────────────────────────
+   啟動
+   ───────────────────────────────────────────────────────────────── */
+(async function init() {
+  await loadStatus();
+  await loadEvents();
+  setInterval(loadStatus, 30000);  // 每 30s 重新整理狀態
+})();
+</script>
+
+</body>
+</html>

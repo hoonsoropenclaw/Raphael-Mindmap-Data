@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OCR 文件監控 · 即時儀表板</title>
+<style>
+  :root {
+    --bg: #0d0f14;
+    --bg-card: #161922;
+    --bg-elevated: #1d212e;
+    --border: #2a2f3d;
+    --text: #e7eaf0;
+    --text-dim: #8b93a7;
+    --accent: #7aa2f7;
+    --accent-dim: #3d59a1;
+    --green: #9ece6a;
+    --red: #f7768e;
+    --orange: #e0af68;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang TC", "Noto Sans TC", sans-serif;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f7fa; --bg-card: #ffffff; --bg-elevated: #f0f2f7;
+      --border: #e1e4ec; --text: #1a1d24; --text-dim: #5b6478;
+      --accent: #2c54c2; --accent-dim: #b8c8f0;
+    }
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  .container { max-width: 1180px; margin: 0 auto; padding: 28px 24px 80px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 24px; gap: 16px; flex-wrap: wrap; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  h1 .accent { color: var(--accent); }
+  .subtitle { color: var(--text-dim); font-size: 13px; }
+  .live-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--green); margin-right: 6px; box-shadow: 0 0 8px var(--green);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+  }
+  .card h2 { font-size: 12px; font-weight: 600; margin: 0 0 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; }
+  .stat-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed var(--border); }
+  .stat-row:last-child { border-bottom: none; }
+  .stat-label { color: var(--text-dim); }
+  .stat-value { font-family: var(--mono); font-weight: 600; }
+  .stat-value.big { font-size: 22px; color: var(--accent); }
+
+  /* drop zone */
+  .dropzone {
+    grid-column: 1 / -1;
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 36px;
+    text-align: center;
+    background: var(--bg-elevated);
+    transition: all 0.2s ease;
+    cursor: pointer;
+    user-select: none;
+  }
+  .dropzone:hover { border-color: var(--accent-dim); }
+  .dropzone.dragging { border-color: var(--accent); background: var(--bg-card); }
+  .dropzone svg { width: 36px; height: 36px; color: var(--text-dim); margin-bottom: 8px; }
+  .dropzone-text { font-size: 15px; font-weight: 500; }
+  .dropzone-hint { font-size: 12px; color: var(--text-dim); margin-top: 6px; }
+
+  /* events log */
+  .events {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    max-height: 320px;
+    overflow-y: auto;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .event { padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .event:last-child { border-bottom: none; }
+  .event-time { color: var(--text-dim); }
+  .event-name { color: var(--accent); font-weight: 600; margin-left: 6px; }
+  .event-success { color: var(--green); }
+  .event-fail { color: var(--red); }
+  .event-meta { color: var(--text-dim); font-size: 11.5px; margin-left: 6px; }
+
+  /* output list */
+  .output-list { max-height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+  .output-item {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: var(--bg-elevated);
+  }
+  .output-name {
+    font-family: var(--mono); font-weight: 600; color: var(--accent);
+    font-size: 12.5px;
+  }
+  .output-preview {
+    font-family: var(--mono); font-size: 12px;
+    white-space: pre-wrap; word-break: break-word;
+    color: var(--text);
+    margin-top: 6px;
+    max-height: 140px; overflow-y: auto;
+  }
+  .output-preview.empty { color: var(--orange); }
+
+  /* connection banner */
+  .banner {
+    background: var(--accent-dim); color: white;
+    padding: 8px 14px; border-radius: 8px; font-size: 13px;
+    display: none; align-items: center; gap: 8px;
+    margin-bottom: 12px;
+  }
+  .banner.show { display: flex; }
+  .banner.warn { background: #b85c30; }
+
+  footer {
+    text-align: center; color: var(--text-dim); font-size: 12px;
+    padding: 24px 0; margin-top: 24px; border-top: 1px solid var(--border);
+  }
+  footer code { font-family: var(--mono); background: var(--bg-elevated); padding: 1px 6px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <div>
+    <h1>OCR <span class="accent">文件監控</span></h1>
+    <div class="subtitle">drag images in · text comes out · rules fire automatically</div>
+  </div>
+  <div>
+    <span class="live-dot"></span><span id="connStatus">connecting…</span>
+  </div>
+</header>
+
+<div class="banner" id="banner"></div>
+
+<section class="grid">
+
+  <div class="card">
+    <h2>狀態</h2>
+    <div class="stat-row"><span class="stat-label">監控路徑</span><span class="stat-value" id="watchDir">—</span></div>
+    <div class="stat-row"><span class="stat-label">運行時間</span><span class="stat-value" id="uptime">—</span></div>
+    <div class="stat-row"><span class="stat-label">事件總數</span><span class="stat-value big" id="eventCount">0</span></div>
+    <div class="stat-row"><span class="stat-label">OCR 文字檔</span><span class="stat-value" id="textCount">0</span></div>
+    <div class="stat-row"><span class="stat-label">總字元數</span><span class="stat-value" id="charCount">0</span></div>
+    <div class="stat-row"><span class="stat-label">OCR 耗時(秒)</span><span class="stat-value" id="ocrSeconds">0.00</span></div>
+  </div>
+
+  <div class="card">
+    <h2>事件流 (live)</h2>
+    <div class="events" id="events">
+      <div style="color: var(--text-dim); text-align: center; padding: 20px;">尚無事件</div>
+    </div>
+  </div>
+
+  <div class="dropzone" id="dropzone" tabindex="0">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M12 4v12m0 0l-4-4m4 4l4-4M4 18h16" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div class="dropzone-text">把圖檔拖進這裡，或點擊選擇檔案</div>
+    <div class="dropzone-hint">支援 .jpg .jpeg .png .bmp .tif .tiff .webp — 走 watchdog 自動 OCR</div>
+    <input type="file" id="fileInput" multiple accept="image/*" style="display:none">
+  </div>
+
+  <div class="card" style="grid-column: 1 / -1;">
+    <h2>OCR 輸出</h2>
+    <div class="output-list" id="outputList">
+      <div style="color: var(--text-dim); text-align: center; padding: 20px;">尚無 OCR 輸出</div>
+    </div>
+  </div>
+
+</section>
+
+<footer>
+  OCR pipeline: <code>watchdog</code> + <code>tesseract 5.3.4</code> + python stdlib<br>
+  demo server: <code>python3 demo_server.py --watch &lt;DIR&gt;</code> · dropzone uses <code>POST /api/upload</code>
+</footer>
+
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const $ = (id) => document.getElementById(id);
+  const dropzone = $('dropzone');
+  const fileInput = $('fileInput');
+  const banner = $('banner');
+  const connStatus = $('connStatus');
+
+  // ---- helpers ----
+  function showBanner(msg, warn) {
+    banner.textContent = msg;
+    banner.classList.add('show');
+    banner.classList.toggle('warn', !!warn);
+    clearTimeout(showBanner._t);
+    showBanner._t = setTimeout(() => banner.classList.remove('show'), 5000);
+  }
+  function fmtTime(iso) {
+    try {
+      const d = new Date(iso);
+      return d.toLocaleTimeString('zh-Hant', { hour12: false });
+    } catch { return iso; }
+  }
+  function fmtUptime(secs) {
+    if (secs < 60) return `${Math.floor(secs)} 秒`;
+    if (secs < 3600) return `${Math.floor(secs / 60)} 分 ${Math.floor(secs % 60)} 秒`;
+    return `${Math.floor(secs / 3600)} 小時 ${Math.floor((secs % 3600) / 60)} 分`;
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, m => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[m]));
+  }
+
+  // ---- API ----
+  async function fetchStatus() {
+    try {
+      const r = await fetch('/api/status');
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = await r.json();
+      $('watchDir').textContent = j.watch_dir || '—';
+      $('uptime').textContent = fmtUptime(j.uptime_seconds || 0);
+      $('eventCount').textContent = j.event_count ?? 0;
+      $('textCount').textContent = j.text_files ?? 0;
+      $('charCount').textContent = (j.char_count ?? 0).toLocaleString();
+      $('ocrSeconds').textContent = (j.ocr_seconds ?? 0).toFixed(2);
+      connStatus.textContent = 'live';
+      return j;
+    } catch (e) {
+      connStatus.textContent = 'offline (' + e.message + ')';
+      throw e;
+    }
+  }
+
+  async function refreshOutput() {
+    try {
+      const r = await fetch('/api/output');
+      const j = await r.json();
+      const list = $('outputList');
+      if (!j.files || j.files.length === 0) {
+        list.innerHTML = '<div style="color: var(--text-dim); text-align: center; padding: 20px;">尚無 OCR 輸出</div>';
+        return;
+      }
+      list.innerHTML = j.files.slice().reverse().map(f => `
+        <div class="output-item">
+          <div class="output-name">${escapeHtml(f.name)} <span style="color: var(--text-dim); font-weight: normal;">(${f.size} chars)</span></div>
+          <div class="output-preview ${f.preview.startsWith('[OCR FAILED]') ? 'empty' : ''}">${escapeHtml(f.preview)}</div>
+        </div>
+      `).join('');
+    } catch (e) {
+      console.warn('output refresh failed', e);
+    }
+  }
+
+  // SSE for events
+  let evtSrc = null;
+  function connectEvents() {
+    try {
+      evtSrc = new EventSource('/api/events');
+      evtSrc.onopen = () => connStatus.textContent = 'live';
+      evtSrc.onerror = () => {
+        connStatus.textContent = 'reconnecting…';
+        evtSrc.close();
+        setTimeout(connectEvents, 2000);
+      };
+      evtSrc.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          appendEvent(data);
+          // 同步更新 dashboard
+          fetchStatus();
+          refreshOutput();
+        } catch (err) { console.warn('event parse error', err); }
+      };
+    } catch (e) {
+      console.warn('SSE init failed', e);
+    }
+  }
+
+  function appendEvent(ev) {
+    const events = $('events');
+    if (events.firstElementChild && events.firstElementChild.textContent.includes('尚無')) {
+      events.innerHTML = '';
+    }
+    const div = document.createElement('div');
+    div.className = 'event';
+    const ok = ev.ocr_success;
+    const sample = (ev.text_preview || '').replace(/[“"”]/g, '"');
+    div.innerHTML = `
+      <span class="event-time">${fmtTime(ev.ts)}</span>
+      <span class="event-name">${escapeHtml(ev.event)}</span>
+      <span class="${ok ? 'event-success' : 'event-fail'}">${ok ? '✓' : '✗'}</span>
+      <span class="event-meta">${escapeHtml(ev.file.split('/').pop())} → ${escapeHtml((ev.renamed_to || 'unchanged').split('/').pop())} · ${ev.ocr_seconds}s · ${ev.ocr_chars} chars</span>
+      ${sample ? `<div style="color: var(--text-dim); margin-top: 4px; padding-left: 12px; border-left: 2px solid var(--accent-dim);">${escapeHtml(sample)}</div>` : ''}
+    `;
+    events.insertBefore(div, events.firstChild);
+    while (events.children.length > 100) events.removeChild(events.lastChild);
+  }
+
+  // ---- dropzone ----
+  function uploadFiles(files) {
+    if (!files.length) return;
+    const fd = new FormData();
+    for (const f of files) fd.append('file', f, f.name);
+    showBanner(`上傳 ${files.length} 個檔案…`);
+    fetch('/api/upload', { method: 'POST', body: fd })
+      .then(r => r.json())
+      .then(j => {
+        showBanner(`✓ 已上傳 ${j.saved.length} 個檔案到 ${j.watch_dir}`);
+        // 等 3 秒讓 OCR pipeline 跑完再 refresh
+        setTimeout(() => { fetchStatus(); refreshOutput(); }, 3000);
+      })
+      .catch(e => showBanner('上傳失敗: ' + e.message, true));
+  }
+  dropzone.addEventListener('click', () => fileInput.click());
+  dropzone.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
+  });
+  fileInput.addEventListener('change', (e) => {
+    uploadFiles(e.target.files);
+    fileInput.value = '';
+  });
+  ['dragover', 'dragenter'].forEach(t => {
+    dropzone.addEventListener(t, (e) => { e.preventDefault(); dropzone.classList.add('dragging'); });
+  });
+  ['dragleave', 'drop'].forEach(t => {
+    dropzone.addEventListener(t, (e) => { e.preventDefault(); dropzone.classList.remove('dragging'); });
+  });
+  dropzone.addEventListener('drop', (e) => {
+    if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
+  });
+
+  // ---- bootstrap ----
+  fetchStatus().catch(e => showBanner('無法連線到 demo server: ' + e.message, true));
+  connectEvents();
+  refreshOutput();
+  setInterval(fetchStatus, 5000);
+  setInterval(refreshOutput, 5000);
+})();
+</script>
+</body>
+</html>

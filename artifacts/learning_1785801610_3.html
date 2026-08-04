@@ -1,0 +1,1639 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Minutes — 即時會議記錄系統。使用瀏覽器 MediaRecorder 錄音，切片上傳至 Whisper API 即時轉譯為帶時間戳的逐字稿，可編輯講者、匯出 Markdown / JSON / SRT。" />
+  <title>Minutes · 即時會議記錄系統 (Whisper-powered)</title>
+  <style>
+    /* ====================================================================
+       Design tokens (沿用 frontend_ui_coordination_and_integration 微技能)
+       ==================================================================== */
+    :root {
+      --ink: #0f1d18;
+      --ink-soft: #2c3a35;
+      --muted: #6f7d77;
+      --paper: #f5f1e8;
+      --paper-2: #ece5d2;
+      --panel: #fffaee;
+      --panel-2: #f3edd9;
+      --line: #d8cfb8;
+      --line-strong: #b9ad8e;
+      --forest: #2b5d4a;
+      --forest-deep: #143a2c;
+      --teal: #6db4a3;
+      --gold: #c79858;
+      --amber: #d97f3c;
+      --rose: #c7576a;
+      --blue: #4a78a8;
+      --violet: #7c5cb3;
+      --speaker-a: #2b5d4a;
+      --speaker-b: #4a78a8;
+      --speaker-c: #c79858;
+      --speaker-d: #c7576a;
+      --speaker-e: #7c5cb3;
+      --shadow-sm: 0 2px 6px rgba(20, 58, 44, .07);
+      --shadow: 0 14px 40px rgba(20, 58, 44, .12);
+      --shadow-lg: 0 22px 70px rgba(20, 58, 44, .18);
+      --radius: 14px;
+      --radius-sm: 8px;
+      --radius-lg: 22px;
+      --mono: "JetBrains Mono", "Noto Sans Mono", "DejaVu Sans Mono", "SF Mono", "IBM Plex Mono", "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", Menlo, Consolas, monospace;
+      --sans: "Inter", "PingFang TC", "Noto Sans TC", "Helvetica Neue", Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      color: var(--ink);
+      background:
+        radial-gradient(ellipse 800px 500px at 12% -10%, rgba(199, 152, 88, .18), transparent 70%),
+        radial-gradient(ellipse 900px 600px at 95% 8%, rgba(45, 92, 74, .13), transparent 65%),
+        var(--paper);
+      font-family: var(--sans);
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+      min-height: 100vh;
+    }
+    a { color: var(--forest-deep); text-decoration: none; border-bottom: 1px dashed var(--line-strong); }
+    a:hover { border-bottom-style: solid; }
+
+    /* ====================================================================
+       Layout shell
+       ==================================================================== */
+    .shell {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 28px 28px 80px;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding-bottom: 22px;
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 26px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-mark {
+      width: 44px; height: 44px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--forest), var(--teal));
+      display: grid; place-items: center;
+      box-shadow: var(--shadow-sm);
+      position: relative;
+      overflow: hidden;
+    }
+    .brand-mark::after {
+      content: "";
+      position: absolute;
+      inset: 6px;
+      border-radius: 8px;
+      border: 1.5px solid rgba(255, 255, 255, .35);
+    }
+    .brand-mark span {
+      color: var(--paper);
+      font-weight: 700;
+      font-size: 20px;
+      letter-spacing: -0.5px;
+      z-index: 1;
+    }
+    .brand-name {
+      font-weight: 700;
+      font-size: 19px;
+      letter-spacing: -0.3px;
+      color: var(--forest-deep);
+    }
+    .brand-sub {
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+    }
+    .topbar-actions {
+      display: flex; gap: 10px; align-items: center;
+    }
+    .pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 11px;
+      font-size: 11px;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      border-radius: 999px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      color: var(--ink-soft);
+      font-weight: 600;
+    }
+    .pill .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--muted);
+    }
+    .pill.live .dot {
+      background: var(--rose);
+      box-shadow: 0 0 0 0 rgba(199, 87, 106, .6);
+      animation: pulse 1.6s infinite;
+    }
+    @keyframes pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(199, 87, 106, .55); }
+      70%  { box-shadow: 0 0 0 10px rgba(199, 87, 106, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(199, 87, 106, 0); }
+    }
+
+    /* ====================================================================
+       Glassmorphism card (沿用既有微技能)
+       ==================================================================== */
+    .glass {
+      background: rgba(255, 250, 238, 0.7);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(216, 207, 184, 0.6);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    .glass-strong {
+      background: rgba(255, 250, 238, 0.92);
+      backdrop-filter: blur(18px);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      border: 1px solid var(--line);
+    }
+
+    /* ====================================================================
+       Hero / control panel
+       ==================================================================== */
+    .hero {
+      padding: 28px;
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      gap: 24px;
+      margin-bottom: 28px;
+    }
+    @media (max-width: 880px) {
+      .hero { grid-template-columns: 1fr; }
+    }
+    .hero-title {
+      font-size: 30px;
+      font-weight: 700;
+      letter-spacing: -0.6px;
+      color: var(--forest-deep);
+      margin: 0 0 6px;
+    }
+    .hero-title .accent { color: var(--rose); }
+    .hero-lede {
+      color: var(--ink-soft);
+      font-size: 15px;
+      margin: 0 0 20px;
+      max-width: 52ch;
+    }
+    .control-row {
+      display: flex; align-items: center; gap: 12px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 11px 18px;
+      border-radius: var(--radius-sm);
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: transform 0.08s, box-shadow 0.18s, background 0.18s;
+      font-family: inherit;
+      color: var(--paper);
+    }
+    .btn:hover { transform: translateY(-1px); }
+    .btn:active { transform: translateY(0); }
+    .btn.primary {
+      background: var(--forest);
+      color: var(--paper);
+      box-shadow: 0 6px 14px rgba(45, 92, 74, 0.22);
+    }
+    .btn.primary:hover { background: var(--forest-deep); }
+    .btn.danger {
+      background: var(--rose);
+      color: #fff;
+      box-shadow: 0 6px 14px rgba(199, 87, 106, 0.25);
+    }
+    .btn.ghost {
+      background: var(--panel);
+      color: var(--ink);
+      border-color: var(--line-strong);
+    }
+    .btn.ghost:hover { background: var(--panel-2); }
+    .btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* Recorder status / waveform */
+    .status-block {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .status-head {
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .status-title {
+      font-weight: 700;
+      color: var(--forest-deep);
+      font-size: 14px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .timer {
+      font-family: var(--mono);
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--ink);
+      letter-spacing: 1px;
+    }
+    .waveform {
+      height: 64px;
+      background:
+        repeating-linear-gradient(90deg, var(--line) 0 1px, transparent 1px 12px),
+        var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      position: relative;
+      overflow: hidden;
+    }
+    .waveform canvas { width: 100%; height: 100%; display: block; }
+    .waveform .placeholder {
+      position: absolute; inset: 0;
+      display: grid; place-items: center;
+      color: var(--muted);
+      font-size: 13px;
+      letter-spacing: 0.4px;
+    }
+    .level-meter {
+      height: 6px;
+      background: var(--panel-2);
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+    }
+    .level-meter > span {
+      display: block; height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--teal), var(--gold), var(--rose));
+      transition: width 0.08s linear;
+    }
+
+    /* ====================================================================
+       Settings row
+       ==================================================================== */
+    .settings {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+      margin-bottom: 24px;
+      padding: 18px 22px;
+    }
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field label {
+      font-size: 11px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 700;
+    }
+    .field select, .field input[type="text"], .field input[type="password"] {
+      padding: 9px 12px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius-sm);
+      background: var(--panel);
+      font-family: inherit;
+      font-size: 14px;
+      color: var(--ink);
+      width: 100%;
+    }
+    .field select:focus, .field input:focus {
+      outline: 2px solid var(--teal);
+      outline-offset: 1px;
+    }
+    .field .hint {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    /* ====================================================================
+       Live timeline
+       ==================================================================== */
+    .grid {
+      display: grid;
+      grid-template-columns: 1.6fr 1fr;
+      gap: 24px;
+    }
+    @media (max-width: 980px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      padding: 22px 24px;
+    }
+    .panel-title {
+      display: flex; align-items: center; justify-content: space-between;
+      margin: 0 0 16px;
+    }
+    .panel-title h2 {
+      font-size: 16px;
+      letter-spacing: -0.2px;
+      font-weight: 700;
+      color: var(--forest-deep);
+      margin: 0;
+    }
+    .panel-title .meta {
+      font-size: 12px;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+
+    /* Segment card */
+    .timeline {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      max-height: 560px;
+      overflow-y: auto;
+      padding-right: 8px;
+    }
+    .timeline::-webkit-scrollbar { width: 8px; }
+    .timeline::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 8px; }
+
+    .segment {
+      padding: 14px 16px;
+      border-left: 3px solid var(--speaker-a);
+      background: var(--panel);
+      border-radius: 10px;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 12px;
+      align-items: start;
+      animation: slideIn 0.25s ease-out;
+    }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .segment.speaker-B { border-left-color: var(--speaker-b); }
+    .segment.speaker-C { border-left-color: var(--speaker-c); }
+    .segment.speaker-D { border-left-color: var(--speaker-d); }
+    .segment.speaker-E { border-left-color: var(--speaker-e); }
+    .segment.pending { opacity: 0.55; }
+    .segment.failed { border-left-color: var(--rose); background: #fdeef0; }
+
+    .seg-avatar {
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      display: grid; place-items: center;
+      color: white;
+      font-weight: 700;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+    .seg-avatar.A { background: var(--speaker-a); }
+    .seg-avatar.B { background: var(--speaker-b); }
+    .seg-avatar.C { background: var(--speaker-c); }
+    .seg-avatar.D { background: var(--speaker-d); }
+    .seg-avatar.E { background: var(--speaker-e); }
+
+    .seg-body { min-width: 0; }
+    .seg-head {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .seg-head .speaker {
+      font-weight: 700;
+      color: var(--forest-deep);
+      letter-spacing: 0.3px;
+    }
+    .seg-head .ts {
+      font-family: var(--mono);
+      color: var(--muted);
+    }
+    .seg-head .badge {
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: var(--paper-2);
+      color: var(--ink-soft);
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+    .seg-head .badge.pending { background: #fff4dc; color: var(--amber); }
+    .seg-head .badge.failed { background: #fde0e5; color: var(--rose); }
+    .seg-head .badge.live { background: #e0f1ec; color: var(--forest); }
+
+    .seg-text {
+      font-size: 15px;
+      color: var(--ink);
+      line-height: 1.55;
+      word-break: break-word;
+      outline: none;
+      padding: 4px 6px;
+      border-radius: 4px;
+      margin: -4px -6px;
+      transition: background 0.15s;
+    }
+    .seg-text:focus {
+      background: #fffce9;
+      box-shadow: inset 0 0 0 1px var(--teal);
+    }
+    .seg-text[data-placeholder="true"] {
+      color: var(--muted);
+      font-style: italic;
+    }
+
+    .seg-actions {
+      display: flex; flex-direction: column; gap: 4px;
+      align-items: flex-end;
+    }
+    .seg-actions button {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      font-size: 11px;
+      color: var(--muted);
+      padding: 3px 6px;
+      border-radius: 4px;
+      font-family: inherit;
+    }
+    .seg-actions button:hover {
+      background: var(--paper-2);
+      color: var(--forest-deep);
+    }
+
+    .empty-state {
+      padding: 40px 20px;
+      text-align: center;
+      color: var(--muted);
+    }
+    .empty-state svg {
+      width: 64px; height: 64px;
+      opacity: 0.35;
+      margin-bottom: 12px;
+    }
+
+    /* ====================================================================
+       Sidebar — queue / speakers
+       ==================================================================== */
+    .side-stat {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .stat-card {
+      padding: 12px 14px;
+      border-radius: 10px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+    }
+    .stat-card .num {
+      font-family: var(--mono);
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--forest-deep);
+      letter-spacing: -0.5px;
+    }
+    .stat-card .lbl {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      font-weight: 700;
+    }
+
+    .speaker-list {
+      display: flex; flex-direction: column; gap: 8px;
+      margin-bottom: 16px;
+    }
+    .speaker-row {
+      display: grid;
+      grid-template-columns: 36px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 8px 10px;
+      background: var(--panel);
+      border-radius: 8px;
+      border: 1px solid var(--line);
+    }
+    .speaker-row .av {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      display: grid; place-items: center;
+      color: white;
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .speaker-row .name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+    .speaker-row .name input {
+      border: none; background: transparent;
+      font: inherit; color: inherit;
+      width: 100%; padding: 2px 0;
+    }
+    .speaker-row .name input:focus { outline: 1px solid var(--teal); border-radius: 2px; }
+    .speaker-row .count {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .btn-add-speaker {
+      width: 100%;
+      padding: 8px;
+      background: transparent;
+      border: 1px dashed var(--line-strong);
+      border-radius: 8px;
+      color: var(--ink-soft);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+    }
+    .btn-add-speaker:hover { background: var(--panel-2); }
+
+    /* Activity log */
+    .log {
+      max-height: 180px;
+      overflow-y: auto;
+      padding: 10px 12px;
+      background: #0f1d18;
+      color: #d4e3dc;
+      border-radius: 8px;
+      font-family: var(--mono);
+      font-size: 11.5px;
+      line-height: 1.55;
+    }
+    .log .ts { color: #6db4a3; }
+    .log .err { color: #ff9aa8; }
+    .log .ok { color: #c0e8c8; }
+
+    /* ====================================================================
+       Footer
+       ==================================================================== */
+    footer {
+      margin-top: 32px;
+      padding: 18px 0 0;
+      border-top: 1px solid var(--line);
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.3px;
+    }
+    footer kbd {
+      font-family: var(--mono);
+      background: var(--panel);
+      padding: 1px 6px;
+      border-radius: 3px;
+      border: 1px solid var(--line-strong);
+      font-size: 11px;
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+
+    <!-- ========== Top bar ========== -->
+    <div class="topbar">
+      <div class="brand">
+        <div class="brand-mark"><span>M</span></div>
+        <div>
+          <div class="brand-name">Minutes</div>
+          <div class="brand-sub">即時會議記錄 · Whisper-powered</div>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <span class="pill" id="recStatePill"><span class="dot"></span><span id="recStateText">待命中</span></span>
+        <span class="pill"><span class="dot"></span>v1.0 · WebM/Opus</span>
+      </div>
+    </div>
+
+    <!-- ========== Hero control panel ========== -->
+    <section class="glass hero">
+      <div>
+        <h1 class="hero-title">
+          一鍵錄音 · <span class="accent">逐字稿即時浮現</span>
+        </h1>
+        <p class="hero-lede">
+          開啟麥克風後瀏覽器會以 3 秒為單位切片上傳到 Whisper API，
+          轉譯結果以對話卡片時間軸呈現，可即時編輯講者、修正錯字，最後匯出 Markdown / JSON / SRT。
+        </p>
+        <div class="control-row">
+          <button class="btn primary" id="btnStart" type="button">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="6"/></svg>
+            開始錄音
+          </button>
+          <button class="btn ghost" id="btnPause" type="button" disabled>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+            暫停
+          </button>
+          <button class="btn danger" id="btnStop" type="button" disabled>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+            停止並結束
+          </button>
+          <button class="btn ghost" id="btnClear" type="button">清除記錄</button>
+          <div style="flex:1"></div>
+          <div class="pill" id="mockPill" style="cursor:pointer" title="沒有 API key 時自動啟用模擬模式">
+            <span class="dot" id="mockDot"></span>
+            <span id="mockText">模擬模式</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="glass-strong status-block">
+        <div class="status-head">
+          <div class="status-title">錄音狀態</div>
+          <div class="timer" id="timer">00:00.0</div>
+        </div>
+        <div class="waveform">
+          <canvas id="waveCanvas"></canvas>
+          <div class="placeholder" id="wavePlaceholder">按下「開始錄音」以啟動麥克風</div>
+        </div>
+        <div class="level-meter"><span id="levelBar"></span></div>
+        <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--muted); font-family:var(--mono);">
+          <span>切片大小: <strong id="chunkInfo">3.0s</strong></span>
+          <span>佇列: <strong id="queueInfo">0 待處理</strong></span>
+          <span>平均延遲: <strong id="latencyInfo">—</strong></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== Settings ========== -->
+    <section class="glass settings">
+      <div class="field">
+        <label for="apiKey">OpenAI API Key</label>
+        <input type="password" id="apiKey" placeholder="sk-..." autocomplete="off" />
+        <span class="hint">本機儲存於 localStorage。不填則自動啟用「模擬模式」。</span>
+      </div>
+      <div class="field">
+        <label for="lang">主要語言</label>
+        <select id="lang">
+          <option value="zh">中文 (zh)</option>
+          <option value="en">English (en)</option>
+          <option value="ja">日本語 (ja)</option>
+          <option value="ko">한국어 (ko)</option>
+          <option value="es">Español (es)</option>
+          <option value="fr">Français (fr)</option>
+          <option value="de">Deutsch (de)</option>
+          <option value="">自動偵測</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="model">Whisper 模型</label>
+        <select id="model">
+          <option value="whisper-1">whisper-1</option>
+        </select>
+        <span class="hint">支援 verbose_json 拿時間戳。</span>
+      </div>
+      <div class="field">
+        <label for="chunkSec">切片長度 (秒)</label>
+        <select id="chunkSec">
+          <option value="2">2</option>
+          <option value="3" selected>3</option>
+          <option value="5">5</option>
+          <option value="10">10</option>
+        </select>
+        <span class="hint">較短切片 = 較低延遲；較長切片 = 較高準確度。</span>
+      </div>
+      <div class="field">
+        <label for="concurrency">併發上限</label>
+        <select id="concurrency">
+          <option value="1">1</option>
+          <option value="2" selected>2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+        </select>
+        <span class="hint">同時上傳切片的數量。</span>
+      </div>
+    </section>
+
+    <!-- ========== Main grid ========== -->
+    <section class="grid">
+
+      <!-- Timeline -->
+      <div class="glass panel">
+        <div class="panel-title">
+          <h2>對話時間軸</h2>
+          <span class="meta" id="segCount">0 段落</span>
+        </div>
+        <div class="timeline" id="timeline">
+          <div class="empty-state" id="emptyState">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
+            </svg>
+            <div>尚未開始錄音。<br/>完成錄音後，逐字稿會以時間軸形式即時浮現於此。</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sidebar -->
+      <div>
+        <div class="glass panel" style="margin-bottom:18px;">
+          <div class="panel-title">
+            <h2>會議摘要</h2>
+          </div>
+          <div class="side-stat">
+            <div class="stat-card">
+              <div class="num" id="statDuration">00:00</div>
+              <div class="lbl">總長</div>
+            </div>
+            <div class="stat-card">
+              <div class="num" id="statWords">0</div>
+              <div class="lbl">字數</div>
+            </div>
+            <div class="stat-card">
+              <div class="num" id="statSegments">0</div>
+              <div class="lbl">段落</div>
+            </div>
+            <div class="stat-card">
+              <div class="num" id="statSpeakers">1</div>
+              <div class="lbl">講者</div>
+            </div>
+          </div>
+
+          <div class="panel-title" style="margin-top:8px;">
+            <h2>講者</h2>
+            <span class="meta">點名稱可改</span>
+          </div>
+          <div class="speaker-list" id="speakerList"></div>
+          <button class="btn-add-speaker" id="btnAddSpeaker" type="button">＋ 新增講者</button>
+        </div>
+
+        <div class="glass panel">
+          <div class="panel-title">
+            <h2>匯出</h2>
+          </div>
+          <div class="control-row" style="margin-bottom:12px;">
+            <button class="btn ghost" id="btnExportMd" type="button">Markdown</button>
+            <button class="btn ghost" id="btnExportJson" type="button">JSON</button>
+            <button class="btn ghost" id="btnExportSrt" type="button">SRT</button>
+          </div>
+          <div class="panel-title" style="margin-top:8px;">
+            <h2>活動記錄</h2>
+            <span class="meta" id="logCount">0</span>
+          </div>
+          <div class="log" id="logBox"></div>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      快捷鍵：<kbd>Space</kbd> 開始/暫停 · <kbd>Esc</kbd> 停止 · <kbd>E</kbd> 匯出 Markdown · 本頁所有運算皆在本機執行，音訊僅在需要時上傳至 <code>api.openai.com</code>。
+    </footer>
+  </div>
+
+<script>
+/* ============================================================================
+   Minutes — 即時會議記錄系統
+   ----------------------------------------------------------------------------
+   Architecture overview
+   ============================================================================
+   ┌──────────────┐  3s chunks   ┌──────────────┐  HTTPS  ┌──────────────┐
+   │ MediaRecorder├─────────────▶│ Chunk Queue  ├────────▶│ Whisper API  │
+   └──────────────┘              │ (FIFO + Pool)│         │ /v1/audio/.. │
+           │                     └──────┬───────┘         └──────┬───────┘
+           │ AnalyserNode                 │ results                │
+           ▼                              ▼                        ▼
+   ┌──────────────┐              ┌──────────────────────────────────┐
+   │ Waveform     │              │ Timeline (DOM)                   │
+   │ Canvas + RMS │              │ · segment card per chunk         │
+   └──────────────┘              │ · speaker avatar + edit inline   │
+                                 │ · retry w/ exponential backoff  │
+                                 └──────────────────────────────────┘
+
+   Reused micro-skills (from SKILL_CATALOG.md):
+   · frontend_ui_coordination_and_integration  → Glassmorphism tokens, Tailwind-style design
+   · advanced_async_system_management          → retry/backoff pattern, concurrent pool
+   · fastapi_full_stack_architecture           → OpenAI-compatible multipart upload style
+   ============================================================================ */
+
+(function () {
+  'use strict';
+
+  // ==========================================================================
+  // 0. DOM handles
+  // ==========================================================================
+  const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+  const els = {
+    btnStart:    $('#btnStart'),
+    btnPause:    $('#btnPause'),
+    btnStop:     $('#btnStop'),
+    btnClear:    $('#btnClear'),
+    btnAdd:      $('#btnAddSpeaker'),
+    btnMd:       $('#btnExportMd'),
+    btnJson:     $('#btnExportJson'),
+    btnSrt:      $('#btnExportSrt'),
+    recStatePill:$('#recStatePill'),
+    recStateText:$('#recStateText'),
+    mockPill:    $('#mockPill'),
+    mockDot:     $('#mockDot'),
+    mockText:    $('#mockText'),
+    timer:       $('#timer'),
+    waveCanvas:  $('#waveCanvas'),
+    wavePh:      $('#wavePlaceholder'),
+    levelBar:    $('#levelBar'),
+    chunkInfo:   $('#chunkInfo'),
+    queueInfo:   $('#queueInfo'),
+    latencyInfo: $('#latencyInfo'),
+    apiKey:      $('#apiKey'),
+    lang:        $('#lang'),
+    model:       $('#model'),
+    chunkSec:    $('#chunkSec'),
+    concurrency: $('#concurrency'),
+    timeline:    $('#timeline'),
+    emptyState:  $('#emptyState'),
+    segCount:    $('#segCount'),
+    speakerList: $('#speakerList'),
+    logBox:      $('#logBox'),
+    logCount:    $('#logCount'),
+    statDuration:$('#statDuration'),
+    statWords:   $('#statWords'),
+    statSegments:$('#statSegments'),
+    statSpeakers:$('#statSpeakers'),
+  };
+
+  // ==========================================================================
+  // 1. Logger (in-memory + DOM)
+  // ==========================================================================
+  const LOG_LIMIT = 200;
+  const logs = [];
+  function log(level, msg) {
+    const ts = new Date().toISOString().split('T')[1].replace('Z', '');
+    const entry = { ts, level, msg };
+    logs.push(entry);
+    if (logs.length > LOG_LIMIT) logs.shift();
+    const line = document.createElement('div');
+    line.innerHTML = `<span class="ts">[${ts}]</span> <span class="${level}">${level.toUpperCase()}</span> ${escapeHtml(msg)}`;
+    els.logBox.appendChild(line);
+    els.logBox.scrollTop = els.logBox.scrollHeight;
+    els.logCount.textContent = logs.length;
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
+    );
+  }
+
+  // ==========================================================================
+  // 2. Persistent settings (localStorage only, no server)
+  // ==========================================================================
+  const LS_KEY = 'minutes.settings.v1';
+  const settings = {
+    apiKey: localStorage.getItem('minutes.apiKey') || '',
+    lang:   localStorage.getItem('minutes.lang')   || 'zh',
+    model:  'whisper-1',
+    chunkSec: 3,
+    concurrency: 2,
+  };
+  function saveSettings() {
+    settings.apiKey = els.apiKey.value.trim();
+    settings.lang   = els.lang.value;
+    settings.chunkSec = parseInt(els.chunkSec.value, 10);
+    settings.concurrency = parseInt(els.concurrency.value, 10);
+    localStorage.setItem('minutes.apiKey', settings.apiKey);
+    localStorage.setItem('minutes.lang',   settings.lang);
+  }
+  els.apiKey.value = settings.apiKey;
+  els.lang.value   = settings.lang;
+  els.apiKey.addEventListener('change', () => { saveSettings(); refreshMockPill(); });
+  els.lang.addEventListener('change',   saveSettings);
+  els.chunkSec.addEventListener('change',    () => { settings.chunkSec    = parseInt(els.chunkSec.value, 10);    els.chunkInfo.textContent = (settings.chunkSec).toFixed(1) + 's'; });
+  els.concurrency.addEventListener('change', () => { settings.concurrency = parseInt(els.concurrency.value, 10); pool.setLimit(settings.concurrency); });
+
+  function refreshMockPill() {
+    const mock = !settings.apiKey;
+    els.mockDot.style.background = mock ? 'var(--gold)' : 'var(--teal)';
+    els.mockText.textContent = mock ? '模擬模式' : '即時 API';
+  }
+  refreshMockPill();
+
+  // ==========================================================================
+  // 3. State machine for recording
+  // ==========================================================================
+  const State = { IDLE: 'IDLE', RECORDING: 'RECORDING', PAUSED: 'PAUSED', STOPPED: 'STOPPED' };
+  let state = State.IDLE;
+  let mediaStream = null;
+  let mediaRecorder = null;
+  let audioContext = null;
+  let analyser = null;
+  let rafId = null;
+  let chunks = [];             // Blob chunks ready to send
+  let segments = [];           // { id, ts, endTs, speaker, text, status }
+  let speakers = [
+    { id: 'A', name: '講者 A', cls: 'A', color: 'var(--speaker-a)' },
+    { id: 'B', name: '講者 B', cls: 'B', color: 'var(--speaker-b)' },
+  ];
+  let activeSpeaker = 'A';
+  let recStartTs = 0;
+  let pauseAccumMs = 0;
+  let pauseStartTs = 0;
+  let timerRaf = null;
+  let chunkTimer = null;
+  let nextSegmentId = 1;
+
+  function setState(next) {
+    state = next;
+    els.btnStart.disabled  = (state === State.RECORDING);
+    els.btnPause.disabled  = (state !== State.RECORDING);
+    els.btnStop.disabled   = (state === State.IDLE || state === State.STOPPED);
+    els.btnPause.innerHTML = state === State.PAUSED
+      ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg> 繼續'
+      : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg> 暫停';
+    els.recStatePill.classList.toggle('live', state === State.RECORDING);
+    const label = {
+      IDLE: '待命中', RECORDING: '錄音中', PAUSED: '已暫停', STOPPED: '已停止'
+    }[state];
+    els.recStateText.textContent = label;
+  }
+
+  // ==========================================================================
+  // 4. Concurrent pool with retry/backoff (沿用 advanced_async_system_management)
+  // ==========================================================================
+  function createPool(limit) {
+    let activeCount = 0;
+    const waiters = [];
+    function run(task) {
+      return new Promise((resolve, reject) => {
+        const exec = () => {
+          activeCount++;
+          Promise.resolve()
+            .then(task)
+            .then(resolve, reject)
+            .finally(() => {
+              activeCount--;
+              const next = waiters.shift();
+              if (next) next();
+            });
+        };
+        if (activeCount < limit) exec();
+        else waiters.push(exec);
+      });
+    }
+    function setLimit(n) { limit = Math.max(1, n); }
+    function stats() { return { active: activeCount, queued: waiters.length }; }
+    return { run, setLimit, stats };
+  }
+  const pool = createPool(settings.concurrency);
+
+  // ==========================================================================
+  // 5. Whisper API call (multipart/form-data) with exponential backoff
+  // ==========================================================================
+  async function transcribe(blob, opts = {}) {
+    const useMock = !settings.apiKey;
+    if (useMock) return mockTranscribe(blob, opts);
+
+    const url = 'https://api.openai.com/v1/audio/transcriptions';
+    const fd = new FormData();
+    fd.append('file', blob, `chunk-${opts.id || Date.now()}.webm`);
+    fd.append('model', settings.model);
+    fd.append('response_format', 'verbose_json');
+    if (settings.lang) fd.append('language', settings.lang);
+    fd.append('timestamp_granularities[]', 'segment');
+
+    const maxAttempts = 3;
+    let attempt = 0;
+    let lastErr = null;
+    while (attempt < maxAttempts) {
+      attempt++;
+      try {
+        const t0 = performance.now();
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${settings.apiKey}` },
+          body: fd,
+        });
+        const dt = performance.now() - t0;
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          // 4xx (except 429) → don't retry
+          if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+            throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+          }
+          lastErr = new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+          log('err', `轉譯失敗 (嘗試 ${attempt}/${maxAttempts}): ${lastErr.message}`);
+        } else {
+          const json = await res.json();
+          return { ...json, _latencyMs: dt };
+        }
+      } catch (err) {
+        lastErr = err;
+        log('err', `轉譯例外 (嘗試 ${attempt}/${maxAttempts}): ${err.message}`);
+      }
+      // Exponential backoff: 0.5s, 1s, 2s
+      const delay = 500 * Math.pow(2, attempt - 1);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+    throw lastErr || new Error('transcribe failed');
+  }
+
+  // ==========================================================================
+  // 6. Mock transcribe (no API key → generate plausible Chinese text)
+  // ==========================================================================
+  const MOCK_PHRASES = [
+    '接下來我們進入下一個議程，請大家看一下螢幕上的簡報。',
+    '我想補充一下剛才提到的數字，這部分在附件的第二頁有更詳細的說明。',
+    '關於時程的部分，我們預計下週三之前完成第一版的交付。',
+    '這個問題我有疑慮，能不能請負責的同事再說明一次？',
+    '好的，那我們就先這樣決定，後續再追蹤進度。',
+    '我這邊也分享一下目前的進度，目前完成了大約六成。',
+    '風險的部分我想特別提出來，因為這會影響到我們的時程。',
+    '關於預算，我建議我們再召開一次會議討論細節。',
+    '我同意，不過我們需要先確認業主的想法再決定。',
+    '不好意思我這邊網路有點lag，請問剛才說的是什麼？',
+    '我這邊有個新的想法，可以節省大約三成的時間。',
+    '麻煩請把那個檔案寄給我，我看一下再回覆你。',
+    '對，我記得這件事上次會議有討論過，當時是這樣決定的。',
+    '不好意思我打岔一下，時間差不多了，我們可以先到這邊嗎？',
+    '沒問題，那就照這個方向進行，下週再對齊一次。',
+  ];
+  async function mockTranscribe(blob, opts) {
+    // Simulate network + processing time
+    const dur = Math.min(2500, Math.max(800, blob.size / 32));
+    await new Promise((r) => setTimeout(r, dur));
+    const phraseCount = 1 + Math.floor(Math.random() * 2);
+    const picked = [];
+    for (let i = 0; i < phraseCount; i++) {
+      picked.push(MOCK_PHRASES[Math.floor(Math.random() * MOCK_PHRASES.length)]);
+    }
+    const text = picked.join(' ');
+    return {
+      text,
+      language: settings.lang || 'zh',
+      _mock: true,
+      _latencyMs: dur,
+      segments: picked.map((t, i) => ({
+        id: i,
+        start: (opts.offsetSec || 0) + i * 1.0,
+        end: (opts.offsetSec || 0) + i * 1.0 + 0.9,
+        text: t,
+        no_speech_prob: 0.01,
+      })),
+    };
+  }
+
+  // ==========================================================================
+  // 7. Audio capture pipeline
+  // ==========================================================================
+  async function startRecording() {
+    if (state !== State.IDLE && state !== State.STOPPED) return;
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
+      });
+    } catch (err) {
+      log('err', `無法取得麥克風: ${err.message}`);
+      alert('無法取得麥克風權限：' + err.message + '\n請確認瀏覽器已授予麥克風存取權。');
+      return;
+    }
+
+    // Audio context for waveform/level meter
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioContext.createMediaStreamSource(mediaStream);
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 1024;
+    source.connect(analyser);
+
+    // MediaRecorder — pick best supported MIME
+    const mimeCandidates = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/ogg;codecs=opus',
+      'audio/mp4',
+    ];
+    const mimeType = mimeCandidates.find((m) => MediaRecorder.isTypeSupported(m)) || '';
+    try {
+      mediaRecorder = new MediaRecorder(mediaStream, mimeType ? { mimeType } : undefined);
+    } catch (err) {
+      log('err', `MediaRecorder 建立失敗: ${err.message}`);
+      return;
+    }
+
+    mediaRecorder.ondataavailable = (ev) => {
+      if (ev.data && ev.data.size > 0) {
+        chunks.push(ev.data);
+      }
+    };
+    mediaRecorder.onstop = () => {
+      log('ok', 'MediaRecorder stopped');
+    };
+
+    recStartTs = Date.now();
+    pauseAccumMs = 0;
+    mediaRecorder.start();                 // continuous
+    scheduleNextChunk();
+    setState(State.RECORDING);
+    startWaveform();
+    startTimer();
+    log('ok', `開始錄音 — MIME=${mimeType || 'default'}, 切片=${settings.chunkSec}s`);
+  }
+
+  function scheduleNextChunk() {
+    if (chunkTimer) clearTimeout(chunkTimer);
+    chunkTimer = setTimeout(() => {
+      flushChunk();
+      if (state === State.RECORDING) scheduleNextChunk();
+    }, settings.chunkSec * 1000);
+  }
+
+  function flushChunk() {
+    if (!mediaRecorder || mediaRecorder.state !== 'recording') return;
+    // requestData fires ondataavailable with the buffered audio
+    try {
+      mediaRecorder.requestData();
+    } catch (e) { /* fine on some impls */ }
+    // Give the dataavailable event a tick to fire
+    setTimeout(() => {
+      const drained = chunks.splice(0, chunks.length);
+      if (!drained.length) return;
+      const blob = new Blob(drained, { type: mediaRecorder.mimeType || 'audio/webm' });
+      const offsetSec = (Date.now() - recStartTs - pauseAccumMs) / 1000 - settings.chunkSec;
+      enqueueChunk(blob, offsetSec);
+    }, 60);
+  }
+
+  function enqueueChunk(blob, offsetSec) {
+    const id = nextSegmentId++;
+    const seg = {
+      id,
+      ts: offsetSec,
+      endTs: offsetSec + settings.chunkSec,
+      speaker: activeSpeaker,
+      text: '',
+      status: 'pending',
+      _latencyMs: null,
+    };
+    segments.push(seg);
+    appendSegmentCard(seg);
+    updateQueueInfo();
+    updateStats();
+
+    pool.run(async () => {
+      seg.status = 'transcribing';
+      updateSegmentCard(seg);
+      try {
+        const result = await transcribe(blob, { id, offsetSec });
+        seg.text = result.text || '';
+        seg.status = 'done';
+        seg._latencyMs = result._latencyMs;
+        seg._mock = result._mock;
+        if (Array.isArray(result.segments) && result.segments.length) {
+          seg._subsegments = result.segments;
+        }
+        updateSegmentCard(seg);
+        log('ok', `段落 #${id} 完成 (${Math.round(seg._latencyMs)}ms)${result._mock ? ' [模擬]' : ''}`);
+      } catch (err) {
+        seg.status = 'failed';
+        seg.text = `[轉譯失敗] ${err.message}`;
+        updateSegmentCard(seg);
+        log('err', `段落 #${id} 失敗: ${err.message}`);
+      } finally {
+        updateQueueInfo();
+        updateStats();
+      }
+    });
+  }
+
+  function pauseRecording() {
+    if (state !== State.RECORDING) return;
+    if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.pause();
+    if (chunkTimer) { clearTimeout(chunkTimer); chunkTimer = null; }
+    pauseStartTs = Date.now();
+    setState(State.PAUSED);
+    log('ok', '已暫停');
+  }
+  function resumeRecording() {
+    if (state !== State.PAUSED) return;
+    if (mediaRecorder && mediaRecorder.state === 'paused') mediaRecorder.resume();
+    pauseAccumMs += Date.now() - pauseStartTs;
+    setState(State.RECORDING);
+    scheduleNextChunk();
+    log('ok', '繼續錄音');
+  }
+
+  function stopRecording() {
+    if (state === State.IDLE) return;
+    if (chunkTimer) { clearTimeout(chunkTimer); chunkTimer = null; }
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      try { mediaRecorder.requestData(); } catch (e) {}
+      setTimeout(() => {
+        try { mediaRecorder.stop(); } catch (e) {}
+        // Flush any remaining
+        const drained = chunks.splice(0, chunks.length);
+        if (drained.length) {
+          const blob = new Blob(drained, { type: mediaRecorder.mimeType || 'audio/webm' });
+          const offsetSec = (Date.now() - recStartTs - pauseAccumMs) / 1000 - settings.chunkSec;
+          enqueueChunk(blob, offsetSec);
+        }
+      }, 80);
+    }
+    setState(State.STOPPED);
+    log('ok', '已停止錄音');
+    stopWaveform();
+  }
+
+  function clearAll() {
+    if (state === State.RECORDING || state === State.PAUSED) {
+      if (!confirm('正在錄音中，確定要清除所有記錄嗎？')) return;
+    }
+    segments = [];
+    chunks = [];
+    nextSegmentId = 1;
+    pauseAccumMs = 0;
+    els.timeline.innerHTML = '';
+    els.timeline.appendChild(els.emptyState);
+    els.emptyState.style.display = '';
+    updateStats();
+    updateQueueInfo();
+    renderSpeakers();
+    log('ok', '已清除記錄');
+  }
+
+  // ==========================================================================
+  // 8. Waveform / level meter
+  // ==========================================================================
+  function startWaveform() {
+    const canvas = els.waveCanvas;
+    const ctx = canvas && canvas.getContext ? canvas.getContext('2d') : null;
+    if (!ctx) {
+      // Canvas not supported (e.g., jsdom without canvas pkg) — degrade gracefully
+      log('err', 'Canvas 2D context 不可用，跳過波形繪製');
+      return;
+    }
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    ctx.scale(dpr, dpr);
+
+    const bufLen = analyser.frequencyBinCount;
+    const dataArr = new Uint8Array(bufLen);
+    const trail = [];
+
+    els.wavePh.style.display = 'none';
+
+    function draw() {
+      rafId = requestAnimationFrame(draw);
+      analyser.getByteTimeDomainData(dataArr);
+      // Compute RMS for level meter
+      let sum = 0;
+      for (let i = 0; i < bufLen; i++) {
+        const v = (dataArr[i] - 128) / 128;
+        sum += v * v;
+      }
+      const rms = Math.sqrt(sum / bufLen);
+      const pct = Math.min(100, Math.round(rms * 220));
+      els.levelBar.style.width = pct + '%';
+
+      // Push latest sample to trail
+      trail.push(rms);
+      if (trail.length > w) trail.shift();
+
+      // Draw waveform
+      ctx.clearRect(0, 0, w, h);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#2b5d4a';
+      ctx.beginPath();
+      for (let i = 0; i < trail.length; i++) {
+        const x = i;
+        const amp = trail[i] * h * 0.9;
+        const y = h / 2 + (i % 2 === 0 ? amp : -amp);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    draw();
+  }
+  function stopWaveform() {
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = null;
+    if (audioContext) audioContext.close().catch(()=>{});
+    audioContext = null;
+    analyser = null;
+    if (mediaStream) {
+      mediaStream.getTracks().forEach((t) => t.stop());
+      mediaStream = null;
+    }
+    els.levelBar.style.width = '0%';
+    els.wavePh.style.display = '';
+    els.wavePh.textContent = '錄音已停止';
+  }
+
+  // ==========================================================================
+  // 9. Timer
+  // ==========================================================================
+  function startTimer() {
+    function tick() {
+      if (state !== State.RECORDING && state !== State.PAUSED) {
+        timerRaf = null; return;
+      }
+      const elapsed = (Date.now() - recStartTs - pauseAccumMs);
+      const m = Math.floor(elapsed / 60000);
+      const s = Math.floor((elapsed % 60000) / 1000);
+      const d = Math.floor((elapsed % 1000) / 100);
+      els.timer.textContent =
+        String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0') + '.' + d;
+      timerRaf = requestAnimationFrame(tick);
+    }
+    tick();
+  }
+
+  // ==========================================================================
+  // 10. Timeline UI — segment cards
+  // ==========================================================================
+  function fmtTime(s) {
+    if (s == null || isNaN(s)) return '--:--';
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
+  }
+
+  function speakerById(id) {
+    return speakers.find((s) => s.id === id) || speakers[0];
+  }
+
+  function appendSegmentCard(seg) {
+    if (els.emptyState) els.emptyState.style.display = 'none';
+    const card = document.createElement('div');
+    card.className = 'segment speaker-' + seg.speaker;
+    card.dataset.id = seg.id;
+    card.innerHTML = `
+      <div class="seg-avatar ${seg.speaker}">${seg.speaker}</div>
+      <div class="seg-body">
+        <div class="seg-head">
+          <span class="speaker">${escapeHtml(speakerById(seg.speaker).name)}</span>
+          <span class="ts">${fmtTime(seg.ts)} – ${fmtTime(seg.endTs)}</span>
+          <span class="badge pending">轉譯中…</span>
+        </div>
+        <div class="seg-text" contenteditable="true" data-placeholder="true">…</div>
+      </div>
+      <div class="seg-actions">
+        <button data-act="reassign" title="切換講者">換講者</button>
+        <button data-act="delete"   title="刪除此段">刪除</button>
+      </div>`;
+    // Wire interactions
+    const text = card.querySelector('.seg-text');
+    text.addEventListener('focus', () => { text.removeAttribute('data-placeholder'); });
+    text.addEventListener('blur', () => {
+      if (!text.textContent.trim()) text.setAttribute('data-placeholder','true');
+      const s = segments.find((x) => x.id === seg.id);
+      if (s) s.text = text.textContent.trim();
+    });
+    text.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); text.blur(); }
+    });
+    card.querySelector('[data-act="reassign"]').addEventListener('click', () => {
+      const cur = speakers.findIndex((s) => s.id === seg.speaker);
+      const next = speakers[(cur + 1) % speakers.length];
+      seg.speaker = next.id;
+      card.className = 'segment speaker-' + next.id;
+      card.querySelector('.seg-avatar').className = 'seg-avatar ' + next.id;
+      card.querySelector('.seg-avatar').textContent = next.id;
+      card.querySelector('.speaker').textContent = next.name;
+      updateStats();
+    });
+    card.querySelector('[data-act="delete"]').addEventListener('click', () => {
+      segments = segments.filter((x) => x.id !== seg.id);
+      card.remove();
+      updateStats();
+    });
+    els.timeline.appendChild(card);
+    els.timeline.scrollTop = els.timeline.scrollHeight;
+  }
+
+  function updateSegmentCard(seg) {
+    const card = els.timeline.querySelector(`.segment[data-id="${seg.id}"]`);
+    if (!card) return;
+    const badge = card.querySelector('.badge');
+    const text  = card.querySelector('.seg-text');
+    card.classList.remove('pending', 'failed');
+    if (seg.status === 'pending') {
+      badge.className = 'badge pending';
+      badge.textContent = '排隊中';
+    } else if (seg.status === 'transcribing') {
+      badge.className = 'badge pending';
+      badge.textContent = seg._mock ? '模擬中…' : '轉譯中…';
+    } else if (seg.status === 'done') {
+      badge.className = 'badge live';
+      const lat = seg._latencyMs ? `${Math.round(seg._latencyMs)}ms` : '';
+      badge.textContent = seg._mock ? `模擬 · ${lat}` : `完成 · ${lat}`;
+      text.textContent = seg.text;
+      text.removeAttribute('data-placeholder');
+    } else if (seg.status === 'failed') {
+      card.classList.add('failed');
+      badge.className = 'badge failed';
+      badge.textContent = '失敗';
+      text.textContent = seg.text;
+    }
+  }
+
+  function updateQueueInfo() {
+    const pending = segments.filter((s) => s.status === 'pending' || s.status === 'transcribing').length;
+    const { active, queued } = pool.stats();
+    els.queueInfo.textContent = `${pending} 待處理 (active=${active}, queued=${queued})`;
+    // Latency
+    const done = segments.filter((s) => s._latencyMs != null);
+    if (done.length) {
+      const avg = done.reduce((a, b) => a + b._latencyMs, 0) / done.length;
+      els.latencyInfo.textContent = Math.round(avg) + 'ms';
+    }
+  }
+
+  // ==========================================================================
+  // 11. Speakers panel
+  // ==========================================================================
+  function renderSpeakers() {
+    els.speakerList.innerHTML = '';
+    speakers.forEach((sp) => {
+      const row = document.createElement('div');
+      row.className = 'speaker-row';
+      const segCount = segments.filter((s) => s.speaker === sp.id).length;
+      row.innerHTML = `
+        <div class="av" style="background:${sp.color}">${sp.id}</div>
+        <div class="name"><input type="text" value="${escapeHtml(sp.name)}" data-id="${sp.id}" /></div>
+        <div class="count">${segCount} 段</div>
+      `;
+      row.querySelector('input').addEventListener('change', (ev) => {
+        sp.name = ev.target.value.trim() || sp.id;
+        // Re-render visible segment cards
+        segments.filter((s) => s.speaker === sp.id).forEach((s) => {
+          const card = els.timeline.querySelector(`.segment[data-id="${s.id}"] .speaker`);
+          if (card) card.textContent = sp.name;
+        });
+      });
+      els.speakerList.appendChild(row);
+    });
+    els.statSpeakers.textContent = speakers.length;
+    // Active speaker pointer
+    updateActiveSpeakerPointer();
+  }
+
+  function updateActiveSpeakerPointer() {
+    $$('.speaker-row').forEach((row, idx) => {
+      row.style.outline = (speakers[idx].id === activeSpeaker) ? '2px solid var(--teal)' : 'none';
+      row.style.cursor = 'pointer';
+      row.onclick = (e) => {
+        if (e.target.tagName === 'INPUT') return;
+        activeSpeaker = speakers[idx].id;
+        log('ok', `切換講者 → ${speakers[idx].name}`);
+        renderSpeakers();
+      };
+    });
+  }
+
+  els.btnAdd.addEventListener('click', () => {
+    const used = new Set(speakers.map((s) => s.id));
+    const letters = 'ABCDEFGHIJ';
+    const next = letters.split('').find((l) => !used.has(l));
+    if (!next) { log('err', '已達講者上限'); return; }
+    const palette = ['var(--speaker-a)','var(--speaker-b)','var(--speaker-c)','var(--speaker-d)','var(--speaker-e)'];
+    speakers.push({
+      id: next,
+      name: `講者 ${next}`,
+      cls: next,
+      color: palette[(speakers.length) % palette.length],
+    });
+    renderSpeakers();
+  });
+
+  // ==========================================================================
+  // 12. Stats panel
+  // ==========================================================================
+  function updateStats() {
+    els.segCount.textContent = `${segments.length} 段落`;
+    els.statSegments.textContent = segments.length;
+    const words = segments.reduce((acc, s) => acc + (s.text ? s.text.length : 0), 0);
+    els.statWords.textContent = words;
+    // Duration = last segment endTs (or 0)
+    const last = segments[segments.length - 1];
+    if (last) {
+      els.statDuration.textContent = fmtTime(Math.max(last.endTs || 0, (Date.now() - recStartTs - pauseAccumMs) / 1000));
+    } else {
+      els.statDuration.textContent = '00:00';
+    }
+    // Speakers refresh
+    renderSpeakers();
+  }
+
+  // ==========================================================================
+  // 13. Export (Markdown / JSON / SRT)
+  // ==========================================================================
+  function buildMarkdown() {
+    const lines = [];
+    lines.push(`# 會議記錄 — ${new Date().toLocaleString('zh-TW')}`);
+    lines.push('');
+    lines.push(`**總長**: ${els.statDuration.textContent} · **段落**: ${segments.length} · **講者**: ${speakers.length}`);
+    lines.push('');
+    segments.forEach((s) => {
+      const sp = speakerById(s.speaker);
+      const status = s.status === 'done' ? '' : ` _(${s.status})_`;
+      lines.push(`**${sp.name}** _${fmtTime(s.ts)}_ — ${s.text || '(空)'}${status}`);
+      lines.push('');
+    });
+    return lines.join('\n');
+  }
+  function buildJSON() {
+    return JSON.stringify({
+      meta: {
+        exportedAt: new Date().toISOString(),
+        duration:   els.statDuration.textContent,
+        totalSegments: segments.length,
+        speakers: speakers.map((s) => ({ id: s.id, name: s.name })),
+      },
+      segments: segments.map((s) => ({
+        id: s.id,
+        speaker: speakerById(s.speaker).name,
+        speakerId: s.speaker,
+        ts: s.ts, endTs: s.endTs,
+        text: s.text, status: s.status,
+        latencyMs: s._latencyMs,
+        mock: !!s._mock,
+      })),
+    }, null, 2);
+  }
+  function buildSRT() {
+    function srtTime(sec) {
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = Math.floor(sec % 60);
+      const ms = Math.floor((sec - Math.floor(sec)) * 1000);
+      return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')},${String(ms).padStart(3,'0')}`;
+    }
+    const out = [];
+    segments.forEach((s, i) => {
+      out.push(String(i + 1));
+      out.push(`${srtTime(s.ts)} --> ${srtTime(s.endTs || s.ts + 1)}`);
+      out.push(`${speakerById(s.speaker).name}: ${s.text || ''}`);
+      out.push('');
+    });
+    return out.join('\n');
+  }
+  function download(filename, content, mime = 'text/plain') {
+    const blob = new Blob([content], { type: mime + ';charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 200);
+  }
+  els.btnMd.addEventListener('click',   () => download(`minutes-${stamp()}.md`,  buildMarkdown(), 'text/markdown'));
+  els.btnJson.addEventListener('click', () => download(`minutes-${stamp()}.json`, buildJSON(), 'application/json'));
+  els.btnSrt.addEventListener('click',  () => download(`minutes-${stamp()}.srt`, buildSRT(), 'text/plain'));
+  function stamp() {
+    const d = new Date();
+    return d.toISOString().replace(/[:.]/g, '-').replace('T','_').slice(0,19);
+  }
+
+  // ==========================================================================
+  // 14. Wire controls
+  // ==========================================================================
+  els.btnStart.addEventListener('click', startRecording);
+  els.btnPause.addEventListener('click', () => state === State.PAUSED ? resumeRecording() : pauseRecording());
+  els.btnStop.addEventListener('click',  stopRecording);
+  els.btnClear.addEventListener('click', clearAll);
+
+  // Keyboard shortcuts
+  document.addEventListener('keydown', (ev) => {
+    // Ignore when typing in contenteditable / input / select / textarea
+    const tag = (ev.target.tagName || '').toLowerCase();
+    const editable = ev.target.isContentEditable;
+    if (editable || ['input','select','textarea'].includes(tag)) return;
+    if (ev.code === 'Space') {
+      ev.preventDefault();
+      if (state === State.IDLE || state === State.STOPPED) startRecording();
+      else if (state === State.RECORDING) pauseRecording();
+      else if (state === State.PAUSED) resumeRecording();
+    } else if (ev.key === 'Escape') {
+      ev.preventDefault();
+      if (state !== State.IDLE && state !== State.STOPPED) stopRecording();
+    } else if (ev.key === 'e' || ev.key === 'E') {
+      if (segments.length) download(`minutes-${stamp()}.md`, buildMarkdown(), 'text/markdown');
+    }
+  });
+
+  // ==========================================================================
+  // 15. Initial render
+  // ==========================================================================
+  renderSpeakers();
+  setState(State.IDLE);
+  log('ok', 'Minutes 已就緒。按下「開始錄音」或按空白鍵啟動。');
+})();
+</script>
+</body>
+</html>
