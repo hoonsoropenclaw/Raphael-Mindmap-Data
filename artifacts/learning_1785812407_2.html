@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hermes 即時通知中心</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #1a1d24;
+      --panel-2: #22262f;
+      --border: #2d323d;
+      --text: #e6e8ec;
+      --muted: #8a91a0;
+      --accent: #4f8cff;
+      --accent-2: #6ea8ff;
+      --ok: #2dd4a4;
+      --err: #f87171;
+      --warn: #f5b94a;
+      --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", sans-serif;
+      line-height: 1.55;
+    }
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 32px 20px 64px;
+    }
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 24px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    .status-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 12px;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+    .status-pill .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted);
+    }
+    .status-pill.ok .dot { background: var(--ok); box-shadow: 0 0 0 3px rgba(45,212,164,0.18); }
+    .status-pill.err .dot { background: var(--err); box-shadow: 0 0 0 3px rgba(248,113,113,0.18); }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 20px;
+    }
+    .card h2 {
+      margin: 0 0 14px;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin: 10px 0 6px;
+    }
+    input, textarea, select, button {
+      width: 100%;
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 14px;
+      font-family: inherit;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    input:focus, textarea:focus, select:focus {
+      outline: none;
+      border-color: var(--accent);
+      background: #1e222b;
+    }
+    textarea { min-height: 110px; resize: vertical; font-family: var(--mono); font-size: 13px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .actions { display: flex; gap: 10px; margin-top: 14px; }
+    button {
+      cursor: pointer;
+      font-weight: 500;
+      transition: background 0.15s, transform 0.05s;
+    }
+    button:hover { background: #2a2f3a; }
+    button:active { transform: translateY(1px); }
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    button.primary:hover { background: var(--accent-2); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .log {
+      max-height: 320px;
+      overflow-y: auto;
+      font-family: var(--mono);
+      font-size: 12.5px;
+      background: #0a0c10;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+    .log-line { padding: 2px 0; }
+    .log-time { color: var(--muted); margin-right: 8px; }
+    .log-ok { color: var(--ok); }
+    .log-err { color: var(--err); }
+    .log-info { color: var(--accent-2); }
+    .task-list { margin-top: 8px; }
+    .task-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 10px;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 6px;
+      font-family: var(--mono);
+      font-size: 12.5px;
+    }
+    .badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-family: inherit;
+    }
+    .badge.queued { background: rgba(245,185,74,0.15); color: var(--warn); }
+    .badge.done { background: rgba(45,212,164,0.15); color: var(--ok); }
+    .badge.failed { background: rgba(248,113,113,0.15); color: var(--err); }
+    .meta { color: var(--muted); font-size: 12px; margin-top: 6px; }
+    .endpoint { font-family: var(--mono); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>⚕ Hermes 即時通知中心</h1>
+      <span id="healthPill" class="status-pill"><span class="dot"></span><span id="healthText">連線中…</span></span>
+    </header>
+
+    <div class="grid">
+      <!-- 同步通知 -->
+      <div class="card">
+        <h2>📨 同步通知 <span class="endpoint" style="color: var(--muted)">/api/v1/notify</span></h2>
+        <label for="syncMsg">訊息內容</label>
+        <textarea id="syncMsg" placeholder="要送的 Telegram 訊息…"></textarea>
+        <div class="row">
+          <div>
+            <label for="syncChatIds">Chat IDs (逗號分隔,留空用預設)</label>
+            <input id="syncChatIds" type="text" placeholder="-1001234567890,12345" />
+          </div>
+          <div>
+            <label for="syncParseMode">Parse Mode</label>
+            <select id="syncParseMode">
+              <option value="">純文字</option>
+              <option value="HTML">HTML</option>
+              <option value="MarkdownV2">MarkdownV2</option>
+            </select>
+          </div>
+        </div>
+        <div class="actions">
+          <button id="syncBtn" class="primary">送出並等待結果</button>
+        </div>
+        <div class="meta" id="syncMeta"></div>
+      </div>
+
+      <!-- 背景任務 -->
+      <div class="card">
+        <h2>⚙ 背景任務 <span class="endpoint" style="color: var(--muted)">/api/v1/tasks</span></h2>
+        <label for="taskName">任務名稱</label>
+        <input id="taskName" type="text" placeholder="deploy-prod" />
+        <label for="taskMeta">Metadata (JSON 格式)</label>
+        <textarea id="taskMeta" style="min-height:70px" placeholder='{"env":"prod","sha":"abc123"}'></textarea>
+        <div class="actions">
+          <button id="taskBtn" class="primary">建立任務(完成時自動通知)</button>
+        </div>
+        <div class="task-list" id="taskList"></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h2>📜 活動記錄</h2>
+      <div id="log" class="log"></div>
+    </div>
+  </div>
+
+  <script>
+    // ───── 設定 ─────
+    const API_BASE = window.location.origin;
+    const $ = (id) => document.getElementById(id);
+    const log = (msg, kind = 'info') => {
+      const t = new Date().toTimeString().slice(0,8);
+      const cls = kind === 'ok' ? 'log-ok' : kind === 'err' ? 'log-err' : 'log-info';
+      const div = document.createElement('div');
+      div.className = 'log-line';
+      div.innerHTML = `<span class="log-time">${t}</span><span class="${cls}">${msg}</span>`;
+      const el = $('log');
+      el.appendChild(div);
+      el.scrollTop = el.scrollHeight;
+    };
+
+    // ───── 健康檢查 ─────
+    const checkHealth = async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/v1/health`);
+        const data = await r.json();
+        const pill = $('healthPill');
+        const text = $('healthText');
+        if (r.ok && data.status === 'ok') {
+          pill.classList.add('ok');
+          const chats = data.telegram_chat_ids?.length || 0;
+          text.textContent = `API OK · TG: ${data.telegram_configured ? '✓' : '✗'} · ${chats} chat`;
+        } else {
+          pill.classList.add('err');
+          text.textContent = 'API 異常';
+        }
+      } catch (e) {
+        $('healthPill').classList.add('err');
+        $('healthText').textContent = '無法連線';
+      }
+    };
+    checkHealth();
+    setInterval(checkHealth, 15000);
+
+    // ───── 同步通知 ─────
+    $('syncBtn').addEventListener('click', async () => {
+      const text = $('syncMsg').value.trim();
+      if (!text) { log('訊息不能為空', 'err'); return; }
+      const chatIdsRaw = $('syncChatIds').value.trim();
+      const parseMode = $('syncParseMode').value || null;
+      const body = { text };
+      if (chatIdsRaw) body.chat_ids = chatIdsRaw.split(',').map(s => s.trim()).filter(Boolean);
+      if (parseMode) body.parse_mode = parseMode;
+
+      $('syncBtn').disabled = true;
+      $('syncMeta').textContent = '送出中…';
+      log(`POST /api/v1/notify (${text.length} chars)`, 'info');
+      try {
+        const r = await fetch(`${API_BASE}/api/v1/notify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await r.json();
+        if (!r.ok) {
+          log(`❌ ${r.status} ${data.error || 'unknown'}`, 'err');
+          $('syncMeta').textContent = `失敗: ${data.error || r.status}`;
+        } else {
+          const okCount = data.filter(d => d.ok).length;
+          const failCount = data.length - okCount;
+          const totalLat = data.reduce((s, d) => s + (d.latency_ms || 0), 0);
+          log(`✓ ${okCount}/${data.length} 送達 · ${totalLat.toFixed(0)}ms`, okCount === data.length ? 'ok' : 'err');
+          $('syncMeta').textContent = `成功 ${okCount} · 失敗 ${failCount} · 總延遲 ${totalLat.toFixed(0)}ms`;
+        }
+      } catch (e) {
+        log(`❌ 網路錯誤: ${e.message}`, 'err');
+        $('syncMeta').textContent = `網路錯誤: ${e.message}`;
+      } finally {
+        $('syncBtn').disabled = false;
+      }
+    });
+
+    // ───── 背景任務 ─────
+    $('taskBtn').addEventListener('click', async () => {
+      const name = $('taskName').value.trim();
+      if (!name) { log('任務名稱不能為空', 'err'); return; }
+      let meta = {};
+      const metaRaw = $('taskMeta').value.trim();
+      if (metaRaw) {
+        try { meta = JSON.parse(metaRaw); }
+        catch (e) { log(`JSON 解析失敗: ${e.message}`, 'err'); return; }
+      }
+      $('taskBtn').disabled = true;
+      try {
+        const r = await fetch(`${API_BASE}/api/v1/tasks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, metadata: meta }),
+        });
+        const data = await r.json();
+        if (!r.ok) { log(`❌ ${r.status} ${data.error}`, 'err'); return; }
+        log(`任務建立: ${data.task_id}`, 'ok');
+        addTaskRow(data.task_id, name, 'queued');
+        // 背景任務,3 秒後去更新狀態(模擬通知送出時間)
+        setTimeout(() => updateTaskRow(data.task_id, 'done'), 3000);
+      } catch (e) {
+        log(`❌ 網路錯誤: ${e.message}`, 'err');
+      } finally {
+        $('taskBtn').disabled = false;
+      }
+    });
+
+    const addTaskRow = (id, name, status) => {
+      const div = document.createElement('div');
+      div.className = 'task-item';
+      div.id = `task-${id}`;
+      div.innerHTML = `<span><span style="color:var(--muted)">${id}</span> ${name}</span><span class="badge ${status}">${status}</span>`;
+      $('taskList').prepend(div);
+    };
+    const updateTaskRow = (id, status) => {
+      const el = document.getElementById(`task-${id}`);
+      if (el) {
+        const badge = el.querySelector('.badge');
+        badge.className = `badge ${status}`;
+        badge.textContent = status;
+        if (status === 'done') log(`任務 ${id} 完成,通知已送出`, 'ok');
+      }
+    };
+  </script>
+</body>
+</html>

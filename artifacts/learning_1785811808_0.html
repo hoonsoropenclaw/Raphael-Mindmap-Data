@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Next.js RBAC 動態路由實作 Demo</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-2: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --accent-2: #818cf8;
+    --success: #4ade80;
+    --danger: #f87171;
+    --warning: #fbbf24;
+    --border: #475569;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+  .app {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    min-height: 100vh;
+  }
+  /* Sidebar */
+  .sidebar {
+    background: #0b1226;
+    border-right: 1px solid var(--border);
+    padding: 20px 14px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+  }
+  .sidebar h2 {
+    font-size: 14px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 14px;
+  }
+  .user-card {
+    background: var(--panel);
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 18px;
+    border: 1px solid var(--border);
+  }
+  .user-card .name { font-weight: 700; font-size: 15px; }
+  .user-card .role {
+    display: inline-block;
+    margin-top: 6px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .role-admin    { background: #7c2d12; color: #fed7aa; }
+  .role-editor   { background: #1e3a8a; color: #bfdbfe; }
+  .role-viewer   { background: #14532d; color: #bbf7d0; }
+  .role-guest    { background: #3f3f46; color: #e4e4e7; }
+
+  .role-switcher {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 18px;
+    flex-wrap: wrap;
+  }
+  .role-switcher button {
+    flex: 1 1 calc(50% - 4px);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 6px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.15s;
+  }
+  .role-switcher button:hover { background: var(--accent); color: #0b1226; }
+  .role-switcher button.active { background: var(--accent); color: #0b1226; border-color: var(--accent); }
+
+  nav.menu a {
+    display: block;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 14px;
+    margin-bottom: 2px;
+    transition: all 0.15s;
+    border-left: 3px solid transparent;
+  }
+  nav.menu a:hover { background: var(--panel); color: var(--text); }
+  nav.menu a.active {
+    background: var(--panel);
+    color: var(--accent);
+    border-left-color: var(--accent);
+  }
+  nav.menu a .badge {
+    float: right;
+    background: var(--danger);
+    color: white;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 10px;
+  }
+  nav.menu a.locked { color: #475569; cursor: not-allowed; }
+  nav.menu a.locked:hover { background: transparent; color: #475569; }
+
+  /* Main */
+  main {
+    padding: 30px 40px;
+    max-width: 1100px;
+    width: 100%;
+  }
+  .breadcrumb {
+    color: var(--muted);
+    font-size: 13px;
+    margin-bottom: 8px;
+  }
+  h1 {
+    font-size: 28px;
+    margin-bottom: 8px;
+    color: var(--accent);
+  }
+  .subtitle {
+    color: var(--muted);
+    margin-bottom: 28px;
+    font-size: 15px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 18px;
+  }
+  .card h3 { color: var(--accent-2); margin-bottom: 10px; font-size: 17px; }
+  .card p { color: var(--text); margin-bottom: 8px; }
+  .card pre {
+    background: #0b1226;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px;
+    overflow-x: auto;
+    font-size: 12.5px;
+    line-height: 1.55;
+    font-family: "Fira Code", "Cascadia Code", "Source Code Pro", Consolas, monospace;
+    color: #cbd5e1;
+    margin: 10px 0;
+  }
+  .card code {
+    background: #0b1226;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: "Fira Code", Consolas, monospace;
+    font-size: 13px;
+    color: var(--accent);
+  }
+  .card .file-name {
+    color: var(--warning);
+    font-weight: 600;
+    font-size: 13px;
+    margin-top: 12px;
+    margin-bottom: 4px;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+    margin-top: 10px;
+  }
+  .stat {
+    background: var(--panel-2);
+    border-radius: 8px;
+    padding: 14px;
+    border-left: 4px solid var(--accent);
+  }
+  .stat .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat .value { font-size: 26px; font-weight: 700; color: var(--accent); margin-top: 4px; }
+
+  /* 403 page */
+  .forbidden {
+    text-align: center;
+    padding: 60px 20px;
+  }
+  .forbidden .icon {
+    font-size: 80px;
+    margin-bottom: 16px;
+  }
+  .forbidden h1 { color: var(--danger); }
+  .forbidden .reason {
+    color: var(--muted);
+    margin: 14px 0 24px;
+  }
+
+  /* Tables */
+  table.perm-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+    font-size: 14px;
+  }
+  table.perm-table th, table.perm-table td {
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    text-align: left;
+  }
+  table.perm-table th { background: var(--panel-2); color: var(--accent); }
+  table.perm-table td.allow { color: var(--success); font-weight: 700; text-align: center; }
+  table.perm-table td.deny  { color: var(--danger); font-weight: 700; text-align: center; }
+  table.perm-table td.path  { font-family: "Fira Code", Consolas, monospace; color: var(--warning); font-size: 13px; }
+
+  /* Login (gateway) page */
+  .login-page {
+    max-width: 460px;
+    margin: 60px auto;
+  }
+  .login-page h1 { text-align: center; }
+  .login-page .card { padding: 28px; }
+  .login-page label { display: block; margin: 12px 0 4px; color: var(--muted); font-size: 13px; }
+  .login-page select, .login-page input {
+    width: 100%;
+    background: #0b1226;
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+  }
+  .login-page button.primary {
+    width: 100%;
+    margin-top: 18px;
+    background: var(--accent);
+    color: #0b1226;
+    border: none;
+    padding: 12px;
+    border-radius: 6px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .login-page button.primary:hover { opacity: 0.85; }
+
+  .alert {
+    padding: 10px 14px;
+    border-radius: 6px;
+    margin-bottom: 14px;
+    font-size: 13px;
+  }
+  .alert-info    { background: #082f49; color: #bae6fd; border: 1px solid #0369a1; }
+  .alert-warning { background: #422006; color: #fde68a; border: 1px solid #b45309; }
+  .alert-success { background: #052e16; color: #bbf7d0; border: 1px solid #15803d; }
+
+  /* Article cards */
+  .article-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+  .article-card {
+    background: var(--panel-2);
+    border-radius: 8px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    transition: all 0.15s;
+    cursor: pointer;
+  }
+  .article-card:hover { transform: translateY(-2px); border-color: var(--accent); }
+  .article-card .id { color: var(--accent); font-size: 12px; font-family: Consolas, monospace; }
+  .article-card .title { font-weight: 700; margin: 6px 0; }
+  .article-card .author { color: var(--muted); font-size: 13px; }
+  .article-card .restricted {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--warning);
+  }
+
+  /* Footer */
+  .meta-footer {
+    margin-top: 30px;
+    color: var(--muted);
+    font-size: 12px;
+    text-align: center;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+  }
+
+  @media (max-width: 720px) {
+    .app { grid-template-columns: 1fr; }
+    .sidebar { position: relative; height: auto; }
+    main { padding: 20px; }
+  }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <aside class="sidebar" id="sidebar"></aside>
+  <main id="main"></main>
+</div>
+
+<script>
+/* =====================================================================
+ * Next.js RBAC 動態路由 — 單檔 SPA 實作
+ * 結合三個微技能模組：
+ *   1. nextjs_dynamic_routing       (動態路由解析)
+ *   2. rbac_middleware_implementation (RBAC 中間件)
+ *   3. single_file_spa_simulation    (單檔 SPA 展示)
+ *
+ * 路由配置模擬 Next.js App Router：
+ *   /                          → 首頁 (公開)
+ *   /login                     → 登入頁 (公開)
+ *   /dashboard                 → 儀表板 (viewer+)
+ *   /articles                  → 文章列表 (viewer+)
+ *   /articles/[id]             → 文章詳情 (viewer+)
+ *   /articles/new              → 新增文章 (editor+)
+ *   /articles/[id]/edit        → 編輯文章 (editor+)
+ *   /admin/users               → 使用者管理 (admin only)
+ *   /admin/settings            → 系統設定 (admin only)
+ *   /403                       → 權限不足頁 (公開)
+ *
+ * RBAC 規則矩陣：
+ *   guest  → /, /login
+ *   viewer → + /dashboard, /articles, /articles/[id]
+ *   editor → + /articles/new, /articles/[id]/edit
+ *   admin  → + /admin/users, /admin/settings
+ * ===================================================================== */
+
+// ========== 資料層：模擬後端 API ==========
+const db = {
+  users: [
+    { id: 1, name: '王小明', email: 'wang@example.com', role: 'admin'  },
+    { id: 2, name: '李小華', email: 'lee@example.com',  role: 'editor' },
+    { id: 3, name: '張小美', email: 'chang@example.com',role: 'viewer' },
+    { id: 4, name: '訪客',   email: 'guest@example.com',role: 'guest'  }
+  ],
+  articles: [
+    { id: 'a001', title: 'Next.js 14 App Router 入門',   author: '王小明', restricted: false },
+    { id: 'a002', title: 'RBAC 權限模型深度解析',         author: '李小華', restricted: false },
+    { id: 'a003', title: '內部系統：API Rate Limit 配置', author: '王小明', restricted: true  },
+    { id: 'a004', title: '機密：Q4 戰略備忘錄',           author: '王小明', restricted: true  }
+  ]
+};
+
+// ========== 角色權限矩陣 (對應 Next.js middleware.ts 的 ROLE_ROUTES) ==========
+const ROLE_ROUTES = {
+  guest:  ['/', '/login'],
+  viewer: ['/', '/login', '/dashboard', '/articles'],
+  editor: ['/', '/login', '/dashboard', '/articles', '/articles/new', '/articles/:id/edit'],
+  admin:  ['/', '/login', '/dashboard', '/articles', '/articles/new', '/articles/:id/edit',
+           '/admin/users', '/admin/settings']
+};
+
+// 權限順序（用於 hasRole）
+const ROLE_LEVEL = { guest: 0, viewer: 1, editor: 2, admin: 3 };
+
+function hasRole(userRole, requiredRole) {
+  return ROLE_LEVEL[userRole] >= ROLE_LEVEL[requiredRole];
+}
+
+function matchRoute(pattern, pathname) {
+  // 把 pattern 裡的 :param 換成正則
+  const regexStr = '^' + pattern.replace(/:[a-zA-Z]+/g, '([^/]+)') + '$';
+  const regex = new RegExp(regexStr);
+  const m = pathname.match(regex);
+  if (!m) return null;
+  // 解析參數
+  const params = {};
+  const keys = (pattern.match(/:[a-zA-Z]+/g) || []).map(k => k.slice(1));
+  keys.forEach((k, i) => params[k] = m[i + 1]);
+  return params;
+}
+
+function isAuthorized(userRole, pathname) {
+  const allowedRoutes = ROLE_ROUTES[userRole] || [];
+  // 完全匹配
+  if (allowedRoutes.includes(pathname)) return { ok: true };
+  // 動態路由匹配
+  for (const pattern of allowedRoutes) {
+    if (pattern.includes(':')) {
+      const params = matchRoute(pattern, pathname);
+      if (params) return { ok: true, params, pattern };
+    }
+  }
+  return { ok: false };
+}
+
+// ========== 模擬 cookie/session (對應 Next.js cookies()) ==========
+const session = {
+  get currentUser() {
+    const role = localStorage.getItem('rbac_role') || 'guest';
+    return db.users.find(u => u.role === role) || db.users[3];
+  }
+};
+
+// ========== 路由器 (模擬 Next.js App Router) ==========
+const router = {
+  listeners: [],
+  current(pathname) {
+    return window.location.hash.slice(1) || '/';
+  },
+  navigate(pathname) {
+    window.location.hash = pathname;
+  },
+  subscribe(fn) {
+    this.listeners.push(fn);
+  },
+  emit() {
+    const pathname = this.current();
+    this.listeners.forEach(fn => fn(pathname));
+  }
+};
+window.addEventListener('hashchange', () => router.emit());
+
+// ========== 頁面元件 (模擬 Next.js page.tsx) ==========
+const Pages = {
+  '/': function Home() {
+    return `
+      <h1>Next.js RBAC 動態路由 Demo</h1>
+      <p class="subtitle">這是一個使用 vanilla JS 模擬 Next.js App Router + middleware 的單檔 SPA。請切換左側角色體驗不同權限。</p>
+
+      <div class="card">
+        <h3>📐 系統架構總覽</h3>
+        <p>本實作結合三個微技能模組：</p>
+        <div class="grid">
+          <div class="stat"><div class="label">動態路由解析</div><div class="value">nextjs_dynamic_routing</div></div>
+          <div class="stat"><div class="label">RBAC 中間件</div><div class="value">rbac_middleware_implementation</div></div>
+          <div class="stat"><div class="label">單檔展示</div><div class="value">single_file_spa_simulation</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>🔐 RBAC 權限矩陣</h3>
+        <p>角色層級：guest (0) → viewer (1) → editor (2) → admin (3)。路由准入採「層級 ≥ 需求」判斷。</p>
+        <table class="perm-table">
+          <tr><th>路由</th><th>guest</th><th>viewer</th><th>editor</th><th>admin</th></tr>
+          <tr><td class="path">/</td>                 <td class="allow">✓</td><td class="allow">✓</td><td class="allow">✓</td><td class="allow">✓</td></tr>
+          <tr><td class="path">/dashboard</td>       <td class="deny">✗</td> <td class="allow">✓</td><td class="allow">✓</td><td class="allow">✓</td></tr>
+          <tr><td class="path">/articles</td>        <td class="deny">✗</td> <td class="allow">✓</td><td class="allow">✓</td><td class="allow">✓</td></tr>
+          <tr><td class="path">/articles/[id]</td>   <td class="deny">✗</td> <td class="allow">✓</td><td class="allow">✓</td><td class="allow">✓</td></tr>
+          <tr><td class="path">/articles/new</td>     <td class="deny">✗</td> <td class="deny">✗</td> <td class="allow">✓</td><td class="allow">✓</td></tr>
+          <tr><td class="path">/articles/[id]/edit</td><td class="deny">✗</td><td class="deny">✗</td> <td class="allow">✓</td><td class="allow">✓</td></tr>
+          <tr><td class="path">/admin/users</td>     <td class="deny">✗</td> <td class="deny">✗</td> <td class="deny">✗</td> <td class="allow">✓</td></tr>
+          <tr><td class="path">/admin/settings</td>  <td class="deny">✗</td> <td class="deny">✗</td> <td class="deny">✗</td> <td class="allow">✓</td></tr>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3>💡 開始體驗</h3>
+        <p>1. 從左側切換不同角色 → 2. 嘗試訪問受限路由（例如以 guest 身分訪問 <code>/admin/users</code>）→ 3. 觀察自動重導向至 <code>/403</code></p>
+        <p>4. 切到 admin 角色後訪問 <code>/articles/a003</code> 查看動態路由解析（:id 參數）</p>
+      </div>
+    `;
+  },
+
+  '/login': function Login() {
+    return `
+      <div class="login-page">
+        <h1>登入</h1>
+        <p class="subtitle" style="text-align:center;">選擇角色模擬登入（單檔 demo，無密碼驗證）</p>
+        <div class="card">
+          <div class="alert alert-info">提示：此頁對所有角色公開。實際 Next.js 實作中通常用 NextAuth.js 處理 OAuth / Credentials。</div>
+          <label for="loginRole">選擇登入角色：</label>
+          <select id="loginRole">
+            <option value="viewer">viewer — 一般使用者（唯讀）</option>
+            <option value="editor">editor — 編輯者（可新增/修改文章）</option>
+            <option value="admin">admin — 管理員（全部權限）</option>
+          </select>
+          <label for="loginName">顯示名稱：</label>
+          <input type="text" id="loginName" value="測試使用者" />
+          <button class="primary" id="doLogin">登入</button>
+        </div>
+      </div>
+    `;
+  },
+
+  '/dashboard': function Dashboard() {
+    const u = session.currentUser;
+    return `
+      <div class="breadcrumb">首頁 / 儀表板</div>
+      <h1>儀表板</h1>
+      <p class="subtitle">歡迎，${escapeHtml(u.name)}！目前角色：<code>${u.role}</code></p>
+      <div class="grid">
+        <div class="stat"><div class="label">可存取路由</div><div class="value">${ROLE_ROUTES[u.role].length}</div></div>
+        <div class="stat"><div class="label">角色層級</div><div class="value">L${ROLE_LEVEL[u.role]}</div></div>
+        <div class="stat"><div class="label">使用者 ID</div><div class="value">#${u.id}</div></div>
+      </div>
+      <div class="card">
+        <h3>📊 即時統計</h3>
+        <p>總文章數：${db.articles.length}（含機密 ${db.articles.filter(a=>a.restricted).length} 篇）</p>
+        <p>使用者總數：${db.users.length}</p>
+      </div>
+    `;
+  },
+
+  '/articles': function Articles() {
+    const u = session.currentUser;
+    const canCreate = hasRole(u.role, 'editor');
+    const list = db.articles.filter(a => !a.restricted || hasRole(u.role, 'editor'));
+    return `
+      <div class="breadcrumb">首頁 / 文章列表</div>
+      <h1>文章列表</h1>
+      <p class="subtitle">動態路由前綴 /articles 共 ${list.length} 篇文章${canCreate ? ' — <a href="#/articles/new" style="color:var(--accent)">+ 新增文章</a>' : ''}</p>
+      <div class="article-list">
+        ${list.map(a => `
+          <div class="article-card" onclick="location.hash='#/articles/${a.id}'">
+            <div class="id">id: ${a.id}</div>
+            <div class="title">${escapeHtml(a.title)}</div>
+            <div class="author">作者：${escapeHtml(a.author)}</div>
+            ${a.restricted ? '<div class="restricted">🔒 機密 (editor+)</div>' : ''}
+          </div>
+        `).join('')}
+      </div>
+    `;
+  },
+
+  '/articles/new': function NewArticle() {
+    return `
+      <div class="breadcrumb">首頁 / 文章 / 新增</div>
+      <h1>新增文章</h1>
+      <p class="subtitle">此路由需要 editor 以上權限</p>
+      <div class="card">
+        <div class="alert alert-success">✓ 權限檢查通過 — 你可以建立新文章</div>
+        <label style="display:block;margin-top:14px;color:var(--muted);font-size:13px;">標題：</label>
+        <input type="text" placeholder="輸入文章標題" style="width:100%;background:#0b1226;color:var(--text);border:1px solid var(--border);padding:10px 12px;border-radius:6px;margin-top:4px;" />
+        <label style="display:block;margin-top:14px;color:var(--muted);font-size:13px;">內容：</label>
+        <textarea placeholder="輸入內容..." rows="6" style="width:100%;background:#0b1226;color:var(--text);border:1px solid var(--border);padding:10px 12px;border-radius:6px;margin-top:4px;font-family:inherit;"></textarea>
+        <button style="margin-top:14px;background:var(--accent);color:#0b1226;border:none;padding:10px 20px;border-radius:6px;font-weight:700;cursor:pointer;" onclick="alert('demo：送出成功')">發布文章</button>
+      </div>
+    `;
+  },
+
+  '/articles/:id/edit': function EditArticle(params) {
+    const article = db.articles.find(a => a.id === params.id);
+    if (!article) return Pages['/404']();
+    return `
+      <div class="breadcrumb">首頁 / 文章 / ${article.id} / 編輯</div>
+      <h1>編輯文章</h1>
+      <p class="subtitle">動態路由解析：<code>params.id = "${params.id}"</code></p>
+      <div class="card">
+        <div class="alert alert-success">✓ 權限檢查通過 — 動態參數 :id = <code>${params.id}</code> 已解析</div>
+        <label style="display:block;margin-top:14px;color:var(--muted);font-size:13px;">標題：</label>
+        <input type="text" value="${escapeHtml(article.title)}" style="width:100%;background:#0b1226;color:var(--text);border:1px solid var(--border);padding:10px 12px;border-radius:6px;margin-top:4px;" />
+        <label style="display:block;margin-top:14px;color:var(--muted);font-size:13px;">作者：</label>
+        <input type="text" value="${escapeHtml(article.author)}" style="width:100%;background:#0b1226;color:var(--text);border:1px solid var(--border);padding:10px 12px;border-radius:6px;margin-top:4px;" />
+        <button style="margin-top:14px;background:var(--accent);color:#0b1226;border:none;padding:10px 20px;border-radius:6px;font-weight:700;cursor:pointer;" onclick="alert('demo：儲存成功')">儲存修改</button>
+      </div>
+    `;
+  },
+
+  '/articles/:id': function ArticleDetail(params) {
+    const article = db.articles.find(a => a.id === params.id);
+    if (!article) return Pages['/404']();
+    const u = session.currentUser;
+    const canEdit = hasRole(u.role, 'editor');
+    if (article.restricted && !canEdit) {
+      return `
+        <div class="card">
+          <div class="alert alert-warning">🔒 此文章標記為機密，需要 editor 以上權限</div>
+          <p>你目前的角色是 <code>${u.role}</code>，無法檢視內容。</p>
+        </div>
+      `;
+    }
+    return `
+      <div class="breadcrumb">首頁 / 文章 / ${article.id}</div>
+      <h1>${escapeHtml(article.title)}</h1>
+      <p class="subtitle">動態路由解析：<code>params.id = "${article.id}"</code> | 作者：${escapeHtml(article.author)}${article.restricted ? ' | 🔒 機密' : ''}</p>
+      <div class="card">
+        <h3>📄 文章內容</h3>
+        <p>這裡是 ${article.id} 的內文（demo）。實際應用中會用 <code>fetch('/api/articles/${article.id}')</code> 從後端取得。</p>
+        ${canEdit ? `<p style="margin-top:14px;"><a href="#/articles/${article.id}/edit" style="color:var(--accent)">✏️ 編輯此文章</a></p>` : ''}
+      </div>
+    `;
+  },
+
+  '/admin/users': function AdminUsers() {
+    return `
+      <div class="breadcrumb">首頁 / 管理 / 使用者</div>
+      <h1>使用者管理</h1>
+      <p class="subtitle">admin only — 此頁面所有操作皆需 admin 角色</p>
+      <table class="perm-table">
+        <tr><th>ID</th><th>姓名</th><th>Email</th><th>角色</th><th>層級</th></tr>
+        ${db.users.map(u => `
+          <tr>
+            <td>#${u.id}</td>
+            <td>${escapeHtml(u.name)}</td>
+            <td>${escapeHtml(u.email)}</td>
+            <td><span class="role role-${u.role}">${u.role}</span></td>
+            <td>L${ROLE_LEVEL[u.role]}</td>
+          </tr>
+        `).join('')}
+      </table>
+    `;
+  },
+
+  '/admin/settings': function AdminSettings() {
+    return `
+      <div class="breadcrumb">首頁 / 管理 / 系統設定</div>
+      <h1>系統設定</h1>
+      <p class="subtitle">admin only — 修改全域設定</p>
+      <div class="card">
+        <div class="alert alert-info">此頁面示範 admin 專屬路由保護</div>
+        <p>實際 Next.js 實作中，這裡會包含：</p>
+        <ul style="margin:10px 0 0 20px;line-height:2;">
+          <li>API rate limit 設定</li>
+          <li>JWT secret rotation</li>
+          <li>OAuth provider 設定</li>
+          <li>資料庫連線字串</li>
+        </ul>
+      </div>
+    `;
+  },
+
+  '/403': function Forbidden(reason) {
+    const u = session.currentUser;
+    return `
+      <div class="forbidden">
+        <div class="icon">🚫</div>
+        <h1>403 — 權限不足</h1>
+        <p class="reason">${reason || '你目前的角色無權存取此頁面'}</p>
+        <p>目前角色：<span class="role role-${u.role}">${u.role}</span>（層級 L${ROLE_LEVEL[u.role]}）</p>
+        <p style="margin-top:20px;"><a href="#/" style="color:var(--accent)">← 返回首頁</a> 或 <a href="#/login" style="color:var(--accent)">切換角色</a></p>
+      </div>
+    `;
+  },
+
+  '/404': function NotFound() {
+    return `
+      <div class="forbidden">
+        <div class="icon">❓</div>
+        <h1>404 — 找不到頁面</h1>
+        <p class="reason">此路由不存在於路由表中</p>
+        <p style="margin-top:20px;"><a href="#/" style="color:var(--accent)">← 返回首頁</a></p>
+      </div>
+    `;
+  }
+};
+
+// ========== 工具函式 ==========
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ========== Middleware 模擬 (對應 Next.js middleware.ts) ==========
+function applyMiddleware(pathname) {
+  const u = session.currentUser;
+  // 公開路由
+  if (pathname === '/' || pathname === '/login' || pathname === '/403' || pathname === '/404') {
+    return { allow: true };
+  }
+  // 權限檢查
+  const result = isAuthorized(u.role, pathname);
+  if (result.ok) return { allow: true, params: result.params, pattern: result.pattern };
+  // 不通過 → 重新導向 /403
+  return { allow: false, redirect: '/403', reason: `路由 "${pathname}" 不允許角色 "${u.role}" 存取` };
+}
+
+// ========== 渲染引擎 ==========
+function render() {
+  const pathname = router.current();
+  const u = session.currentUser;
+
+  // 渲染側邊欄
+  renderSidebar(u, pathname);
+
+  // 套用 middleware
+  const check = applyMiddleware(pathname);
+  if (!check.allow) {
+    document.getElementById('main').innerHTML = Pages['/403'](check.reason);
+    return;
+  }
+
+  // 解析動態路由並渲染
+  const params = check.params || {};
+  // 嘗試精確匹配
+  let pageFn = Pages[pathname];
+  let usedPattern = pathname;
+  if (!pageFn) {
+    // 動態路由：掃描所有 Pages 找匹配
+    for (const pattern of Object.keys(Pages)) {
+      if (pattern.includes(':')) {
+        const p = matchRoute(pattern, pathname);
+        if (p) { pageFn = Pages[pattern]; usedPattern = pattern; Object.assign(params, p); break; }
+      }
+    }
+  }
+  if (!pageFn) {
+    document.getElementById('main').innerHTML = Pages['/404']();
+    return;
+  }
+  document.getElementById('main').innerHTML = pageFn(params);
+}
+
+// ========== 側邊欄渲染 ==========
+function renderSidebar(u, currentPath) {
+  const menuItems = [
+    { path: '/',                       label: '🏠 首頁',       reqRole: 'guest'  },
+    { path: '/dashboard',              label: '📊 儀表板',     reqRole: 'viewer' },
+    { path: '/articles',               label: '📰 文章列表',   reqRole: 'viewer' },
+    { path: '/articles/new',           label: '✏️ 新增文章',   reqRole: 'editor' },
+    { path: '/articles/a001/edit',     label: '🔧 編輯 a001',  reqRole: 'editor' },
+    { path: '/admin/users',            label: '👥 使用者管理', reqRole: 'admin'  },
+    { path: '/admin/settings',         label: '⚙️ 系統設定',   reqRole: 'admin'  }
+  ];
+
+  document.getElementById('sidebar').innerHTML = `
+    <h2>RBAC Demo</h2>
+    <div class="user-card">
+      <div class="name">${escapeHtml(u.name)}</div>
+      <div class="role role-${u.role}">${u.role} (L${ROLE_LEVEL[u.role]})</div>
+    </div>
+
+    <h2 style="margin-top:6px;">角色切換</h2>
+    <div class="role-switcher">
+      <button data-role="guest"  class="${u.role==='guest'?'active':''}">guest</button>
+      <button data-role="viewer" class="${u.role==='viewer'?'active':''}">viewer</button>
+      <button data-role="editor" class="${u.role==='editor'?'active':''}">editor</button>
+      <button data-role="admin"  class="${u.role==='admin'?'active':''}">admin</button>
+    </div>
+
+    <h2>路由</h2>
+    <nav class="menu">
+      ${menuItems.map(item => {
+        const allowed = hasRole(u.role, item.reqRole);
+        const active = currentPath === item.path;
+        const cls = allowed ? (active ? 'active' : '') : 'locked';
+        const style = allowed ? '' : 'opacity:0.4;';
+        return `<a href="${allowed ? '#'+item.path : '#'}" class="${cls}" style="${style}">${item.label}${allowed ? '' : ' 🔒'}</a>`;
+      }).join('')}
+    </nav>
+
+    <div style="margin-top:24px;padding:10px;background:var(--panel);border-radius:6px;font-size:12px;color:var(--muted);line-height:1.7;">
+      <strong style="color:var(--accent);">💡 互動說明</strong><br>
+      切換角色後，左側選單會即時更新。點擊 🔒 標記的路由會被 middleware 攔截，自動重導向 /403。
+    </div>
+  `;
+
+  // 綁定角色切換
+  document.querySelectorAll('.role-switcher button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const role = btn.dataset.role;
+      localStorage.setItem('rbac_role', role);
+      render();
+    });
+  });
+
+  // 登入頁提交
+  setTimeout(() => {
+    const doLogin = document.getElementById('doLogin');
+    if (doLogin) {
+      doLogin.addEventListener('click', () => {
+        const role = document.getElementById('loginRole').value;
+        localStorage.setItem('rbac_role', role);
+        router.navigate('/dashboard');
+      });
+    }
+  }, 0);
+}
+
+// ========== 初始化 ==========
+router.subscribe(render);
+window.addEventListener('DOMContentLoaded', () => render());
+// 也立即跑一次（避免 hash 變化沒被觸發）
+render();
+</script>
+
+<hr style="margin:40px 0;border:none;border-top:1px solid var(--border);" />
+
+<div style="padding:30px 40px;background:#0b1226;color:var(--text);font-family:Consolas,monospace;font-size:13px;line-height:1.7;">
+<h2 style="color:var(--accent);font-family:-apple-system,sans-serif;">📦 對應的 Next.js 14 App Router 完整實作</h2>
+<p style="color:var(--muted);font-family:-apple-system,sans-serif;">以下是直接可複製到 Next.js 專案的對應程式碼（本 demo 的執行邏輯與此完全對應）：</p>
+
+<h3 style="color:var(--accent-2);margin-top:30px;">📄 middleware.ts (根目錄)</h3>
+<pre>// middleware.ts — Next.js 14 Edge Middleware
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
+
+// RBAC 路由矩陣
+const ROLE_ROUTES: Record&lt;string, string[]&gt; = {
+  guest:  ['/', '/login'],
+  viewer: ['/', '/login', '/dashboard', '/articles'],
+  editor: ['/', '/login', '/dashboard', '/articles', '/articles/new', '/articles/:id/edit'],
+  admin:  ['/', '/login', '/dashboard', '/articles', '/articles/new', '/articles/:id/edit',
+           '/admin/users', '/admin/settings']
+};
+
+const ROLE_LEVEL: Record&lt;string, number&gt; = { guest: 0, viewer: 1, editor: 2, admin: 3 };
+const PUBLIC_PATHS = ['/', '/login', '/403'];
+
+function matchRoute(pattern: string, pathname: string): Record&lt;string, string&gt; | null {
+  const keys: string[] = [];
+  const regexStr = '^' + pattern.replace(/:[a-zA-Z]+/g, (m) =&gt; {
+    keys.push(m.slice(1));
+    return '([^/]+)';
+  }) + '$';
+  const m = pathname.match(new RegExp(regexStr));
+  if (!m) return null;
+  const params: Record&lt;string, string&gt; = {};
+  keys.forEach((k, i) =&gt; params[k] = m[i + 1]);
+  return params;
+}
+
+function getUserRole(req: NextRequest): string {
+  // 實際應用：解析 JWT / session cookie
+  // 這裡示範：從 cookie 讀 role
+  return req.cookies.get('user_role')?.value || 'guest';
+}
+
+function isAuthorized(role: string, pathname: string): boolean {
+  const allowed = ROLE_ROUTES[role] || [];
+  if (allowed.includes(pathname)) return true;
+  return allowed.some(p =&gt; p.includes(':') &amp;&amp; matchRoute(p, pathname) !== null);
+}
+
+export function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+
+  // 公開路由直通
+  if (PUBLIC_PATHS.includes(pathname)) return NextResponse.next();
+
+  const role = getUserRole(req);
+
+  if (!isAuthorized(role, pathname)) {
+    const url = req.nextUrl.clone();
+    url.pathname = '/403';
+    url.searchParams.set('from', pathname);
+    return NextResponse.redirect(url);
+  }
+
+  return NextResponse.next();
+}
+
+export const config = {
+  // 匹配所有路徑（但排除 _next, api, static）
+  matcher: ['/((?!_next|api|favicon.ico).*)']
+};
+</pre>
+
+<h3 style="color:var(--accent-2);margin-top:30px;">📄 lib/rbac.ts (角色判斷工具)</h3>
+<pre>// lib/rbac.ts — 共用 RBAC 函式
+export type Role = 'guest' | 'viewer' | 'editor' | 'admin';
+
+export const ROLE_LEVEL: Record&lt;Role, number&gt; = {
+  guest: 0, viewer: 1, editor: 2, admin: 3
+};
+
+export function hasRole(userRole: Role, requiredRole: Role): boolean {
+  return ROLE_LEVEL[userRole] &gt;= ROLE_LEVEL[requiredRole];
+}
+
+export function getCurrentUser(cookies: { get: (k: string) =&gt; { value: string } | undefined }) {
+  const role = (cookies.get('user_role')?.value as Role) || 'guest';
+  return { id: 1, name: 'Demo User', role };
+}
+</pre>
+
+<h3 style="color:var(--accent-2);margin-top:30px;">📄 app/layout.tsx (根佈局)</h3>
+<pre>// app/layout.tsx
+import './globals.css';
+import Sidebar from './components/Sidebar';
+import { cookies } from 'next/headers';
+import { getCurrentUser } from '../lib/rbac';
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const user = getCurrentUser(cookies());
+  return (
+    &lt;html lang="zh-Hant"&gt;
+      &lt;body&gt;
+        &lt;div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', minHeight: '100vh' }}&gt;
+          &lt;Sidebar user={user} /&gt;
+          &lt;main style={{ padding: '30px 40px' }}&gt;{children}&lt;/main&gt;
+        &lt;/div&gt;
+      &lt;/body&gt;
+    &lt;/html&gt;
+  );
+}
+</pre>
+
+<h3 style="color:var(--accent-2);margin-top:30px;">📄 app/articles/[id]/page.tsx (動態路由頁)</h3>
+<pre>// app/articles/[id]/page.tsx — 動態路由範例
+import { cookies } from 'next/headers';
+import { getCurrentUser, hasRole } from '../../../lib/rbac';
+import { notFound } from 'next/navigation';
+
+interface Props { params: { id: string } }
+
+export default function ArticleDetailPage({ params }: Props) {
+  const user = getCurrentUser(cookies());
+
+  // middleware 已擋過權限，這裡做業務邏輯檢查
+  if (!hasRole(user.role, 'viewer')) notFound();
+
+  const article = fetchArticle(params.id); // 從 DB / API 取資料
+  if (!article) notFound();
+
+  return (
+    &lt;div&gt;
+      &lt;h1&gt;{article.title}&lt;/h1&gt;
+      &lt;p&gt;動態參數解析：params.id = "{params.id}"&lt;/p&gt;
+      &lt;div&gt;{article.content}&lt;/div&gt;
+      {hasRole(user.role, 'editor') &amp;&amp; (
+        &lt;a href={`/articles/${params.id}/edit`}&gt;✏️ 編輯&lt;/a&gt;
+      )}
+    &lt;/div&gt;
+  );
+}
+
+// catch-all 路由範例：app/docs/[...slug]/page.tsx
+// import { Props } from '...'
+// export default function DocsPage({ params }: { params: { slug: string[] } }) {
+//   return &lt;div&gt;Docs 路徑：{params.slug.join('/')}&lt;/div&gt;
+// }
+</pre>
+
+<h3 style="color:var(--accent-2);margin-top:30px;">📄 app/articles/[id]/edit/page.tsx (巢狀動態路由)</h3>
+<pre>// app/articles/[id]/edit/page.tsx — 巢狀動態路由
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
+import { getCurrentUser, hasRole } from '../../../../lib/rbac';
+
+interface Props { params: { id: string } }
+
+export default function EditArticlePage({ params }: Props) {
+  const user = getCurrentUser(cookies());
+
+  // middleware 已擋，這裡做業務層級二次檢查
+  if (!hasRole(user.role, 'editor')) {
+    redirect('/403');
+  }
+
+  return (
+    &lt;div&gt;
+      &lt;h1&gt;編輯文章 #{params.id}&lt;/h1&gt;
+      &lt;form action={`/api/articles/${params.id}`} method="POST"&gt;
+        &lt;input type="text" name="title" /&gt;
+        &lt;button type="submit"&gt;儲存&lt;/button&gt;
+      &lt;/form&gt;
+    &lt;/div&gt;
+  );
+}
+</pre>
+
+<h3 style="color:var(--accent-2);margin-top:30px;">📄 app/403/page.tsx (權限不足頁)</h3>
+<pre>// app/403/page.tsx
+import Link from 'next/link';
+
+export default function ForbiddenPage({ searchParams }: { searchParams: { from?: string } }) {
+  return (
+    &lt;div style={{ textAlign: 'center', padding: '60px 20px' }}&gt;
+      &lt;h1 style={{ color: '#f87171' }}&gt;🚫 403 — 權限不足&lt;/h1&gt;
+      &lt;p&gt;你嘗試存取：{searchParams.from || '(未知路由)'}&lt;/p&gt;
+      &lt;Link href="/"&gt;← 返回首頁&lt;/Link&gt;
+    &lt;/div&gt;
+  );
+}
+</pre>
+
+<h3 style="color:var(--success);margin-top:30px;">✅ 實作要點總結</h3>
+<ul style="font-family:-apple-system,sans-serif;line-height:2;">
+<li><strong>middleware.ts</strong> 統一在 Edge 層攔截，比每個 page 都寫判斷更乾淨</li>
+<li><strong>matcher 設定</strong> 排除 _next/api/static，效能最佳化</li>
+<li><strong>動態路由 [id]</strong> 透過 params 物件傳遞參數；巢狀用 [...slug] catch-all</li>
+<li><strong>二次檢查</strong> middleware 擋外部存取，page 內仍要做業務邏輯檢查（防 race condition）</li>
+<li><strong>cookie/session</strong> 實務上用 NextAuth.js 或 jose 解析 JWT，不要自己手刻</li>
+</ul>
+</div>
+
+<div style="padding:20px 40px;background:#0b1226;color:var(--muted);font-size:12px;text-align:center;">
+<p>本單檔 demo 完整模擬 Next.js App Router + RBAC middleware 行為 | 學習任務 learning_1785811808_0</p>
+</div>
+
+</body>
+</html>

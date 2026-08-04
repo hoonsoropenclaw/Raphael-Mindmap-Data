@@ -1,13 +1,13 @@
-# Advanced Database Management for Asynchronous Systems and Testing
+# Full-Stack Database Management with FastAPI
 
 ## Overview
-This micro-skill focuses on advanced techniques for managing databases in asynchronous environments and during end-to-end (E2E) testing. It emphasizes robust connection management, performance optimization, error handling, and maintaining consistent database states for reliable testing.
+This micro-skill integrates advanced database management and optimization techniques with FastAPI to build robust full-stack applications. It covers asynchronous database operations, performance tuning, error handling, and maintaining consistent database states for reliable testing and production environments.
 
-## Key Techniques
+## Key Components
 
-### Asynchronous Database Initialization
+### 1. Asynchronous Database Initialization
 
-Efficiently initializing database connections is critical for the smooth operation of asynchronous applications. This ensures that the database is ready for use before any operations commence.
+Efficiently initializing database connections is crucial for the smooth operation of asynchronous applications. This ensures that the database is ready for use before any operations commence.
 
 #### Example Implementation with `aiosqlite`
 ```python
@@ -31,7 +31,7 @@ async def main():
 asyncio.run(main())
 ```
 
-### Error Prevention and Handling
+### 2. Error Prevention and Handling
 
 Effective error handling ensures that the application can gracefully handle issues related to database initialization and connection.
 
@@ -69,7 +69,7 @@ Effective error handling ensures that the application can gracefully handle issu
           mock_db.close.assert_called_once()
   ```
 
-### Performance Optimization
+### 3. Performance Optimization
 
 Efficient database connection management can significantly improve the performance of asynchronous applications.
 
@@ -115,7 +115,7 @@ Efficient database connection management can significantly improve the performan
       # Proceed with database operations
   ```
 
-### Managing Database States for E2E Testing
+### 4. Managing Database States for E2E Testing
 
 Managing database states during E2E testing is crucial for ensuring test reliability and consistency. This involves resetting databases before each test case and simulating database behavior using in-memory solutions.
 
@@ -124,7 +124,7 @@ Managing database states during E2E testing is crucial for ensuring test reliabi
 ##### Explanation
 To prevent data contamination between test cases, reset the database before each test runs. This ensures that each test operates in a clean state, maintaining test independence and accuracy.
 
-###### Key Code Snippet
+###### Key Code Snippet (JavaScript Example)
 ```javascript
 // Reset the database before each test case
 beforeEach(async () => {
@@ -142,7 +142,7 @@ beforeEach(async () => {
 ##### Explanation
 Using an in-memory database simulates real database behavior, enabling rapid execution and validation of code in testing environments.
 
-###### Key Code Snippet
+###### Key Code Snippet (JavaScript Example)
 ```javascript
 const inMemoryDB = {
     users: [...],
@@ -161,7 +161,33 @@ inMemoryDB.announcements.push(newAnnouncement);
 - **Error**: The in-memory database state is not correctly reset between tests, leading to inaccurate test results.
 - **Prevention**: Reset the in-memory database state before each test case to maintain test integrity.
 
-### Best Practices
+### 5. FastAPI Integration
+
+#### Key Code Snippet
+```python
+from fastapi import FastAPI, Depends
+from sqlalchemy.orm import Session
+
+app = FastAPI()
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+@app.get("/api/v1/health")
+async def health():
+    return {"status": "ok"}
+```
+
+#### Common Errors and Solutions
+- **Dependency Injection Error**: Ensure that `Depends` references the correct function that returns the database session.
+- **Asynchronous Processing Blocking**: Avoid using blocking operations in asynchronous functions. Use `await` to call asynchronous library functions.
+- **Middleware Errors**: Ensure that middleware functions correctly return the response object to avoid interrupting the request processing flow.
+
+### 6. Best Practices
 
 #### Consistent Reset Strategy
 Implement a consistent strategy for resetting both persistent and in-memory databases before each test. This ensures that tests do not interfere with each other and produce reliable results.
@@ -176,4 +202,4 @@ Ensure that each test case is isolated by resetting the database state. This pre
 Automate the reset process using testing frameworks' hooks (e.g., `beforeEach` in Jest). This reduces manual effort and minimizes the risk of human error.
 
 ## Summary
-Mastering advanced database management for asynchronous systems and testing involves understanding the nuances of initializing and maintaining database connections, optimizing performance, handling errors, and managing database states for reliable testing. By implementing robust error handling, optimizing connection management, and adhering to best practices, you can ensure that your applications and tests are both performant and reliable.
+Mastering full-stack database management with FastAPI involves understanding the intricacies of initializing and maintaining database connections, optimizing performance, handling errors, and managing database states for reliable testing and production environments. By implementing robust error handling, optimizing connection management, and adhering to best practices, you can ensure that your applications and tests are both performant and reliable.

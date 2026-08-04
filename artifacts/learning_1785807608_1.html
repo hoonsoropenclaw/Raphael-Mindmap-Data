@@ -1,0 +1,1179 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" data-theme="nebula">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FluxWeave — 基於 React Flow 的工作流管理系統</title>
+
+<!-- 1) Tailwind Play CDN (符合 comprehensive_ui_management_and_testing.md §5) -->
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+
+<!-- 2) React 18 UMD (鎖定 18.3.1 避免 unpkg redirect) -->
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+
+<!-- 3) ReactFlow v11 UMD (.min 不存在，用 .js) -->
+<link rel="stylesheet" href="https://unpkg.com/reactflow@11.11.4/dist/style.css" />
+<script src="https://unpkg.com/reactflow@11.11.4/dist/umd/index.js"></script>
+
+<!-- 4) Babel Standalone（瀏覽器內 JSX）-->
+<script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+
+<!-- 5) html-to-image（畫布匯出 PNG 用，路徑為 dist/html-to-image.js）-->
+<script src="https://unpkg.com/html-to-image@1.11.11/dist/html-to-image.js"></script>
+
+<style>
+  /* === 設計系統：CSS 變數主題 (comprehensive_ui_management_and_testing.md §1) === */
+  :root {
+    --accent-hue: 270;
+    --accent-sat: 88%;
+    --accent-light: 62%;
+    --bg-base: #0b0a1a;
+    --bg-elev: rgba(255,255,255,0.06);
+    --bg-elev-strong: rgba(255,255,255,0.12);
+    --border-soft: rgba(255,255,255,0.12);
+    --text-primary: #f4f4f5;
+    --text-muted: #a1a1aa;
+    --accent: hsl(var(--accent-hue) var(--accent-sat) var(--accent-light));
+    --accent-soft: hsl(var(--accent-hue) var(--accent-sat) var(--accent-light) / 0.18);
+    --success: #34d399;
+    --warn: #fbbf24;
+    --danger: #f87171;
+  }
+  [data-theme="aurora"] {
+    --accent-hue: 160;
+    --accent-sat: 70%;
+    --accent-light: 48%;
+    --bg-base: #f4faf8;
+    --bg-elev: rgba(255,255,255,0.7);
+    --bg-elev-strong: rgba(255,255,255,0.92);
+    --border-soft: rgba(15,42,36,0.12);
+    --text-primary: #0f2a24;
+    --text-muted: #4d6b65;
+  }
+  [data-theme="sunset"] {
+    --accent-hue: 18;
+    --accent-sat: 92%;
+    --accent-light: 58%;
+    --bg-base: #1a0d12;
+    --bg-elev: rgba(255,255,255,0.05);
+    --bg-elev-strong: rgba(255,255,255,0.1);
+    --border-soft: rgba(255,180,140,0.18);
+    --text-primary: #fdf2ee;
+    --text-muted: #d4a896;
+  }
+  [data-theme="matrix"] {
+    --accent-hue: 120;
+    --accent-sat: 75%;
+    --accent-light: 50%;
+    --bg-base: #050d05;
+    --bg-elev: rgba(0,40,0,0.5);
+    --bg-elev-strong: rgba(0,60,0,0.7);
+    --border-soft: rgba(0,255,80,0.22);
+    --text-primary: #c8ffc8;
+    --text-muted: #6ba66b;
+  }
+
+  /* === 玻璃擬態 (comprehensive_ui_management_and_testing.md §2) === */
+  .glass {
+    background: var(--bg-elev);
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    border: 1px solid var(--border-soft);
+    box-shadow: 0 10px 40px -10px rgba(0,0,0,0.5);
+  }
+  .glass-strong {
+    background: var(--bg-elev-strong);
+    backdrop-filter: blur(22px) saturate(160%);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+    border: 1px solid var(--border-soft);
+  }
+
+  /* 全域 base */
+  html, body, #root { height: 100%; }
+  body {
+    margin: 0;
+    background: radial-gradient(1200px 800px at 20% 0%, hsl(var(--accent-hue) var(--accent-sat) 30% / 0.25), transparent 60%),
+                radial-gradient(900px 700px at 90% 100%, hsl(calc(var(--accent-hue) + 60) var(--accent-sat) 40% / 0.18), transparent 60%),
+                var(--bg-base);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    overflow: hidden;
+    transition: background 0.4s ease, color 0.4s ease;
+  }
+
+  /* ReactFlow 客製化（讓畫布融入玻璃擬態主題）*/
+  .react-flow__background {
+    background-color: transparent;
+  }
+  .react-flow__controls {
+    box-shadow: none;
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--bg-elev);
+    backdrop-filter: blur(14px);
+  }
+  .react-flow__controls-button {
+    background: transparent;
+    border-bottom: 1px solid var(--border-soft);
+    color: var(--text-primary);
+    fill: var(--text-primary);
+  }
+  .react-flow__controls-button:hover {
+    background: var(--accent-soft);
+  }
+  .react-flow__minimap {
+    background: var(--bg-elev);
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+    backdrop-filter: blur(14px);
+  }
+  .react-flow__edge-path {
+    stroke: hsl(var(--accent-hue) var(--accent-sat) var(--accent-light));
+    stroke-width: 2;
+  }
+  .react-flow__edge.selected .react-flow__edge-path {
+    stroke: var(--accent);
+    stroke-width: 3;
+    filter: drop-shadow(0 0 6px var(--accent-soft));
+  }
+  .react-flow__handle {
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--bg-base);
+    background: var(--accent);
+  }
+  .react-flow__attribution {
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 10px;
+  }
+  .react-flow__node {
+    font-size: 13px;
+  }
+
+  /* 自訂節點樣式 */
+  .wf-node {
+    min-width: 200px;
+    border-radius: 14px;
+    padding: 12px 14px;
+    color: var(--text-primary);
+    background: linear-gradient(135deg, var(--bg-elev-strong), var(--bg-elev));
+    border: 1px solid var(--border-soft);
+    backdrop-filter: blur(16px);
+    box-shadow: 0 8px 24px -8px rgba(0,0,0,0.45);
+    transition: transform 0.15s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    position: relative;
+  }
+  .wf-node:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 14px 32px -10px rgba(0,0,0,0.55);
+  }
+  .wf-node.selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft), 0 14px 32px -10px rgba(0,0,0,0.55);
+  }
+  .wf-node .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .wf-node .icon {
+    width: 28px; height: 28px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 8px;
+    font-size: 16px;
+  }
+  .wf-node .delete-btn {
+    position: absolute;
+    top: 6px; right: 6px;
+    width: 22px; height: 22px;
+    border-radius: 6px;
+    border: 1px solid var(--border-soft);
+    background: var(--bg-elev);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .wf-node:hover .delete-btn { opacity: 1; }
+  .wf-node .delete-btn:hover { color: var(--danger); border-color: var(--danger); }
+
+  /* 側邊節點面板拖曳樣式 */
+  .palette-item {
+    cursor: grab;
+    user-select: none;
+    transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease;
+  }
+  .palette-item:active { cursor: grabbing; transform: scale(0.97); }
+  .palette-item:hover { border-color: var(--accent); background: var(--accent-soft); }
+
+  /* 捲軸 */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--border-soft); border-radius: 999px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--accent-soft); }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* 進場動畫 */
+  .reveal { opacity: 1; transform: none; }
+  html.js .reveal.in { animation: fade-up 0.6s forwards; }
+  @keyframes fade-up {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .stagger > * { opacity: 1; }
+  html.js .stagger > * { animation: fade-up 0.5s backwards; }
+  html.js .stagger > *:nth-child(1) { animation-delay: 0.02s; }
+  html.js .stagger > *:nth-child(2) { animation-delay: 0.06s; }
+  html.js .stagger > *:nth-child(3) { animation-delay: 0.10s; }
+  html.js .stagger > *:nth-child(4) { animation-delay: 0.14s; }
+  html.js .stagger > *:nth-child(5) { animation-delay: 0.18s; }
+  html.js .stagger > *:nth-child(6) { animation-delay: 0.22s; }
+  html.js .stagger > *:nth-child(7) { animation-delay: 0.26s; }
+  html.js .stagger > *:nth-child(8) { animation-delay: 0.30s; }
+
+  /* Toast */
+  .toast-enter { animation: toast-in 0.3s forwards; }
+  @keyframes toast-in {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+
+  /* 響應式 */
+  @media (max-width: 900px) {
+    .palette-pane, .inspector-pane { display: none !important; }
+  }
+
+  /* 防止 React Flow 預設 focus outline 醜 */
+  .react-flow__node:focus { outline: none; }
+  .react-flow__node:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+// 解構 React hooks
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+// 將 React Flow 內部命名空間重新命名為 RF，避免與解構出的 ReactFlow 元件撞名
+// (解決 React Flow v11 UMD 的 TDZ 陷阱 — window.ReactFlow 內部有些引用是延遲的)
+const RF = window.ReactFlow;
+const {
+  ReactFlowProvider,
+  ReactFlow: RFCanvas,
+  Background,
+  Controls,
+  MiniMap,
+  Handle,
+  Position,
+  useNodesState,
+  useEdgesState,
+  addEdge,
+  applyNodeChanges,
+  applyEdgeChanges,
+} = RF;
+const ReactFlow = RFCanvas; // 把元件別名改回 ReactFlow 以避免全文大幅修改
+
+// === 進入動畫 (comprehensive_ui_management_and_testing.md §4) ===
+if ('IntersectionObserver' in window) {
+  document.documentElement.classList.add('js');
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(en => {
+      if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); }
+    });
+  }, { threshold: 0.05 });
+  setTimeout(() => {
+    document.querySelectorAll('.reveal, .stagger').forEach(el => io.observe(el));
+  }, 50);
+}
+
+// ============================================================
+// 節點類型定義
+// ============================================================
+const NODE_KINDS = {
+  trigger:      { label: '觸發器',     desc: '工作流的起點（事件/排程/Webhook）', icon: '⚡', color: '#fbbf24', category: 'control' },
+  action:       { label: '動作',       desc: '執行 API / 函式 / 命令',             icon: '⚙️', color: '#60a5fa', category: 'task' },
+  condition:    { label: '條件判斷',   desc: '依條件分支到不同路徑',                 icon: '🔀', color: '#a78bfa', category: 'control' },
+  delay:        { label: '延遲',       desc: '等待指定秒數再繼續',                   icon: '⏱️', color: '#94a3b8', category: 'control' },
+  loop:         { label: '迴圈',       desc: '對集合逐項迭代',                       icon: '🔁', color: '#22d3ee', category: 'control' },
+  transform:    { label: '資料轉換',   desc: '映射 / 過濾 / 格式化資料',             icon: '🧬', color: '#34d399', category: 'data' },
+  notification: { label: '通知',       desc: '發送 Email / Slack / 推播',            icon: '🔔', color: '#f472b6', category: 'task' },
+  end:          { label: '結束',       desc: '工作流的終點（成功/失敗）',             icon: '🏁', color: '#f87171', category: 'control' },
+};
+const KIND_LIST = Object.keys(NODE_KINDS);
+
+// ============================================================
+// 自訂節點元件（符合 workflow_and_minutes_management.md customNode 模式）
+// ============================================================
+function WorkflowNode({ id, data, selected }) {
+  const meta = NODE_KINDS[data.kind] || NODE_KINDS.action;
+  const onDelete = (e) => {
+    e.stopPropagation();
+    if (data.onDelete) data.onDelete(id);
+  };
+  const inputs = data.kind === 'trigger' ? 0 : 1;
+  const outputs = data.kind === 'end' ? 0 : 1;
+
+  return (
+    <div className={`wf-node ${selected ? 'selected' : ''}`}>
+      {inputs > 0 && (
+        <Handle type="target" position={Position.Left} style={{ background: meta.color }} />
+      )}
+      {outputs > 0 && (
+        <Handle type="source" position={Position.Right} style={{ background: meta.color }} />
+      )}
+
+      <button className="delete-btn" onClick={onDelete} title="刪除節點">✕</button>
+
+      <div className="flex items-center gap-2 mb-1.5">
+        <div className="icon" style={{ background: meta.color + '33', color: meta.color }}>
+          {meta.icon}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-xs uppercase tracking-wider" style={{ color: meta.color }}>
+            {meta.label}
+          </div>
+          <div className="font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+            {data.label || meta.label}
+          </div>
+        </div>
+      </div>
+
+      <div className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+        {data.description || meta.desc}
+      </div>
+
+      {data.config && Object.keys(data.config).length > 0 && (
+        <div className="mt-2 pt-2" style={{ borderTop: '1px dashed var(--border-soft)' }}>
+          <div className="flex flex-wrap gap-1">
+            {Object.entries(data.config).slice(0, 3).map(([k, v]) => (
+              <span key={k} className="badge" style={{ background: 'var(--bg-elev)', color: 'var(--text-muted)' }}>
+                {k}: {String(v).slice(0, 14)}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const nodeTypes = { workflow: WorkflowNode };
+
+// ============================================================
+// 左側節點面板（符合 node_palette_drag_and_drop.md）
+// ============================================================
+function NodePalette() {
+  const dragStart = (e, kind) => {
+    e.dataTransfer.setData('application/xyflow', kind);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  return (
+    <aside className="palette-pane glass w-64 flex-shrink-0 flex flex-col h-full" style={{ borderRadius: 0, borderTop: 0, borderBottom: 0, borderLeft: 0 }}>
+      <div className="px-4 py-4" style={{ borderBottom: '1px solid var(--border-soft)' }}>
+        <div className="text-xs uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>元件庫</div>
+        <div className="text-lg font-semibold mt-0.5">拖曳到畫布</div>
+      </div>
+      <div className="flex-1 overflow-y-auto px-3 py-3 stagger">
+        {KIND_LIST.map(kind => {
+          const meta = NODE_KINDS[kind];
+          return (
+            <div
+              key={kind}
+              draggable
+              onDragStart={(e) => dragStart(e, kind)}
+              className="palette-item glass-strong rounded-xl px-3 py-2.5 mb-2 flex items-center gap-3"
+              title={meta.desc}
+            >
+              <div
+                className="icon flex-shrink-0"
+                style={{ width: 34, height: 34, borderRadius: 10, background: meta.color + '33', color: meta.color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}
+              >
+                {meta.icon}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium truncate">{meta.label}</div>
+                <div className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>{meta.desc}</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="px-4 py-3 text-xs" style={{ color: 'var(--text-muted)', borderTop: '1px solid var(--border-soft)' }}>
+        提示：拖曳元件到右側畫布即可新增
+      </div>
+    </aside>
+  );
+}
+
+// ============================================================
+// 右側屬性檢查器
+// ============================================================
+function Inspector({ selectedNode, onUpdate, onDelete }) {
+  if (!selectedNode) {
+    return (
+      <aside className="inspector-pane glass w-72 flex-shrink-0 flex flex-col h-full" style={{ borderRadius: 0, borderTop: 0, borderBottom: 0, borderRight: 0 }}>
+        <div className="px-4 py-4" style={{ borderBottom: '1px solid var(--border-soft)' }}>
+          <div className="text-xs uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>屬性</div>
+          <div className="text-lg font-semibold mt-0.5">檢查器</div>
+        </div>
+        <div className="flex-1 flex items-center justify-center px-6 text-center">
+          <div>
+            <div className="text-4xl mb-3 opacity-40">🎯</div>
+            <div className="text-sm" style={{ color: 'var(--text-muted)' }}>
+              點擊畫布上任一節點<br/>以編輯其屬性
+            </div>
+          </div>
+        </div>
+      </aside>
+    );
+  }
+
+  const meta = NODE_KINDS[selectedNode.data.kind] || NODE_KINDS.action;
+
+  const updateField = (field, value) => {
+    onUpdate(selectedNode.id, { ...selectedNode.data, [field]: value });
+  };
+  const updateConfig = (key, value) => {
+    onUpdate(selectedNode.id, { ...selectedNode.data, config: { ...(selectedNode.data.config || {}), [key]: value } });
+  };
+
+  return (
+    <aside className="inspector-pane glass w-72 flex-shrink-0 flex flex-col h-full" style={{ borderRadius: 0, borderTop: 0, borderBottom: 0, borderRight: 0 }}>
+      <div className="px-4 py-4" style={{ borderBottom: '1px solid var(--border-soft)' }}>
+        <div className="flex items-center gap-2">
+          <div className="icon" style={{ width: 32, height: 32, borderRadius: 9, background: meta.color + '33', color: meta.color, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
+            {meta.icon}
+          </div>
+          <div>
+            <div className="text-xs uppercase tracking-wider" style={{ color: meta.color }}>{meta.label}</div>
+            <div className="text-sm font-semibold">節點屬性</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        <div>
+          <label className="text-xs uppercase tracking-wider block mb-1.5" style={{ color: 'var(--text-muted)' }}>標題</label>
+          <input
+            type="text"
+            value={selectedNode.data.label || ''}
+            onChange={e => updateField('label', e.target.value)}
+            className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+            style={{ background: 'var(--bg-elev-strong)', border: '1px solid var(--border-soft)', color: 'var(--text-primary)' }}
+          />
+        </div>
+
+        <div>
+          <label className="text-xs uppercase tracking-wider block mb-1.5" style={{ color: 'var(--text-muted)' }}>描述</label>
+          <textarea
+            value={selectedNode.data.description || ''}
+            onChange={e => updateField('description', e.target.value)}
+            rows={3}
+            className="w-full px-3 py-2 rounded-lg text-sm outline-none resize-none"
+            style={{ background: 'var(--bg-elev-strong)', border: '1px solid var(--border-soft)', color: 'var(--text-primary)' }}
+          />
+        </div>
+
+        {/* 各類型專屬設定 */}
+        {selectedNode.data.kind === 'action' && (
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs uppercase tracking-wider block mb-1.5" style={{ color: 'var(--text-muted)' }}>HTTP 方法</label>
+              <select
+                value={selectedNode.data.config?.method || 'GET'}
+                onChange={e => updateConfig('method', e.target.value)}
+                className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+                style={{ background: 'var(--bg-elev-strong)', border: '1px solid var(--border-soft)', color: 'var(--text-primary)' }}
+              >
+                {['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs uppercase tracking-wider block mb-1.5" style={{ color: 'var(--text-muted)' }}>端點 URL</label>
+              <input
+                type="text"
+                placeholder="https://api.example.com/..."
+                value={selectedNode.data.config?.url || ''}
+                onChange={e => updateConfig('url', e.target.value)}
+                className="w-full px-3 py-2 rounded-lg text-sm outline-none font-mono"
+                style={{ background: 'var(--bg-elev-strong)', border: '1px solid var(--border-soft)', color: 'var(--text-primary)' }}
+              />
+            </div>
+          </div>
+        )}
+
+        {selectedNode.data.kind === 'condition' && (
+          <div>
+            <label className="text-xs uppercase tracking-wider block mb-1.5" style={{ color: 'var(--text-muted)' }}>條件運算式</label>
+            <input
+              type="text"
+              placeholder="e.g. data.status === 'ok'"
+              value={selectedNode.data.config?.expr || ''}
+              onChange={e => updateConfig('expr', e.target.value)}
+              className="w-full px-3 py-2 rounded-lg text-sm outline-none font-mono"
+              style={{ background: 'var(--bg-elev-strong)', border: '1px solid var(--border-soft)', color: 'var(--text-primary)' }}
+            />
+          </div>
+        )}
+
+        {selectedNode.data.kind === 'delay' && (
+          <div>
+            <label className="text-xs uppercase tracking-wider block mb-1.5" style={{ color: 'var(--text-muted)' }}>等待秒數</label>
+            <input
+              type="number"
+              min="0"
+              value={selectedNode.data.config?.seconds || 5}
+              onChange={e => updateConfig('seconds', Number(e.target.value))}
+              className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+              style={{ background: 'var(--bg-elev-strong)', border: '1px solid var(--border-soft)', color: 'var(--text-primary)' }}
+            />
+          </div>
+        )}
+
+        {selectedNode.data.kind === 'notification' && (
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs uppercase tracking-wider block mb-1.5" style={{ color: 'var(--text-muted)' }}>通道</label>
+              <select
+                value={selectedNode.data.config?.channel || 'email'}
+                onChange={e => updateConfig('channel', e.target.value)}
+                className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+                style={{ background: 'var(--bg-elev-strong)', border: '1px solid var(--border-soft)', color: 'var(--text-primary)' }}
+              >
+                <option value="email">Email</option>
+                <option value="slack">Slack</option>
+                <option value="webhook">Webhook</option>
+                <option value="push">Push</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs uppercase tracking-wider block mb-1.5" style={{ color: 'var(--text-muted)' }}>收件者</label>
+              <input
+                type="text"
+                placeholder="user@example.com"
+                value={selectedNode.data.config?.to || ''}
+                onChange={e => updateConfig('to', e.target.value)}
+                className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+                style={{ background: 'var(--bg-elev-strong)', border: '1px solid var(--border-soft)', color: 'var(--text-primary)' }}
+              />
+            </div>
+          </div>
+        )}
+
+        {selectedNode.data.kind === 'loop' && (
+          <div>
+            <label className="text-xs uppercase tracking-wider block mb-1.5" style={{ color: 'var(--text-muted)' }}>迭代集合路徑</label>
+            <input
+              type="text"
+              placeholder="e.g. data.items"
+              value={selectedNode.data.config?.source || ''}
+              onChange={e => updateConfig('source', e.target.value)}
+              className="w-full px-3 py-2 rounded-lg text-sm outline-none font-mono"
+              style={{ background: 'var(--bg-elev-strong)', border: '1px solid var(--border-soft)', color: 'var(--text-primary)' }}
+            />
+          </div>
+        )}
+
+        <div className="pt-2" style={{ borderTop: '1px dashed var(--border-soft)' }}>
+          <button
+            onClick={() => onDelete(selectedNode.id)}
+            className="w-full py-2 rounded-lg text-sm font-medium transition-colors"
+            style={{ background: 'rgba(248,113,113,0.15)', color: 'var(--danger)', border: '1px solid rgba(248,113,113,0.3)' }}
+          >
+            🗑 刪除此節點
+          </button>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+// ============================================================
+// Toast 通知
+// ============================================================
+function Toast({ message, onDone }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, 2400);
+    return () => clearTimeout(t);
+  }, [onDone]);
+  return (
+    <div
+      className="toast-enter fixed bottom-6 left-1/2 -translate-x-1/2 px-5 py-2.5 rounded-xl glass-strong text-sm font-medium shadow-2xl z-50"
+      style={{ color: 'var(--text-primary)' }}
+    >
+      {message}
+    </div>
+  );
+}
+
+// ============================================================
+// 頂部工具列
+// ============================================================
+function TopBar({ theme, setTheme, onUndo, onRedo, canUndo, canRedo, onExportJSON, onExportPNG, onSave, onLoad, onClear, onLoadSample }) {
+  const themes = ['nebula', 'aurora', 'sunset', 'matrix'];
+  return (
+    <header className="glass-strong flex items-center justify-between px-4 py-2.5 flex-shrink-0" style={{ borderRadius: 0, borderTop: 0, borderLeft: 0, borderRight: 0 }}>
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center text-lg" style={{ background: 'var(--accent-soft)', border: '1px solid var(--accent)' }}>
+            🌊
+          </div>
+          <div>
+            <div className="font-bold text-sm tracking-tight">FluxWeave</div>
+            <div className="text-[10px] uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Workflow Studio</div>
+          </div>
+        </div>
+
+        <div className="ml-3 flex items-center gap-1 pl-3" style={{ borderLeft: '1px solid var(--border-soft)' }}>
+          <button onClick={onUndo} disabled={!canUndo} className="px-2.5 py-1.5 rounded-md text-xs font-medium transition-all" style={{ background: canUndo ? 'var(--bg-elev)' : 'transparent', color: canUndo ? 'var(--text-primary)' : 'var(--text-muted)', opacity: canUndo ? 1 : 0.4 }} title="復原 (Ctrl+Z)">
+            ↶ 復原
+          </button>
+          <button onClick={onRedo} disabled={!canRedo} className="px-2.5 py-1.5 rounded-md text-xs font-medium transition-all" style={{ background: canRedo ? 'var(--bg-elev)' : 'transparent', color: canRedo ? 'var(--text-primary)' : 'var(--text-muted)', opacity: canRedo ? 1 : 0.4 }} title="重做 (Ctrl+Y)">
+            ↷ 重做
+          </button>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button onClick={onLoadSample} className="px-3 py-1.5 rounded-md text-xs font-medium" style={{ background: 'var(--bg-elev)', color: 'var(--text-primary)', border: '1px solid var(--border-soft)' }}>
+          ✨ 載入範例
+        </button>
+        <button onClick={onSave} className="px-3 py-1.5 rounded-md text-xs font-medium" style={{ background: 'var(--bg-elev)', color: 'var(--text-primary)', border: '1px solid var(--border-soft)' }} title="儲存到 localStorage">
+          💾 儲存
+        </button>
+        <button onClick={onLoad} className="px-3 py-1.5 rounded-md text-xs font-medium" style={{ background: 'var(--bg-elev)', color: 'var(--text-primary)', border: '1px solid var(--border-soft)' }} title="從 localStorage 載入">
+            📂 載入
+        </button>
+        <button onClick={onExportJSON} className="px-3 py-1.5 rounded-md text-xs font-medium" style={{ background: 'var(--accent-soft)', color: 'var(--accent)', border: '1px solid var(--accent)' }}>
+            ⬇ JSON
+        </button>
+        <button onClick={onExportPNG} className="px-3 py-1.5 rounded-md text-xs font-medium" style={{ background: 'var(--accent)', color: 'var(--bg-base)' }}>
+            🖼 PNG
+        </button>
+        <button onClick={onClear} className="px-3 py-1.5 rounded-md text-xs font-medium" style={{ background: 'transparent', color: 'var(--danger)', border: '1px solid rgba(248,113,113,0.3)' }}>
+            🗑 清空
+        </button>
+
+        <div className="ml-2 pl-3 flex items-center gap-1" style={{ borderLeft: '1px solid var(--border-soft)' }}>
+          <span className="text-xs mr-1" style={{ color: 'var(--text-muted)' }}>主題</span>
+          {themes.map(t => (
+            <button
+              key={t}
+              onClick={() => setTheme(t)}
+              className="w-6 h-6 rounded-full transition-all"
+              style={{
+                background: t === 'nebula' ? 'linear-gradient(135deg, #6366f1, #ec4899)' :
+                            t === 'aurora' ? 'linear-gradient(135deg, #14b8a6, #84cc16)' :
+                            t === 'sunset' ? 'linear-gradient(135deg, #f97316, #ec4899)' :
+                                             'linear-gradient(135deg, #16a34a, #4ade80)',
+                border: theme === t ? '2px solid var(--text-primary)' : '2px solid transparent',
+                transform: theme === t ? 'scale(1.15)' : 'scale(1)',
+              }}
+              title={t}
+            />
+          ))}
+        </div>
+      </div>
+    </header>
+  );
+}
+
+// ============================================================
+// 底部狀態列
+// ============================================================
+function StatusBar({ nodes, edges, selectedNode, lastAction }) {
+  return (
+    <footer className="glass flex items-center justify-between px-4 py-1.5 text-xs flex-shrink-0" style={{ borderRadius: 0, borderBottom: 0, borderLeft: 0, borderRight: 0, borderTop: '1px solid var(--border-soft)' }}>
+      <div className="flex items-center gap-4" style={{ color: 'var(--text-muted)' }}>
+        <span>節點 <strong style={{ color: 'var(--text-primary)' }}>{nodes.length}</strong></span>
+        <span>連線 <strong style={{ color: 'var(--text-primary)' }}>{edges.length}</strong></span>
+        {selectedNode && (
+          <span>已選：<strong style={{ color: 'var(--accent)' }}>{selectedNode.data.label || NODE_KINDS[selectedNode.data.kind]?.label}</strong></span>
+        )}
+      </div>
+      <div className="flex items-center gap-3" style={{ color: 'var(--text-muted)' }}>
+        {lastAction && <span>最後動作：{lastAction}</span>}
+        <span>v1.0 · Hermes Agent</span>
+      </div>
+    </footer>
+  );
+}
+
+// ============================================================
+// 主畫布（ReactFlow）
+// ============================================================
+function WorkflowCanvas({ nodes, setNodes, setNodesRaw, edges, setEdges, setEdgesRaw, onSelect, selectedId, rfInstance }) {
+  const wrapperRef = useRef(null);
+  const rfRef = useRef(null);
+
+  const onNodesChange = useCallback((changes) => {
+    setNodesRaw((nds) => applyNodeChanges(changes, nds));
+  }, [setNodesRaw]);
+
+  const onEdgesChange = useCallback((changes) => {
+    setEdgesRaw((eds) => applyEdgeChanges(changes, eds));
+  }, [setEdgesRaw]);
+
+  const onConnect = useCallback((params) => {
+    // 使用者主動連線 — 用會 snapshot 的 setEdges
+    setEdges((eds) => addEdge({ ...params, animated: true, type: 'smoothstep' }, eds));
+  }, [setEdges]);
+
+  // 節點拖放（符合 node_palette_drag_and_drop.md）
+  const onDragOver = useCallback((event) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const onDrop = useCallback((event) => {
+    event.preventDefault();
+    const kind = event.dataTransfer.getData('application/xyflow');
+    if (!kind || !NODE_KINDS[kind] || !rfRef.current) return;
+
+    const position = rfRef.current.screenToFlowPosition({
+      x: event.clientX,
+      y: event.clientY,
+    });
+    const meta = NODE_KINDS[kind];
+    const newNode = {
+      id: 'n_' + Math.random().toString(36).slice(2, 9),
+      type: 'workflow',
+      position,
+      data: {
+        kind,
+        label: meta.label,
+        description: meta.desc,
+        config: {},
+      },
+    };
+    // 拖放新增節點：setNodes 內建 snapshot，這裡直接更新即可
+    setNodes((nds) => nds.concat(newNode));
+  }, [setNodes]);
+
+  const onInit = useCallback((instance) => {
+    rfRef.current = instance;
+    if (rfInstance) rfInstance.current = instance;
+  }, [rfInstance]);
+
+  return (
+    <div ref={wrapperRef} className="flex-1 relative" style={{ background: 'transparent' }}>
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        onInit={onInit}
+        onDrop={onDrop}
+        onDragOver={onDragOver}
+        onNodeClick={(_, node) => onSelect(node.id)}
+        onPaneClick={() => onSelect(null)}
+        nodeTypes={nodeTypes}
+        fitView
+        attributionPosition="bottom-right"
+        defaultEdgeOptions={{ animated: true, type: 'smoothstep' }}
+        proOptions={{ hideAttribution: false }}
+      >
+        <Background gap={24} size={1.2} color="var(--border-soft)" />
+        <Controls position="bottom-left" showInteractive={false} />
+        <MiniMap
+          position="bottom-right"
+          pannable
+          zoomable
+          nodeColor={(n) => NODE_KINDS[n.data?.kind]?.color || '#999'}
+          maskColor="rgba(0,0,0,0.4)"
+        />
+      </ReactFlow>
+    </div>
+  );
+}
+
+// ============================================================
+// 主應用
+// ============================================================
+const STORAGE_KEY = 'fluxweave_state_v1';
+const SAMPLE_FLOW = {
+  nodes: [
+    { id: 't1', type: 'workflow', position: { x: 60, y: 120 }, data: { kind: 'trigger', label: 'Webhook 進入', description: 'POST /api/order-received', config: { method: 'POST', url: '/api/order-received' } } },
+    { id: 'a1', type: 'workflow', position: { x: 320, y: 80 }, data: { kind: 'action', label: '查詢訂單詳情', description: '從 DB 拉訂單資料', config: { method: 'GET', url: '/api/orders/:id' } } },
+    { id: 'c1', type: 'workflow', position: { x: 600, y: 80 }, data: { kind: 'condition', label: '金額 > 1000?', description: 'VIP 客戶分流', config: { expr: 'data.amount > 1000' } } },
+    { id: 'n1', type: 'workflow', position: { x: 880, y: 0 }, data: { kind: 'notification', label: 'VIP 通知', description: '寄送專屬優惠', config: { channel: 'email', to: 'vip@example.com' } } },
+    { id: 'l1', type: 'workflow', position: { x: 880, y: 140 }, data: { kind: 'loop', label: '批次處理', description: '逐筆建立出貨單', config: { source: 'data.items' } } },
+    { id: 'd1', type: 'workflow', position: { x: 1160, y: 140 }, data: { kind: 'delay', label: '冷卻 3 秒', description: '避免 rate limit', config: { seconds: 3 } } },
+    { id: 'a2', type: 'workflow', position: { x: 1440, y: 140 }, data: { kind: 'action', label: '觸發出貨 API', description: '呼叫物流系統', config: { method: 'POST', url: '/api/shipments' } } },
+    { id: 'e1', type: 'workflow', position: { x: 1720, y: 140 }, data: { kind: 'end', label: '完成', description: '工作流成功結束', config: {} } },
+  ],
+  edges: [
+    { id: 'e1-2', source: 't1', target: 'a1', animated: true },
+    { id: 'e2-3', source: 'a1', target: 'c1', animated: true },
+    { id: 'e3-4', source: 'c1', target: 'n1', label: 'true', animated: true },
+    { id: 'e3-5', source: 'c1', target: 'l1', label: 'false', animated: true },
+    { id: 'e4-e', source: 'n1', target: 'e1', animated: true },
+    { id: 'e5-6', source: 'l1', target: 'd1', animated: true },
+    { id: 'e6-7', source: 'd1', target: 'a2', animated: true },
+    { id: 'e7-e', source: 'a2', target: 'e1', animated: true },
+  ],
+};
+
+function App() {
+  const [theme, setTheme] = useState('nebula');
+  const [nodes, _setNodesRaw] = useState([]);
+  const [edges, _setEdgesRaw] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
+  const [toast, setToast] = useState('');
+  const [lastAction, setLastAction] = useState('系統就緒');
+
+  // 用 ref 持 history/redoStack，避免 re-render 重新計算（先宣告，後使用）
+  const _history = useRef([]);
+  const _redoStack = useRef([]);
+  const _nodesRawRef = useRef([]);
+  const _edgesRawRef = useRef([]);
+  const showToastRef = useRef(null);
+
+  // 用 state 同步 history/redoStack 長度，供按鈕 disabled 狀態使用
+  const [historyTick, setHistoryTick] = useState(0);
+  const bumpHistory = useCallback(() => setHistoryTick(t => t + 1), []);
+
+  // 每次 nodes/edges 改變就同步到 ref（供 snapshot 取用最新值）
+  useEffect(() => { _nodesRawRef.current = nodes; }, [nodes]);
+  useEffect(() => { _edgesRawRef.current = edges; }, [edges]);
+
+  // 包裝後的 setNodes：每次變更前先 snapshot（供 undo）
+  // 用長度 + 第一個 node reference 判斷「實質變化」，避免 React Flow 內部假變化
+  const setNodes = useCallback((updater) => {
+    _setNodesRaw(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      const lengthChanged = next.length !== prev.length;
+      const sampleChanged = next.length === 0 || prev.length === 0 || next[0] !== prev[0];
+      if (lengthChanged || sampleChanged) {
+        _history.current.push({
+          nodes: JSON.parse(JSON.stringify(prev)),
+          edges: JSON.parse(JSON.stringify(_edgesRawRef.current)),
+        });
+        if (_history.current.length > 50) _history.current.shift();
+        _redoStack.current = [];
+        bumpHistory();
+      }
+      return next;
+    });
+  }, [bumpHistory]);
+
+  const setEdges = useCallback((updater) => {
+    _setEdgesRaw(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      const lengthChanged = next.length !== prev.length;
+      const sampleChanged = next.length === 0 || prev.length === 0 || next[0] !== prev[0];
+      if (lengthChanged || sampleChanged) {
+        _history.current.push({
+          nodes: JSON.parse(JSON.stringify(_nodesRawRef.current)),
+          edges: JSON.parse(JSON.stringify(prev)),
+        });
+        if (_history.current.length > 50) _history.current.shift();
+        _redoStack.current = [];
+        bumpHistory();
+      }
+      return next;
+    });
+  }, [bumpHistory]);
+
+  const undo = useCallback(() => {
+    if (_history.current.length === 0) return;
+    const s = _history.current.pop();
+    // 把當前狀態推到 redo 堆疊
+    _redoStack.current.push({
+      nodes: JSON.parse(JSON.stringify(_nodesRawRef.current)),
+      edges: JSON.parse(JSON.stringify(_edgesRawRef.current)),
+    });
+    _setNodesRaw(s.nodes);
+    _setEdgesRaw(s.edges);
+    setSelectedId(null);
+    setLastAction('↶ 已復原');
+    showToastRef.current?.('已復原');
+    bumpHistory();
+  }, [bumpHistory]);
+
+  const redo = useCallback(() => {
+    if (_redoStack.current.length === 0) return;
+    const s = _redoStack.current.pop();
+    _history.current.push({
+      nodes: JSON.parse(JSON.stringify(_nodesRawRef.current)),
+      edges: JSON.parse(JSON.stringify(_edgesRawRef.current)),
+    });
+    _setNodesRaw(s.nodes);
+    _setEdgesRaw(s.edges);
+    setLastAction('↷ 已重做');
+    showToastRef.current?.('已重做');
+    bumpHistory();
+  }, [bumpHistory]);
+
+  // 包裝後的 showToast（讓 undo/redo 也能呼叫）
+  const showToast = useCallback((msg) => {
+    setToast(msg);
+  }, []);
+  useEffect(() => { showToastRef.current = showToast; }, [showToast]);
+
+  // 除錯用
+  useEffect(() => {
+    window.__fluxweave_debug = () => ({
+      history_len: _history.current.length,
+      redo_len: _redoStack.current.length,
+      nodes_len: _nodesRawRef.current.length,
+      edges_len: _edgesRawRef.current.length,
+    });
+    return () => { delete window.__fluxweave_debug; };
+  }, []);
+  // 主題切換
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
+
+  // 初始化時嘗試從 localStorage 載入
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const data = JSON.parse(saved);
+        if (data.nodes && data.edges) {
+          setNodes(data.nodes);
+          setEdges(data.edges);
+          setLastAction('已從 localStorage 載入上次的工作流');
+        }
+      }
+    } catch (e) {
+      console.warn('載入 localStorage 失敗', e);
+    }
+  }, []);
+
+  // 自動儲存（debounced）
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ nodes, edges }));
+      } catch (e) { /* quota exceeded - ignore */ }
+    }, 800);
+    return () => clearTimeout(t);
+  }, [nodes, edges]);
+
+  // 將 onDelete 注入每個節點 data（用 useCallback 確保穩定）
+  const handleNodeDelete = useCallback((id) => {
+    setNodes(nds => nds.filter(n => n.id !== id));
+    setEdges(eds => eds.filter(e => e.source !== id && e.target !== id));
+    if (selectedId === id) setSelectedId(null);
+  }, [selectedId]);
+
+  const nodesWithHandlers = useMemo(() => {
+    return nodes.map(n => ({
+      ...n,
+      data: {
+        ...n.data,
+        onDelete: () => handleNodeDelete(n.id),
+      },
+    }));
+  }, [nodes, handleNodeDelete]);
+
+  const selectedNode = useMemo(
+    () => nodesWithHandlers.find(n => n.id === selectedId) || null,
+    [nodesWithHandlers, selectedId]
+  );
+
+  const handleUpdate = useCallback((id, newData) => {
+    setNodes(nds => nds.map(n => n.id === id ? { ...n, data: newData } : n));
+    setLastAction('更新節點屬性');
+  }, []);
+
+  const handleDelete = useCallback((id) => {
+    handleNodeDelete(id);
+    setLastAction('刪除節點');
+    showToast('已刪除節點');
+  }, [handleNodeDelete]);
+
+  const handleSelect = useCallback((id) => {
+    setSelectedId(id);
+  }, []);
+
+  // 監聽 nodes/edges 變化自動 snapshot（拖曳節點後）
+  const prevSnapshotRef = useRef({ nodes: [], edges: [] });
+  useEffect(() => {
+    // 拖曳結束時（node position 變化後停止動 500ms）才 snapshot，避免過度紀錄
+    const t = setTimeout(() => {
+      if (prevSnapshotRef.current.nodes !== nodes || prevSnapshotRef.current.edges !== edges) {
+        // 首次進入不 snapshot
+        if (prevSnapshotRef.current.nodes.length > 0 || prevSnapshotRef.current.edges.length > 0) {
+          // 已 snapshot 過的（這裡簡化邏輯：避免初始化時 snapshot）
+        }
+        prevSnapshotRef.current = { nodes, edges };
+      }
+    }, 600);
+    return () => clearTimeout(t);
+  }, [nodes, edges]);
+
+  const exportJSON = useCallback(() => {
+    const data = { nodes, edges, exportedAt: new Date().toISOString(), version: '1.0' };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `fluxweave-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('已匯出 JSON');
+    setLastAction('匯出 JSON');
+  }, [nodes, edges]);
+
+  const exportPNG = useCallback(() => {
+    const el = document.querySelector('.react-flow__viewport');
+    if (!el) { showToast('找不到畫布'); return; }
+    const pane = document.querySelector('.react-flow');
+    if (!pane) { showToast('找不到 React Flow 容器'); return; }
+    htmlToImage.toPng(pane, {
+      backgroundColor: getComputedStyle(document.body).backgroundColor || '#0b0a1a',
+      pixelRatio: 2,
+    })
+      .then(dataUrl => {
+        const a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = `fluxweave-${Date.now()}.png`;
+        a.click();
+        showToast('已匯出 PNG');
+        setLastAction('匯出 PNG');
+      })
+      .catch(err => {
+        console.error(err);
+        showToast('PNG 匯出失敗：' + err.message);
+      });
+  }, []);
+
+  const saveLocal = useCallback(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ nodes, edges }));
+      showToast('已儲存到 localStorage');
+      setLastAction('手動儲存');
+    } catch (e) {
+      showToast('儲存失敗：' + e.message);
+    }
+  }, [nodes, edges]);
+
+  const loadLocal = useCallback(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (!saved) { showToast('沒有可載入的存檔'); return; }
+      const data = JSON.parse(saved);
+      setNodes(data.nodes || []);
+      setEdges(data.edges || []);
+      setSelectedId(null);
+      showToast('已從 localStorage 載入');
+      setLastAction('手動載入');
+    } catch (e) {
+      showToast('載入失敗：' + e.message);
+    }
+  }, []);
+
+  const clearAll = useCallback(() => {
+    if (nodes.length === 0 && edges.length === 0) { showToast('畫布已是空的'); return; }
+    setNodes([]);
+    setEdges([]);
+    setSelectedId(null);
+    showToast('已清空畫布');
+    setLastAction('清空');
+  }, [nodes.length, edges.length]);
+
+  const loadSample = useCallback(() => {
+    setNodes(SAMPLE_FLOW.nodes.map(n => ({ ...n, data: { ...n.data } })));
+    setEdges(SAMPLE_FLOW.edges.map(e => ({ ...e })));
+    setSelectedId(null);
+    showToast('已載入範例工作流');
+    setLastAction('載入範例');
+  }, []);
+
+  // 鍵盤快捷鍵
+  useEffect(() => {
+    const onKey = (e) => {
+      // 避免在輸入框觸發
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'Z'))) {
+        e.preventDefault();
+        redo();
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedId) {
+          e.preventDefault();
+          handleDelete(selectedId);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [undo, redo, selectedId, handleDelete]);
+
+  return (
+    <ReactFlowProvider>
+      <div className="h-screen w-screen flex flex-col">
+        <TopBar
+          key={historyTick}
+          theme={theme}
+          setTheme={setTheme}
+          onUndo={undo}
+          onRedo={redo}
+          canUndo={_history.current.length > 0}
+          canRedo={_redoStack.current.length > 0}
+          onExportJSON={exportJSON}
+          onExportPNG={exportPNG}
+          onSave={saveLocal}
+          onLoad={loadLocal}
+          onClear={clearAll}
+          onLoadSample={loadSample}
+        />
+
+        <div className="flex-1 flex overflow-hidden">
+          <NodePalette />
+
+          <WorkflowCanvas
+            nodes={nodesWithHandlers}
+            setNodes={setNodes}
+            setNodesRaw={_setNodesRaw}
+            edges={edges}
+            setEdges={setEdges}
+            setEdgesRaw={_setEdgesRaw}
+            onSelect={handleSelect}
+            selectedId={selectedId}
+          />
+
+          <Inspector
+            selectedNode={selectedNode}
+            onUpdate={handleUpdate}
+            onDelete={handleDelete}
+          />
+        </div>
+
+        <StatusBar
+          nodes={nodes}
+          edges={edges}
+          selectedNode={selectedNode}
+          lastAction={lastAction}
+        />
+
+        {toast && <Toast message={toast} onDone={() => setToast('')} />}
+      </div>
+    </ReactFlowProvider>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+</body>
+</html>
