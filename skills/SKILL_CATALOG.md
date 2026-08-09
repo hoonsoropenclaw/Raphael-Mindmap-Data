@@ -3,30 +3,16 @@
 
 # SKILL_CATALOG.md
 
-1. **single_file_spa_simulation** - Simulate Single Page Applications (SPA) within a single file for rapid prototyping and testing.
-
-2. **data_management_and_testing** - Techniques and strategies for managing and testing data effectively in software development.
-
-3. **playground_interactive_component** - Create and interact with dynamic components in a playground environment for experimentation and learning.
-
-4. **nextjs_full_stack_capabilities** - Leverage Next.js for full-stack development, utilizing its server-side rendering and API capabilities.
-
-5. **dynamic_module_management** - Implement dynamic loading and management of modules to optimize application performance and scalability.
-
-6. **user_experience_design** - Design and enhance user interfaces and experiences to improve usability and user satisfaction.
-
-7. **development_process_management** - Streamline and manage the software development lifecycle with effective planning and execution strategies.
-
-8. **cross_platform_port_management** - Manage and optimize port configurations across different platforms and environments for seamless deployment.
-
-9. **javascript_quality_and_performance** - Enhance the quality and performance of JavaScript code through best practices and optimization techniques.
-
-10. **react_best_practices_and_integration** - Follow best practices for React development and integrate React components effectively into applications.
-
-11. **asynchronous_full_stack_development** - Develop full-stack applications with a focus on asynchronous programming to improve responsiveness and efficiency.
-
-12. **full_stack_database_management** - Manage databases across the full stack, including design, optimization, and integration with backend and frontend systems.
-
-13. **telegram_bot_init** - Initialize and set up Telegram bots for automating tasks and enhancing communication channels.
-
-14. **comprehensive_security_management** - Implement comprehensive security measures to protect applications and data from threats and vulnerabilities.
+1. **nextjs_asynchronous_full_stack_development** - Master asynchronous full-stack development with Next.js.
+2. **interactive_prototyping_environment** - Create interactive prototyping environments for enhanced user engagement.
+3. **dynamic_development_process_management** - Optimize development processes with dynamic management techniques.
+4. **react_user_experience_design** - Design exceptional user experiences using React.
+5. **react_advanced_integration** - Learn advanced integration techniques for React applications.
+6. **secure_javascript_development** - Develop secure JavaScript applications with best practices.
+7. **cross_platform_port_management** - Manage and optimize cross-platform ports effectively.
+8. **javascript_optimization_and_management** - Optimize and manage JavaScript code for better performance.
+9. **full_stack_data_management** - Implement comprehensive data management across full-stack applications.
+10. **secure_application_development** - Build secure applications with robust development practices.
+11. **web_application_monitoring_and_testing** - Monitor and test web applications for quality assurance.
+12. **telegram_bot_init** - Initialize and set up Telegram bots for various applications.
+13. **advanced_api_management** - Manage and utilize advanced API functionalities for enhanced application capabilities.

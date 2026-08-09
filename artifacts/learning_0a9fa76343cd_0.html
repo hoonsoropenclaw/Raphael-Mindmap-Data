@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Playwright × React Portal 動態 UI 測試框架</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif; background: #0f172a; color: #e2e8f0; }
+    .app-root { min-height: 100vh; }
+    .app-header { padding: 32px 48px; border-bottom: 1px solid #1e293b; background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%); }
+    .app-header h1 { margin: 0 0 8px 0; font-size: 28px; }
+    .subtitle { margin: 0; color: #94a3b8; }
+    .app-main { max-width: 960px; margin: 32px auto; padding: 0 24px; display: grid; gap: 24px; }
+    .card { background: #1e293b; border-radius: 12px; padding: 24px; border: 1px solid #334155; }
+    .card h2 { margin: 0 0 8px 0; color: #f1f5f9; }
+    .card p { margin: 0 0 12px 0; color: #cbd5e1; }
+    button { background: #3b82f6; color: white; border: 0; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; transition: background 0.15s; }
+    button:hover { background: #2563eb; }
+    button:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
+    .btn-tip { margin: 4px 8px 4px 0; }
+    /* Portal 渲染的樣式（因為脫離了父層 CSS scope） */
+    .portal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+    .portal-modal { background: #1e293b; color: #e2e8f0; border-radius: 12px; padding: 0; min-width: 360px; max-width: 90vw; box-shadow: 0 20px 60px rgba(0,0,0,0.5); border: 1px solid #334155; outline: none; }
+    .portal-modal-header { padding: 16px 20px; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; }
+    .portal-modal-header h2 { margin: 0; font-size: 18px; }
+    .portal-modal-header button { background: transparent; color: #94a3b8; font-size: 24px; padding: 0 8px; }
+    .portal-modal-header button:hover { color: #f1f5f9; background: transparent; }
+    .portal-modal-body { padding: 20px; }
+    .portal-modal-body button { margin-right: 8px; }
+    .portal-tooltip { background: #0f172a; color: #f1f5f9; padding: 6px 12px; border-radius: 6px; font-size: 13px; border: 1px solid #475569; box-shadow: 0 4px 12px rgba(0,0,0,0.3); pointer-events: none; max-width: 200px; }
+    .portal-dropdown { display: inline-block; position: relative; }
+    .portal-dropdown-menu { list-style: none; margin: 0; padding: 6px 0; background: #1e293b; border: 1px solid #475569; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.4); min-width: 160px; }
+    .portal-dropdown-menu li { padding: 8px 16px; cursor: pointer; }
+    .portal-dropdown-menu li:hover { background: #334155; }
+    .portal-toast-host { position: fixed; top: 24px; right: 24px; display: flex; flex-direction: column; gap: 8px; z-index: 9999; pointer-events: none; }
+    .portal-toast { background: #1e293b; color: #e2e8f0; padding: 12px 16px; border-radius: 8px; min-width: 200px; box-shadow: 0 6px 20px rgba(0,0,0,0.4); border-left: 4px solid #3b82f6; display: flex; justify-content: space-between; align-items: center; pointer-events: auto; }
+    .portal-toast-success { border-left-color: #10b981; }
+    .portal-toast-warn { border-left-color: #f59e0b; }
+    .portal-toast-error { border-left-color: #ef4444; }
+    .portal-toast button { background: transparent; color: #94a3b8; padding: 0 4px; font-size: 18px; }
+    .portal-toast button:hover { color: #f1f5f9; background: transparent; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <!-- 載入 React Portal 元件庫 -->
+  <script>
+// src/Portal.jsx — Core React Portal primitives + 4 components
+// 全部用 React.createPortal 渲染到 document.body
+// 給 Playwright 測試「動態 UI」場景用：Modal、Tooltip、Dropdown、Toast
+// 重點：data-testid 標記齊全、ESC 關閉、focus trap、點外部關閉
+
+(function (global) {
+  'use strict';
+  const React = global.React;
+  const ReactDOM = global.ReactDOM;
+  const h = React.createElement;
+
+  // ========== 共用工具 ==========
+  function useClickOutside(ref, handler) {
+    React.useEffect(function () {
+      function listener(e) {
+        if (!ref.current) return;
+        if (ref.current.contains(e.target)) return;
+        handler(e);
+      }
+      document.addEventListener('mousedown', listener);
+      return function () { document.removeEventListener('mousedown', listener); };
+    }, [ref, handler]);
+  }
+
+  // ========== Modal ==========
+  function Modal(props) {
+    var open = props.open, onClose = props.onClose, title = props.title, children = props.children;
+    var overlayRef = React.useRef(null);
+    var dialogRef = React.useRef(null);
+
+    // ESC 關閉
+    React.useEffect(function () {
+      if (!open) return;
+      function onKey(e) { if (e.key === 'Escape') onClose && onClose(); }
+      document.addEventListener('keydown', onKey);
+      // focus management
+      if (dialogRef.current) dialogRef.current.focus();
+      // lock body scroll
+      var prev = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return function () {
+        document.removeEventListener('keydown', onKey);
+        document.body.style.overflow = prev;
+      };
+    }, [open, onClose]);
+
+    useClickOutside(overlayRef, function () { if (open) onClose && onClose(); });
+
+    if (!open) return null;
+
+    return ReactDOM.createPortal(
+      h('div', {
+        'data-testid': 'modal-overlay',
+        ref: overlayRef,
+        className: 'portal-overlay',
+        onClick: function (e) {
+          if (e.target === overlayRef.current) onClose && onClose();
+        }
+      },
+        h('div', {
+          'data-testid': 'modal-dialog',
+          ref: dialogRef,
+          className: 'portal-modal',
+          role: 'dialog',
+          'aria-modal': 'true',
+          tabIndex: -1
+        },
+          h('div', { className: 'portal-modal-header' },
+            h('h2', { 'data-testid': 'modal-title' }, title || 'Modal'),
+            h('button', {
+              'data-testid': 'modal-close',
+              'aria-label': 'close',
+              onClick: onClose
+            }, '×')
+          ),
+          h('div', { 'data-testid': 'modal-body', className: 'portal-modal-body' }, children)
+        )
+      ),
+      document.body
+    );
+  }
+
+  // ========== Tooltip ==========
+  function Tooltip(props) {
+    var text = props.text, children = props.children, position = props.position || 'top';
+    var wrapRef = React.useRef(null);
+    var tipRef = React.useRef(null);
+    var visible = React.useState(false);
+    var setVisible = visible[1]; visible = visible[0];
+
+    function show() { setVisible(true); }
+    function hide() { setVisible(false); }
+
+    var tipStyle = {};
+    if (wrapRef.current && tipRef.current && visible) {
+      var r = wrapRef.current.getBoundingClientRect();
+      var tr = tipRef.current.getBoundingClientRect();
+      if (position === 'top') {
+        tipStyle.left = (r.left + r.width / 2 - tr.width / 2) + 'px';
+        tipStyle.top = (r.top - tr.height - 8) + 'px';
+      } else if (position === 'bottom') {
+        tipStyle.left = (r.left + r.width / 2 - tr.width / 2) + 'px';
+        tipStyle.top = (r.bottom + 8) + 'px';
+      } else if (position === 'right') {
+        tipStyle.left = (r.right + 8) + 'px';
+        tipStyle.top = (r.top + r.height / 2 - tr.height / 2) + 'px';
+      } else if (position === 'left') {
+        tipStyle.left = (r.left - tr.width - 8) + 'px';
+        tipStyle.top = (r.top + r.height / 2 - tr.height / 2) + 'px';
+      }
+    }
+
+    return h(React.Fragment, null,
+      h('span', {
+        ref: wrapRef,
+        'data-testid': 'tooltip-trigger',
+        onMouseEnter: show,
+        onMouseLeave: hide,
+        onFocus: show,
+        onBlur: hide,
+        style: { display: 'inline-block' }
+      }, children),
+      visible && ReactDOM.createPortal(
+        h('div', {
+          ref: tipRef,
+          'data-testid': 'tooltip',
+          'data-position': position,
+          className: 'portal-tooltip',
+          role: 'tooltip',
+          style: Object.assign({ position: 'fixed', zIndex: 9999 }, tipStyle)
+        }, text),
+        document.body
+      )
+    );
+  }
+
+  // ========== Dropdown ==========
+  function Dropdown(props) {
+    var label = props.label, items = props.items || [], onSelect = props.onSelect;
+    var open = React.useState(false);
+    var setOpen = open[1]; open = open[0];
+    var rootRef = React.useRef(null);
+
+    useClickOutside(rootRef, function () { setOpen(false); });
+
+    return h('div', { ref: rootRef, className: 'portal-dropdown', 'data-testid': 'dropdown-root' },
+      h('button', {
+        'data-testid': 'dropdown-trigger',
+        'aria-expanded': open ? 'true' : 'false',
+        onClick: function () { setOpen(!open); }
+      }, label || 'Menu ', h('span', null, open ? '▲' : '▼')),
+      open && ReactDOM.createPortal(
+        h('ul', {
+          'data-testid': 'dropdown-menu',
+          className: 'portal-dropdown-menu',
+          role: 'menu',
+          style: (function () {
+            if (!rootRef.current) return { position: 'absolute', zIndex: 9999 };
+            var r = rootRef.current.getBoundingClientRect();
+            return { position: 'fixed', top: (r.bottom + 4) + 'px', left: r.left + 'px', zIndex: 9999 };
+          })()
+        },
+          items.map(function (it, i) {
+            return h('li', {
+              key: it.value,
+              'data-testid': 'dropdown-item',
+              'data-value': it.value,
+              role: 'menuitem',
+              // 用 mousedown 先攔截 + 阻止冒泡，避免觸發 useClickOutside 在 click 前先關閉 menu
+              onMouseDown: function (e) { e.preventDefault(); e.stopPropagation(); },
+              onClick: function (e) { e.stopPropagation(); onSelect && onSelect(it); setOpen(false); }
+            }, it.label);
+          })
+        ),
+        document.body
+      )
+    );
+  }
+
+  // ========== Toast ==========
+  // 用一個 Portal Host 收集所有 toast
+  var toastListeners = [];
+  function pushToast(toast) {
+    toastListeners.forEach(function (fn) { fn(toast); });
+  }
+  function ToastHost() {
+    var list = React.useState([]); var setList = list[1]; list = list[0];
+    React.useEffect(function () {
+      function add(t) {
+        var id = Date.now() + Math.random();
+        setList(function (prev) { return prev.concat([Object.assign({ id: id }, t)]); });
+        if (t.timeout !== 0) {
+          setTimeout(function () {
+            setList(function (prev) { return prev.filter(function (x) { return x.id !== id; }); });
+          }, t.timeout || 3000);
+        }
+      }
+      toastListeners.push(add);
+      return function () {
+        toastListeners = toastListeners.filter(function (fn) { return fn !== add; });
+      };
+    }, []);
+    function dismiss(id) {
+      setList(function (prev) { return prev.filter(function (x) { return x.id !== id; }); });
+    }
+    return ReactDOM.createPortal(
+      h('div', { 'data-testid': 'toast-host', className: 'portal-toast-host' },
+        list.map(function (t) {
+          return h('div', {
+            key: t.id,
+            'data-testid': 'toast',
+            'data-variant': t.variant || 'info',
+            className: 'portal-toast portal-toast-' + (t.variant || 'info'),
+            role: 'status'
+          },
+            h('span', { 'data-testid': 'toast-message' }, t.message),
+            h('button', {
+              'data-testid': 'toast-dismiss',
+              'aria-label': 'dismiss',
+              onClick: function () { dismiss(t.id); }
+            }, '×')
+          );
+        })
+      ),
+      document.body
+    );
+  }
+
+  global.PortalLib = {
+    Modal: Modal,
+    Tooltip: Tooltip,
+    Dropdown: Dropdown,
+    ToastHost: ToastHost,
+    pushToast: pushToast
+  };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+  </script>
+  <!-- 載入主應用 -->
+  <script>
+// src/app.jsx — Main demo App combining all 4 Portal components
+(function (global) {
+  'use strict';
+  const React = global.React;
+  const h = React.createElement;
+  const P = global.PortalLib;
+
+  function App() {
+    var modalOpen = React.useState(false); var setModalOpen = modalOpen[1]; modalOpen = modalOpen[0];
+    var lastItem = React.useState('(none)'); var setLastItem = lastItem[1]; lastItem = lastItem[0];
+    var dropdownLabel = React.useState('Actions'); var setDropdownLabel = dropdownLabel[1]; dropdownLabel = dropdownLabel[0];
+
+    return h('div', { className: 'app-root', 'data-testid': 'app-root' },
+      h('header', { className: 'app-header' },
+        h('h1', null, 'Playwright × React Portal 動態 UI 測試框架'),
+        h('p', { className: 'subtitle' }, '用 React Portal 渲染的 Modal / Tooltip / Dropdown / Toast — Playwright 跨瀏覽器自動化測試')
+      ),
+      h('main', { className: 'app-main' },
+
+        // --- Modal section ---
+        h('section', { 'data-testid': 'section-modal', className: 'card' },
+          h('h2', null, '1. Modal（彈窗）'),
+          h('p', null, 'React Portal 渲染到 document.body。支援 ESC、點外部關閉、focus trap。'),
+          h('button', {
+            'data-testid': 'open-modal-btn',
+            onClick: function () { setModalOpen(true); }
+          }, '打開 Modal'),
+          h(P.Modal, {
+            open: modalOpen,
+            onClose: function () { setModalOpen(false); },
+            title: '確認操作'
+          },
+            h('p', { 'data-testid': 'modal-content' }, '這是用 React Portal 渲染的彈窗內容。'),
+            h('div', { style: { marginTop: '16px', display: 'flex', gap: '8px' } },
+              h('button', {
+                'data-testid': 'modal-confirm',
+                onClick: function () { setModalOpen(false); P.pushToast({ message: '已確認', variant: 'success' }); }
+              }, '確認'),
+              h('button', {
+                'data-testid': 'modal-cancel',
+                onClick: function () { setModalOpen(false); }
+              }, '取消')
+            )
+          )
+        ),
+
+        // --- Tooltip section ---
+        h('section', { 'data-testid': 'section-tooltip', className: 'card' },
+          h('h2', null, '2. Tooltip（提示）'),
+          h('p', null, 'hover 或 focus 觸發，自動定位在觸發元素附近。'),
+          h(P.Tooltip, { text: '這是上方 tooltip', position: 'top' },
+            h('button', { 'data-testid': 'tooltip-top-btn', className: 'btn-tip' }, '上方 tooltip')
+          ),
+          h(P.Tooltip, { text: '右側 tooltip 內容', position: 'right' },
+            h('button', { 'data-testid': 'tooltip-right-btn', className: 'btn-tip' }, '右側 tooltip')
+          ),
+          h(P.Tooltip, { text: '底部 tooltip', position: 'bottom' },
+            h('button', { 'data-testid': 'tooltip-bottom-btn', className: 'btn-tip' }, '下方 tooltip')
+          )
+        ),
+
+        // --- Dropdown section ---
+        h('section', { 'data-testid': 'section-dropdown', className: 'card' },
+          h('h2', null, '3. Dropdown（下拉選單）'),
+          h('p', null, '點擊展開、選項點擊後回傳 value、點外部關閉。'),
+          h(P.Dropdown, {
+            label: dropdownLabel + ' ▼',
+            items: [
+              { label: '編輯', value: 'edit' },
+              { label: '複製', value: 'copy' },
+              { label: '刪除', value: 'delete' }
+            ],
+            onSelect: function (it) {
+              setLastItem(it.label + ' (' + it.value + ')');
+              setDropdownLabel(it.label);
+              P.pushToast({ message: '選了 ' + it.label, variant: 'info' });
+            }
+          }),
+          h('p', null, '最近選取：', h('span', { 'data-testid': 'dropdown-last' }, lastItem))
+        ),
+
+        // --- Toast section ---
+        h('section', { 'data-testid': 'section-toast', className: 'card' },
+          h('h2', null, '4. Toast（通知）'),
+          h('p', null, '堆疊式通知，3 秒自動消失，可手動關閉。'),
+          h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+            h('button', { 'data-testid': 'toast-info-btn', onClick: function () { P.pushToast({ message: '一般通知', variant: 'info' }); } }, 'Info Toast'),
+            h('button', { 'data-testid': 'toast-success-btn', onClick: function () { P.pushToast({ message: '成功！', variant: 'success' }); } }, 'Success Toast'),
+            h('button', { 'data-testid': 'toast-warn-btn', onClick: function () { P.pushToast({ message: '警告訊息', variant: 'warn' }); } }, 'Warn Toast'),
+            h('button', { 'data-testid': 'toast-error-btn', onClick: function () { P.pushToast({ message: '錯誤！', variant: 'error' }); } }, 'Error Toast')
+          )
+        )
+      ),
+
+      h(P.ToastHost, null)
+    );
+  }
+
+  global.App = App;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+  </script>
+  <script>
+    // 把 JSX 用 Babel 編譯後執行
+    (function() {
+      var portalCode = Babel.transform(document.querySelectorAll('script')[0].textContent, { presets: ['react'] }).code;
+      var appCode = Babel.transform(document.querySelectorAll('script')[1].textContent, { presets: ['react'] }).code;
+      // 用新的 Function 包起來避免污染全局作用域太複雜，直接 eval
+      // 用 IIFE 包裹
+      var portalBlob = '(function(){' + portalCode + '\n;window.__PortalLib = PortalLib;})()';
+      var appBlob = '(function(){' + appCode + '\n;ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(window.App));})()';
+      // Babel 已經編譯了，需要先把 IIFE 跑起來再 render
+      eval(portalBlob);
+      eval(appBlob);
+    })();
+  </script>
+</body>
+</html>

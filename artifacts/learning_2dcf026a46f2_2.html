@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>Hermes 爬蟲監控面板</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif;
+         background: #0f1419; color: #e6e6e6; margin: 0; padding: 20px; }
+  h1 { color: #4ec9b0; margin: 0 0 20px 0; font-size: 22px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .card { background: #1c2128; border: 1px solid #2d333b; border-radius: 8px; padding: 16px; }
+  .card .label { color: #768390; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+  .card .value { font-size: 28px; font-weight: 600; color: #adbac7; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .card .value.ok { color: #4ec9b0; }
+  .card .value.warn { color: #f0883e; }
+  .card .value.err { color: #f47067; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  pre { background: #1c2128; border: 1px solid #2d333b; border-radius: 8px; padding: 12px;
+        font-size: 12px; overflow: auto; max-height: 300px; color: #c9d1d9; }
+  .log-line { padding: 2px 0; border-bottom: 1px solid #1c2128; }
+  .log-line .ts { color: #636e7b; margin-right: 8px; }
+  .log-line.ok { color: #4ec9b0; }
+  .log-line.warn { color: #f0883e; }
+  .log-line.err { color: #f47067; }
+  .bar { background: #2d333b; border-radius: 4px; overflow: hidden; height: 6px; margin-top: 8px; }
+  .bar > div { background: #4ec9b0; height: 100%; transition: width 0.3s; }
+  .pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #4ec9b0; margin-right: 6px;
+           animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .footer { color: #636e7b; font-size: 11px; margin-top: 20px; }
+</style>
+</head>
+<body>
+<h1><span class="pulse"></span>Hermes 爬蟲監控面板</h1>
+<div class="grid">
+  <div class="card"><div class="label">累計請求</div><div class="value ok" id="m-requests">0</div></div>
+  <div class="card"><div class="label">成功 / 失敗</div><div class="value ok" id="m-sf">0 / 0</div></div>
+  <div class="card"><div class="label">In-Flight</div><div class="value warn" id="m-inflight">0</div></div>
+  <div class="card"><div class="label">累計 bytes</div><div class="value" id="m-bytes">0</div></div>
+  <div class="card"><div class="label">已抽出 item</div><div class="value ok" id="m-items">0</div></div>
+  <div class="card"><div class="label">重試次數</div><div class="value warn" id="m-retries">0</div></div>
+  <div class="card"><div class="label">耗盡重試</div><div class="value err" id="m-exhausted">0</div></div>
+  <div class="card"><div class="label">Uptime</div><div class="value" id="m-uptime">0s</div></div>
+</div>
+
+<div class="grid" style="grid-template-columns: 1fr 1fr;">
+  <div class="card">
+    <div class="label">HTTP 狀態碼分佈</div>
+    <div id="status-hist"></div>
+  </div>
+  <div class="card">
+    <div class="label">即時事件流 (SSE)</div>
+    <pre id="log" style="height: 240px;"></pre>
+  </div>
+</div>
+
+<div class="footer">事件驅動爬蟲 v1.0 · aiohttp + EventBus + Retry + RateLimit</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmtBytes = n => n > 1e6 ? (n/1e6).toFixed(2)+'MB' : n > 1e3 ? (n/1e3).toFixed(1)+'KB' : n+'';
+
+async function poll() {
+  try {
+    const r = await fetch('/api/stats');
+    const s = await r.json();
+    $('m-requests').textContent = s.http.total_requests;
+    $('m-sf').textContent = (s.finished) + ' / ' + (s.failed);
+    $('m-inflight').textContent = s.inflight;
+    $('m-bytes').textContent = fmtBytes(s.http.total_bytes);
+    $('m-items').textContent = s.bus_counts?.['item.extracted'] || 0;
+    $('m-retries').textContent = s.bus_counts?.retry || 0;
+    $('m-exhausted').textContent = s.bus_counts?.['retry.exhausted'] || 0;
+    $('m-uptime').textContent = s.uptime_s + 's';
+
+    const hist = s.http.status_hist || {};
+    const histEl = $('status-hist');
+    histEl.innerHTML = Object.entries(hist).map(([k,v]) =>
+      `<div style="display:flex;justify-content:space-between;padding:3px 0;">
+         <span>HTTP ${k}</span><span><b>${v}</b></span>
+       </div>`).join('') || '<i style="color:#636e7b">尚無資料</i>';
+  } catch(e) { console.error(e); }
+}
+
+const logEl = $('log');
+const es = new EventSource('/api/stream');
+es.onmessage = e => {
+  const line = JSON.parse(e.data);
+  const cls = line.level || 'ok';
+  const div = document.createElement('div');
+  div.className = 'log-line ' + cls;
+  div.innerHTML = `<span class="ts">${line.ts}</span><b>${line.event}</b> ${line.msg || ''}`;
+  logEl.appendChild(div);
+  // 保留最近 100 行
+  while (logEl.children.length > 100) logEl.removeChild(logEl.firstChild);
+  logEl.scrollTop = logEl.scrollHeight;
+};
+es.onerror = () => { console.warn('SSE disconnected'); };
+
+setInterval(poll, 1000);
+poll();
+</script>
+</body>
+</html>
