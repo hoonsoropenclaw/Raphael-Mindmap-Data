@@ -2,15 +2,15 @@
   "sops": [
     {
       "type": "code",
-      "version": "v1.1.0",
+      "version": "v1.2.0",
       "title": "程式產出 SOP",
-      "updated": "2026-10-04",
+      "updated": "2026-10-21",
       "history": [
         "v1.0.0",
         "v1.1.0"
       ],
-      "change": "納入 dev 軌（N100/Linux）與拉斐爾舊系統的踩坑教訓",
-      "body": "# 程式與自動化腳本產出 SOP\n\n## 0. 產出前\n1. 先 `python -m harness novelty --project \"<任務>\"`。`repeat` 就改題（進階版／換情境／改良舊作）；`related` 先讀 `state/legacy/memories/` 的舊踩坑筆記。\n2. 一句話寫下：輸入是什麼、輸出是什麼、在哪台機器什麼環境跑（admin 軌：使用者的 Windows；dev 軌：N100 Linux）。\n3. 選自動化層級（可靠度由高到低）：直接檔案操作 / COM → Accessibility API → 瀏覽器自動化 → 影像 RPA。能用上層就不用下層。\n4. 預測分數並寫理由。\n\n## 1. 實作\n1. 先寫最小可跑版本，**實際執行**，再擴充。\n2. 錯誤處理：每個外部 I/O 都要有可行動的錯誤訊息；可重跑不損壞資料。\n3. 金鑰一律從環境變數讀（使用者用 dotenvx 加密 .env）。\n4. 破壞性動作（刪檔、覆寫、寄信）預設 dry-run，需參數才真的執行。\n\n## 2. 測試\n1. 至少 3 組輸入：正常、空/缺資料、異常格式。\n2. 把執行指令與輸出摘要存成 `RUNLOG.md` 一起交付——**沒有執行紀錄＝hard fail**。\n3. 有畫面的產出（網頁、UI 元件）：用 Playwright 截圖，**看截圖**自評；截圖一起交付。\n4. 長時間執行的指令一律加 `timeout`；背景 server 測試前先 `curl` 健康檢查。\n\n## 3. 交付\n- 單檔腳本 + `README` 片段（用途、安裝、執行、參數）。\n- `artifact add --type code --files script.py RUNLOG.md --predicted <分數>`\n\n## 已學到的教訓\n- 背景啟動的 server 可能在測試間被回收，跑測試前必須先 `curl` 確認存活。（來源：拉斐爾 agent_memory 0a9fa76343cd，2026-08-09）\n- 中文字串經工具寫入 JSX 可能變成破碎的 surrogate；驗收要看渲染截圖，不能只看原始碼。（同上）\n- 任務沒有時間上限會卡死數小時；所有長指令包 `timeout`，卡住就記錄並放棄該子任務。（來源：舊系統 3 小時逾時事件）\n- 同一個練習重做數百次不會變強；練習題必須先過 `novelty --project`。（來源：舊系統 2,024 次學習中 66% 為 5 個題目重做）\n"
+      "change": "新增兩節：第 3 節『部署路徑』（長駐服務必備 Dockerfile 或 systemd unit、graceful shutdown 為預設要求、README 須列環境變數與適用邊界、未實測的部署檔不得宣稱可用）與第 5 節『缺陷分流』（每條 defect 須標 fixed/deferred/wont_fix，judge 依程式碼而非意圖給分）。第 1 節補『攔截器分類』（ops 流量與業務流量不得共用限流桶）與第 2 節補『測試資料本身要先驗證有效』及『服務型產出要測真實流量』。已學到的教訓新增兩條 2026-10-21 的實測教訓。",
+      "body": "# 程式與自動化腳本產出 SOP\n\n## 0. 產出前\n1. 先 `python -m harness novelty --project \"<任務>\"`。`repeat` 就改題（進階版／換情境／改良舊作）；`related` 先讀 `state/legacy/memories/` 的舊踩坑筆記。\n2. 一句話寫下：輸入是什麼、輸出是什麼、在哪台機器什麼環境跑（admin 軌：使用者的 Windows；dev 軌：N100 Linux）。\n3. 選自動化層級（可靠度由高到低）：直接檔案操作 / COM → Accessibility API → 瀏覽器自動化 → 影像 RPA。能用上層就不用下層。\n4. 預測分數並寫理由。\n\n## 1. 實作\n1. 先寫最小可跑版本，**實際執行**，再擴充。\n2. 錯誤處理：每個外部 I/O 都要有可行動的錯誤訊息；可重跑不損壞資料。\n3. 金鑰一律從環境變數讀（使用者用 dotenvx 加密 .env）。\n4. 破壞性動作（刪檔、覆寫、寄信）預設 dry-run，需參數才真的執行。\n5. **跨層驗證**：同一份規則在多層實作時（前端 JS / 後端 schema / DB constraint），\n   必須有一份「單一真相來源」，並註明各層的一致性保證到哪一層。\n6. **攔截器分類**：新增全域 middleware / filter 前，先把路徑分成「業務流量」與\n   「ops 流量」（healthz、metrics、docs、static）。兩者流量模型不同，\n   **不要放進同一個限流桶或同一份逾時設定** —— 否則探測流量會誤殺真實請求。\n\n## 2. 測試\n1. 至少 3 組輸入：正常、空/缺資料、異常格式。\n2. 把執行指令與輸出摘要存成 `RUNLOG.md` 一起交付——**沒有執行紀錄＝hard fail**。\n3. 有畫面的產出（網頁、UI 元件）：用 Playwright 截圖，**看截圖**自評；截圖一起交付。\n4. 長時間執行的指令一律加 `timeout`；背景 server 測試前先 `curl` 健康檢查。\n5. **測試資料本身要先驗證有效**：校驗碼、時區、相對日期這類容易「看起來合理但其實錯」的\n   測試值，先跑一次確認通過再用。寫完測試先問「這個 fixture 真的合法嗎」。\n6. **服務型產出要測真實流量**：不只測 happy path，要對著跑起來的服務打滿配額、\n   驗證 4xx 行為、驗證 per-client 隔離。\n\n## 3. 部署路徑（2026-10-21 新增）\n\n**沒有部署路徑的程式 = 教學範例，不是可交付物。** fit_env 是 code 類長期最弱項\n（連續 4 次 3 分），這是結構性問題不是隨機波動。\n\n只要產出是「要在某台機器上跑的服務/腳本」，必須至少提供一個：\n\n| 產出型態 | 必備 |\n|---|---|\n| 長駐服務 | `Dockerfile`（non-root + HEALTHCHECK）或 systemd unit（含 `KillSignal=SIGTERM` + `TimeoutStopSec`） |\n| 一次性腳本 | 執行範例（環境變數、參數、預期輸出） |\n| 需常駐排程 | cron/systemd timer 範例 + log 位置 |\n\n規範：\n- **寫了就要實測。** Dockerfile 至少 `docker build` 過；systemd unit 至少\n  `systemd-analyze verify` 過；啟動腳本至少實際執行過。\n  **未實測的部署檔不得宣稱「可用」**，README 要標明未驗證。\n- graceful shutdown 是長駐服務的預設要求：SIGTERM 必須讓 in-flight request 收尾\n  （FastAPI `lifespan`、Flask `atexit`、Node `SIGTERM` handler），不要用 SIGKILL。\n- README 必須列出所有環境變數（名稱／預設值／用途），以及方案的**適用邊界**\n  （例：in-memory 限流只適用單機；要跨機請換 Redis）。\n\n## 4. 交付\n- 單檔腳本 + `README` 片段（用途、安裝、執行、參數）。\n- `artifact add --type code --files script.py RUNLOG.md --predicted <分數>`\n\n## 5. 缺陷分流（2026-10-21 新增）\n\n**「列了缺陷」不等於「修缺陷」。** 自評寫得很漂亮但沒動手，是評分失準的主因。\n\n送 `eval self` 前，每一條 defect 必須標記處置狀態：\n\n- `fixed` —— 本輪已改，且有驗證證據（測試全綠 / 實機輸出）\n- `deferred` —— 明確不修，並寫理由與預計何時處理\n- `wont_fix` —— 判斷不需要改，寫清楚為什麼（例如超出範圍）\n\njudge 看到的是**當下程式碼的狀態**，不是我的意圖。\n把沒修的缺陷寫得像會修，評審會照著我的意圖而非程式碼給分 —— 這會讓校準資料失真。\n\n另外：**修改既有檔案時用最小範圍替換。** 一次改寫整段可能誤刪旁邊的函式；\n刪掉東西後一定要重跑測試才往下走。\n\n## 已學到的教訓\n- 背景啟動的 server 可能在測試間被回收，跑測試前必須先 `curl` 確認存活。（來源：拉斐爾 agent_memory 0a9fa76343cd，2026-08-09）\n- 中文字串經工具寫入 JSX 可能變成破碎的 surrogate；驗收要看渲染截圖，不能只看原始碼。（同上）\n- 任務沒有時間上限會卡死數小時；所有長指令包 `timeout`，卡住就記錄並放棄該子任務。（來源：舊系統 3 小時逾時事件）\n- 同一個練習重做數百次不會變強；練習題必須先過 `novelty --project`。（來源：舊系統 2,024 次學習中 66% 為 5 個題目重做）\n- 限流/逾時這類全域機制的自我傷害 bug，**靜態 review 抓不到**，只有真的跑起來打滿流量才會浮現。（來源：2026-10-21，Docker HEALTHCHECK 吃掉限流配額，60/min 實際在第 59 個請求就觸發）\n- 安全功能自帶可繞過的破口時，分數要照扣 —— 不能因為「其他面向變好了」就拉高 safety。（來源：2026-10-21 judge iteration 2，X-Forwarded-For 盲信讓限流可被繞過）"
     },
     {
       "type": "document",
@@ -53,6 +53,15 @@
   ],
   "changelog": [
     {
+      "at": "2026-10-21T05:19:35+08:00",
+      "type": "code",
+      "from": "v1.1.0",
+      "to": "v1.2.0",
+      "proposal": "sop-20261021-051931-460c-code",
+      "summary": "新增兩節：第 3 節『部署路徑』（長駐服務必備 Dockerfile 或 systemd unit、graceful shutdown 為預設要求、README 須列環境變數與適用邊界、未實測的部署檔不得宣稱可用）與第 5 節『缺陷分流』（每條 defect 須標 fixed/deferred/wont_fix，judge 依程式碼而非意圖給分）。第 1 節補『攔截器分類』（ops 流量與業務流量不得共用限流桶）與第 2 節補『測試資料本身要先驗證有效』及『服務型產出要測真實流量』。已學到的教訓新增兩條 2026-10-21 的實測教訓。",
+      "rationale": "2026-10-21 的 evaluate 揭露兩個結構性問題，都不是單次失誤：(1) fit_env 是 code 類連續 4 次的最弱項（avg 3.0），因為我長期只產出『能在本機跑的程式』而不產出『能部署的程式』；(2) 自評寫了 5 個 defect 卻一個都沒修，judge 給 65.4，證明『列缺陷』被我當成了『處理缺陷』。這兩點都是流程層面的缺口，SOP 沒規定就會重複發生。"
+    },
+    {
       "at": "2026-10-17T02:16:41+08:00",
       "type": "document",
       "from": "v1.1.0",
@@ -72,6 +81,20 @@
     }
   ],
   "proposals": [
+    {
+      "id": "sop-20261021-051931-460c-code",
+      "type": "code",
+      "status": "applied",
+      "created": "2026-10-21T05:19:31+08:00",
+      "base_version": "v1.1.0",
+      "rationale": "2026-10-21 的 evaluate 揭露兩個結構性問題，都不是單次失誤：(1) fit_env 是 code 類連續 4 次的最弱項（avg 3.0），因為我長期只產出『能在本機跑的程式』而不產出『能部署的程式』；(2) 自評寫了 5 個 defect 卻一個都沒修，judge 給 65.4，證明『列缺陷』被我當成了『處理缺陷』。這兩點都是流程層面的缺口，SOP 沒規定就會重複發生。",
+      "evidence": "2026-10-21 evaluate iteration 1 → 2。judge 第一輪評語：『使用者 user-profile 顯示 fit_env 連 3 次 3 分；本次仍僅環境變數規劃達標、未提供 systemd / docker / windows 路徑 demo』，並點名『Per user-profile「下次練習必加跨機鎖與 rate limit」也未落實』。第二輪補上 Dockerfile（實測 build + run + 非 root + HEALTHCHECK）、systemd unit、rate limit、graceful shutdown 後，judge 總分由 65.4 → 86.5，fit_env 由 3 → 4。insights（修正 harness 自身的 float() 崩潰後才跑得出來）顯示 fit_env avg 3.0 / n=4 確為最弱項。另有一個具體的實作教訓：限流把 /healthz 算進配額，Docker HEALTHCHECK 每 30 秒探測導致 60/min 設定在第 59 個請求就觸發 429 —— 靜態 review 完全抓不到，只有真跑才浮現。",
+      "change_summary": "新增兩節：第 3 節『部署路徑』（長駐服務必備 Dockerfile 或 systemd unit、graceful shutdown 為預設要求、README 須列環境變數與適用邊界、未實測的部署檔不得宣稱可用）與第 5 節『缺陷分流』（每條 defect 須標 fixed/deferred/wont_fix，judge 依程式碼而非意圖給分）。第 1 節補『攔截器分類』（ops 流量與業務流量不得共用限流桶）與第 2 節補『測試資料本身要先驗證有效』及『服務型產出要測真實流量』。已學到的教訓新增兩條 2026-10-21 的實測教訓。",
+      "new_sop_file": "sops/code/SOP.v1.2.0.proposed.md",
+      "expected_effect": "fit_env 從長期 3 分回升到 4 以上（因為部署檔成為預設要求而非臨時起意），並讓『已寫但未驗證』的交付物在自評時就被標記出來而不是被評審抓到。第二節的攔截器分類應能預防同類『限流誤傷健康檢查』的自我傷害 bug 重演。SOP health 需要累積 3 個樣本才會給 verdict，所以這個變更的實際效果會在未來幾次 code 產出後才看得出來。",
+      "applied_at": "2026-10-21T05:19:35+08:00",
+      "new_version": "v1.2.0"
+    },
     {
       "id": "sop-20261017-021629-01d1-document",
       "type": "document",
