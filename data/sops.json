@@ -4,24 +4,25 @@
       "type": "code",
       "version": "v1.2.0",
       "title": "程式產出 SOP",
-      "updated": "2026-10-21",
+      "updated": "2026-10-23",
       "history": [
         "v1.0.0",
         "v1.1.0"
       ],
-      "change": "新增兩節：第 3 節『部署路徑』（長駐服務必備 Dockerfile 或 systemd unit、graceful shutdown 為預設要求、README 須列環境變數與適用邊界、未實測的部署檔不得宣稱可用）與第 5 節『缺陷分流』（每條 defect 須標 fixed/deferred/wont_fix，judge 依程式碼而非意圖給分）。第 1 節補『攔截器分類』（ops 流量與業務流量不得共用限流桶）與第 2 節補『測試資料本身要先驗證有效』及『服務型產出要測真實流量』。已學到的教訓新增兩條 2026-10-21 的實測教訓。",
-      "body": "# 程式與自動化腳本產出 SOP\n\n## 0. 產出前\n1. 先 `python -m harness novelty --project \"<任務>\"`。`repeat` 就改題（進階版／換情境／改良舊作）；`related` 先讀 `state/legacy/memories/` 的舊踩坑筆記。\n2. 一句話寫下：輸入是什麼、輸出是什麼、在哪台機器什麼環境跑（admin 軌：使用者的 Windows；dev 軌：N100 Linux）。\n3. 選自動化層級（可靠度由高到低）：直接檔案操作 / COM → Accessibility API → 瀏覽器自動化 → 影像 RPA。能用上層就不用下層。\n4. 預測分數並寫理由。\n\n## 1. 實作\n1. 先寫最小可跑版本，**實際執行**，再擴充。\n2. 錯誤處理：每個外部 I/O 都要有可行動的錯誤訊息；可重跑不損壞資料。\n3. 金鑰一律從環境變數讀（使用者用 dotenvx 加密 .env）。\n4. 破壞性動作（刪檔、覆寫、寄信）預設 dry-run，需參數才真的執行。\n5. **跨層驗證**：同一份規則在多層實作時（前端 JS / 後端 schema / DB constraint），\n   必須有一份「單一真相來源」，並註明各層的一致性保證到哪一層。\n6. **攔截器分類**：新增全域 middleware / filter 前，先把路徑分成「業務流量」與\n   「ops 流量」（healthz、metrics、docs、static）。兩者流量模型不同，\n   **不要放進同一個限流桶或同一份逾時設定** —— 否則探測流量會誤殺真實請求。\n\n## 2. 測試\n1. 至少 3 組輸入：正常、空/缺資料、異常格式。\n2. 把執行指令與輸出摘要存成 `RUNLOG.md` 一起交付——**沒有執行紀錄＝hard fail**。\n3. 有畫面的產出（網頁、UI 元件）：用 Playwright 截圖，**看截圖**自評；截圖一起交付。\n4. 長時間執行的指令一律加 `timeout`；背景 server 測試前先 `curl` 健康檢查。\n5. **測試資料本身要先驗證有效**：校驗碼、時區、相對日期這類容易「看起來合理但其實錯」的\n   測試值，先跑一次確認通過再用。寫完測試先問「這個 fixture 真的合法嗎」。\n6. **服務型產出要測真實流量**：不只測 happy path，要對著跑起來的服務打滿配額、\n   驗證 4xx 行為、驗證 per-client 隔離。\n\n## 3. 部署路徑（2026-10-21 新增）\n\n**沒有部署路徑的程式 = 教學範例，不是可交付物。** fit_env 是 code 類長期最弱項\n（連續 4 次 3 分），這是結構性問題不是隨機波動。\n\n只要產出是「要在某台機器上跑的服務/腳本」，必須至少提供一個：\n\n| 產出型態 | 必備 |\n|---|---|\n| 長駐服務 | `Dockerfile`（non-root + HEALTHCHECK）或 systemd unit（含 `KillSignal=SIGTERM` + `TimeoutStopSec`） |\n| 一次性腳本 | 執行範例（環境變數、參數、預期輸出） |\n| 需常駐排程 | cron/systemd timer 範例 + log 位置 |\n\n規範：\n- **寫了就要實測。** Dockerfile 至少 `docker build` 過；systemd unit 至少\n  `systemd-analyze verify` 過；啟動腳本至少實際執行過。\n  **未實測的部署檔不得宣稱「可用」**，README 要標明未驗證。\n- graceful shutdown 是長駐服務的預設要求：SIGTERM 必須讓 in-flight request 收尾\n  （FastAPI `lifespan`、Flask `atexit`、Node `SIGTERM` handler），不要用 SIGKILL。\n- README 必須列出所有環境變數（名稱／預設值／用途），以及方案的**適用邊界**\n  （例：in-memory 限流只適用單機；要跨機請換 Redis）。\n\n## 4. 交付\n- 單檔腳本 + `README` 片段（用途、安裝、執行、參數）。\n- `artifact add --type code --files script.py RUNLOG.md --predicted <分數>`\n\n## 5. 缺陷分流（2026-10-21 新增）\n\n**「列了缺陷」不等於「修缺陷」。** 自評寫得很漂亮但沒動手，是評分失準的主因。\n\n送 `eval self` 前，每一條 defect 必須標記處置狀態：\n\n- `fixed` —— 本輪已改，且有驗證證據（測試全綠 / 實機輸出）\n- `deferred` —— 明確不修，並寫理由與預計何時處理\n- `wont_fix` —— 判斷不需要改，寫清楚為什麼（例如超出範圍）\n\njudge 看到的是**當下程式碼的狀態**，不是我的意圖。\n把沒修的缺陷寫得像會修，評審會照著我的意圖而非程式碼給分 —— 這會讓校準資料失真。\n\n另外：**修改既有檔案時用最小範圍替換。** 一次改寫整段可能誤刪旁邊的函式；\n刪掉東西後一定要重跑測試才往下走。\n\n## 已學到的教訓\n- 背景啟動的 server 可能在測試間被回收，跑測試前必須先 `curl` 確認存活。（來源：拉斐爾 agent_memory 0a9fa76343cd，2026-08-09）\n- 中文字串經工具寫入 JSX 可能變成破碎的 surrogate；驗收要看渲染截圖，不能只看原始碼。（同上）\n- 任務沒有時間上限會卡死數小時；所有長指令包 `timeout`，卡住就記錄並放棄該子任務。（來源：舊系統 3 小時逾時事件）\n- 同一個練習重做數百次不會變強；練習題必須先過 `novelty --project`。（來源：舊系統 2,024 次學習中 66% 為 5 個題目重做）\n- 限流/逾時這類全域機制的自我傷害 bug，**靜態 review 抓不到**，只有真的跑起來打滿流量才會浮現。（來源：2026-10-21，Docker HEALTHCHECK 吃掉限流配額，60/min 實際在第 59 個請求就觸發）\n- 安全功能自帶可繞過的破口時，分數要照扣 —— 不能因為「其他面向變好了」就拉高 safety。（來源：2026-10-21 judge iteration 2，X-Forwarded-For 盲信讓限流可被繞過）"
+      "change": "完整還原 2026-10-22 已套用但於 2026-10-23 08:24:41 遭覆寫而遺失的 v1.2.0 內容，並合併 2026-10-07 與 2026-10-21 兩批教訓：§1.4 先備份再寫入且禁止 --no-backup/--force/--skip-confirm（改用 --dry-run）；§2 金額與計數類欄位必須含負值或退款測試樣本、RUNLOG 每次喚醒須 stamp 已重跑驗證；§3 部署路徑（Dockerfile 或 systemd unit 為長駐服務必備、graceful shutdown 為預設、README 須列環境變數與適用邊界、未實測的部署檔不得宣稱可用）；§5 缺陷分流（每條 defect 須標 fixed/deferred/wont_fix，judge 依程式碼而非意圖給分）；另含攔截器分類、測試資料先驗證有效、服務型產出測真實流量、跨層驗證。本次不新增任何未經驗證的內容，僅恢復已套用版本。",
+      "body": "# 程式與自動化腳本產出 SOP\n\n## 0. 產出前\n1. 先 `python -m harness novelty --project \"<任務>\"`。`repeat` 就改題（進階版／換情境／改良舊作）；`related` 先讀 `state/legacy/memories/` 的舊踩坑筆記。\n2. 一句話寫下：輸入是什麼、輸出是什麼、在哪台機器什麼環境跑（admin 軌：使用者的 Windows；dev 軌：N100 Linux）。\n3. 選自動化層級（可靠度由高到低）：直接檔案操作 / COM → Accessibility API → 瀏覽器自動化 → 影像 RPA。能用上層就不用下層。\n4. 預測分數並寫理由。\n\n## 1. 實作\n1. 先寫最小可跑版本，**實際執行**，再擴充。\n2. 錯誤處理：每個外部 I/O 都要有可行動的錯誤訊息；可重跑不損壞資料。\n3. 金鑰一律從環境變數讀（使用者用 dotenvx 加密 .env）。\n4. 破壞性動作（刪檔、覆寫、寄信）一律走『先備份、再寫入』模式；預設 dry-run，需參數才真的執行。\n   **不提供** `--no-backup` / `--force` / `--skip-confirm` 等關閉保護的旗標；\n   需要「先看會做什麼」時改用 `--dry-run`。\n5. **跨層驗證**：同一份規則在多層實作時（前端 JS / 後端 schema / DB constraint），\n   必須有一份「單一真相來源」，並註明各層的一致性保證到哪一層。\n6. **攔截器分類**：新增全域 middleware / filter 前，先把路徑分成「業務流量」與\n   「ops 流量」（healthz、metrics、docs、static）。兩者流量模型不同，\n   **不要放進同一個限流桶或同一份逾時設定** —— 否則探測流量會誤殺真實請求。\n\n## 2. 測試\n1. 至少 3 組輸入：正常、空/缺資料、異常格式。\n2. **金額/計數類欄位**：必須含一筆『負值或退款』測試樣本（會計場景退款常見，\n   目前若漏檢會被併入總金額放大 Top5）。\n3. 把執行指令與輸出摘要存成 `RUNLOG.md` 一起交付——**沒有執行紀錄＝hard fail**。\n4. RUNLOG 交付後每次喚醒必須在末尾 stamp `已重跑驗證：<date> <tester>`，\n   避免 RUNLOG 退化成「老實文件」而非真實紀錄。\n5. 有畫面的產出（網頁、UI 元件）：用 Playwright 截圖，**看截圖**自評；截圖一起交付。\n6. 長時間執行的指令一律加 `timeout`；背景 server 測試前先 `curl` 健康檢查。\n7. **測試資料本身要先驗證有效**：校驗碼、時區、相對日期這類容易「看起來合理但其實錯」的\n   測試值，先跑一次確認通過再用。寫完測試先問「這個 fixture 真的合法嗎」。\n8. **服務型產出要測真實流量**：不只測 happy path，要對著跑起來的服務打滿配額、\n   驗證 4xx 行為、驗證 per-client 隔離。\n\n## 3. 部署路徑（2026-10-21 新增）\n\n**沒有部署路徑的程式 = 教學範例，不是可交付物。** fit_env 是 code 類長期最弱項\n（連續 4 次 3 分），這是結構性問題不是隨機波動。\n\n只要產出是「要在某台機器上跑的服務/腳本」，必須至少提供一個：\n\n| 產出型態 | 必備 |\n|---|---|\n| 長駐服務 | `Dockerfile`（non-root + HEALTHCHECK）或 systemd unit（含 `KillSignal=SIGTERM` + `TimeoutStopSec`） |\n| 一次性腳本 | 執行範例（環境變數、參數、預期輸出） |\n| 需常駐排程 | cron/systemd timer 範例 + log 位置 |\n\n規範：\n- **寫了就要實測。** Dockerfile 至少 `docker build` 過；systemd unit 至少\n  `systemd-analyze verify` 過；啟動腳本至少實際執行過。\n  **未實測的部署檔不得宣稱「可用」**，README 要標明未驗證。\n- graceful shutdown 是長駐服務的預設要求：SIGTERM 必須讓 in-flight request 收尾\n  （FastAPI `lifespan`、Flask `atexit`、Node `SIGTERM` handler），不要用 SIGKILL。\n- README 必須列出所有環境變數（名稱／預設值／用途），以及方案的**適用邊界**\n  （例：in-memory 限流只適用單機；要跨機請換 Redis）。\n\n## 4. 交付\n- 單檔腳本 + `README` 片段（用途、安裝、執行、參數）。\n- `artifact add --type code --files script.py RUNLOG.md --predicted <分數>`\n\n## 5. 缺陷分流（2026-10-21 新增）\n\n**「列了缺陷」不等於「修缺陷」。** 自評寫得很漂亮但沒動手，是評分失準的主因。\n\n送 `eval self` 前，每一條 defect 必須標記處置狀態：\n\n- `fixed` —— 本輪已改，且有驗證證據（測試全綠 / 實機輸出）\n- `deferred` —— 明確不修，並寫理由與預計何時處理\n- `wont_fix` —— 判斷不需要改，寫清楚為什麼（例如超出範圍）\n\njudge 看到的是**當下程式碼的狀態**，不是我的意圖。\n把沒修的缺陷寫得像會修，評審會照著我的意圖而非程式碼給分 —— 這會讓校準資料失真。\n\n另外：**修改既有檔案時用最小範圍替換。** 一次改寫整段可能誤刪旁邊的函式；\n刪掉東西後一定要重跑測試才往下走。\n\n## 已學到的教訓\n- 背景啟動的 server 可能在測試間被回收，跑測試前必須先 `curl` 確認存活。（來源：拉斐爾 agent_memory 0a9fa76343cd，2026-08-09）\n- 中文字串經工具寫入 JSX 可能變成破碎的 surrogate；驗收要看渲染截圖，不能只看原始碼。（同上）\n- 任務沒有時間上限會卡死數小時；所有長指令包 `timeout`，卡住就記錄並放棄該子任務。（來源：舊系統 3 小時逾時事件）\n- 同一個練習重做數百次不會變強；練習題必須先過 `novelty --project`。（來源：舊系統 2,024 次學習中 66% 為 5 個題目重做）\n- 限流/逾時這類全域機制的自我傷害 bug，**靜態 review 抓不到**，只有真的跑起來打滿流量才會浮現。（來源：2026-10-21，Docker HEALTHCHECK 吃掉限流配額，60/min 實際在第 59 個請求就觸發）\n- 安全功能自帶可繞過的破口時，分數要照扣 —— 不能因為「其他面向變好了」就拉高 safety。（來源：2026-10-21 judge iteration 2，X-Forwarded-For 盲信讓限流可被繞過）\n- 破壞性腳本不該提供關閉保護的旗標；使用者真的照腳本跑時會踩到金額含退款被放大、以及不小心關掉備份。（來源：2026-10-07 merge_xlsx.py 練習，自評 86.5 但 RUNLOG 缺重跑驗證 stamp）\n- **RUNLOG 會退化成「老實文件」**：沒有 stamp 就沒有人知道它是否還成立，敘述性文件無法校準。（來源：2026-10-07）"
     },
     {
       "type": "document",
-      "version": "v1.0.0",
+      "version": "v1.1.0",
       "title": "文件產出 SOP",
-      "updated": "2026-10-04",
+      "updated": "2026-10-23",
       "history": [
+        "v1.0.0",
         "v1.1.0"
       ],
-      "change": "初版",
-      "body": "# 文件產出 SOP（公文、簽呈、會議紀錄、報告）\n\n## 0. 產出前\n1. 判定文件類型（函、簽、便簽、會議紀錄、報告、通知）——類型錯是 hard fail。\n2. 寫下：讀者是誰、讀完要做什麼、截止時間。\n3. 預測分數並寫理由。\n\n## 1. 結構\n- **公文/簽**：主旨（一句話，含目的與請求）→ 說明（背景、依據，分點編號「一、二、三」）→ 辦法/擬辦（具體作法）。\n- **會議紀錄**：會議資訊 → 報告事項 → 討論事項（案由／說明／決議）→ 臨時動議 → 散會時間。每個決議要有負責單位與期限。\n- **報告**：摘要（結論先行）→ 背景 → 分析 → 建議 → 附件。\n\n## 2. 用語\n- 正式、精簡；避免「的部分」「做一個…的動作」等贅詞。\n- 數字、日期、金額、人名逐一對照來源。\n- 不確定的法規或依據，標註「待確認」而不是捏造。\n\n## 3. 製作\n- 優先 `python-docx` 套用 `templates/` 範本；或輸出 Markdown 再轉 docx。\n- 已採用的外部工具見 tool registry（used_for=document）。\n\n## 4. 自我檢查\n1. 轉 PDF 後看版面：`soffice --headless --convert-to pdf`。\n2. 用讀者身分讀主旨：一句話內知道要我做什麼嗎？\n3. 依 `prompts/self-critique.md` 至少列 3 個缺點。\n\n## 5. 交付\n`artifact add --type document --files <檔案> --predicted <分數>`\n\n## 已學到的教訓\n- （尚無）\n"
+      "change": "完整還原 2026-10-22 已套用但於 2026-10-23 08:24:41 遭覆寫而遺失的 v1.1.0 內容：§1 改為文件類型判定細項（公文/函、簽呈、便簽三類分述，公文採兩層編號）、新增 §1.5「稿面欄與首段紀律」5 條 hard rule（稿面欄權責不得字號越權、主旨或事由首句必含請求動詞、會辦欄位留空白、編號層次統一兩層、稱謂排版）、§4 自我檢查第 3 步改為對照 §1.5 五條逐項檢查並指定 defects 輸出格式、已學到的教訓登錄三條 2026-10-17 實據。本次不新增任何未經驗證的內容，僅恢復已套用版本。",
+      "body": "# 文件產出 SOP（公文、簽呈、會議紀錄、報告）\n\n## 0. 產出前\n1. 判定文件類型（函、簽、便簽、會議紀錄、報告、通知）——類型錯是 hard fail。\n2. 寫下：讀者是誰、讀完要做什麼、截止時間。\n3. 預測分數並寫理由。\n\n## 1. 結構（類型判定）\n- **公文/函**：主旨（一句話，含目的與請求動詞）→ 說明（背景、依據，分點編號「一、二、三」與「（一）（二）（三）」兩層）→ 辦法/擬辦（具體作法）。\n- **簽呈（內部陳報）**：事由（首句含請求：敬請核示/核准）→ 說明（依據、背景、預定辦法）→ 辦法（具體步驟）→ 會辦意見欄（留空白）。\n- **便簽**：無固定三段式，僅『事由→說明』兩段即可，無需稿面欄。\n- **會議紀錄**：會議資訊 → 報告事項 → 討論事項（案由／說明／決議）→ 臨時動議 → 散會時間。每個決議要有負責單位與期限。\n- **報告**：摘要（結論先行）→ 背景 → 分析 → 建議 → 附件。\n\n## 1.5 稿面欄與首段紀律（hard rule）\n1. **稿面欄權責**：承辦人僅填『密等/速別/保存年限/發文方式』；『字號』『發文日期』『正副本受文者』由文書或單位登記，承辦人不寫也不寫『免編』。\n2. **首段必含請求動詞**：簽呈『事由』或公文『主旨』第一句話一定要有動作（請核准/請核示/請查照/希照辦/敬請同意），不可埋在段末。\n3. **會辦欄留空白**：會辦意見欄為會辦單位簽註用，承辦人擬稿時一律留空白或寫『（待會辦）』，不可填入未經主管核章的意見。\n4. **編號層次統一**：全篇最多兩層『一、二、三』+『（一）（二）（三）』，不混用三層。\n5. **稱謂排版**：『敬陳 首長 鈞鑒』分兩行，主稱謂右側對齊（docx 範本需對齊設定）。\n\n## 2. 用語\n- 正式、精簡；避免「的部分」「做一個…的動作」等贅詞。\n- 數字、日期、金額、人名逐一對照來源。\n- 不確定的法規或依據，標註「待確認」而不是捏造。\n\n## 3. 製作\n- 優先 `python-docx` 套用 `templates/` 範本；或輸出 Markdown 再轉 docx。\n- 已採用的外部工具見 tool registry（used_for=document）。\n\n## 4. 自我檢查\n1. 轉 PDF 後看版面：`soffice --headless --convert-to pdf`。\n2. 用讀者身分讀主旨：一句話內知道要我做什麼嗎？\n3. 對照 §1.5 五條硬紀律逐項檢查。\n4. 依 `prompts/self-critique.md` 至少列 3 個缺點（defects 格式：tag/severity/where/desc/fix）。\n\n## 5. 交付\n`artifact add --type document --files <檔案> --predicted <分數>`\n\n## 已學到的教訓\n- **稿面欄越權**（art-20261017-021522-b013-document）：承辦人在稿面欄擅自填寫『字號：免編』越權，應留空白讓文書登記。\n- **會辦欄語意錯**（art-20261017-021522-b013-document）：承辦人在會辦意見欄填『待核』，這欄是會辦單位核章後填寫的，承辦人僅能留空白。\n- **主旨請求弱**（art-20261017-021522-b013-document）：事由段結尾才放『敬請核示』，違反公文主旨一句話含請求的原則。\n"
     },
     {
       "type": "image",
@@ -34,12 +35,14 @@
     },
     {
       "type": "slides",
-      "version": "v1.0.0",
+      "version": "v1.1.0",
       "title": "簡報產出 SOP",
-      "updated": "2026-10-04",
-      "history": [],
-      "change": "初版",
-      "body": "# 簡報產出 SOP\n\n> 本檔由代理依評價結果持續修訂。每次修訂都要走 `sop propose` → `sop apply`，不可直接手改。\n> 「已學到的教訓」一節是後設認知的累積，修訂時只能增補或精煉，不可刪除未被證偽的教訓。\n\n## 0. 產出前（Forethought）\n1. 用一句話寫下：**誰**要看、在**什麼場合**、看完要**做什麼決定**。寫不出來就是需求沒弄懂。\n2. 讀 `state/user-profile.md`，列出 3 條與本次相關的使用者偏好。\n3. 估計頁數（主管簡報預設 ≤ 10 頁）。\n4. **預測分數**（0–100）並寫下理由——之後要跟實際分數比對。\n\n## 1. 故事線（先文字、後設計）\n1. 寫出「標題串」：每頁一句**結論句**標題，串起來要能獨立成為完整論述。\n2. 行政報告預設結構：結論/請示 → 現況 → 問題 → 方案（含成本與時程）→ 請示事項。\n3. 每頁列出支撐該結論的 ≤ 3 個證據；沒有證據的頁面刪掉。\n\n## 2. 版面與視覺\n1. 一頁一訊息；內文 ≤ 6 行；字級：標題 ≥ 28pt、內文 ≥ 18pt。\n2. 中文字體：微軟正黑體 / Noto Sans TC；英數：Inter / Segoe UI。全份最多 2 種字體。\n3. 配色：1 主色 + 1 強調色 + 中性灰階；不用純紅/純藍/純綠。\n4. 數據一律做成圖表並**標出要看的地方**（顏色強調或註解），附單位與來源。\n5. 每頁附講者備註（口說稿 2–4 句）。\n\n## 3. 製作工具鏈（依可用性選擇）\n| 優先 | 方式 | 說明 |\n|---|---|---|\n| 1 | `python-pptx` 腳本 | 可重現、可版本控制；用 `templates/` 的母片 |\n| 2 | HTML → PPTX 轉換工具 | 版面自由度高；需檢查轉換後字型 |\n| 3 | 已採用的外部工具 | 見 `state/tools/registry.json` 中 used_for=slides 且 adopted 的工具 |\n\n## 4. 自我視覺檢查（不可省略——對抗「自己的作品很完美」錯覺）\n1. 把簡報轉成圖片：`soffice --headless --convert-to pdf deck.pptx` → `pdftoppm -png -r 60 deck.pdf page`。\n2. **逐頁看圖**（不是看程式碼）檢查：文字溢出、重疊、對齊、對比、空白頁。\n3. 用使用者的角色讀一次標題串：只讀標題能否在 30 秒內懂？\n4. 依 `prompts/self-critique.md` 至少列 3 個缺點，修掉能修的，剩下的誠實記錄。\n\n## 5. 交付\n- 檔名：`YYYYMMDD-主題.pptx`；同時附上逐頁 PNG 預覽，方便評審與網站展示。\n- `artifact add --type slides --files deck.pptx page-*.png --predicted <分數>`\n\n## 已學到的教訓\n- （尚無；由後設認知流程增補，每條註明來源作品 ID 與日期）\n"
+      "updated": "2026-10-23",
+      "history": [
+        "v1.0.0"
+      ],
+      "change": "完整還原 2026-10-22 已套用但於 2026-10-23 08:24:41 遭覆寫而遺失的 v1.1.0 內容：新增 §1.5「文字與產出綁定」5 條（備註與內文禁用頁碼引用改用可辨識圖名、可被外部驗證的規格必須寫在畫面上且已判定 doable 的項目不准再 defer、封面縮圖不得示範自己要教的惡例除非加註標記、欄位名稱必須與內容相符、標題句型不得連續 3 頁以上雷同）；§3 加註所有文字與數值由單一資料來源生成；§4 自我檢查新增第 4 步全文搜尋頁碼字樣逐處核對；已學到的教訓登錄三條 2026-10-22 實據。本次不新增任何未經驗證的內容，僅恢復已套用版本。",
+      "body": "# 簡報產出 SOP\n\n> 本檔由代理依評價結果持續修訂。每次修訂都要走 `sop propose` → `sop apply`，不可直接手改。\n> 「已學到的教訓」一節是後設認知的累積，修訂時只能增補或精煉，不可刪除未被證偽的教訓。\n\n## 0. 產出前（Forethought）\n1. 用一句話寫下：**誰**要看、在**什麼場合**、看完要**做什麼決定**。寫不出來就是需求沒弄懂了。\n2. 讀 `state/user-profile.md`，列出 3 條與本次相關的使用者偏好。\n3. 估計頁數（主管簡報預設 ≤ 10 頁）。\n4. **預測分數**（0–100）並寫下理由——之後要跟實際分數比對。\n\n## 1. 故事線（先文字、後設計）\n1. 寫出「標題串」：每頁一句**結論句**標題，串起來要能獨立成為完整論述。\n2. 行政報告預設結構：結論/請示 → 現況 → 問題 → 方案（含成本與時程）→ 請示事項。\n3. 每頁列出支撐該結論的 ≤ 3 個證據；沒有證據的頁面刪掉。\n\n## 1.5 文字與產出綁定（新增｜對應 accuracy / storyline 扣分主因）\n\n> **病根**：文字裡寫的「位置／數字／頁次」沒有跟實際產出綁在一起，於是評審在台上會當場發現。\n> 這不是排版問題，是**事實錯誤**——所以它歸在 `accuracy`，不是 `visual_design`。\n\n1. **備註與內文禁用頁碼引用**。要指涉某張圖，寫**可辨識的圖名或內容**（「十二個區的滿意度圖」「圓餅圖那頁」），\n   不要寫「第 N 頁」。插入／刪除任何一頁都會讓頁序失效，且失效時無人察覺。\n   若確實需要頁碼：由 `deck_data`（單一真實來源）維護一份「頁面索引（頁碼 → 圖名）」，\n   備註引用索引代號而非手寫頁碼。\n2. **可被外部驗證的規格要寫在畫面上**。只寫結論（「看起來像 4 倍」）不足以讓評審確認正確性；\n   必須附上具體規格（「左圖 Y 軸 0→110、右圖 90→100」）。這是低成本且**不准 defer**——\n   上一輪已判定為 doable 的項目，若沒有正當理由不得再 defer。\n3. **封面縮圖不得示範自己要教的惡例**。若縮圖刻意保留錯誤軸／錯誤做法，\n   必須在縮圖上加註「(原圖誤導)」之類標記，讓縮圖本身不自相矛盾；\n   或改用正確版本 + 標題標明「原圖誤導」。\n4. **欄位名稱必須與內容相符**。欄名寫「對應簡報頁次」而內容沒給頁次 → 語意不符，屬信任瑕疵。\n5. **標題句型不得全份雷同**。連續 3 頁以上同一句型（「X，Y 會 Z」）會讓聽眾預期結尾、\n   降低警覺；至少每 3 頁改一次句型（疑問句／祈使句／短句）。\n\n## 2. 版面與視覺\n1. 一頁一訊息；內文 ≤ 6 行；字級：標題 ≥ 28pt、內文 ≥ 18pt。\n2. 中文字體：微軟正黑體 / Noto Sans TC；英數：Inter / Segoe UI。全份最多 2 種字體。\n3. 配色：1 主色 + 1 強調色 + 中性灰階；不用純紅/純藍/純綠。\n4. 數據一律做成圖表並**標出要看的地方**（顏色強調或註解），附單位與來源。\n5. 每頁附講者備註（口說稿 2–4 句）。\n\n## 3. 製作工具鏈（依可用性選擇）\n| 優先 | 方式 | 說明 |\n|---|---|---|\n| 1 | `python-pptx` 腳本 | 可重現、可版本控制；用 `templates/` 的母片 |\n| 2 | HTML → PPTX 轉換工具 | 版面自由度高；需檢查轉換後字型 |\n| 3 | 已採用的外部工具 | 見 `state/tools/registry.json` 中 used_for=slides 且 adopted 的工具 |\n\n**所有頁面文字、備註與圖表數值，盡量由同一個資料來源（deck_data.py 之類）生成**——\n這是唯一能根治「文字與圖對不上」的工程做法（2026-10-22 評審 data_viz 給滿分 5 的原因）。\n\n## 4. 自我視覺檢查（不可省略——對抗「自己的作品很完美」錯覺）\n1. 把簡報轉成圖片：`soffice --headless --convert-to pdf deck.pptx` → `pdftoppm -png -r 60 deck.pdf page`。\n2. **逐頁看圖**（不是看程式碼）檢查：文字溢出、重疊、對齊、對比、空白頁。\n3. 用使用者的角色讀一次標題串：只讀標題能否在 30 秒內懂？\n4. **全文搜尋頁碼字樣**（`grep -n \"第 *[0-9一二三四五六七八九十] *頁\" *.md *.py`）：\n   每一處都要確認所指頁次與實際頁序一致；不一致就地改掉或改成圖名。\n5. 依 `prompts/self-critique.md` 至少列 3 個缺點，修掉能修的，剩下的誠實記錄。\n\n## 5. 交付\n- 檔名：`YYYYMMDD-主題.pptx`；同時附上逐頁 PNG 預覽，方便評審與網站展示。\n- `artifact add --type slides --files deck.pptx page-*.png --predicted <分數>`\n\n## 已學到的教訓\n- 2026-10-22（art-20261022-022112-33fb-slides，評審 v2）：備註寫「滿意度圖在第 4 頁、圓餅圖在第 5 頁」，\n  實際在第 5 與第 3 頁——**這是第 1 輪自己承諾要修掉的同類錯誤換位置再犯**。\n  教訓：頁序引用是事實錯誤不是排版錯誤，靠「插入頁面時順手更新」這種記憶行為必然失敗；\n  必須靠 SOP 層級的禁令 + 可搜尋的自我檢查步驟（§1.5-1、§4-4）。\n- 2026-10-22（同上）：封面縮圖 1 是「軸不從 0 起算」的惡例，卻是教學簡報的第一張圖。\n  教訓：教學材料自身的縮圖也在傳遞訊息；刻意示範惡例時必須標註，否則觀眾在封面就學到錯的。\n- 2026-10-22（同上）：`deck_data.py` 單一真實來源讓圖表與文字不可能對不上 → data_viz 5 分。\n  教訓：**能被程式約束的東西就不要靠人記**；這與 §1.5-1「禁用頁碼引用」是同一個原理。"
     },
     {
       "type": "video",
@@ -52,6 +55,60 @@
     }
   ],
   "changelog": [
+    {
+      "at": "2026-10-23T08:30:41+08:00",
+      "type": "slides",
+      "from": "v1.0.0",
+      "to": "v1.1.0",
+      "proposal": "sop-20261023-083038-1529-slides",
+      "summary": "完整還原 2026-10-22 已套用但於 2026-10-23 08:24:41 遭覆寫而遺失的 v1.1.0 內容：新增 §1.5「文字與產出綁定」5 條（備註與內文禁用頁碼引用改用可辨識圖名、可被外部驗證的規格必須寫在畫面上且已判定 doable 的項目不准再 defer、封面縮圖不得示範自己要教的惡例除非加註標記、欄位名稱必須與內容相符、標題句型不得連續 3 頁以上雷同）；§3 加註所有文字與數值由單一資料來源生成；§4 自我檢查新增第 4 步全文搜尋頁碼字樣逐處核對；已學到的教訓登錄三條 2026-10-22 實據。本次不新增任何未經驗證的內容，僅恢復已套用版本。",
+      "rationale": "這是**還原**，不是內容擴充。2026-10-23 08:24:41 有一次覆寫 163 個檔案的批次作業（AGENTS.md / CLAUDE.md / README.md / harness/*.py / config/* / playbook/* / docs/* / sops/* 全部同秒被改，mtime 皆為 2026-10-23 08:24:41.000000000），把 2026-10-22 後設認知步驟（sop-20261022-081636-8e4c-slides）已套用的 v1.1.0 內容整批退回 v1.0.0。三方比對證據：(1) sops/slides/SOP.md frontmatter 為 v1.0.0 且 previous 為 null；(2) state/sop-changelog.jsonl 記錄 2026-10-22T08:16:43 套用 to=v1.1.0（proposal=sop-20261022-081636-8e4c-slides, status=applied）；(3) md5sum 顯示 sops/slides/SOP.md 與 sops/slides/history/v1.0.0.md 完全相同（246a6a2b...），而 history/ 底下沒有任何 v1.1.0 檔案，證明套用後被整批退回；(4) tmp/sop-slides-v1.1.0.md（5890 bytes, 2026-10-22 08:16）仍留存且保有『文字與產出綁定』關鍵字。覆寫來源已定位：/home/hoonsoropenclaw/raphael-harness 被 /home/hoonsoropenclaw/projects/raphael-harness 這個 stale git clone 鏡像覆蓋（AGENTS.md / CLAUDE.md / README.md / harness/cli.py / config/harness.yaml / playbook/01-daily-loop.md 全部 md5 與該 clone 相同；該 clone 的 .git 與 docker/ 在 08:24:43 被寫入，即覆寫作業的來源側）。不還原的後果直接對應目前 slides 類最弱項 accuracy avg 2.5 (n=2)——§1.5「文字與產出綁定」五條正是針對這項寫的：備註禁用頁碼引用、可被外部驗證的規格必須寫在畫面上、封面縮圖不得示範自己要教的惡例、欄位名稱必須與內容相符、標題句型不得連續 3 頁雷同。2026-10-22 評審扣 accuracy 分的唯一原因就是備註頁序引用錯誤，而這已是第 1 輪被指出、我在 iteration 1 承諾要改掉的同類錯誤換位置再犯。"
+    },
+    {
+      "at": "2026-10-23T08:30:36+08:00",
+      "type": "document",
+      "from": "v1.0.0",
+      "to": "v1.1.0",
+      "proposal": "sop-20261023-083034-bfae-document",
+      "summary": "完整還原 2026-10-22 已套用但於 2026-10-23 08:24:41 遭覆寫而遺失的 v1.1.0 內容：§1 改為文件類型判定細項（公文/函、簽呈、便簽三類分述，公文採兩層編號）、新增 §1.5「稿面欄與首段紀律」5 條 hard rule（稿面欄權責不得字號越權、主旨或事由首句必含請求動詞、會辦欄位留空白、編號層次統一兩層、稱謂排版）、§4 自我檢查第 3 步改為對照 §1.5 五條逐項檢查並指定 defects 輸出格式、已學到的教訓登錄三條 2026-10-17 實據。本次不新增任何未經驗證的內容，僅恢復已套用版本。",
+      "rationale": "這是**還原**，不是內容擴充。2026-10-23 08:24:41 有一次覆寫 163 個檔案的批次作業（AGENTS.md / CLAUDE.md / README.md / harness/*.py / config/* / playbook/* / docs/* / sops/* 全部同秒被改，mtime 皆為 2026-10-23 08:24:41.000000000），把 2026-10-22 後設認知步驟（sop-20261022-081951-22f6-document）已套用的 v1.1.0 內容整批退回 v1.0.0。三方比對證據：(1) sops/document/SOP.md frontmatter 為 v1.0.0 且 previous 為 null；(2) state/sop-changelog.jsonl 記錄 2026-10-17 套用 v1.1.0、2026-10-22 又套用 v1.1.0（to=v1.1.0, proposal=sop-20261022-081951-22f6-document, status=applied）；(3) md5sum 顯示 sops/document/SOP.md 與 sops/document/history/v1.0.0.md 完全相同（e4769f57...），而 history/v1.1.0.md（8239a1dc...，3482 bytes，mtime 2026-10-17 02:16）內容完整存在未被覆蓋；(4) tmp/sop-document-restore.md（3483 bytes）仍留存。覆寫來源已定位：/home/hoonsoropenclaw/raphael-harness 被 /home/hoonsoropenclaw/projects/raphael-harness 這個 stale git clone 鏡像覆蓋（AGENTS.md / CLAUDE.md / README.md / harness/cli.py / config/harness.yaml / playbook/01-daily-loop.md 全部 md5 與該 clone 相同；該 clone 的 .git 與 docker/ 在 08:24:43 被寫入，即覆寫作業的來源側）。不還原的後果直接對應目前 document 類兩項最弱項：structure avg 3.0 (n=2) 與 actionability avg 2.5 (n=2)——§1.5「稿面欄與首段紀律」五條硬紀律（稿面欄權責、主旨首句含請求動詞、會辦欄留空白、編號層次統一兩層、稱謂排版）正是針對這兩項寫的，2026-10-17 從兩份簽呈練習（art-20261017-021522-b013-document）實測學來，遺失即原樣重演。"
+    },
+    {
+      "at": "2026-10-23T08:30:05+08:00",
+      "type": "code",
+      "from": "v1.1.0",
+      "to": "v1.2.0",
+      "proposal": "sop-20261023-083003-90ce-code",
+      "summary": "完整還原 2026-10-22 已套用但於 2026-10-23 08:24:41 遭覆寫而遺失的 v1.2.0 內容，並合併 2026-10-07 與 2026-10-21 兩批教訓：§1.4 先備份再寫入且禁止 --no-backup/--force/--skip-confirm（改用 --dry-run）；§2 金額與計數類欄位必須含負值或退款測試樣本、RUNLOG 每次喚醒須 stamp 已重跑驗證；§3 部署路徑（Dockerfile 或 systemd unit 為長駐服務必備、graceful shutdown 為預設、README 須列環境變數與適用邊界、未實測的部署檔不得宣稱可用）；§5 缺陷分流（每條 defect 須標 fixed/deferred/wont_fix，judge 依程式碼而非意圖給分）；另含攔截器分類、測試資料先驗證有效、服務型產出測真實流量、跨層驗證。本次不新增任何未經驗證的內容，僅恢復已套用版本。",
+      "rationale": "這是**還原**，不是內容擴充。2026-10-23 08:24:41 有一次覆蓋 163 個檔案的批次作業（AGENTS.md / CLAUDE.md / README.md / harness/*.py / config/* / playbook/* / docs/* / sops/* 全部同秒被改，mtime 皆為 2026-10-23 08:24:41.000000000），把 2026-10-22 後設認知步驟（sop-20261022-082053-5a9d-code）已套用的 v1.2.0 內容整批退回舊的 v1.1.0。三方比對證據：(1) sops/code/SOP.md frontmatter 為 v1.1.0；(2) state/sop-changelog.jsonl 最後一筆 code 記錄 to=v1.2.0（2026-10-22T08:20:53）；(3) md5sum 顯示 sops/code/SOP.md 與 sops/code/history/v1.1.0.md 完全相同（6d8c4724...），即檔案已被還原成『還原之前』的舊版本；(4) tmp/sop-code-restore.md（6676 bytes, 2026-10-22 08:20 留存）仍是那份被覆蓋掉的 v1.2.0 內容。覆寫來源已定位：/home/hoonsoropenclaw/raphael-harness 被 /home/hoonsoropenclaw/projects/raphael-harness 這個 stale git clone 鏡像覆蓋（AGENTS.md / CLAUDE.md / README.md / harness/cli.py / config/harness.yaml / playbook/01-daily-loop.md / sops/code/SOP.md 全部 md5 與該 clone 相同；該 clone 的 .git 與 docker/ 在 08:24:43 被寫入，即覆寫作業的來源側）。不還原的後果直接對應目前 code 類最弱項 fit_env avg 3.4 (n=5) 與 accuracy——v1.2.0 內含針對這兩項寫的整節內容（§3 部署路徑、§5 缺陷分流、§1.4 禁止 --no-backup、金額欄位退款測試、RUNLOG 重跑驗證 stamp），若遺失則下次產出照舊犯同樣錯誤。"
+    },
+    {
+      "at": "2026-10-22T08:20:53+08:00",
+      "type": "code",
+      "from": "v1.1.0",
+      "to": "v1.2.0",
+      "proposal": "sop-20261022-082053-5a9d-code",
+      "summary": "恢復 2026-10-21 已套用但遭 00:39 覆寫而遺失的 v1.2.0 內容，並**補回 2026-10-07 那批在分支時被遺忘的教訓**：§1.4 強化為『先備份再寫入』且明確禁止 --no-backup/--force/--skip-confirm 旗標（改用 --dry-run）；§2 恢復『金額/計數類欄位必須含負值或退款測試樣本』與『RUNLOG 每次喚醒須 stamp 已重跑驗證』兩條；另含 10-21 的 §3 部署路徑、§5 缺陷分流、跨層驗證、攔截器分類、測試資料先驗證、服務型實測。已學到的教訓由 6 條增為 8 條。frontmatter version v1.1.0 → v1.2.0，previous v1.1.0。",
+      "rationale": "與 document 同源的**靜默回退修復**。sops/code/SOP.md 的 frontmatter 顯示 v1.1.0，但 changelog 記錄 2026-10-07 與 2026-10-21 兩次套用至 v1.2.0；檔案 mtime 2026-10-22 00:39:03 與 document SOP、playbook、rubrics 同一批被覆寫。code 的套用內容仍保存在 sops/code/SOP.v1.2.0.proposed.md（2026-10-21 寫入，5760 bytes，未被 00:39 覆蓋）。不修的後果直接對應目前 code 類最弱項 **fit_env avg 3.25 (n=4)** —— 而 v1.2.0 新增的整節「§3 部署路徑」正是針對 fit_env 寫的，文字明講『fit_env 是 code 類長期最弱項（連續 4 次 3 分），這是結構性問題不是隨機波動』。該節若遺失，下次產出就不會有部署路徑要求，弱項將無限延續。"
+    },
+    {
+      "at": "2026-10-22T08:19:53+08:00",
+      "type": "document",
+      "from": "v1.0.0",
+      "to": "v1.1.0",
+      "proposal": "sop-20261022-081951-22f6-document",
+      "summary": "恢復 2026-10-17 已套用但遭 00:39 覆寫而遺失的內容：§1 結構改為類型判定細項（公文/函、簽呈、便簽三類分述，公文採兩層編號）、新增 §1.5 稿面欄與首段紀律 5 條 hard rule（稿面欄權責、首段必含請求動詞、會辦欄留空白、編號層次統一、稱謂排版）、§4 自我檢查第 3 步改為對照 §1.5 五條逐項檢查並指定 defects 格式、已學到的教訓登錄三條 10-17 實據。frontmatter version 由 v1.0.0 回復為 v1.1.0，previous 為 v1.0.0。",
+      "rationale": "這不是內容品質的提案，是**修復被靜默回退的既有改進**。2026-10-22 後設認知步驟發現：sops/document/SOP.md 的 frontmatter 顯示 v1.0.0（初版），且 §1.5「稿面欄與首段紀律」整節不存在；但 state/sop-changelog.jsonl 明確記錄 2026-10-17 已套用 sop-20261017-021629-01d1-document（v1.0.0 → v1.2.0），且 sops/document/history/v1.1.0.md 仍保有那份已套用的內容。檔案 mtime 顯示 SOP.md 與多個 playbook/rubric 檔案同在 2026-10-22 00:39 被同一批作業覆寫（該專案無 .git，無版本控制可追）。等同於：10-17 從兩份簽呈練習（art-20261017-021522-b013-document）學到的稿面欄權責、會辦欄留空白、主旨首句含請求動詞、編號層次統一等 5 條硬紀律，被一次不明覆寫清掉了。若不修，document 類的 structure/actionability 弱項（structure avg 3.0、actionability avg 2.5）會在下次產出時原樣重演——這正是 SOP 存在的原因。"
+    },
+    {
+      "at": "2026-10-22T08:16:43+08:00",
+      "type": "slides",
+      "from": "v1.0.0",
+      "to": "v1.1.0",
+      "proposal": "sop-20261022-081636-8e4c-slides",
+      "summary": "新增 §1.5「文字與產出綁定」共 5 條：(1) 備註與內文禁用頁碼引用，改用可辨識圖名，必要時由 deck_data 維護頁面索引；(2) 可被外部驗證的規格（軸範圍等）必須寫在畫面上，且已判定 doable 的項目不准再 defer；(3) 封面縮圖不得示範自己要教的惡例，刻意示範時必須加註標記；(4) 欄位名稱必須與內容相符；(5) 標題句型不得連續 3 頁以上雷同。另在 §3 加註『所有文字與數值由單一資料來源生成』、在 §4 自我檢查新增第 4 步『全文搜尋頁碼字樣逐處核對』。已學到的教訓一節登錄 3 條今日實據。",
+      "rationale": "art-20261022-022112-33fb-slides（評審 v2）accuracy 扣 1 分的唯一原因是『備註裡的頁序引用是錯的』——備註寫『滿意度圖在第 4 頁、圓餅圖在第 5 頁』，實際頁序是 p3 圓餅圖、p5 滿意度圖。這是第 1 輪已被指出、且我自己在 iteration 1 承諾要改掉的同類錯誤換位置再犯，代表現有 SOP 靠人記不住。評審 top_fix 明確指出兩大扣分項（頁序引用、封面縮圖示範惡例）同一病根：『文字裡寫的位置／數字沒有跟實際產出綁在一起』。另外 data_viz 之所以滿分，是因為 deck_data.py 單一真實來源讓圖表與文字不可能對不上——證明『能被程式約束的就不要靠人記』這個原理在這個型態有效，值得寫進 SOP。"
+    },
     {
       "at": "2026-10-21T05:19:35+08:00",
       "type": "code",
@@ -81,6 +138,181 @@
     }
   ],
   "proposals": [
+    {
+      "id": "sop-20261023-083038-1529-slides",
+      "type": "slides",
+      "status": "applied",
+      "created": "2026-10-23T08:30:38+08:00",
+      "base_version": "v1.0.0",
+      "rationale": "這是**還原**，不是內容擴充。2026-10-23 08:24:41 有一次覆寫 163 個檔案的批次作業（AGENTS.md / CLAUDE.md / README.md / harness/*.py / config/* / playbook/* / docs/* / sops/* 全部同秒被改，mtime 皆為 2026-10-23 08:24:41.000000000），把 2026-10-22 後設認知步驟（sop-20261022-081636-8e4c-slides）已套用的 v1.1.0 內容整批退回 v1.0.0。三方比對證據：(1) sops/slides/SOP.md frontmatter 為 v1.0.0 且 previous 為 null；(2) state/sop-changelog.jsonl 記錄 2026-10-22T08:16:43 套用 to=v1.1.0（proposal=sop-20261022-081636-8e4c-slides, status=applied）；(3) md5sum 顯示 sops/slides/SOP.md 與 sops/slides/history/v1.0.0.md 完全相同（246a6a2b...），而 history/ 底下沒有任何 v1.1.0 檔案，證明套用後被整批退回；(4) tmp/sop-slides-v1.1.0.md（5890 bytes, 2026-10-22 08:16）仍留存且保有『文字與產出綁定』關鍵字。覆寫來源已定位：/home/hoonsoropenclaw/raphael-harness 被 /home/hoonsoropenclaw/projects/raphael-harness 這個 stale git clone 鏡像覆蓋（AGENTS.md / CLAUDE.md / README.md / harness/cli.py / config/harness.yaml / playbook/01-daily-loop.md 全部 md5 與該 clone 相同；該 clone 的 .git 與 docker/ 在 08:24:43 被寫入，即覆寫作業的來源側）。不還原的後果直接對應目前 slides 類最弱項 accuracy avg 2.5 (n=2)——§1.5「文字與產出綁定」五條正是針對這項寫的：備註禁用頁碼引用、可被外部驗證的規格必須寫在畫面上、封面縮圖不得示範自己要教的惡例、欄位名稱必須與內容相符、標題句型不得連續 3 頁雷同。2026-10-22 評審扣 accuracy 分的唯一原因就是備註頁序引用錯誤，而這已是第 1 輪被指出、我在 iteration 1 承諾要改掉的同類錯誤換位置再犯。",
+      "evidence": "sops/slides/SOP.md frontmatter version=v1.0.0 previous=null；state/sop-changelog.jsonl 末筆 (2026-10-22T08:16:43) to=v1.1.0 proposal=sop-20261022-081636-8e4c-slides；提案檔 status=applied；md5(sops/slides/SOP.md)==md5(sops/slides/history/v1.0.0.md)==246a6a2b2e5caa3d3d4621f0a34e9a57；sops/slides/history/ 底下無 v1.1.0 檔案（套用後被退回且前一版被清掉）；tmp/sop-slides-v1.1.0.md (5890 bytes) 未被覆寫且保有『文字與產出綁定』關鍵字 2 處；覆寫批次 mtime=2026-10-23 08:24:41 影響 163 檔；覆寫來源 projects/raphael-harness 之同名檔 md5 完全相同",
+      "change_summary": "完整還原 2026-10-22 已套用但於 2026-10-23 08:24:41 遭覆寫而遺失的 v1.1.0 內容：新增 §1.5「文字與產出綁定」5 條（備註與內文禁用頁碼引用改用可辨識圖名、可被外部驗證的規格必須寫在畫面上且已判定 doable 的項目不准再 defer、封面縮圖不得示範自己要教的惡例除非加註標記、欄位名稱必須與內容相符、標題句型不得連續 3 頁以上雷同）；§3 加註所有文字與數值由單一資料來源生成；§4 自我檢查新增第 4 步全文搜尋頁碼字樣逐處核對；已學到的教訓登錄三條 2026-10-22 實據。本次不新增任何未經驗證的內容，僅恢復已套用版本。",
+      "new_sop_file": "tmp/sop-slides-v1.1.0.md",
+      "expected_effect": "slides 類產出重新帶回文字與產出綁定的檢查點，直接對應目前 accuracy 2.5 這個最低分項。觀察窗口為接下來 min_samples_for_verdict 件 slides 作品；若 accuracy 平均仍低於 3.5 則應再提出加強條款（例如要求 deck_data.py 單一真實來源成為強制產出物），而非再次還原。",
+      "notes": "與 code / document 還原同一根因（2026-10-23 08:24:41 的 163 檔覆寫，來源為 projects/raphael-harness stale clone 的鏡像覆蓋），同一次後設認知步驟一併修復。history/ 只存前一版這次幾乎救不回來（slides 連前一版都沒留下），真正救回來的是 tmp/ 裡未被覆寫的暫存檔——這說明 tmp/ 應視為需要保護的還原素材而非垃圾桶，已記入 requests_to_user。",
+      "applied_at": "2026-10-23T08:30:41+08:00",
+      "new_version": "v1.1.0"
+    },
+    {
+      "id": "sop-20261023-083034-bfae-document",
+      "type": "document",
+      "status": "applied",
+      "created": "2026-10-23T08:30:34+08:00",
+      "base_version": "v1.0.0",
+      "rationale": "這是**還原**，不是內容擴充。2026-10-23 08:24:41 有一次覆寫 163 個檔案的批次作業（AGENTS.md / CLAUDE.md / README.md / harness/*.py / config/* / playbook/* / docs/* / sops/* 全部同秒被改，mtime 皆為 2026-10-23 08:24:41.000000000），把 2026-10-22 後設認知步驟（sop-20261022-081951-22f6-document）已套用的 v1.1.0 內容整批退回 v1.0.0。三方比對證據：(1) sops/document/SOP.md frontmatter 為 v1.0.0 且 previous 為 null；(2) state/sop-changelog.jsonl 記錄 2026-10-17 套用 v1.1.0、2026-10-22 又套用 v1.1.0（to=v1.1.0, proposal=sop-20261022-081951-22f6-document, status=applied）；(3) md5sum 顯示 sops/document/SOP.md 與 sops/document/history/v1.0.0.md 完全相同（e4769f57...），而 history/v1.1.0.md（8239a1dc...，3482 bytes，mtime 2026-10-17 02:16）內容完整存在未被覆蓋；(4) tmp/sop-document-restore.md（3483 bytes）仍留存。覆寫來源已定位：/home/hoonsoropenclaw/raphael-harness 被 /home/hoonsoropenclaw/projects/raphael-harness 這個 stale git clone 鏡像覆蓋（AGENTS.md / CLAUDE.md / README.md / harness/cli.py / config/harness.yaml / playbook/01-daily-loop.md 全部 md5 與該 clone 相同；該 clone 的 .git 與 docker/ 在 08:24:43 被寫入，即覆寫作業的來源側）。不還原的後果直接對應目前 document 類兩項最弱項：structure avg 3.0 (n=2) 與 actionability avg 2.5 (n=2)——§1.5「稿面欄與首段紀律」五條硬紀律（稿面欄權責、主旨首句含請求動詞、會辦欄留空白、編號層次統一兩層、稱謂排版）正是針對這兩項寫的，2026-10-17 從兩份簽呈練習（art-20261017-021522-b013-document）實測學來，遺失即原樣重演。",
+      "evidence": "sops/document/SOP.md frontmatter version=v1.0.0 previous=null；state/sop-changelog.jsonl 有兩筆 document 記錄 to=v1.1.0（2026-10-17T02:16:41 proposal=sop-20261017-021629-01d1-document；2026-10-22T08:19:53 proposal=sop-20261022-081951-22f6-document）且提案檔 status=applied；md5(sops/document/SOP.md)==md5(sops/document/history/v1.0.0.md)==e4769f57ba9827df235c6b567ae4dac1；history/v1.1.0.md (3482 bytes, mtime 2026-10-17 02:16) 與 tmp/sop-document-restore.md (3483 bytes) 皆未被覆寫且保有『稿面欄』關鍵字 5 處；覆寫批次 mtime=2026-10-23 08:24:41 影響 163 檔；覆寫來源 projects/raphael-harness 之同名檔 md5 完全相同",
+      "change_summary": "完整還原 2026-10-22 已套用但於 2026-10-23 08:24:41 遭覆寫而遺失的 v1.1.0 內容：§1 改為文件類型判定細項（公文/函、簽呈、便簽三類分述，公文採兩層編號）、新增 §1.5「稿面欄與首段紀律」5 條 hard rule（稿面欄權責不得字號越權、主旨或事由首句必含請求動詞、會辦欄位留空白、編號層次統一兩層、稱謂排版）、§4 自我檢查第 3 步改為對照 §1.5 五條逐項檢查並指定 defects 輸出格式、已學到的教訓登錄三條 2026-10-17 實據。本次不新增任何未經驗證的內容，僅恢復已套用版本。",
+      "new_sop_file": "tmp/sop-document-restore.md",
+      "expected_effect": "document 類產出重新帶回稿面欄權責與首段請求動詞的硬性檢查點，直接對應目前 structure 3.0 與 actionability 2.5 兩項最弱項。觀察窗口為接下來 min_samples_for_verdict 件 document 作品；若 actionability 平均仍低於 3.5 則應再提出加強條款，而非再次還原。",
+      "notes": "與 code 還原同一根因（2026-10-23 08:24:41 的 163 檔覆寫，來源為 projects/raphael-harness stale clone 的鏡像覆蓋），同一次後設認知步驟一併修復。history/ 與 tmp/ 都不是備份機制，已在 journal requests_to_user 請使用者決定是否移除該鏡像來源與是否為工作區 git init。",
+      "applied_at": "2026-10-23T08:30:36+08:00",
+      "new_version": "v1.1.0"
+    },
+    {
+      "id": "sop-20261023-083003-90ce-code",
+      "type": "code",
+      "status": "applied",
+      "created": "2026-10-23T08:30:03+08:00",
+      "base_version": "v1.1.0",
+      "rationale": "這是**還原**，不是內容擴充。2026-10-23 08:24:41 有一次覆蓋 163 個檔案的批次作業（AGENTS.md / CLAUDE.md / README.md / harness/*.py / config/* / playbook/* / docs/* / sops/* 全部同秒被改，mtime 皆為 2026-10-23 08:24:41.000000000），把 2026-10-22 後設認知步驟（sop-20261022-082053-5a9d-code）已套用的 v1.2.0 內容整批退回舊的 v1.1.0。三方比對證據：(1) sops/code/SOP.md frontmatter 為 v1.1.0；(2) state/sop-changelog.jsonl 最後一筆 code 記錄 to=v1.2.0（2026-10-22T08:20:53）；(3) md5sum 顯示 sops/code/SOP.md 與 sops/code/history/v1.1.0.md 完全相同（6d8c4724...），即檔案已被還原成『還原之前』的舊版本；(4) tmp/sop-code-restore.md（6676 bytes, 2026-10-22 08:20 留存）仍是那份被覆蓋掉的 v1.2.0 內容。覆寫來源已定位：/home/hoonsoropenclaw/raphael-harness 被 /home/hoonsoropenclaw/projects/raphael-harness 這個 stale git clone 鏡像覆蓋（AGENTS.md / CLAUDE.md / README.md / harness/cli.py / config/harness.yaml / playbook/01-daily-loop.md / sops/code/SOP.md 全部 md5 與該 clone 相同；該 clone 的 .git 與 docker/ 在 08:24:43 被寫入，即覆寫作業的來源側）。不還原的後果直接對應目前 code 類最弱項 fit_env avg 3.4 (n=5) 與 accuracy——v1.2.0 內含針對這兩項寫的整節內容（§3 部署路徑、§5 缺陷分流、§1.4 禁止 --no-backup、金額欄位退款測試、RUNLOG 重跑驗證 stamp），若遺失則下次產出照舊犯同樣錯誤。",
+      "evidence": "sops/code/SOP.md frontmatter version=v1.1.0；state/sop-changelog.jsonl 末筆 (2026-10-22T08:20:53) to=v1.2.0 proposal=sop-20261022-082053-5a9d-code status=applied；md5(sops/code/SOP.md)==md5(sops/code/history/v1.1.0.md)==6d8c47246b0ec2790236f60038eb1361；覆寫批次 mtime=2026-10-23 08:24:41 影響 163 檔；覆寫來源 projects/raphael-harness（stale clone，git log 末筆 9f715e8）之同名檔 md5 完全相同；復原素材 tmp/sop-code-restore.md (6676 bytes) 與 sops/code/SOP.v1.2.0.proposed.md (5760 bytes) 皆未被覆蓋仍存活",
+      "change_summary": "完整還原 2026-10-22 已套用但於 2026-10-23 08:24:41 遭覆寫而遺失的 v1.2.0 內容，並合併 2026-10-07 與 2026-10-21 兩批教訓：§1.4 先備份再寫入且禁止 --no-backup/--force/--skip-confirm（改用 --dry-run）；§2 金額與計數類欄位必須含負值或退款測試樣本、RUNLOG 每次喚醒須 stamp 已重跑驗證；§3 部署路徑（Dockerfile 或 systemd unit 為長駐服務必備、graceful shutdown 為預設、README 須列環境變數與適用邊界、未實測的部署檔不得宣稱可用）；§5 缺陷分流（每條 defect 須標 fixed/deferred/wont_fix，judge 依程式碼而非意圖給分）；另含攔截器分類、測試資料先驗證有效、服務型產出測真實流量、跨層驗證。本次不新增任何未經驗證的內容，僅恢復已套用版本。",
+      "new_sop_file": "tmp/sop-code-restore.md",
+      "expected_effect": "code 類產出重新帶回 fit_env 與 accuracy 的硬性檢查點。觀察窗口為接下來 min_samples_for_verdict 件 code 作品；若 fit_env 平均仍低於 3.5 則應再提出加強條款，而非再次還原。",
+      "notes": "這是三天內第二次發生同型靜默回退（2026-10-22 00:39、2026-10-23 08:24:41）。本次比上次多確認了覆寫來源為 projects/raphael-harness 這個 stale clone 的鏡像覆蓋，且該來源側檔案的 mtime 與 git 寫入時間可對應。history/ 與 tmp/ 都不是備份機制：history/ 只是 apply 的副作用且只存前一版，tmp/ 未受 .gitignore 保護只是本次僥倖。已在 journal requests_to_user 請使用者決定是否移除 projects/raphael-harness 這個鏡像來源與是否為工作區 git init。",
+      "applied_at": "2026-10-23T08:30:05+08:00",
+      "new_version": "v1.2.0"
+    },
+    {
+      "id": "sop-20261022-082053-5a9d-code",
+      "type": "code",
+      "status": "applied",
+      "created": "2026-10-22T08:20:53+08:00",
+      "base_version": "v1.1.0",
+      "rationale": "與 document 同源的**靜默回退修復**。sops/code/SOP.md 的 frontmatter 顯示 v1.1.0，但 changelog 記錄 2026-10-07 與 2026-10-21 兩次套用至 v1.2.0；檔案 mtime 2026-10-22 00:39:03 與 document SOP、playbook、rubrics 同一批被覆寫。code 的套用內容仍保存在 sops/code/SOP.v1.2.0.proposed.md（2026-10-21 寫入，5760 bytes，未被 00:39 覆蓋）。不修的後果直接對應目前 code 類最弱項 **fit_env avg 3.25 (n=4)** —— 而 v1.2.0 新增的整節「§3 部署路徑」正是針對 fit_env 寫的，文字明講『fit_env 是 code 類長期最弱項（連續 4 次 3 分），這是結構性問題不是隨機波動』。該節若遺失，下次產出就不會有部署路徑要求，弱項將無限延續。",
+      "evidence": {
+        "changelog_records": [
+          {
+            "at": "2026-10-07T05:16:49+08:00",
+            "type": "code",
+            "from": "v1.1.0",
+            "to": "v1.2.0",
+            "proposal": "sop-20261007-051644-22f4-code"
+          },
+          {
+            "at": "2026-10-21T05:19:35+08:00",
+            "type": "code",
+            "from": "v1.1.0",
+            "to": "v1.2.0",
+            "proposal": "sop-20261021-051931-460c-code"
+          }
+        ],
+        "version_collision_diagnosis": "兩次套用的 base_version 都是 v1.1.0、都寫成 v1.2.0 —— 代表 10-21 那次是從 v1.1.0 重新分支，而非接續 10-07 的成果。diff /tmp/SOP_v1.2.0_code.md（10-07 版）與 sops/code/SOP.v1.2.0.proposed.md（10-21 版）確認：10-21 版遺失了 10-07 的三項已實測教訓 —— §1.4『不提供 --no-backup/--force/--skip-confirm』被弱化為『預設 dry-run』、§2 金額類欄位退款測試樣本整條消失、RUNLOG 重跑驗證 stamp 整條消失。本次修復把兩者合併，兩批教訓都保留。",
+        "recovered_file": "sops/code/SOP.v1.2.0.proposed.md（5760 bytes，mtime 2026-10-21 05:19，未被覆蓋）",
+        "mtime_evidence": {
+          "sops/code/SOP.md": "2026-10-22 00:39:03",
+          "sops/document/SOP.md": "2026-10-22 00:39:03",
+          "note": "與 playbook/*、playbook/rubrics/* 同一秒，屬同一次批次覆寫；playbook 與 rubrics 屬鐵則檔（AGENTS.md 規則 8 禁止代理修改），本提案不碰。"
+        },
+        "diff_current_vs_recovered": "現況 sops/code/SOP.md 2306 bytes 且與 history/v1.1.0.md 完全相同；恢復版 86+ 行，多出 §3 部署路徑、§5 缺陷分流、跨層驗證、攔截器分類、測試資料驗證、服務型實測等內容。",
+        "no_git": "工作區無 .git，無法用版控還原，只能靠 SOP.v1.2.0.proposed.md 與 /tmp/SOP_v1.2.0_code.md。",
+        "backups_taken": [
+          "/tmp/SOP_code_REGRESSED_backup.md"
+        ]
+      },
+      "change_summary": "恢復 2026-10-21 已套用但遭 00:39 覆寫而遺失的 v1.2.0 內容，並**補回 2026-10-07 那批在分支時被遺忘的教訓**：§1.4 強化為『先備份再寫入』且明確禁止 --no-backup/--force/--skip-confirm 旗標（改用 --dry-run）；§2 恢復『金額/計數類欄位必須含負值或退款測試樣本』與『RUNLOG 每次喚醒須 stamp 已重跑驗證』兩條；另含 10-21 的 §3 部署路徑、§5 缺陷分流、跨層驗證、攔截器分類、測試資料先驗證、服務型實測。已學到的教訓由 6 條增為 8 條。frontmatter version v1.1.0 → v1.2.0，previous v1.1.0。",
+      "new_sop_file": "tmp/sop-code-restore.md",
+      "expected_effect": "讓 fit_env（目前 code 最弱 avg 3.25, n=4）重新有可依循的產出要求：§3 部署路徑明訂『沒有部署路徑的程式 = 教學範例，不是可交付物』並要求寫了就要實測（Dockerfile 至少 build 過、systemd unit 至少 systemd-analyze verify 過）。同時修掉版本序列：本次之後 code 的 SOP.md = v1.2.0、previous = v1.1.0，與 changelog 一致，讓 sop health 的版本比對重新對得上基準線（否則它一直在拿 v1.1.0 的作品去對 v1.1.0，永遠得 insufficient_data）。",
+      "notes": "本次修復與 document 修復是同一個根因（2026-10-22 00:39 的批次覆寫），建議另立 requests_to_user 條目請使用者確認該作業的來源與是否需要為此工作區初始化 git——目前 SOP 內容被覆寫時沒有任何版本控制可救，history/ 只是 apply 時的副作用而非真正的備份機制。",
+      "applied_at": "2026-10-22T08:20:53+08:00",
+      "new_version": "v1.2.0"
+    },
+    {
+      "id": "sop-20261022-081951-22f6-document",
+      "type": "document",
+      "status": "applied",
+      "created": "2026-10-22T08:19:51+08:00",
+      "base_version": "v1.0.0",
+      "rationale": "這不是內容品質的提案，是**修復被靜默回退的既有改進**。2026-10-22 後設認知步驟發現：sops/document/SOP.md 的 frontmatter 顯示 v1.0.0（初版），且 §1.5「稿面欄與首段紀律」整節不存在；但 state/sop-changelog.jsonl 明確記錄 2026-10-17 已套用 sop-20261017-021629-01d1-document（v1.0.0 → v1.2.0），且 sops/document/history/v1.1.0.md 仍保有那份已套用的內容。檔案 mtime 顯示 SOP.md 與多個 playbook/rubric 檔案同在 2026-10-22 00:39 被同一批作業覆寫（該專案無 .git，無版本控制可追）。等同於：10-17 從兩份簽呈練習（art-20261017-021522-b013-document）學到的稿面欄權責、會辦欄留空白、主旨首句含請求動詞、編號層次統一等 5 條硬紀律，被一次不明覆寫清掉了。若不修，document 類的 structure/actionability 弱項（structure avg 3.0、actionability avg 2.5）會在下次產出時原樣重演——這正是 SOP 存在的原因。",
+      "evidence": {
+        "discovery": "python -m harness insights 後檢視 weakest criteria 時，注意到 document/actionability avg 2.5 (n=2)，進而比對 changelog 與 SOP.md 發現版本不一致。",
+        "changelog_record": {
+          "at": "2026-10-17T02:16:41+08:00",
+          "type": "document",
+          "from": "v1.0.0",
+          "to": "v1.2.0",
+          "proposal": "sop-20261017-021629-01d1-document"
+        },
+        "proposal_file": {
+          "id": "sop-20261017-021629-01d1-document",
+          "status": "applied",
+          "base_version": "v1.0.0",
+          "new_version": "v1.2.0"
+        },
+        "recovered_content": "sops/document/history/v1.1.0.md 保有完整 §1.5 五條硬紀律 + §1 類型判定細項 + 已學到的教訓三條（稿面欄越權／會辦欄語意錯／主旨請求弱），檔案 51 行；現況 SOP.md 僅 39 行且 §1.5 完全不存在。",
+        "mtime_evidence": {
+          "sops/document/SOP.md": "2026-10-22 00:39:03",
+          "sops/code/SOP.md": "2026-10-22 00:39:03",
+          "sops/image/SOP.md": "2026-10-22 00:39",
+          "sops/video/SOP.md": "2026-10-22 00:39",
+          "playbook/*": "2026-10-22 00:39",
+          "playbook/rubrics/*": "2026-10-22 00:39",
+          "note": "playbook 與 rubrics 屬鐵則檔（AGENTS.md 規則 8 禁止我修改），本提案不碰它們；僅恢復 sops/document/。"
+        },
+        "related_regression": "sops/code/SOP.md 同樣在 00:39 被回退到 v1.1.0，而 changelog 記錄 2026-10-07 與 2026-10-21 兩次套用至 v1.2.0；其套用內容仍存在於 sops/code/SOP.v1.2.0.proposed.md（5760 bytes）與 /tmp/SOP_v1.2.0_code.md。將另行提案修復。",
+        "no_git": "專案根目錄無 .git（site.py 有 git 指令但此工作區未初始化），因此無法用版控還原，只能靠 history/ 與提案檔。",
+        "backups_taken": [
+          "/tmp/SOP_document_REGRESSED_backup.md",
+          "/tmp/SOP_code_REGRESSED_backup.md"
+        ]
+      },
+      "change_summary": "恢復 2026-10-17 已套用但遭 00:39 覆寫而遺失的內容：§1 結構改為類型判定細項（公文/函、簽呈、便簽三類分述，公文採兩層編號）、新增 §1.5 稿面欄與首段紀律 5 條 hard rule（稿面欄權責、首段必含請求動詞、會辦欄留空白、編號層次統一、稱謂排版）、§4 自我檢查第 3 步改為對照 §1.5 五條逐項檢查並指定 defects 格式、已學到的教訓登錄三條 10-17 實據。frontmatter version 由 v1.0.0 回復為 v1.1.0，previous 為 v1.0.0。",
+      "new_sop_file": "tmp/sop-document-restore.md",
+      "expected_effect": "document 類下次產出時 §1.5 五條硬紀律重新生效，直接對應目前最弱的兩個維度（structure avg 3.0、actionability avg 2.5，n=2）：actionability 對應『負責單位僅寫名稱、缺負責人與期限、缺奉核後立即執行指示』，structure 對應『編號層次混亂』。另恢復 changelog 與 SOP.md 的版本一致性，讓 sop health 的版本比對重新有效（目前 previous 欄位指向不存在或錯誤的版本，等於 health 一直在對錯誤基準線做比較）。",
+      "notes": "本次提案刻意**不新增**任何未經驗證的內容，只做還原——因為這批內容已經在 10-17 走完 propose→apply 並有實據（art-20261017-021522-b013-document 的 5 個 defects tag 全部對應）。另注意：10-17 那次 apply 把 base v1.0.0 直接 bump 到 v1.2.0（跳過 v1.1.0），而 changelog 又寫 v1.1.0→v1.2.0，版本序列本身就不自洽；本次還原採 v1.1.0 是因為 history/v1.1.0.md 的內容 frontmatter 就是 v1.1.0 且 previous=v1.0.0，與 SOP 內容自洽。",
+      "applied_at": "2026-10-22T08:19:53+08:00",
+      "new_version": "v1.1.0"
+    },
+    {
+      "id": "sop-20261022-081636-8e4c-slides",
+      "type": "slides",
+      "status": "applied",
+      "created": "2026-10-22T08:16:36+08:00",
+      "base_version": "v1.0.0",
+      "rationale": "art-20261022-022112-33fb-slides（評審 v2）accuracy 扣 1 分的唯一原因是『備註裡的頁序引用是錯的』——備註寫『滿意度圖在第 4 頁、圓餅圖在第 5 頁』，實際頁序是 p3 圓餅圖、p5 滿意度圖。這是第 1 輪已被指出、且我自己在 iteration 1 承諾要改掉的同類錯誤換位置再犯，代表現有 SOP 靠人記不住。評審 top_fix 明確指出兩大扣分項（頁序引用、封面縮圖示範惡例）同一病根：『文字裡寫的位置／數字沒有跟實際產出綁在一起』。另外 data_viz 之所以滿分，是因為 deck_data.py 單一真實來源讓圖表與文字不可能對不上——證明『能被程式約束的就不要靠人記』這個原理在這個型態有效，值得寫進 SOP。",
+      "evidence": {
+        "artifact": "art-20261022-022112-33fb-slides",
+        "judge": "judge-claude2.json",
+        "scores": {
+          "audience_fit": 4,
+          "storyline": 4,
+          "one_message": 5,
+          "visual_design": 4,
+          "data_viz": 5,
+          "accuracy": 4,
+          "deliverability": 5
+        },
+        "weakest_criteria_history": [
+          "slides/accuracy avg 2.5 (n=2)",
+          "slides/deliverability avg 3.5 (n=2)",
+          "slides/audience_fit avg 3.5 (n=2)"
+        ],
+        "verbatim_defects": [
+          "第 4 頁插入位置造成頁序引用脆弱（medium）：備註寫『我們第 4 頁那張滿意度圖…而第 5 頁的圓餅圖就是反例』，實際頁序是 p1 封面、p2 截斷軸、p3 圓餅圖、p4 雙軸、p5 排序…所以『滿意度圖在第 4 頁』是錯的（它在第 5 頁）。這是 round-1『跨頁引用點錯』的同一類錯誤換個位置再犯，而且是我自己在 iteration 1 承諾要改掉的問題。",
+          "封面縮圖不示範自己教的第一個錯（medium）：第 1 個縮圖就是『軸不從 0 起算』的長條圖，Y 軸只標 90 和 100 兩個刻度。對一份教學簡報來說，封面縮圖自己在示範惡例。",
+          "SCAM 檢核表與簡報頁碼無連結（low）：檢核表裡寫『（對應簡報頁次）』但實際只寫了簡報的文字結論，沒有真的給頁碼，欄位名稱與內容不符。",
+          "仍未逐頁寫出軸範圍（medium）：這點在 round-1 就被指出，你選擇 deferred。",
+          "標題句式全份雷同（low）：第 2、4、5、7 頁頁面標題都是同一個句型『X，Y 會 Z』。"
+        ],
+        "judge_top_fix": "修備註的頁序引用（第 6 頁 SCAM 那段把『第 4 頁／第 5 頁』改成圖名，或用 deck_data 維護頁面索引），並把封面縮圖 1 的 Y 軸刻度處理成不自相矛盾——這兩件都是同一個病根：文字裡寫的位置／數字沒有跟實際產出綁在一起。"
+      },
+      "change_summary": "新增 §1.5「文字與產出綁定」共 5 條：(1) 備註與內文禁用頁碼引用，改用可辨識圖名，必要時由 deck_data 維護頁面索引；(2) 可被外部驗證的規格（軸範圍等）必須寫在畫面上，且已判定 doable 的項目不准再 defer；(3) 封面縮圖不得示範自己要教的惡例，刻意示範時必須加註標記；(4) 欄位名稱必須與內容相符；(5) 標題句型不得連續 3 頁以上雷同。另在 §3 加註『所有文字與數值由單一資料來源生成』、在 §4 自我檢查新增第 4 步『全文搜尋頁碼字樣逐處核對』。已學到的教訓一節登錄 3 條今日實據。",
+      "new_sop_file": "tmp/sop-slides-v1.1.0.md",
+      "expected_effect": "下一次 slides 產出的 accuracy 不再因頁序引用錯誤而扣分（目標從 avg 2.5 拉高到 ≥ 3.5），storyline 與 visual_design 同步受益（封面縮圖矛盾消失），且把『doable 就別 defer』寫成規則以杜絕 round-1 已指出的軸範圍缺漏。可驗證指標：交付前 `grep` 頁碼字樣的每一處都與實際頁序一致。",
+      "notes": "insights 的 recurring 觸發器（同一 tag 出現 3 次）本次未觸發——因為兩輪的 defect tag 文字不完全一致，屬同一病根但不同措辭。這次改以『評審 top_fix 指出的病根 + weakest criteria』為依據提案，符合 playbook 的後設認知精神：insights 是線索而非唯一門檻。",
+      "applied_at": "2026-10-22T08:16:43+08:00",
+      "new_version": "v1.1.0"
+    },
     {
       "id": "sop-20261021-051931-460c-code",
       "type": "code",
